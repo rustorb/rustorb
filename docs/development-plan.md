@@ -32,7 +32,7 @@ C++はIDL to C++11（CPP11）を基準にし、IDL4-CPPで追加された構文�
 | Rust | 独自マッピング | [IDL4-Rust RFP](https://www.omg.org/gettingstarted/rfp-IDL4-RLP.htm) の動向に追随 |
 | C++ | [IDL to C++11](https://www.omg.org/spec/CPP11/Current)（v1.7） | 基準。実装・生成コードはC++17を使用 |
 | C++（IDL4） | [IDL4-CPP](https://www.omg.org/spec/IDL4-CPP)（v1.0） | アノテーション・拡張型を順次取り込み |
-| Python | IDL to Python マッピング | omniORBpyとの互換性を優先 |
+| Python | IDL to Python マッピング | 標準マッピングとomniidlの生成レイアウトは互換、omniORBpy独自拡張は厳選して互換シムで提供 |
 | Java | IDL to Java マッピング | 生成APIは標準準拠、実装はRustコア経由 |
 
 ## 全体アーキテクチャ
@@ -92,6 +92,17 @@ M0〜M3の約4〜7か月でMVPに到達し、その後C++とJavaを順に追加�
 - **言語バインディングとの協調**：プールのスレッドは入れ替わらないため、JNIの AttachCurrentThread はスレッドごとに1回で済み、Pythonはサーバント呼び出しの間だけGILを取得する
 - **omniORBとの差**：omniORBの既定は「接続ごとのスレッド＋上限を超えたらスレッドプール」で、サーバントが並行に呼ばれる点は同じ。同じ接続からの呼び出しが同じスレッドで処理される保証はない点が異なるため、M2着手前の設計書でomniORBの挙動と突き合わせ、必要なら接続ごとの順序を保つオプションを設ける
 
+## omniORBpyとの互換範囲
+
+omniORBpyの既存コードを、少ない書き換えで動かせることを目標にする。互換は3層に分け、標準部分は完全互換、独自拡張は実際に使われているものだけを取り込む。
+
+- **標準マッピング（完全互換）**：OMGのIDL to Pythonマッピングに従う部分。`CORBA.ORB_init`、`resolve_initial_references`、`PortableServer`（POA・POAManager・ポリシー）、`CosNaming`、システム例外・ユーザー例外のクラス階層、`_narrow` / `_this`、構造体・列挙・シーケンス・ユニオンのPython表現を、omniORBpyと同じ挙動にする
+- **生成コードのレイアウト（互換）**：IDLコード生成器は omniidl -bpython と同じ構成（`Module` / `Module__POA` パッケージと `xxx_idl.py`）を出力し、既存の `import` 文をそのまま使えるようにする。加えて型ヒント（.pyi）を生成する
+- **omniORBpy独自拡張（厳選して互換）**：`omniORB` パッケージ名で提供される独自APIのうち、よく使われるものを互換シムとして用意する。候補は `cdrMarshal` / `cdrUnmarshal`、`setClientCallTimeout` などのタイムアウト設定、TRANSIENT等の例外ハンドラ登録、`omniORB.any` のAny変換ヘルパ。対象はOpenRTM-aist-Pythonなど実際のアプリで必要なAPIを洗い出して決め、使われていないものは入れない
+- **パッケージ構成**：本体は `rustorb` パッケージ（`from rustorb import CORBA, PortableServer`）。`from omniORB import CORBA` を通す互換シムは、本物のomniORBpyと同じ環境に入れても衝突しないよう、別パッケージとして任意でインストールする形にする
+- **対象外**：omniORBpy内部の実装モジュール（`_omnipy` など）、omniORB固有の設定ファイルとすべての設定パラメータの再現。ORB初期化引数（`-ORBInitRef`、`-ORBendPoint` など）は主要なものだけ受け付ける
+- **検証**：既存のomniORBpyアプリとテストを、互換シム経由でrustorb上で動かすことを相互接続テストに加える。動かなかったAPIは互換シムへの追加を検討する
+
 ## リスクと対策
 
 最大のリスクは、POAとスレッドモデルの設計を誤って後から作り直しになること。M2の前に設計レビューを挟んで抑える。
@@ -113,10 +124,10 @@ M0〜M3の約4〜7か月でMVPに到達し、その後C++とJavaを順に追加�
 - ライセンスは MIT OR Apache-2.0 のデュアル。ただし、GPL-3.0-or-later の idl\_parser を取り込むIDLコード生成器だけは GPL-3.0-or-later とし、生成されたコードは生成器のライセンスの対象外とする（[#2](https://github.com/rustorb/rustorb/issues/2)）
 - 非同期ランタイムは tokio に固定する。ただしランタイムはORB内部に閉じ込め、公開APIは同期APIを基本にして、利用者にtokioを要求しない。async APIは任意で追加する（[#3](https://github.com/rustorb/rustorb/issues/3)）
 - POAのデフォルトスレッドモデル（ORB\_CTRL\_MODEL）では、サーバント呼び出しをtokioのワーカーとは別の、ORB専用の長寿命OSスレッドプールで実行する。SINGLE\_THREAD\_MODEL（POAごとの直列化）と MAIN\_THREAD\_MODEL（`orb.run()` のスレッドで実行）は、このプールの上にキューを足して実現する（[#4](https://github.com/rustorb/rustorb/issues/4)）
+- Pythonバインディングは、OMGのIDL to Python標準マッピングと omniidl -bpython の生成レイアウトを omniORBpy と互換にし、omniORBpy独自拡張は実アプリで必要なものだけを別パッケージの互換シムで提供する（[#5](https://github.com/rustorb/rustorb/issues/5)）
 
 **未決事項**
 
-- Pythonバインディングで omniORBpy とのAPI互換をどこまで保つか
 - Naming Serviceの永続化方式（ログファイル形式か、KVSか）
 - 最初に置き換えたい具体的な用途（相互接続テストの優先順位を決めるため）
 
