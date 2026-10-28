@@ -5,8 +5,8 @@
 #                   [CLIENT:SERVER ...]
 #
 # Without pairs, every client in $CLIENT_IMPLS is paired with every server in
-# $SERVER_IMPLS. Both default to $IMPLS plus rustorb, whose client and server
-# are built with cargo on the host.
+# $SERVER_IMPLS. Both default to $IMPLS plus rustorb and rustorbpy (the Rust
+# and the Python client and server of rustorb), which are built on the host.
 # --build    builds the omniORB image first
 # --capture  captures each client's traffic and splits it into GIOP messages
 # --giop VER limits the client to GIOP VER (e.g. 1.1); the results go to
@@ -23,8 +23,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 IMPLS="${IMPLS:-omniorbpy omniorb-cpp}"
-CLIENT_IMPLS="${CLIENT_IMPLS:-$IMPLS rustorb}"
-SERVER_IMPLS="${SERVER_IMPLS:-$IMPLS rustorb}"
+CLIENT_IMPLS="${CLIENT_IMPLS:-$IMPLS rustorb rustorbpy}"
+SERVER_IMPLS="${SERVER_IMPLS:-$IMPLS rustorb rustorbpy}"
 IMAGE="rustorb-interop-omniorb:latest"
 build=0
 capture=0
@@ -40,7 +40,7 @@ while [ $# -gt 0 ]; do
     --giop) giop="$2"; shift ;;
     --naming) naming="$2"; shift ;;
     --out) out="$(realpath -m "$2")"; shift ;;
-    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
     *:*) pairs+=("$1") ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -80,6 +80,14 @@ for pair in "${pairs[@]}"; do
     mkdir -p impls/rustorb/bin
     cp ../target/release/rustorb-interop-client ../target/release/rustorb-interop-server \
       impls/rustorb/bin/
+    break
+  fi
+done
+# The rustorb Python package with its native module, and the stubs from
+# rustorb-idl (idl_parser must be importable, or IDL_PARSER_DIR set).
+for pair in "${pairs[@]}"; do
+  if [ "${pair%%:*}" = rustorbpy ] || [ "${pair##*:}" = rustorbpy ]; then
+    impls/rustorbpy/build.sh
     break
   fi
 done

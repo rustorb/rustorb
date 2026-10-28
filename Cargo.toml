@@ -7,6 +7,7 @@ members = [
     "crates/rustorb-naming",
     "crates/rustorb-ffi",
     "crates/rustorb-codegen",
+    "crates/rustorb-python",
     "interop/impls/rustorb",
 ]
 

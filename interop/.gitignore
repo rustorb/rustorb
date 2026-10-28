@@ -5,3 +5,5 @@
 /impls/omniorb-cpp/poa_probe_server
 **/__pycache__/
 /impls/rustorb/bin/
+/impls/rustorbpy/lib/
+/impls/rustorbpy/stubs/

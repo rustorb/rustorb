@@ -1,0 +1,6 @@
+[env]
+# rustorb-python is a Python extension module: it must not link to
+# libpython, whose symbols the Python that loads it provides (maturin sets
+# the same). Set here so that `cargo build --workspace` builds it on any
+# machine with a Python, without the libpython development files.
+PYO3_BUILD_EXTENSION_MODULE = "1"

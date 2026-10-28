@@ -23,19 +23,20 @@ omniorbpy * echo_wchar[2] omniORBpy cannot unmarshal wchar replies
 # servers reply with BAD_PARAM minor 0x4f4d0017 (BAD_PARAM_WCharTCSNotKnown).
 # The rustorb server reads the omniORB C++ client's value as GIOP 1.1 data
 # (UTF-16, as negotiated in the code set context) and echoes it, and the
-# client then fails to read the reply (MARSHAL). The rustorb client and
-# server agree on GIOP 1.1 wchar data, so that pair is not listed.
+# client then fails to read the reply (MARSHAL). The rustorb clients and
+# servers (rustorb, rustorbpy) agree on GIOP 1.1 wchar data, so those pairs
+# are not listed.
 giop=1.1 omniorb* * echo_wchar[0] omniORB has no GIOP 1.1 wchar code set
-giop=1.1 rustorb omniorb* echo_wchar[0] omniORB has no GIOP 1.1 wchar code set
+giop=1.1 rustorb* omniorb* echo_wchar[0] omniORB has no GIOP 1.1 wchar code set
 giop=1.1 omniorb* * echo_wchar[1] omniORB has no GIOP 1.1 wchar code set
-giop=1.1 rustorb omniorb* echo_wchar[1] omniORB has no GIOP 1.1 wchar code set
+giop=1.1 rustorb* omniorb* echo_wchar[1] omniORB has no GIOP 1.1 wchar code set
 giop=1.1 omniorb* * echo_wchar[2] omniORB has no GIOP 1.1 wchar code set
-giop=1.1 rustorb omniorb* echo_wchar[2] omniORB has no GIOP 1.1 wchar code set
+giop=1.1 rustorb* omniorb* echo_wchar[2] omniORB has no GIOP 1.1 wchar code set
 giop=1.1 omniorb* * echo_wstring[0] omniORB has no GIOP 1.1 wchar code set
-giop=1.1 rustorb omniorb* echo_wstring[0] omniORB has no GIOP 1.1 wchar code set
+giop=1.1 rustorb* omniorb* echo_wstring[0] omniORB has no GIOP 1.1 wchar code set
 giop=1.1 omniorb* * echo_wstring[1] omniORB has no GIOP 1.1 wchar code set
-giop=1.1 rustorb omniorb* echo_wstring[1] omniORB has no GIOP 1.1 wchar code set
+giop=1.1 rustorb* omniorb* echo_wstring[1] omniORB has no GIOP 1.1 wchar code set
 giop=1.1 omniorb* * echo_wstring[2] omniORB has no GIOP 1.1 wchar code set
-giop=1.1 rustorb omniorb* echo_wstring[2] omniORB has no GIOP 1.1 wchar code set
+giop=1.1 rustorb* omniorb* echo_wstring[2] omniORB has no GIOP 1.1 wchar code set
 giop=1.1 omniorb* * echo_wstring[3] omniORB has no GIOP 1.1 wchar code set
-giop=1.1 rustorb omniorb* echo_wstring[3] omniORB has no GIOP 1.1 wchar code set
+giop=1.1 rustorb* omniorb* echo_wstring[3] omniORB has no GIOP 1.1 wchar code set

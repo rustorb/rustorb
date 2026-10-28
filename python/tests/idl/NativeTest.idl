@@ -1,0 +1,62 @@
+// Types and operations the rustorb native module must marshal, beyond
+// interop/idl/InteropTest.idl (python/tests/test_orb.py).
+
+module NativeTest {
+
+  typedef sequence<char> CharSeq;
+  typedef char CharArray[3];
+  typedef octet OctetArray[2];
+  typedef string<5> ShortString;
+  typedef sequence<long, 2> Pair;
+  typedef fixed<5, 2> Money;
+
+  struct Node;
+  typedef sequence<Node> NodeSeq;
+  struct Node {
+    string name;
+    NodeSeq children;
+  };
+
+  // Python keywords as member and operation names.
+  struct Keywords {
+    long from;
+    string pass;
+  };
+
+  union BoolUnion switch (boolean) {
+    case TRUE: long yes;
+    case FALSE: string no;
+  };
+
+  union CharUnion switch (char) {
+    case 'a': long a;
+    default: string other;
+  };
+
+  exception Undeclared {};
+
+  interface Types {
+    CharSeq echo_chars(in CharSeq v);
+    CharArray echo_char_array(in CharArray v);
+    OctetArray echo_octet_array(in OctetArray v);
+    ShortString echo_short_string(in ShortString v);
+    Pair echo_pair(in Pair v);
+    Money echo_money(in Money v);
+    Node echo_node(in Node v);
+    Keywords echo_keywords(in Keywords v);
+    BoolUnion echo_bool_union(in BoolUnion v);
+    CharUnion echo_char_union(in CharUnion v);
+    Object echo_object(in Object v);
+
+    // The servant raises Undeclared, which this does not declare.
+    void raise_undeclared();
+    // The servant raises a Python ValueError.
+    void raise_python();
+    // The servant returns a string.
+    long bad_result();
+    // A Python keyword: the servant method is _lambda.
+    long lambda(in long x);
+    // Returns the ObjectId of the request (PortableServer::Current).
+    string current_id();
+  };
+};

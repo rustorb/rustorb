@@ -2,13 +2,13 @@
 
 Oct 28, 2026 · @ysuga · M1
 
-IDL から rustorb の Python バインディング向けのコードを生成する `rustorb-idl -bpython` の構成と、生成コードとランタイムの取り決めをまとめる。M1 の完了条件は「omniidl -bpython と同じ公開APIのコードを生成できること」で、`interop/run-pymapping-check.sh` で omniORBpy 上の実測と比べて判定する。実際の呼び出し（マーシャリング、POA への登録）は M3 の PyO3 バインディングでつなぐ。
+IDL から rustorb の Python バインディング向けのコードを生成する `rustorb-idl -bpython` の構成と、生成コードとランタイムの取り決めをまとめる。M1 の完了条件は「omniidl -bpython と同じ公開APIのコードを生成できること」で、`interop/run-pymapping-check.sh` で omniORBpy 上の実測と比べて判定する。実際の呼び出し（マーシャリング、POA への登録）は M3 の PyO3 バインディング（[python-binding.md](python-binding.md)）でつないだ。
 
 ## 決定事項
 
 - **生成器は Python で書く**（2026-10-28）。idl\_parser が Python 製で、どちらの案でも生成時に Python と idl\_parser が要るため、JSON の中間表現を挟んで Rust で書く利点は小さい。idl\_parser のオブジェクトを直接使い、omniidl と同じ構成で書く。Rust/C++/Java の生成器も同じパッケージにバックエンドとして足す
 - 置き場所は `crates/rustorb-codegen/python/rustorb_idl/`（GPL-3.0-or-later）。`pip install ./crates/rustorb-codegen/python` で `rustorb-idl` コマンドが入る。idl\_parser は修正を含むコミットに固定する
-- 生成コードが呼ぶランタイムは `python/rustorb/` の `rustorb` パッケージ（MIT OR Apache-2.0）。今は純 Python の部分（`CORBA`、`PortableServer`、`_types`、`_rt`）だけで、M3 でネイティブモジュールを足す
+- 生成コードが呼ぶランタイムは `python/rustorb/` の `rustorb` パッケージ（MIT OR Apache-2.0）。純 Python の部分（`CORBA`、`PortableServer`、`_types`、`_rt`）と、M3 で足したネイティブモジュール（[python-binding.md](python-binding.md)）
 - 互換は omniidl -bpython の**公開API**に合わせる。omniORBpy の内部表現（操作や型の記述子の形式）は見ず、写さない。型の情報は CORBA の TypeCode そのもので持つ
 
 ## 使い方
@@ -52,7 +52,7 @@ rustorb-idl -bpython [-I DIR] [-D NAME[=VALUE]] [-C OUTDIR] FILE.idl...
 
 - **TypeCode**：struct・union・例外は `_rt.declare_*` で先に殻を作り、メンバーは `_rt.define_*` で後から埋める。再帰型（`struct Tree { sequence<Tree> children; }`）と前方宣言はこれで同じ TypeCode を指す。リポジトリIDごとの TypeCode は `_rt.typecodes` に登録される
 - **操作**：インターフェースの `_NP_operations` に、操作名（属性は `_get_x` / `_set_x`）から `_rt.Operation` への辞書を置く。`Operation` は `in_types`（in と inout の引数の TypeCode）、`out_types`（戻り値と inout・out の TypeCode）、`exceptions`（ユーザー例外の TypeCode）、`oneway`、`contexts` を持つ。基底インターフェースの操作は MRO をたどって引く（`_rt.operation`）
-- **スタブ**：各メソッドは `self._invoke(Operation, args)` を呼ぶ。結果は none / 単一の値 / タプル（IDL to Python の規則）。属性は `_get_x` / `_set_x` に加えて property `x` も持つ（omniORBpy と同じ）。`_invoke` は ORB のオブジェクト（M3 のネイティブ側）に渡す
+- **スタブ**：各メソッドは `self._invoke(Operation, args)` を呼ぶ。結果は none / 単一の値 / タプル（IDL to Python の規則）。属性は `_get_x` / `_set_x` に加えて property `x` も持つ（omniORBpy と同じ）。`_invoke` はネイティブモジュールのオブジェクト参照に渡し、ネイティブ側は `Operation` の TypeCode でマーシャリングする（コンパイル結果を `Operation._native` に置く）。IOR からスタブを作るのは `_rt.make_objref`
 - **登録**：スタブとスケルトンは `_rt.register_interface` / `_rt.register_skeleton` でリポジトリIDから引けるようにする。`_narrow` はこれでスタブのクラスを選ぶ
 
 ## omniORBpy の実測と合わせた挙動
@@ -74,8 +74,6 @@ rustorb-idl -bpython [-I DIR] [-D NAME[=VALUE]] [-C OUTDIR] FILE.idl...
 - omniidl は IDL の名前の衝突（メンバー名と型名の大文字小文字違い、`apple` と `APPLE` など）をエラーにするが、idl\_parser は通す。生成器は通ったものをそのまま生成する
 - valuetype・eventtype・map・bitset・bitmask はまだ生成しない（エラーにする）
 
-## 残り（M3 以降）
+## 残り
 
-- ネイティブモジュール：`ORB_init`、`_invoke` の実装（TypeCode を見て Python の値を CDR にする）、POA と `_this()`、スケルトンへの振り分け
-- 生成コードを使った相互接続（`interop/impls` に Python の rustorb サーバー・クライアントを足し、マトリクスに入れる）
-- `.pyi` の精度（sequence<char> の扱いなど、ネイティブ側の値の表現が決まってから）
+- ネイティブモジュール（`ORB_init`、`_invoke`、POA と `_this()`、スケルトンへの振り分け）と、生成コードを使った相互接続は M3 で入れた（[python-binding.md](python-binding.md)）

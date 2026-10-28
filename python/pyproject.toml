@@ -1,0 +1,20 @@
+[build-system]
+requires = ["maturin>=1.9.4,<2"]
+build-backend = "maturin"
+
+[project]
+name = "rustorb"
+version = "0.0.0"
+description = "CORBA ORB with its core in Rust: the Python binding"
+license = { text = "MIT OR Apache-2.0" }
+requires-python = ">=3.9"
+
+[tool.maturin]
+# The native module is the rustorb-python crate; the Python package is
+# rustorb/ next to this file.
+manifest-path = "../crates/rustorb-python/Cargo.toml"
+python-source = "."
+python-packages = ["rustorb"]
+module-name = "rustorb._native"
+include = ["rustorb/*.pyi"]
+exclude = ["rustorb/__pycache__/**", "rustorb/_native*.so", "rustorb/_native*.pyd"]

@@ -14,17 +14,24 @@ jobs:
     name: omniORB / omniORBpy matrix
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      # rustorb-idl generates the stubs of the rustorb Python client and
+      # server (impls/rustorbpy/build.sh) and the code of
+      # run-pymapping-check.sh.
+      IDL_PARSER_DIR: ${{ github.workspace }}/idl_parser
     steps:
       - uses: actions/checkout@v4
 
       - uses: docker/setup-buildx-action@v3
 
-      # The rustorb client is built on the runner and mounted into the
-      # client container.
+      # The rustorb clients and servers (Rust, and the Python package with
+      # its native module) are built on the runner and mounted into the
+      # containers.
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      # rustorb-idl runs on the runner (run-pymapping-check.sh).
+      # rustorb-idl runs on the runner. The runner's Python is the image's
+      # (3.12, Ubuntu 24.04).
       - uses: actions/checkout@v4
         with:
           repository: sugarsweetrobotics/idl_parser
@@ -72,8 +79,6 @@ jobs:
 
       - name: Compare the generated Python code with omniidl -bpython
         run: interop/run-pymapping-check.sh
-        env:
-          IDL_PARSER_DIR: ${{ github.workspace }}/idl_parser
 
       - name: Compare GIOP captures with the golden files
         run: interop/scripts/golden-compare --all interop/out interop/golden
