@@ -2,16 +2,16 @@
 
 Docker based interop tests between CORBA implementations, run by
 [`.github/workflows/interop.yml`](../.github/workflows/interop.yml) on every
-push and pull request. rustorb has a client side only so far: the matrix pairs
-the omniORB implementations with each other, and the rustorb client with each
-omniORB server (see [The rustorb client](#the-rustorb-client)).
+push and pull request. The matrix pairs every client (omniORB C++, omniORBpy,
+rustorb) with every server (the same three); see
+[The rustorb client and server](#the-rustorb-client-and-server).
 
 | Path | Contents |
 | --- | --- |
 | `idl/InteropTest.idl` | Stage 1 test IDL (no Any) |
 | `impls/omniorbpy/` | Echo server and test client on omniORBpy, and the naming service check |
 | `impls/omniorb-cpp/` | Echo server and test client on omniORB C++ |
-| `impls/rustorb/` | test client on rustorb, with hand-written stubs (no server yet), and the naming service check |
+| `impls/rustorb/` | Echo server and test client on rustorb, with hand-written stubs and skeletons, and the naming service check |
 | `docker/omniorb/Dockerfile` | omniORB 4.3.4 and omniORBpy 4.3.4 built from source, with the implementations above |
 | `compose.yaml` | naming service, server and client containers |
 | `run-matrix.sh` | runs every client / server combination |
@@ -96,23 +96,26 @@ Other arguments are ORB options. The server prints `server ready: PATH`
 once bound. The client prints `ok   <case>` or `FAIL <case>: <reason>` per
 case, then `N passed, M failed`, and exits with 0 only when all cases pass.
 
-## The rustorb client
+## The rustorb client and server
 
 `impls/rustorb/` is a Cargo package in the workspace (`rustorb-interop`).
-Its stubs for `InteropTest.idl` are written by hand until the code generator
-exists; the Echo object is resolved with the `rustorb-naming` client. It runs the same cases
-as the other clients, except `call_back` and `register_callback/trigger`,
-which need a POA and are printed as `skip`.
+Its stubs and skeletons for `InteropTest.idl` are written by hand until the
+code generator exists (`src/idl.rs`, shared by both). The server
+(`rustorb-interop-server`) serves Echo from a PERSISTENT / USER_ID POA named
+`InteropTest` and binds it with the `rustorb-naming` client; the client
+(`rustorb-interop-client`) resolves Echo the same way and serves its
+Callback object from a POA named `InteropTestClient`, like the omniORB
+clients, so it runs every case.
 
-`run-matrix.sh` builds it with cargo on the host when a `rustorb` client is in
-the run, copies the binary to `impls/rustorb/bin/` and the client container
-mounts that directory (the image and the CI runner are both Ubuntu 24.04).
-`CLIENT_IMPLS` and `SERVER_IMPLS` choose the clients and servers; rustorb is
-in `CLIENT_IMPLS` by default.
+`run-matrix.sh` builds both with cargo on the host when rustorb is in the
+run, copies the binaries to `impls/rustorb/bin/`, and the client and server
+containers mount that directory (the image and the CI runner are both
+Ubuntu 24.04). `CLIENT_IMPLS` and `SERVER_IMPLS` choose the clients and
+servers; rustorb is in both by default.
 
 ```sh
-interop/run-matrix.sh rustorb:omniorb-cpp rustorb:omniorbpy
-interop/run-matrix.sh --giop 1.1 rustorb:omniorb-cpp
+interop/run-matrix.sh rustorb:omniorb-cpp omniorbpy:rustorb rustorb:rustorb
+interop/run-matrix.sh --giop 1.1 omniorb-cpp:rustorb
 ```
 
 `rustorb-naming-check` (`impls/rustorb/naming-check`) runs the operation

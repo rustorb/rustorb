@@ -4,7 +4,7 @@
 //! servants are invoked on a separate pool of long-lived ORB threads.
 //! The public API is synchronous.
 //!
-//! The client side is implemented so far:
+//! The client side:
 //!
 //! - [`Orb`] owns the runtime and a pool of GIOP connections, one per
 //!   server endpoint. [`Orb::string_to_object`] accepts stringified IORs,
@@ -22,6 +22,21 @@
 //! - [`CodeSets`] negotiates the transmission code sets from the IOR and
 //!   converts `string` data; rustorb's native code sets are UTF-8 and
 //!   UTF-16.
+//!
+//! The server side, started by [`Orb::root_poa`]:
+//!
+//! - The ORB listens on [`OrbOptions::endpoints`] and answers GIOP 1.0 to
+//!   1.2 requests in the version they came in.
+//! - [`Poa`] is the RootPOA and the POAs created under it, with their
+//!   [`Policy`] values, active object maps and [`PoaManager`]s. Object keys
+//!   of PERSISTENT POAs have omniORB's format, so references survive a
+//!   switch between the two.
+//! - A [`Servant`] reads its arguments from an [`InStream`] and writes the
+//!   result or a user exception to a [`ServerReply`]. Servants run on a
+//!   pool of long-lived upcall threads, never on the I/O threads, and
+//!   requests of one connection run in parallel.
+//! - [`Orb::run`] waits for [`Orb::shutdown`], which finishes the running
+//!   requests and closes every connection with `CloseConnection`.
 
 mod codeset;
 mod connection;
@@ -29,6 +44,10 @@ mod exception;
 pub mod name;
 mod object;
 mod orb;
+mod poa;
+mod pool;
+mod servant;
+mod server;
 mod stream;
 
 pub use codeset::CodeSets;
@@ -36,8 +55,13 @@ pub use exception::{
     Exception, OMG_VMCID, SystemException, SystemExceptionKind, UserException, minor,
 };
 pub use object::{ObjectRef, Reply, Request};
-pub use orb::{Orb, OrbOptions, ResolveError};
+pub use orb::{EndpointAddr, Orb, OrbOptions, ResolveError};
+pub use poa::{
+    IdAssignment, IdUniqueness, ImplicitActivation, Lifespan, ObjectId, Poa, PoaError, PoaManager,
+    PoaManagerState, Policies, Policy, RequestProcessing, ServantRetention, ThreadPolicy,
+};
 pub use rustorb_cdr as cdr;
 pub use rustorb_giop as giop;
 pub use rustorb_giop::CompletionStatus;
+pub use servant::{Servant, ServerReply};
 pub use stream::{InStream, OutStream};

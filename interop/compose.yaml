@@ -3,7 +3,7 @@
 # The implementation used by each role is chosen with environment variables,
 # so that rustorb can be plugged in later without changing this file:
 #
-#   SERVER_IMPL / CLIENT_IMPL   directory under impls/ (omniorbpy, omniorb-cpp)
+#   SERVER_IMPL / CLIENT_IMPL   directory under impls/ (omniorbpy, omniorb-cpp, rustorb)
 #   *_IMAGE                     image that contains that implementation
 #   NAMING_CMD                  command that starts the naming service
 #   CLIENT_MAX_GIOP             highest GIOP version the client uses (omniORB)
@@ -22,6 +22,9 @@ services:
     image: ${SERVER_IMAGE:-rustorb-interop-omniorb:latest}
     hostname: server
     depends_on: [naming]
+    volumes:
+      # The rustorb server is built on the host (see run-matrix.sh).
+      - ./impls/rustorb:/opt/interop/impls/rustorb:ro
     command:
       - impls/${SERVER_IMPL:-omniorbpy}/server
       - --naming

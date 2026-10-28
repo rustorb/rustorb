@@ -121,6 +121,19 @@ pub mod minor {
     pub const NO_USABLE_PROFILE: u32 = OMG_VMCID | 2;
     /// `TRANSIENT`: the request was cancelled.
     pub const REQUEST_CANCELLED: u32 = OMG_VMCID | 3;
+    /// `BAD_OPERATION`: the target does not know the operation or
+    /// attribute.
+    pub const UNKNOWN_OPERATION: u32 = OMG_VMCID | 2;
+    /// `BAD_INV_ORDER`: the operation would deadlock, such as
+    /// `shutdown(true)` called from a servant.
+    pub const WOULD_DEADLOCK: u32 = OMG_VMCID | 3;
+    /// `OBJECT_NOT_EXIST`: no object has the key of the request (minor 1,
+    /// as omniORB answers for unknown POAs and object ids).
+    pub const NO_SUCH_OBJECT: u32 = OMG_VMCID | 1;
+    /// `TRANSIENT`: the POA manager of the target is discarding requests.
+    pub const POA_DISCARDING: u32 = OMG_VMCID | 1;
+    /// `OBJ_ADAPTER`: the POA manager of the target is inactive.
+    pub const POA_INACTIVE: u32 = OMG_VMCID | 1;
 }
 
 /// A CORBA system exception: one of the standard exceptions (or another

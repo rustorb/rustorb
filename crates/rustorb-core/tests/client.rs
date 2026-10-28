@@ -735,7 +735,7 @@ fn shutdown_refuses_new_calls() {
     let orb = orb();
     let obj = object(&orb, &server.ior(Version::V1_2));
     assert_eq!(call_long(&obj, 1).unwrap(), 1);
-    orb.shutdown();
+    orb.shutdown(true).unwrap();
     let e = call_long(&obj, 2).unwrap_err();
     let e = e.as_system().unwrap();
     assert!(e.is(SystemExceptionKind::BAD_INV_ORDER));

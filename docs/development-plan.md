@@ -190,5 +190,12 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - 相互接続：`interop/run-naming-check.sh` が omniORBpy と rustorb の両クライアントで同じ操作列（bind/rebind/resolve/list/unbind/destroy、NamingContextExt、`corbaname:`）を omniNames に対して実行し、同じ期待出力と一致することを確認した。Echoクライアントの名前解決も `rustorb-naming` に置き換えた
 - [x] POA・スレッドモデルの設計書を作り、omniORBの挙動と突き合わせる（[poa-design.md](poa-design.md)、[#4](https://github.com/rustorb/rustorb/issues/4)）
   - `interop/run-poa-probe.sh` で omniORB C++ / omniORBpy の POA を手組みのGIOPで実測し、期待出力をCIで比べる。オブジェクトキーの形式、POAManager の各状態、servant manager、LocateRequest、スレッドへの割り当て、終了時の CloseConnection を記録した
-- [ ] 設計レビューを経て、サーバー側（POA）に着手し、相互接続のマトリクスに rustorb サーバーを加える（[poa-design.md の実装順](poa-design.md#m2-の実装順)）
+- [x] サーバー側の最初の段階（[poa-design.md の実装順](poa-design.md#m2-の実装順)の1と2）を `rustorb-core` に実装し、相互接続のマトリクスに rustorb サーバーを加える
+  - 待ち受け（`-ORBendPoint giop:tcp:HOST:PORT`、`-ORBendPointPublish`）とサーバー側の接続：GIOP 1.0〜1.2 の Request / LocateRequest / CancelRequest / CloseConnection を受け、Reply / LocateReply は要求と同じバージョン・ネイティブのバイト順で、完了した順に返す。壊れたメッセージには MessageError。接続ごとの同時要求数に上限（超えたら読み取りを止める）
+  - オブジェクトキー：PERSISTENT は omniORB と同じ `\xff` POAパス `\x00` ObjectId、TRANSIENT と RootPOA は起動ごとの64ビット乱数を含む独自形式
+  - RootPOA、`create_POA`（Lifespan、IdAssignment、IdUniqueness、ImplicitActivation。ORB\_CTRL / RETAIN / USE\_ACTIVE\_OBJECT\_MAP\_ONLY のみ）、アクティブオブジェクトマップ、POAManager の4状態、`Servant` トレイト、`_is_a` / `_non_existent` / `_interface` / `_repository_id`
+  - サーバントは tokio のワーカーとは別の長寿命スレッドプール（既定で最小4・最大100、`-ORBmaxServerThreadPoolSize`）で実行し、同じ接続の要求も並行に処理する。パニックは `UNKNOWN`
+  - `Orb::run` / `shutdown(wait_for_completion)` / `destroy`：実行中の要求に返事を送ってから全接続に CloseConnection。サーバント内の `shutdown(true)` は `BAD_INV_ORDER` minor 3
+  - 相互接続：`interop/impls/rustorb` に手書きスケルトンの Echo サーバーを加え、omniORB C++ / omniORBpy / rustorb の各クライアントから78ケースが通る（失敗は既存の `known-failures.txt` の範囲だけ）。rustorb クライアントもコールバック用の POA を持ち、スキップしていたコールバックの2ケースが通る
+- [ ] サーバー側の残り（実装順の3〜5：servant manager、AdapterActivator、デフォルトサーバント、SINGLE\_THREAD / MAIN\_THREAD、同一ORB内呼び出しの直接実行、rustorb のプローブサーバー、Naming Service デーモン）
 - [ ] idl\_parser のP0（#133〜#137）が直りしだい、Python生成器（M1）に着手する
