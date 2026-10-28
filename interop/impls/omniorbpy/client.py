@@ -236,6 +236,8 @@ def main():
     root_poa._get_the_POAManager().activate()
 
     root = root_context(orb, args.timeout)
+    if args.suite == "any":
+        return run_any(orb, root, args)
     name = to_name(args.name)
     echo = retry("the Echo server", lambda: root.resolve(name), args.timeout)
     echo = echo._narrow(InteropTest.Echo)
@@ -249,6 +251,32 @@ def main():
 
     if args.shutdown_server:
         echo.shutdown()
+
+    print("\n%d passed, %d failed" % (r.passed, len(r.failed)))
+    if r.failed:
+        print("failed: " + ", ".join(r.failed))
+    orb.destroy()
+    return 1 if r.failed else 0
+
+
+def run_any(orb, root, args):
+    """The stage 2 suite (AnyTest.idl) against the AnyEcho object at
+    args.name; the server's Echo object is at args.name + "-Echo"."""
+    import AnyTest
+    import anytest
+    echo = retry("the AnyEcho server", lambda: root.resolve(to_name(args.name)), args.timeout)
+    echo = echo._narrow(AnyTest.AnyEcho)
+    if echo is None:
+        print("%s is not an AnyTest::AnyEcho" % args.name)
+        return 1
+    retry("the AnyEcho server", echo._non_existent, args.timeout)
+
+    r = Runner()
+    anytest.run_cases(r, echo, check)
+
+    if args.shutdown_server:
+        server = root.resolve(to_name(args.name + "-Echo"))._narrow(InteropTest.Echo)
+        server.shutdown()
 
     print("\n%d passed, %d failed" % (r.passed, len(r.failed)))
     if r.failed:

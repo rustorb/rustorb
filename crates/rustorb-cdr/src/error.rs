@@ -45,6 +45,11 @@ pub enum Error {
     EmptyEncapsulation,
     /// An enum or union discriminator had an unknown value.
     InvalidEnumValue(u32),
+    /// A TypeCode was malformed: an unknown kind, an indirection that
+    /// points nowhere, invalid parameters, or nesting too deep. On the
+    /// writing side, a TypeCode that cannot be written (an unresolved
+    /// recursive placeholder).
+    InvalidTypeCode(&'static str),
 }
 
 impl fmt::Display for Error {
@@ -71,6 +76,7 @@ impl fmt::Display for Error {
             }
             Error::EmptyEncapsulation => f.write_str("encapsulation has no byte order octet"),
             Error::InvalidEnumValue(v) => write!(f, "invalid enum value {v}"),
+            Error::InvalidTypeCode(why) => write!(f, "invalid TypeCode: {why}"),
         }
     }
 }

@@ -7,83 +7,39 @@
 //! taking the GIL, and a servant thread holds the GIL only for the Python
 //! part of an upcall.
 
+use std::sync::{Arc, Weak};
+
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyList, PyString, PyTuple};
 use rustorb_core::cdr::CdrEncode;
-use rustorb_core::{CompletionStatus, InStream, ObjectRef, OutStream, SystemException};
+use rustorb_core::{CompletionStatus, InStream, OutStream, SystemException};
 
+use crate::any;
 use crate::error::{bad_param, corba, marshal, rt, sys_err};
 use crate::orb::ObjRef;
-use crate::tc::Tc;
+use crate::tc::{Tc, TcCell};
 
-/// A value of an IDL type, described by its [`Tc`].
-#[derive(Debug, Clone)]
-pub(crate) enum Value {
-    Void,
-    Bool(bool),
-    Octet(u8),
-    Short(i16),
-    UShort(u16),
-    Long(i32),
-    ULong(u32),
-    LongLong(i64),
-    ULongLong(u64),
-    Float(f32),
-    Double(f64),
-    Char(char),
-    WChar(u16),
-    /// `string` and `wstring`.
-    String(String),
-    /// A sequence or an array of `octet`.
-    Octets(Vec<u8>),
-    /// A sequence or an array of `char`.
-    Chars(String),
-    /// A sequence, an array, or the members of a struct or an exception.
-    List(Vec<Value>),
-    /// A union: the discriminator, and the index of the TypeCode entry of
-    /// the selected member with its value.
-    Union {
-        disc: Box<Value>,
-        member: Option<(usize, Box<Value>)>,
-    },
-    Enum(u32),
-    /// A fixed point value: its digits (as many as the type has, most
-    /// significant first) and its sign.
-    Fixed {
-        digits: Vec<u8>,
-        negative: bool,
-    },
-    Objref(Option<ObjectRef>),
-}
-
-impl Value {
-    /// The number a union discriminator stands for (see
-    /// [`label_key`](crate::tc::label_key)).
-    fn key(&self) -> Option<i128> {
-        Some(match *self {
-            Value::Bool(v) => i128::from(v),
-            Value::Octet(v) => i128::from(v),
-            Value::Short(v) => i128::from(v),
-            Value::UShort(v) => i128::from(v),
-            Value::Long(v) => i128::from(v),
-            Value::ULong(v) => i128::from(v),
-            Value::LongLong(v) => i128::from(v),
-            Value::ULongLong(v) => i128::from(v),
-            Value::Char(c) => i128::from(u32::from(c)),
-            Value::WChar(c) => i128::from(c),
-            Value::Enum(v) => i128::from(v),
-            _ => return None,
-        })
-    }
-}
+pub(crate) use rustorb_core::Value;
 
 /// The entry of a union TypeCode the discriminator selects.
 fn union_entry(labels: &[Option<i128>], default: Option<usize>, disc: &Value) -> Option<usize> {
-    let key = disc.key();
+    let key = disc.label_key();
     labels
         .iter()
         .position(|l| l.is_some() && *l == key)
         .or(default)
+}
+
+/// The type a back reference of a recursive type points to.
+fn target(back: &Weak<TcCell>) -> Result<Arc<TcCell>, SystemException> {
+    // The enclosing type holds the target alive while it is in use.
+    back.upgrade().ok_or_else(|| {
+        SystemException::new(
+            rustorb_core::SystemExceptionKind::INTERNAL,
+            0,
+            CompletionStatus::No,
+        )
+    })
 }
 
 // --- Python to Value -----------------------------------------------------------
@@ -93,6 +49,9 @@ fn union_entry(labels: &[Option<i128>], default: Option<usize>, disc: &Value) ->
 pub(crate) fn from_py(tc: &Tc, obj: &Bound<'_, PyAny>) -> PyResult<Value> {
     let py = obj.py();
     Ok(match tc {
+        Tc::Back(back) => from_py(&**target(back).map_err(|e| sys_err(py, &e))?, obj)?,
+        Tc::Any => Value::Any(Box::new(any::any_from_py(obj)?)),
+        Tc::TypeCode => Value::TypeCode(any::tc_from_py(obj)?),
         Tc::Void => Value::Void,
         Tc::Short => Value::Short(obj.extract()?),
         Tc::Long => Value::Long(obj.extract()?),
@@ -142,7 +101,10 @@ pub(crate) fn from_py(tc: &Tc, obj: &Bound<'_, PyAny>) -> PyResult<Value> {
         } => {
             let disc = from_py(discriminator, &obj.getattr("_d")?)?;
             let member = match union_entry(labels, *default, &disc) {
-                Some(i) => Some((i, Box::new(from_py(&members[i], &obj.getattr("_v")?)?))),
+                Some(i) => Some((
+                    i as u32,
+                    Box::new(from_py(&members[i], &obj.getattr("_v")?)?),
+                )),
                 None => None,
             };
             Value::Union {
@@ -286,6 +248,9 @@ fn fixed_from_py(obj: &Bound<'_, PyAny>, digits: u16, scale: i16) -> PyResult<Va
 /// Converts a value of type `tc` to Python.
 pub(crate) fn to_py<'py>(py: Python<'py>, tc: &Tc, value: Value) -> PyResult<Bound<'py, PyAny>> {
     Ok(match (tc, value) {
+        (Tc::Back(back), v) => to_py(py, &**target(back).map_err(|e| sys_err(py, &e))?, v)?,
+        (Tc::Any, Value::Any(a)) => any::any_to_py(py, *a)?,
+        (Tc::TypeCode, Value::TypeCode(t)) => any::tc_to_py(py, &t)?,
         (Tc::Void, _) => py.None().into_bound(py),
         (Tc::Alias(content), v) => to_py(py, content, v)?,
         (_, Value::Bool(v)) => v.into_pyobject(py)?.to_owned().into_any(),
@@ -330,7 +295,7 @@ pub(crate) fn to_py<'py>(py: Python<'py>, tc: &Tc, value: Value) -> PyResult<Bou
         ) => {
             let d = to_py(py, discriminator, *disc)?;
             let v = match member {
-                Some((i, v)) => to_py(py, &members[i], *v)?,
+                Some((i, v)) => to_py(py, &members[i as usize], *v)?,
                 None => py.None().into_bound(py),
             };
             class.bind(py).call1((d, v))?
@@ -390,6 +355,9 @@ pub(crate) fn encode(
     out: &mut OutStream<'_>,
 ) -> Result<(), SystemException> {
     match (tc, value) {
+        (Tc::Back(back), v) => encode(&**target(back)?, v, out)?,
+        (Tc::Any, Value::Any(a)) => out.write_any(a)?,
+        (Tc::TypeCode, Value::TypeCode(t)) => out.write_typecode(t)?,
         (Tc::Void, _) => {}
         (Tc::Alias(content), v) => encode(content, v, out)?,
         (_, Value::Bool(v)) => v.encode(out)?,
@@ -450,7 +418,7 @@ pub(crate) fn encode(
         ) => {
             encode(discriminator, disc, out)?;
             if let Some((i, v)) = member {
-                encode(&members[*i], v, out)?;
+                encode(&members[*i as usize], v, out)?;
             }
         }
         (Tc::Enum { .. }, Value::Enum(v)) => v.encode(out)?,
@@ -489,6 +457,9 @@ pub(crate) fn decode(
 ) -> Result<Value, SystemException> {
     let m = |_| marshal(completed);
     Ok(match tc {
+        Tc::Back(back) => decode(&**target(back)?, input, completed)?,
+        Tc::Any => Value::Any(Box::new(input.read_any()?)),
+        Tc::TypeCode => Value::TypeCode(input.read_typecode()?),
         Tc::Void => Value::Void,
         Tc::Alias(content) => decode(content, input, completed)?,
         Tc::Short => Value::Short(input.read()?),
@@ -558,7 +529,7 @@ pub(crate) fn decode(
         } => {
             let disc = decode(discriminator, input, completed)?;
             let member = match union_entry(labels, *default, &disc) {
-                Some(i) => Some((i, Box::new(decode(&members[i], input, completed)?))),
+                Some(i) => Some((i as u32, Box::new(decode(&members[i], input, completed)?))),
                 None => None,
             };
             Value::Union {

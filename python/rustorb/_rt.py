@@ -7,6 +7,7 @@ between the generator and this module is versioned by
 first, and a module generated for another version refuses to load.
 """
 
+import keyword
 import sys
 import types
 from typing import Optional
@@ -171,6 +172,209 @@ def define_union(tc, cls, discriminator, cases, default_index):
     tc._default = default_index
     tc._class = cls
     return tc
+
+
+# ---------------------------------------------------------------------------
+# Types made at run time
+#
+# TypeCodes that arrive in an ``any`` (and those of ``ORB.create_*_tc``)
+# describe types the generated code may not define. Values of a struct,
+# union, exception or enum need a class, so one is made from the TypeCode.
+
+#: Repository ID -> TypeCode of the types made at run time (the last one
+#: for each id), so that the same type gets the same class each time it
+#: arrives.
+dynamic_types: dict = {}
+
+_INT_RANGES = {
+    CORBA.tk_short: (-(2**15), 2**15 - 1),
+    CORBA.tk_ushort: (0, 2**16 - 1),
+    CORBA.tk_long: (-(2**31), 2**31 - 1),
+    CORBA.tk_ulong: (0, 2**32 - 1),
+    CORBA.tk_longlong: (-(2**63), 2**63 - 1),
+    CORBA.tk_ulonglong: (0, 2**64 - 1),
+}
+
+
+def _py_name(name):
+    if keyword.iskeyword(name):
+        return "_" + name
+    return name
+
+
+def _class_name(tc, default):
+    name = tc._name or default
+    return name if name.isidentifier() else default
+
+
+def make_class(tc):
+    """Make and set the class of the values of ``tc`` (a struct, union,
+    exception or enum TypeCode whose parameters are set)."""
+    k = tc._k
+    if k is CORBA.tk_enum:
+        tc._class = Enum(tc._id, list(tc._members))
+    elif k in (CORBA.tk_struct, CORBA.tk_except):
+        attrs = {
+            "_NP_RepositoryId": tc._id,
+            "_NP_members": tuple(_py_name(n) for n, _ in tc._members),
+        }
+        base = CORBA.UserException if k is CORBA.tk_except else Struct
+        tc._class = type(_class_name(tc, "Struct"), (base,), attrs)
+    elif k is CORBA.tk_union:
+        tc._class = _union_class(tc)
+    if tc._id:
+        dynamic_types[tc._id] = tc
+    return tc._class
+
+
+def _union_class(tc):
+    d_to_m = {}
+    m_to_d = {}
+    def_m = None
+    for i, (name, _) in enumerate(tc._members):
+        attr = _py_name(name)
+        if i == tc._default:
+            def_m = attr
+            continue
+        label = tc._labels[i]
+        d_to_m[label] = attr
+        m_to_d[attr] = label  # the last label, as generated code does
+    attrs = {
+        "_NP_RepositoryId": tc._id,
+        "_d_to_m": d_to_m,
+        "_m_to_d": m_to_d,
+        "_def_m": def_m,
+        "_def_d": _unused_label(CORBA._unalias(tc._disc), set(d_to_m)),
+    }
+    return type(_class_name(tc, "Union"), (Union,), attrs)
+
+
+def _unused_label(disc, used):
+    """The first discriminator value no label uses, as generated code
+    chooses it, or ``_NO_DEFAULT``."""
+    k = disc._k
+    if k in _INT_RANGES:
+        lo, hi = _INT_RANGES[k]
+        v = lo
+        while v in used and v <= hi:
+            v += 1
+        return v if v <= hi else _NO_DEFAULT
+    if k is CORBA.tk_boolean:
+        candidates = (False, True)
+    elif k in (CORBA.tk_char, CORBA.tk_wchar):
+        candidates = (chr(c) for c in range(0, 256 if k is CORBA.tk_char else 0x10000))
+    elif k is CORBA.tk_enum:
+        candidates = disc._class._items
+    else:
+        return _NO_DEFAULT
+    for v in candidates:
+        if v not in used:
+            return v
+    return _NO_DEFAULT
+
+
+def label_value(disc, n):
+    """The discriminator value of the union label ``n`` (a number, as the
+    native module gives it) for the discriminator type ``disc``."""
+    d = CORBA._unalias(disc)
+    if d._k is CORBA.tk_boolean:
+        return bool(n)
+    if d._k in (CORBA.tk_char, CORBA.tk_wchar):
+        return chr(n)
+    if d._k is CORBA.tk_enum:
+        return d._class._items[n]
+    return n
+
+
+_NAMED = (
+    CORBA.tk_objref,
+    CORBA.tk_struct,
+    CORBA.tk_union,
+    CORBA.tk_enum,
+    CORBA.tk_alias,
+    CORBA.tk_except,
+    CORBA.tk_value_box,
+    CORBA.tk_native,
+    CORBA.tk_abstract_interface,
+    CORBA.tk_local_interface,
+)
+_WITH_CLASS = (CORBA.tk_struct, CORBA.tk_union, CORBA.tk_except, CORBA.tk_enum)
+
+
+def typecode_from_nodes(nodes):
+    """The TypeCode of a list of nodes the native module made from a
+    TypeCode it received: tuples that start with the kind and refer to
+    other nodes by index; the first node is the TypeCode. Named types that
+    generated code (or an earlier call) defines with an equal TypeCode are
+    that TypeCode; the others get new classes."""
+    n = len(nodes)
+    tcs = []
+    for node in nodes:
+        k = CORBA.TCKind._items[node[0]] if node[0] < len(CORBA.TCKind._items) else None
+        simple = CORBA._SIMPLE.get(node[0])
+        if simple is not None:
+            tcs.append(simple)
+        elif k is None:
+            # A kind this mapping has no name for (component, home, event).
+            tcs.append(CORBA.TypeCode(CORBA.tk_null))
+        else:
+            tcs.append(CORBA.TypeCode(k))
+    final = list(tcs)
+
+    def fill(i):
+        node = nodes[i]
+        tc = tcs[i]
+        k = tc._k
+        if k in (CORBA.tk_string, CORBA.tk_wstring):
+            tc._length = node[1]
+        elif k is CORBA.tk_fixed:
+            tc._digits, tc._scale = node[1], node[2]
+        elif k in (CORBA.tk_sequence, CORBA.tk_array):
+            tc._content, tc._length = final[node[1]], node[2]
+        elif k in (CORBA.tk_alias, CORBA.tk_value_box):
+            tc._id, tc._name, tc._content = node[1], node[2], final[node[3]]
+        elif k is CORBA.tk_enum:
+            tc._id, tc._name, tc._members = node[1], node[2], list(node[3])
+        elif k in (CORBA.tk_struct, CORBA.tk_except):
+            tc._id, tc._name = node[1], node[2]
+            tc._members = [(m, final[t]) for m, t in node[3]]
+        elif k is CORBA.tk_union:
+            tc._id, tc._name = node[1], node[2]
+            tc._disc = final[node[3]]
+            tc._default = node[4]
+            tc._members = [(m, final[t]) for _, m, t in node[5]]
+            tc._labels = [
+                None if label is None else label_value(tc._disc, label)
+                for label, _, _ in node[5]
+            ]
+        elif len(node) == 3:
+            tc._id, tc._name = node[1], node[2]
+
+    fresh = [i for i in range(n) if tcs[i] is not CORBA._SIMPLE.get(nodes[i][0])]
+    # Enum discriminators must have their class before the labels are made.
+    order = sorted(fresh, key=lambda i: tcs[i]._k is not CORBA.tk_enum)
+    for i in order:
+        fill(i)
+        if tcs[i]._k is CORBA.tk_enum:
+            make_class(tcs[i])
+    # Named types defined elsewhere with an equal TypeCode are replaced.
+    for i in fresh:
+        tc = tcs[i]
+        if tc._k not in _NAMED or not tc._id:
+            continue
+        for known in (typecodes.get(tc._id), dynamic_types.get(tc._id)):
+            if known is not None and known._k is tc._k and known.equal(tc):
+                final[i] = known
+                break
+    # The others refer to the replacements, and get classes.
+    for i in order:
+        if final[i] is tcs[i]:
+            fill(i)
+    for i in fresh:
+        tc = final[i]
+        if tc is tcs[i] and tc._k in _WITH_CLASS and tc._k is not CORBA.tk_enum:
+            make_class(tc)
+    return final[0]
 
 
 # ---------------------------------------------------------------------------

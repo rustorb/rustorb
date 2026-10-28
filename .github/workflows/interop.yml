@@ -60,6 +60,13 @@ jobs:
       - name: Run the matrix with GIOP 1.1 clients
         run: interop/run-matrix.sh --capture --giop 1.1
 
+      # The stage 2 suite (AnyTest.idl): Any and TypeCode values.
+      - name: Run the Any / TypeCode matrix
+        run: interop/run-matrix.sh --suite any
+
+      - name: Run the Any / TypeCode matrix with GIOP 1.1 clients
+        run: interop/run-matrix.sh --suite any --giop 1.1
+
       - name: Run the naming service check
         run: interop/run-naming-check.sh
 

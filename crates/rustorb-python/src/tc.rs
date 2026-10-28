@@ -4,13 +4,13 @@
 //! Generated code describes every type with a `CORBA.TypeCode`. Reading its
 //! attributes for every value would be slow, so the TypeCodes an operation
 //! uses are compiled once into [`Tc`] trees and kept, with the operation, in
-//! [`CompiledOp`]. Recursive types become cycles of [`TcRef`]s; TypeCodes
-//! live as long as the modules that define them, so the cycles are never
-//! freed, which is what we want.
+//! [`CompiledOp`]. A recursive type refers back to its enclosing type with a
+//! weak [`Tc::Back`], so that the TypeCodes compiled for the value of an
+//! `any` (which are not kept) are freed with it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use pyo3::prelude::*;
 use pyo3::types::{PyString, PyTuple};
@@ -46,6 +46,8 @@ mod kind {
     pub const BOOLEAN: u32 = 8;
     pub const CHAR: u32 = 9;
     pub const OCTET: u32 = 10;
+    pub const ANY: u32 = 11;
+    pub const TYPECODE: u32 = 12;
     pub const OBJREF: u32 = 14;
     pub const STRUCT: u32 = 15;
     pub const UNION: u32 = 16;
@@ -124,8 +126,14 @@ pub(crate) enum Tc {
     Objref {
         id: String,
     },
-    /// A type the binding cannot marshal yet (`any`, `TypeCode`,
-    /// valuetypes, `long double`...).
+    /// `any`.
+    Any,
+    /// `TypeCode`.
+    TypeCode,
+    /// A reference back to an enclosing type of a recursive type, which
+    /// holds it alive.
+    Back(Weak<TcCell>),
+    /// A type the binding cannot marshal (valuetypes, `long double`...).
     Unsupported(String),
 }
 
@@ -143,8 +151,8 @@ impl Tc {
     /// before allocating.
     pub(crate) fn min_size(&self) -> usize {
         match self.unaliased() {
-            Tc::Void | Tc::Struct { .. } | Tc::Union { .. } | Tc::Unsupported(_) => 0,
-            Tc::Array { content, length } => content.min_size() * *length as usize,
+            Tc::Void | Tc::Struct { .. } | Tc::Union { .. } | Tc::Back(_) | Tc::Unsupported(_) => 0,
+            Tc::Array { content, length } => content.min_size().saturating_mul(*length as usize),
             Tc::Boolean | Tc::Char | Tc::Octet | Tc::WChar => 1,
             Tc::Short | Tc::UShort => 2,
             Tc::LongLong | Tc::ULongLong | Tc::Double => 8,
@@ -226,6 +234,16 @@ pub(crate) fn compile_op<'py>(op: &Bound<'py, PyAny>) -> PyResult<Bound<'py, Com
 #[derive(Default)]
 struct Compiler {
     new: Compiled,
+    /// The TypeCodes being compiled, which a reference to is a reference
+    /// back to an enclosing type.
+    open: HashSet<usize>,
+}
+
+/// Compiles the TypeCode of the value of an `any`. The result is not
+/// cached (such TypeCodes are often made for one value), except for the
+/// parts that operations already compiled.
+pub(crate) fn compile_tc(tc: &Bound<'_, PyAny>) -> PyResult<TcRef> {
+    Compiler::default().tc(tc)
 }
 
 impl Compiler {
@@ -241,6 +259,13 @@ impl Compiler {
     fn tc(&mut self, tc: &Bound<'_, PyAny>) -> PyResult<TcRef> {
         let key = tc.as_ptr() as usize;
         if let Some((_, cell)) = self.new.get(&key) {
+            if self.open.contains(&key) {
+                let back = TcCell::default();
+                back.0
+                    .set(Tc::Back(Arc::downgrade(cell)))
+                    .expect("a new cell is empty");
+                return Ok(Arc::new(back));
+            }
             return Ok(Arc::clone(cell));
         }
         if let Some((_, cell)) = CACHE.lock().unwrap().as_ref().and_then(|c| c.get(&key)) {
@@ -249,7 +274,10 @@ impl Compiler {
         let cell = Arc::new(TcCell::default());
         self.new
             .insert(key, (tc.clone().unbind(), Arc::clone(&cell)));
-        let compiled = self.build(tc)?;
+        self.open.insert(key);
+        let compiled = self.build(tc);
+        self.open.remove(&key);
+        let compiled = compiled?;
         cell.0
             .set(compiled)
             .expect("a TypeCode cell is filled once");
@@ -282,6 +310,8 @@ impl Compiler {
             kind::CHAR => Tc::Char,
             kind::WCHAR => Tc::WChar,
             kind::OCTET => Tc::Octet,
+            kind::ANY => Tc::Any,
+            kind::TYPECODE => Tc::TypeCode,
             kind::STRING => Tc::String(length()?),
             kind::WSTRING => Tc::WString(length()?),
             kind::FIXED => Tc::Fixed {

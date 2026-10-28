@@ -10,6 +10,8 @@
 #include <string>
 
 #include "common.h"
+#define ANYTEST_HIDDEN
+#include "anytest.h"
 
 using namespace InteropTest;
 
@@ -400,6 +402,41 @@ static void run_cases(Runner& r, InteropTest::Echo_ptr echo, PortableServer::POA
   });
 }
 
+// The stage 2 suite (AnyTest.idl) against the AnyEcho object at opt.name;
+// the server's Echo object is at opt.name + "-Echo".
+static int run_any(CORBA::ORB_ptr orb, CosNaming::NamingContext_ptr root, const Options& opt) {
+  CosNaming::Name name = to_name(opt.name);
+  CORBA::Object_var obj = retry("the AnyEcho server", [&]() { return root->resolve(name); },
+                                opt.timeout);
+  AnyTest::AnyEcho_var echo = AnyTest::AnyEcho::_narrow(obj);
+  if (CORBA::is_nil(echo)) {
+    std::cout << opt.name << " is not an AnyTest::AnyEcho" << std::endl;
+    return 1;
+  }
+  retry("the AnyEcho server", [&]() { return echo->_non_existent(); }, opt.timeout);
+
+  Runner r;
+  anytest::run_cases(r, echo, [](bool cond, const std::string& what) {
+    if (!cond) throw CheckFailed{what};
+  });
+
+  if (opt.shutdown_server) {
+    CORBA::Object_var o = root->resolve(to_name(opt.name + "-Echo"));
+    InteropTest::Echo_var server = InteropTest::Echo::_narrow(o);
+    server->shutdown();
+  }
+
+  std::cout << "\n" << r.passed() << " passed, " << r.failed().size() << " failed" << std::endl;
+  if (!r.failed().empty()) {
+    std::cout << "failed: ";
+    for (size_t i = 0; i < r.failed().size(); ++i)
+      std::cout << (i ? ", " : "") << r.failed()[i];
+    std::cout << std::endl;
+  }
+  orb->destroy();
+  return r.failed().empty() ? 0 : 1;
+}
+
 int main(int argc, char** argv) {
   std::vector<std::string> orb_args;
   Options opt = parse_args(argc, argv, orb_args);
@@ -408,6 +445,7 @@ int main(int argc, char** argv) {
     PortableServer::POA_var poa = persistent_poa(orb, "InteropTestClient");
 
     CosNaming::NamingContext_var root = root_context(orb, opt.timeout);
+    if (opt.suite == "any") return run_any(orb, root, opt);
     CosNaming::Name name = to_name(opt.name);
     CORBA::Object_var obj = retry("the Echo server", [&]() { return root->resolve(name); },
                                   opt.timeout);

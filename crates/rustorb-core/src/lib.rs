@@ -19,6 +19,10 @@
 //!   after a `CloseConnection` from the server.
 //! - [`name`] has the CosNaming name type and its string form, used for
 //!   `corbaname:` and by the naming service client in `rustorb-naming`.
+//! - [`TypeCode`] describes IDL types, and [`Any`] holds a [`Value`] of
+//!   any type; [`OutStream::write_any`] and [`InStream::read_any`] marshal
+//!   them, and [`OutStream::write_value`] / [`InStream::read_value`]
+//!   marshal any value as its TypeCode says.
 //! - [`CodeSets`] negotiates the transmission code sets from the IOR and
 //!   converts `string` data; rustorb's native code sets are UTF-8 and
 //!   UTF-16.
@@ -57,6 +61,8 @@ mod pool;
 mod servant;
 mod server;
 mod stream;
+pub mod typecode;
+mod value;
 
 pub use codeset::CodeSets;
 pub use exception::{
@@ -77,3 +83,5 @@ pub use servant::{
     ServantManagerError, ServerReply,
 };
 pub use stream::{InStream, OutStream};
+pub use typecode::{TCKind, TypeCode, TypeCodeError};
+pub use value::{Any, Value};

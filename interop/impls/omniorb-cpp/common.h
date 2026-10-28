@@ -23,6 +23,8 @@ struct Options {
   int port = 0;
   double timeout = 30.0;
   bool shutdown_server = false;
+  // "basic" (InteropTest.idl) or "any" (AnyTest.idl).
+  std::string suite = "basic";
 };
 
 // Parses the options shared with the omniORBpy implementation and builds the
@@ -45,12 +47,13 @@ inline Options parse_args(int argc, char** argv, std::vector<std::string>& orb_a
     else if (a == "--port") opt.port = std::atoi(value().c_str());
     else if (a == "--timeout") opt.timeout = std::atof(value().c_str());
     else if (a == "--shutdown-server") opt.shutdown_server = true;
+    else if (a == "--suite") opt.suite = value();
     else orb_args.push_back(a);
   }
   if (opt.naming.empty() || opt.name.empty()) {
     std::cerr << "usage: " << argv[0]
               << " --naming CORBALOC --name PATH [--host H] [--port N] [--timeout S]"
-              << " [--shutdown-server] [ORB options]" << std::endl;
+              << " [--shutdown-server] [--suite basic|any] [ORB options]" << std::endl;
     std::exit(2);
   }
   orb_args.push_back("-ORBInitRef");

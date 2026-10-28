@@ -14,7 +14,8 @@
 //! Code set conversion is out of scope: `string` is read and written as
 //! bytes (UTF-8 when converted to [`String`]), and `wchar`/`wstring` use
 //! UTF-16. Negotiating other code sets is left to the ORB core.
-//! `any`, `TypeCode`, `fixed` and `long double` are not implemented yet.
+//! `any`, `TypeCode` and `fixed` are in the ORB core, which knows the
+//! types; `long double` is not implemented.
 
 mod decoder;
 mod encoder;
