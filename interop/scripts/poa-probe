@@ -1,0 +1,885 @@
+#!/usr/bin/env python3
+"""Probes how a server's POA dispatches requests, with hand-built GIOP.
+
+    poa-probe --ior-file FILE keys --out KEYS.json
+    poa-probe --ior-file FILE run [--previous KEYS.json] [--section NAME ...]
+    poa-probe --ior-file FILE shutdown-inside
+
+FILE holds the IOR of the PoaProbe::Control object (idl/PoaProbe.idl) that
+the probe server writes at start-up. Each output line is `<case>: <result>`.
+The results are derived facts (whether calls overlapped, how many threads
+ran them, which exception came back) rather than timings, so that the output
+is the same on every run. run-poa-probe.sh drives a server through the
+stages and compares the output with expected/poa-probe-<server>.txt.
+
+The messages follow the CORBA 3.x GIOP specification only.
+"""
+
+import argparse
+import binascii
+import json
+import socket
+import struct
+import threading
+import time
+
+CONTROL_ID = "IDL:rustorb.org/PoaProbe/Control:1.0"
+TARGET_ID = "IDL:rustorb.org/PoaProbe/Target:1.0"
+# CONV_FRAME::CodeSetContext: ISO 8859-1 for char, UTF-16 for wchar.
+CODE_SETS = (1, b"\x01\x00\x00\x00" + struct.pack("<II", 0x00010001, 0x00010109))
+
+REPLY_STATUS = ["NO_EXCEPTION", "USER_EXCEPTION", "SYSTEM_EXCEPTION",
+                "LOCATION_FORWARD", "LOCATION_FORWARD_PERM", "NEEDS_ADDRESSING_MODE"]
+LOCATE_STATUS = ["UNKNOWN_OBJECT", "OBJECT_HERE", "OBJECT_FORWARD",
+                 "OBJECT_FORWARD_PERM", "LOC_SYSTEM_EXCEPTION", "LOC_NEEDS_ADDRESSING_MODE"]
+MESSAGE_TYPES = ["Request", "Reply", "CancelRequest", "LocateRequest",
+                 "LocateReply", "CloseConnection", "MessageError", "Fragment"]
+
+
+# --- CDR -------------------------------------------------------------------
+
+class Writer:
+    def __init__(self, little=True, base=12):
+        self.fmt = "<" if little else ">"
+        self.base = base  # offsets are relative to the start of the message
+        self.buf = bytearray()
+
+    def align(self, n):
+        while (self.base + len(self.buf)) % n:
+            self.buf.append(0)
+
+    def octet(self, v):
+        self.buf.append(v)
+
+    def boolean(self, v):
+        self.buf.append(1 if v else 0)
+
+    def ulong(self, v):
+        self.align(4)
+        self.buf += struct.pack(self.fmt + "I", v)
+
+    def long(self, v):
+        self.align(4)
+        self.buf += struct.pack(self.fmt + "i", v)
+
+    def octets(self, b):
+        self.ulong(len(b))
+        self.buf += b
+
+    def string(self, s):
+        self.octets(s.encode("latin-1") + b"\0")
+
+    def raw(self, b):
+        self.buf += b
+
+
+class Reader:
+    def __init__(self, data, pos, little, base=0):
+        self.data = data
+        self.pos = pos
+        self.fmt = "<" if little else ">"
+        self.base = base
+
+    def align(self, n):
+        while (self.pos - self.base) % n:
+            self.pos += 1
+
+    def octet(self):
+        v = self.data[self.pos]
+        self.pos += 1
+        return v
+
+    def ushort(self):
+        self.align(2)
+        v = struct.unpack_from(self.fmt + "H", self.data, self.pos)[0]
+        self.pos += 2
+        return v
+
+    def ulong(self):
+        self.align(4)
+        v = struct.unpack_from(self.fmt + "I", self.data, self.pos)[0]
+        self.pos += 4
+        return v
+
+    def double(self):
+        self.align(8)
+        v = struct.unpack_from(self.fmt + "d", self.data, self.pos)[0]
+        self.pos += 8
+        return v
+
+    def octets(self):
+        n = self.ulong()
+        v = self.data[self.pos:self.pos + n]
+        self.pos += n
+        return bytes(v)
+
+    def string(self):
+        return self.octets()[:-1].decode("latin-1")
+
+    def at_end(self):
+        return self.pos >= len(self.data)
+
+
+# --- IOR -------------------------------------------------------------------
+
+class Ior:
+    def __init__(self, type_id, host, port, version, key, components):
+        self.type_id = type_id
+        self.host = host
+        self.port = port
+        self.version = version
+        self.key = key
+        self.components = components
+
+
+def parse_ior(text):
+    data = binascii.unhexlify(text.strip()[4:])
+    r = Reader(data, 1, data[0] == 1)
+    type_id = r.string()
+    for _ in range(r.ulong()):
+        tag = r.ulong()
+        profile = r.octets()
+        if tag != 0:  # TAG_INTERNET_IOP
+            continue
+        p = Reader(profile, 1, profile[0] == 1)
+        version = (p.octet(), p.octet())
+        host = p.string()
+        port = p.ushort()
+        key = p.octets()
+        components = []
+        if version >= (1, 1) and not p.at_end():
+            for _ in range(p.ulong()):
+                components.append(p.ulong())
+                p.octets()
+        return Ior(type_id, host, port, version, key, components)
+    raise ValueError("no IIOP profile")
+
+
+def parse_ior_cdr(r):
+    """Reads an IOR from a CDR stream (LOCATION_FORWARD bodies)."""
+    start = r.pos
+    type_id = r.string()
+    for _ in range(r.ulong()):
+        tag = r.ulong()
+        profile = r.octets()
+        if tag != 0:
+            continue
+        p = Reader(profile, 1, profile[0] == 1)
+        version = (p.octet(), p.octet())
+        host = p.string()
+        port = p.ushort()
+        key = p.octets()
+        return Ior(type_id, host, port, version, key, [])
+    raise ValueError("no IIOP profile at %d" % start)
+
+
+def show_key(key):
+    out = ""
+    for b in key:
+        c = chr(b)
+        out += c if 0x21 <= b < 0x7f and c != "\\" else "\\x%02x" % b
+    return out
+
+
+# --- GIOP ------------------------------------------------------------------
+
+def header(version, little, msg_type, body):
+    flags = 1 if little else 0
+    return (b"GIOP" + bytes([version[0], version[1], flags, msg_type])
+            + struct.pack(("<" if little else ">") + "I", len(body)) + body)
+
+
+def build_request(request_id, key, operation, args=None, version=(1, 2),
+                  little=True, response=True):
+    w = Writer(little)
+    if version >= (1, 2):
+        w.ulong(request_id)
+        w.octet(0x03 if response else 0x00)
+        w.raw(b"\0\0\0")
+        w.align(2)
+        w.raw(struct.pack(w.fmt + "H", 0))  # KeyAddr
+        w.octets(key)
+        w.string(operation)
+        w.ulong(1)
+        w.ulong(CODE_SETS[0])
+        w.octets(CODE_SETS[1])
+        if args:
+            w.align(8)
+    else:
+        w.ulong(1)
+        w.ulong(CODE_SETS[0])
+        w.octets(CODE_SETS[1])
+        w.ulong(request_id)
+        w.boolean(response)
+        if version == (1, 1):
+            w.raw(b"\0\0\0")
+        w.octets(key)
+        w.string(operation)
+        w.octets(b"")  # requesting_principal
+    if args:
+        args(w)
+    return header(version, little, 0, bytes(w.buf))
+
+
+def build_locate(request_id, key, version=(1, 2), little=True):
+    w = Writer(little)
+    w.ulong(request_id)
+    if version >= (1, 2):
+        w.raw(struct.pack(w.fmt + "H", 0))
+        w.octets(key)
+    else:
+        w.octets(key)
+    return header(version, little, 3, bytes(w.buf))
+
+
+class Message:
+    def __init__(self, raw):
+        self.raw = raw
+        self.version = (raw[4], raw[5])
+        self.little = bool(raw[6] & 1)
+        self.type = raw[7]
+
+    def reader(self, pos=12):
+        return Reader(self.raw, pos, self.little)
+
+    def type_name(self):
+        return MESSAGE_TYPES[self.type] if self.type < len(MESSAGE_TYPES) else str(self.type)
+
+
+class Outcome:
+    """A decoded Reply or LocateReply."""
+
+    def __init__(self, request_id, status, text, body=None):
+        self.request_id = request_id
+        self.status = status
+        self.text = text
+        self.body = body  # Reader positioned at the result, NO_EXCEPTION only
+
+
+def system_exception(r):
+    repid = r.string()
+    minor = r.ulong()
+    completed = r.ulong()
+    name = repid.split("/")[-1].split(":")[0]
+    return "%s minor 0x%08x %s" % (name, minor,
+                                   ["COMPLETED_YES", "COMPLETED_NO", "COMPLETED_MAYBE"][completed])
+
+
+def forward_text(r):
+    ior = parse_ior_cdr(r)
+    return "forward to %s:%d %s" % (ior.host, ior.port, show_key(ior.key))
+
+
+def decode(msg):
+    if msg.type == 1:  # Reply
+        r = msg.reader()
+        if msg.version >= (1, 2):
+            request_id = r.ulong()
+            status = r.ulong()
+            for _ in range(r.ulong()):
+                r.ulong()
+                r.octets()
+            if not r.at_end():
+                r.align(8)
+        else:
+            for _ in range(r.ulong()):
+                r.ulong()
+                r.octets()
+            request_id = r.ulong()
+            status = r.ulong()
+        name = REPLY_STATUS[status]
+        if status == 0:
+            return Outcome(request_id, name, name, r)
+        if status == 1:
+            repid = r.string()
+            if repid.endswith("/Failed:1.0"):
+                return Outcome(request_id, name, "Failed(%s)" % r.string())
+            return Outcome(request_id, name, "%s %s" % (name, repid))
+        if status == 2:
+            return Outcome(request_id, name, system_exception(r))
+        if status in (3, 4):
+            return Outcome(request_id, name, "%s, %s" % (name, forward_text(r)))
+        return Outcome(request_id, name, name)
+    if msg.type == 4:  # LocateReply
+        r = msg.reader()
+        request_id = r.ulong()
+        status = r.ulong()
+        name = LOCATE_STATUS[status]
+        if msg.version >= (1, 2) and status in (2, 3):
+            return Outcome(request_id, name, "%s, %s" % (name, forward_text(r)))
+        if msg.version >= (1, 2) and status == 4:
+            return Outcome(request_id, name, "%s %s" % (name, system_exception(r)))
+        if status == 2:
+            return Outcome(request_id, name, "%s, %s" % (name, forward_text(r)))
+        return Outcome(request_id, name, name)
+    return Outcome(None, msg.type_name(), msg.type_name())
+
+
+class Connection:
+    def __init__(self, host, port, timeout=10.0):
+        self.sock = socket.create_connection((host, port), timeout=timeout)
+        self.next_id = 1
+
+    def close(self):
+        self.sock.close()
+
+    def send(self, data):
+        self.sock.sendall(data)
+
+    def exact(self, n):
+        data = b""
+        while len(data) < n:
+            chunk = self.sock.recv(n - len(data))
+            if not chunk:
+                raise ConnectionError("connection closed")
+            data += chunk
+        return data
+
+    def recv(self, timeout=None):
+        if timeout is not None:
+            self.sock.settimeout(timeout)
+        try:
+            head = self.exact(12)
+            fmt = "<" if head[6] & 1 else ">"
+            return Message(head + self.exact(struct.unpack(fmt + "I", head[8:12])[0]))
+        finally:
+            if timeout is not None:
+                self.sock.settimeout(10.0)
+
+    def new_id(self):
+        rid = self.next_id
+        self.next_id += 1
+        return rid
+
+    def call(self, key, operation, args=None, **kw):
+        rid = self.new_id()
+        self.send(build_request(rid, key, operation, args, **kw))
+        while True:
+            msg = self.recv()
+            if msg.type in (1, 4):
+                return msg, decode(msg)
+
+    def locate(self, key, **kw):
+        rid = self.new_id()
+        self.send(build_locate(rid, key, **kw))
+        msg = self.recv()
+        return msg, decode(msg)
+
+
+def safely(fn):
+    try:
+        return fn()
+    except (ConnectionError, OSError) as e:
+        return "no reply (%s)" % type(e).__name__
+
+
+# --- the probe -------------------------------------------------------------
+
+def call_info(outcome):
+    r = outcome.body
+    return {"thread": r.string(), "oid": r.string(), "poa": r.string(),
+            "start": r.double(), "end": r.double()}
+
+
+def work_args(ms):
+    return lambda w: w.long(ms)
+
+
+def str_args(*values):
+    def write(w):
+        for v in values:
+            if isinstance(v, bool):
+                w.boolean(v)
+            elif isinstance(v, int):
+                w.long(v)
+            else:
+                w.string(v)
+    return write
+
+
+class Probe:
+    def __init__(self, control_ior):
+        self.control = parse_ior(control_ior)
+        self.host = self.control.host
+        self.port = self.control.port
+        self.conn = self.connect()
+
+    def connect(self):
+        return Connection(self.host, self.port)
+
+    def out(self, case, result):
+        line = "%s: %s" % (case, result)
+        print(line, flush=True)
+
+    def ctl(self, operation, *values):
+        _, o = self.conn.call(self.control.key, operation, str_args(*values) if values else None)
+        if o.status != "NO_EXCEPTION":
+            raise RuntimeError("Control::%s: %s" % (operation, o.text))
+        return o.body
+
+    def ref(self, poa, oid="obj"):
+        return parse_ior(self.ctl("reference", poa, oid).string())
+
+    def events(self):
+        r = self.ctl("events")
+        return [r.string() for _ in range(r.ulong())]
+
+    # Keys -------------------------------------------------------------------
+
+    KEY_POAS = [("RootPOA", ""), ("persistent_user", "obj"), ("persistent_user/nested", "obj"),
+                ("persistent_system", ""), ("transient_user", "obj"), ("transient_system", ""),
+                ("single", "a"), ("main", "a"), ("activator", "x"), ("locator", "x"),
+                ("default", "x")]
+
+    def keys(self):
+        result = {}
+        for poa, oid in self.KEY_POAS:
+            result[poa] = binascii.hexlify(self.ref(poa, oid).key).decode()
+        result["control"] = binascii.hexlify(self.control.key).decode()
+        return result
+
+    def section_keys(self, previous):
+        for poa, oid in self.KEY_POAS:
+            ior = self.ref(poa, oid)
+            line = show_key(ior.key)
+            if previous is not None:
+                before = binascii.unhexlify(previous.get(poa, ""))
+                if before == ior.key:
+                    line += " (same as previous run)"
+                else:
+                    # Only the part shared with the previous run is stable.
+                    n = 0
+                    while n < min(len(before), len(ior.key)) and before[n] == ior.key[n]:
+                        n += 1
+                    line = "%s... (%d bytes, differs from previous run from byte %d)" % (
+                        show_key(ior.key[:n]), len(ior.key), n)
+            self.out("key %s %s" % (poa, oid or "(system id)"), line)
+        ior = self.ref("persistent_user")
+        self.out("ior type_id", ior.type_id)
+        self.out("ior IIOP version", "%d.%d" % ior.version)
+        self.out("ior address", "%s:%d" % (ior.host, ior.port))
+        self.out("ior components", " ".join("0x%x" % t for t in ior.components))
+        self.out("ior RootPOA address", "%s:%d" % (self.ref("RootPOA").host, self.ref("RootPOA").port))
+
+    # Dispatch ---------------------------------------------------------------
+
+    def both(self, case, key, operation="work", args=work_args(0)):
+        conn = self.connect()
+        try:
+            self.out("%s, request" % case,
+                     safely(lambda: describe(conn.call(key, operation, args)[1])))
+        finally:
+            conn.close()
+        conn = self.connect()
+        try:
+            self.out("%s, locate" % case, safely(lambda: conn.locate(key)[1].text))
+        finally:
+            conn.close()
+
+    def section_dispatch(self, previous):
+        good = self.ref("persistent_user").key
+        self.both("persistent_user/obj", good)
+        self.both("persistent_user unknown oid", self.ref("persistent_user", "nope").key)
+        self.both("unknown POA", good.replace(b"persistent_user", b"no_such_poa"))
+        self.both("unknown nested POA", self.ref("persistent_user/nested").key.replace(
+            b"nested", b"nosuch"))
+        self.both("garbage key", b"garbage")
+        self.both("empty key", b"")
+        if previous is not None:
+            for poa in ("RootPOA", "transient_user", "transient_system", "persistent_system"):
+                self.both("%s key of previous run" % poa, binascii.unhexlify(previous[poa]))
+        self.both("transient_user unknown oid", self.ref("transient_user", "nope").key)
+        self.both("unknown operation", good, "no_such_operation", None)
+        self.both("wrong arguments (missing)", good, "work", None)
+
+        self.ctl("deactivate_object", "persistent_user", "victim")
+        victim = self.ref("persistent_user", "victim").key
+        self.both("deactivated object", victim)
+        self.out("deactivated object, _non_existent",
+                 safely(lambda: describe(self.connect().call(victim, "_non_existent")[1])))
+        self.ctl("activate_object", "persistent_user", "victim")
+        self.both("reactivated object", victim)
+
+        self.ctl("destroy_poa", "doomed")
+        self.both("destroyed POA", self.ref("persistent_user").key.replace(
+            b"persistent_user", b"doomed"))
+
+        # Servant managers and the adapter activator.
+        act = self.ref("activator", "x").key
+        self.both("activator/x first", act)
+        self.both("activator/x again", act)
+        self.both("activator/bad", self.ref("activator", "bad").key)
+        self.both("activator/fwd", self.ref("activator", "fwd").key)
+        self.out("activator events", "; ".join(self.events()))
+        self.ctl("deactivate_object", "activator", "x")
+        # etherealize may run after deactivate_object has returned.
+        events = []
+        for _ in range(20):
+            events += self.events()
+            if events:
+                break
+            time.sleep(0.1)
+        self.out("activator events after deactivate", "; ".join(events))
+        y = self.ref("activator", "y").key
+        conn = self.connect()
+        self.out("activator/y, locate before any request", safely(lambda: conn.locate(y)[1].text))
+        conn.close()
+        self.out("activator events after locate", "; ".join(self.events()) or "none")
+
+        loc = self.ref("locator", "x").key
+        self.both("locator/x", loc)
+        self.both("locator/fwd", self.ref("locator", "fwd").key)
+        self.both("locator/bad", self.ref("locator", "bad").key)
+        self.out("locator events", "; ".join(self.events()))
+
+        self.both("default/anything", self.ref("default", "anything").key)
+        lazy = good.replace(b"persistent_user", b"lazy1").replace(b"obj", b"q")
+        self.both("adapter activator lazy1/q", lazy)
+        self.both("adapter activator no_such_poa", good.replace(b"persistent_user", b"zzz"))
+        self.out("adapter activator events", "; ".join(self.events()))
+
+        # Built-in operations.
+        for label, op, args in [
+                ("_non_existent", "_non_existent", None),
+                ("_not_existent", "_not_existent", None),
+                ("_is_a own type", "_is_a", str_args(TARGET_ID)),
+                ("_is_a other type", "_is_a", str_args("IDL:Other:1.0")),
+                ("_interface", "_interface", None),
+                ("_get_interface", "_get_interface", None),
+                ("_repository_id", "_repository_id", None),
+                ("_component", "_component", None)]:
+            o = safely(lambda: self.conn.call(good, op, args)[1])
+            self.out("builtin %s" % label, describe(o, op))
+
+    # GIOP versions ----------------------------------------------------------
+
+    def section_versions(self):
+        good = self.ref("persistent_user").key
+        for version in [(1, 0), (1, 1), (1, 2)]:
+            for little in (True, False):
+                conn = self.connect()
+                try:
+                    msg, o = conn.call(good, "work", work_args(0), version=version, little=little)
+                    self.out("request GIOP %d.%d %s" % (version + ("LE" if little else "BE",)),
+                             "reply GIOP %d.%d %s, %s" % (msg.version + (
+                                 "LE" if msg.little else "BE", o.status)))
+                    msg, o = conn.locate(good, version=version, little=little)
+                    self.out("locate GIOP %d.%d %s" % (version + ("LE" if little else "BE",)),
+                             "reply GIOP %d.%d %s, %s" % (msg.version + (
+                                 "LE" if msg.little else "BE", o.text)))
+                finally:
+                    conn.close()
+
+    # POAManager states ------------------------------------------------------
+
+    def section_manager(self):
+        key = self.ref("managed").key
+        self.both("managed active", key)
+
+        self.ctl("set_state", "holding")
+        conn = self.connect()
+        rid = conn.new_id()
+        conn.send(build_request(rid, key, "work", work_args(0)))
+        try:
+            conn.recv(timeout=1.0)
+            held = "answered while holding"
+        except socket.timeout:
+            held = "no reply while holding"
+        loc = self.connect()
+        lrid = loc.new_id()
+        loc.send(build_locate(lrid, key))
+        try:
+            locate_text = decode(loc.recv(timeout=1.0)).text
+        except socket.timeout:
+            locate_text = "no reply while holding"
+        self.ctl("set_state", "active")
+        after = safely(lambda: decode(conn.recv(timeout=5.0)).text)
+        locate_after = locate_text
+        if locate_text == "no reply while holding":
+            locate_after = "%s, then %s" % (locate_text,
+                                            safely(lambda: decode(loc.recv(timeout=5.0)).text))
+        conn.close()
+        loc.close()
+        self.out("managed holding, request", "%s, then %s after activate" % (held, after))
+        self.out("managed holding, locate", locate_after)
+
+        self.ctl("set_state", "discarding")
+        self.both("managed discarding", key)
+        self.ctl("set_state", "active")
+        self.ctl("set_state", "inactive")
+        self.both("managed inactive", key)
+        try:
+            self.ctl("set_state", "active")
+            self.out("managed inactive, activate again", "accepted")
+        except RuntimeError as e:
+            self.out("managed inactive, activate again", str(e).split(": ", 1)[1])
+
+    # Threads ----------------------------------------------------------------
+
+    def pipelined(self, key, n, ms, conn=None):
+        """Sends n work requests on one connection before reading replies."""
+        own = conn is None
+        conn = conn or self.connect()
+        ids = []
+        for _ in range(n):
+            rid = conn.new_id()
+            ids.append(rid)
+            conn.send(build_request(rid, key, "work", work_args(ms)))
+        infos, order = {}, []
+        while len(infos) < n:
+            o = decode(conn.recv())
+            order.append(o.request_id)
+            infos[o.request_id] = call_info(o)
+        if own:
+            conn.close()
+        return [infos[i] for i in ids], order == sorted(order)
+
+    def parallel(self, keys, ms):
+        """One request per key, each on its own connection, at the same time."""
+        conns = [self.connect() for _ in keys]
+        results = [None] * len(keys)
+
+        def run(i):
+            _, o = conns[i].call(keys[i], "work", work_args(ms))
+            results[i] = call_info(o)
+        threads = [threading.Thread(target=run, args=(i,)) for i in range(len(keys))]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        for c in conns:
+            c.close()
+        return results
+
+    def summary(self, infos, threads=True):
+        """Whether the calls overlapped and, if threads, which threads ran them."""
+        labels = [i["thread"] for i in infos]
+        spans = sorted((i["start"], i["end"]) for i in infos)
+        overlap = any(spans[k + 1][0] < spans[k][1] - 0.01 for k in range(len(spans) - 1))
+        text = "overlapped" if overlap else "serialized"
+        mains = labels.count("main")
+        if mains == len(labels):
+            return text + ", all on the main thread"
+        if mains:
+            text += ", %d on the main thread" % mains
+        if threads:
+            distinct = len(set(labels))
+            if distinct == 1:
+                text += ", one thread"
+            elif distinct == len(labels):
+                text += ", a thread per call"
+            else:
+                text += ", %d threads for %d calls" % (distinct, len(labels))
+        return text
+
+    def section_threads(self):
+        ctrl = self.ref("persistent_user").key
+        single_a = self.ref("single", "a").key
+        single_b = self.ref("single", "b").key
+        single2_a = self.ref("single2", "a").key
+        main_a = self.ref("main", "a").key
+        main_b = self.ref("main", "b").key
+
+        infos, _ = self.pipelined(ctrl, 4, 300)
+        self.out("ORB_CTRL 4 pipelined on one connection", self.summary(infos))
+        infos, _ = self.pipelined(ctrl, 16, 300)
+        span = max(i["end"] for i in infos) - min(i["start"] for i in infos)
+        self.out("ORB_CTRL 16 pipelined on one connection", "%s, %s" % (
+            self.summary(infos), "all at once" if span < 0.6 else "in %d waves" % round(span / 0.3)))
+
+        conn = self.connect()
+        seq = [call_info(conn.call(ctrl, "work", work_args(0))[1]) for _ in range(6)]
+        conn.close()
+        self.out("ORB_CTRL 6 sequential on one connection", self.summary(seq))
+        conn2 = self.connect()
+        seq2 = [call_info(conn2.call(ctrl, "work", work_args(0))[1]) for _ in range(3)]
+        conn2.close()
+        self.out("ORB_CTRL sequential on a second connection",
+                 "%s, %s threads of the first connection" % (
+                     self.summary(seq2), "reuses" if set(i["thread"] for i in seq2) &
+                     set(i["thread"] for i in seq) else "does not reuse"))
+        self.out("ORB_CTRL 4 connections in parallel", self.summary(self.parallel([ctrl] * 4, 300)))
+
+        infos, in_order = self.pipelined(single_a, 4, 200)
+        self.out("SINGLE_THREAD 4 pipelined on one connection", "%s, replies %s" % (
+            self.summary(infos, threads=False),
+            "in request order" if in_order else "out of order"))
+        self.out("SINGLE_THREAD same POA, 2 objects, 2 connections",
+                 self.summary(self.parallel([single_a, single_b], 300), threads=False))
+        self.out("SINGLE_THREAD 2 POAs, 2 connections",
+                 self.summary(self.parallel([single_a, single2_a], 300), threads=False))
+
+        infos, _ = self.pipelined(main_a, 4, 200)
+        self.out("MAIN_THREAD 4 pipelined on one connection", self.summary(infos))
+        self.out("MAIN_THREAD 2 objects, 2 connections",
+                 self.summary(self.parallel([main_a, main_b], 300)))
+        self.out("MAIN_THREAD and ORB_CTRL, 2 connections",
+                 self.summary(self.parallel([main_a, ctrl], 300)))
+
+        # Oneways on one connection: the first one sleeps.
+        for case, key in [("ORB_CTRL", ctrl), ("SINGLE_THREAD", single_a)]:
+            self.events()
+            conn = self.connect()
+            for seq in range(1, 5):
+                conn.send(build_request(conn.new_id(), key, "post",
+                                        str_args(seq, 300 if seq == 1 else 0), response=False))
+            time.sleep(1.0)
+            conn.close()
+            self.out("%s 4 oneways on one connection, first one slow" % case,
+                     "processed as " + ", ".join(e.split()[1] for e in self.events()))
+
+        # An upcall calling another object of the same server.
+        for case, src, dst in [("ORB_CTRL -> ORB_CTRL", "persistent_user", "persistent_user"),
+                               ("SINGLE_THREAD -> same POA", "single", "single"),
+                               ("SINGLE_THREAD -> other SINGLE_THREAD POA", "single", "single2"),
+                               ("MAIN_THREAD -> MAIN_THREAD", "main", "main"),
+                               ("ORB_CTRL -> MAIN_THREAD", "persistent_user", "main")]:
+            src_key = self.ref(src, "a" if src != "persistent_user" else "obj").key
+            dst_ior = self.ctl("reference", dst, "b" if dst != "persistent_user" else "obj").string()
+
+            def relay_args(w, ior=dst_ior):
+                ior_bytes = binascii.unhexlify(ior[4:])
+                # The stringified IOR is a CDR encapsulation; re-marshal it
+                # into the stream as an object reference.
+                r = Reader(ior_bytes, 1, ior_bytes[0] == 1)
+                type_id = r.string()
+                w.string(type_id)
+                profiles = r.ulong()
+                w.ulong(profiles)
+                for _ in range(profiles):
+                    w.ulong(r.ulong())
+                    w.octets(r.octets())
+                w.long(100)
+            conn = self.connect()
+            o = safely(lambda: conn.call(src_key, "relay", relay_args)[1])
+            conn.close()
+            if isinstance(o, str):
+                self.out("relay %s" % case, o)
+            elif o.status == "NO_EXCEPTION":
+                info = call_info(o)
+                outer = o.body.string()
+                if info["thread"] == outer:
+                    where = "the same thread as the outer call"
+                elif info["thread"] == "main":
+                    where = "the main thread"
+                else:
+                    where = "another thread"
+                self.out("relay %s" % case, "ok, inner call on %s" % where)
+            else:
+                self.out("relay %s" % case, o.text)
+
+    # Shutdown ---------------------------------------------------------------
+
+    def section_shutdown(self):
+        r = self.ctl("shutdown_inside", True)
+        self.out("shutdown(true) inside an upcall", r.string() or "returned")
+
+        key = self.ref("persistent_user").key
+        busy = self.connect()
+        idle = self.connect()
+        idle.call(key, "work", work_args(0))
+        rid = busy.new_id()
+        busy.send(build_request(rid, key, "work", work_args(1500)))
+        time.sleep(0.2)
+        self.ctl("shutdown_later", 100)
+        seen = []
+        try:
+            while True:
+                msg = busy.recv(timeout=5.0)
+                seen.append(decode(msg).text if msg.type in (1, 4) else msg.type_name())
+                if msg.type == 5:
+                    break
+        except (ConnectionError, OSError) as e:
+            seen.append("closed" if isinstance(e, ConnectionError) else type(e).__name__)
+        self.out("shutdown(false) with a call in progress, busy connection", ", then ".join(seen))
+        seen = []
+        try:
+            while True:
+                msg = idle.recv(timeout=5.0)
+                seen.append(msg.type_name())
+                if msg.type == 5:
+                    break
+        except (ConnectionError, OSError) as e:
+            seen.append("closed" if isinstance(e, ConnectionError) else type(e).__name__)
+        self.out("shutdown(false), idle connection", ", then ".join(seen))
+        try:
+            self.conn.call(self.control.key, "events")
+            self.out("shutdown(false), control connection", "still answers")
+        except (ConnectionError, OSError) as e:
+            self.out("shutdown(false), control connection", "closed (%s)" % type(e).__name__)
+
+    def shutdown_inside_false(self):
+        key = self.ref("persistent_user").key
+        other = self.connect()
+        other.call(key, "work", work_args(0))
+        try:
+            r = self.ctl("shutdown_inside", False)
+            self.out("shutdown(false) inside an upcall", "reply %r" % (r.string() or "returned"))
+        except (ConnectionError, OSError, RuntimeError) as e:
+            self.out("shutdown(false) inside an upcall", "no reply (%s)" % e)
+        seen = []
+        for conn in (self.conn, other):
+            try:
+                msg = conn.recv(timeout=5.0)
+                seen.append(msg.type_name())
+            except (ConnectionError, OSError) as e:
+                seen.append("closed" if isinstance(e, ConnectionError) else type(e).__name__)
+        self.out("shutdown(false) inside an upcall, connections", "control: %s, other: %s" % tuple(seen))
+
+
+def describe(o, op=None):
+    if isinstance(o, str):
+        return o
+    if o.status != "NO_EXCEPTION":
+        return o.text
+    r = o.body
+    if op in ("_non_existent", "_not_existent", "_is_a"):
+        return "NO_EXCEPTION %s" % ("TRUE" if r.octet() else "FALSE")
+    if op == "_repository_id":
+        return "NO_EXCEPTION %s" % r.string()
+    if op is None or op == "work":
+        if r.at_end():
+            return "NO_EXCEPTION"
+        info = call_info(o)
+        return "NO_EXCEPTION, served as %s/%s" % (info["poa"], info["oid"])
+    return "NO_EXCEPTION (%d body bytes)" % (len(r.data) - r.pos)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--ior-file", required=True)
+    sub = parser.add_subparsers(dest="mode", required=True)
+    keys = sub.add_parser("keys")
+    keys.add_argument("--out", required=True)
+    run = sub.add_parser("run")
+    run.add_argument("--previous")
+    run.add_argument("--section", action="append",
+                     choices=["keys", "dispatch", "versions", "manager", "threads", "shutdown"])
+    sub.add_parser("shutdown-inside")
+    args = parser.parse_args()
+
+    with open(args.ior_file) as f:
+        probe = Probe(f.read())
+    if args.mode == "keys":
+        with open(args.out, "w") as f:
+            json.dump(probe.keys(), f, indent=1)
+        return
+    if args.mode == "shutdown-inside":
+        probe.shutdown_inside_false()
+        return
+    previous = None
+    if args.previous:
+        with open(args.previous) as f:
+            previous = json.load(f)
+    sections = args.section or ["keys", "dispatch", "versions", "manager", "threads", "shutdown"]
+    for name in sections:
+        print("# %s" % name, flush=True)
+        if name in ("keys", "dispatch"):
+            getattr(probe, "section_" + name)(previous)
+        else:
+            getattr(probe, "section_" + name)()
+
+
+if __name__ == "__main__":
+    main()

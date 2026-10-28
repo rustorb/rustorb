@@ -1,0 +1,71 @@
+// IDL for the POA and thread model probes (interop/run-poa-probe.sh).
+//
+// A probe server publishes Target objects in POAs with different policies
+// and a Control object (in the RootPOA, under its own POAManager) that
+// changes the state of those POAs. scripts/poa-probe sends hand-built GIOP
+// messages to the targets, so that it can pipeline requests on one
+// connection and use object keys that no stub would send.
+
+#ifndef POA_PROBE_IDL
+#define POA_PROBE_IDL
+
+#pragma prefix "rustorb.org"
+
+module PoaProbe {
+
+  typedef sequence<string> StringSeq;
+
+  struct CallInfo {
+    string thread;     // "main" for the thread that called ORB::run, else
+                       // "T1", "T2", ... in the order the server saw them
+    string object_id;  // the ObjectId of the target, from POACurrent
+    string poa;        // the name of the POA, from POACurrent
+    double start;      // seconds since the server started
+    double end;
+  };
+
+  interface Target {
+    // Sleeps ms milliseconds and says which thread ran the call.
+    CallInfo work(in long ms);
+
+    // Calls work(ms) on other (through the server's ORB) and returns its
+    // result; used to see whether an upcall can re-enter a POA. outer_thread
+    // is the thread that ran relay itself, labelled as in CallInfo.
+    CallInfo relay(in Target other, in long ms, out string outer_thread);
+
+    // Sleeps ms milliseconds, then records "post <seq>" in Control::events.
+    oneway void post(in long seq, in long ms);
+  };
+
+  exception Failed { string reason; };
+
+  interface Control {
+    // The stringified IOR of the object with this id in the POA (a path such
+    // as "persistent_user" or "persistent_user/nested"). For SYSTEM_ID POAs
+    // the id is the one the server created at start-up and the argument is
+    // ignored.
+    string reference(in string poa, in string oid) raises (Failed);
+
+    // POAManager of the "managed" POA: "active", "holding", "discarding"
+    // or "inactive".
+    void set_state(in string state) raises (Failed);
+
+    void deactivate_object(in string poa, in string oid) raises (Failed);
+    void activate_object(in string poa, in string oid) raises (Failed);
+    void destroy_poa(in string poa) raises (Failed);
+
+    // Servant manager calls seen so far ("incarnate oid", "preinvoke oid
+    // op", ...), and the AdapterActivator's unknown_adapter calls; cleared on
+    // return.
+    StringSeq events();
+
+    // ORB::shutdown(wait_for_completion) called inside this upcall. The
+    // result is the exception it raised, or "" if it returned.
+    string shutdown_inside(in boolean wait_for_completion);
+
+    // ORB::shutdown(false) called from another thread after delay_ms.
+    void shutdown_later(in long delay_ms);
+  };
+};
+
+#endif
