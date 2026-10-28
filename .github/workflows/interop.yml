@@ -24,6 +24,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
+      # rustorb-idl runs on the runner (run-pymapping-check.sh).
+      - uses: actions/checkout@v4
+        with:
+          repository: sugarsweetrobotics/idl_parser
+          ref: 84ddf43391382521e765729858bf704e2c579215
+          path: idl_parser
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       # omniORB and omniORBpy are built from source; the GitHub Actions cache
       # keeps that layer, so only the test implementations are rebuilt.
       - name: Build the omniORB image
@@ -59,6 +69,11 @@ jobs:
 
       - name: Probe the POA and thread model of each server
         run: interop/run-poa-probe.sh
+
+      - name: Compare the generated Python code with omniidl -bpython
+        run: interop/run-pymapping-check.sh
+        env:
+          IDL_PARSER_DIR: ${{ github.workspace }}/idl_parser
 
       - name: Compare GIOP captures with the golden files
         run: interop/scripts/golden-compare --all interop/out interop/golden

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rustorb-idl"
+version = "0.0.0"
+description = "IDL code generator for rustorb"
+license = { text = "GPL-3.0-or-later" }
+requires-python = ">=3.9"
+# idl_parser with the fixes the generator needs (sugarsweetrobotics/idl_parser#133-#144)
+dependencies = [
+  "idl_parser @ git+https://github.com/sugarsweetrobotics/idl_parser@84ddf43391382521e765729858bf704e2c579215",
+]
+
+[project.scripts]
+rustorb-idl = "rustorb_idl.cli:main_exit"
+
+[tool.setuptools]
+packages = ["rustorb_idl"]

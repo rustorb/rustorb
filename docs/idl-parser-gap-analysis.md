@@ -62,6 +62,7 @@ idl\_parser は Python 製なので、Rust で書く生成器クレートから�
 ## 次のアクション
 
 - [x] 不足ごとに idl\_parser の issue を作成（#133〜#144）
-- [ ] P0（#133〜#137）を M1 の前に直す
-- [ ] P1（#138〜#140）を M5 の前に直す
-- [ ] 生成器を Python で書くか、JSON 中間表現を介して Rust で書くかを M1 着手時に決める
+- [x] P0（#133〜#137）を M1 の前に直す
+- [x] P1（#138〜#140）を M5 の前に直す（P2 の #141〜#144 も修正済み）
+- [x] 生成器を Python で書くか、JSON 中間表現を介して Rust で書くかを M1 着手時に決める（Python で書く。[python-codegen.md](python-codegen.md)）
+- [ ] オペレーションの戻り値が複数語の型だと読めない（[idl\_parser#159](https://github.com/sugarsweetrobotics/idl_parser/issues/159)、M1 で発見。生成器に回避策あり）
