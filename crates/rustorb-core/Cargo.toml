@@ -1,0 +1,16 @@
+[package]
+name = "rustorb-core"
+description = "ORB core of rustorb: connections, request dispatch and POA"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+rustorb-cdr.workspace = true
+rustorb-giop.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "sync", "io-util", "time"] }
