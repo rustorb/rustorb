@@ -118,10 +118,10 @@ fn every_message_decodes() {
     }
 }
 
-/// omniORB writes a GIOP 1.2 wstring as a BOM followed by the stream byte
-/// order (cs-UTF-16.cc, TCS_W_UTF_16::marshalWString), with no BOM for an
-/// empty string, and a wchar as big endian without a BOM. rustorb writes
-/// the same bytes and reads them back.
+/// In the captures omniORB writes a GIOP 1.2 wstring as a BOM followed by
+/// the stream byte order, with no BOM for an empty string, and a wchar as
+/// big endian without a BOM. rustorb writes the same bytes and reads them
+/// back.
 #[test]
 fn wide_strings_match_omniorb() {
     for name in PAIRS {

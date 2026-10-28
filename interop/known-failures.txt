@@ -17,11 +17,10 @@ omniorbpy * echo_wchar[2] omniORBpy cannot unmarshal wchar replies
 * omniorbpy echo_wchar[1] omniORBpy cannot unmarshal wchar requests
 * omniorbpy echo_wchar[2] omniORBpy cannot unmarshal wchar requests
 
-# omniORB registers its UTF-16 wchar code set (TCS_W_UTF_16, cs-UTF-16.cc)
-# for GIOP 1.2 only, so wchar / wstring do not work over GIOP 1.1. The
+# wchar / wstring do not work over GIOP 1.1 between omniORB peers. The
 # omniORBpy client raises BAD_PARAM_WCharTCSNotKnown before sending. The
 # omniORB C++ client sends the value in the GIOP 1.2 form anyway, and both
-# servers reply with that BAD_PARAM.
+# servers reply with BAD_PARAM minor 0x4f4d0017 (BAD_PARAM_WCharTCSNotKnown).
 giop=1.1 * * echo_wchar[0] omniORB has no GIOP 1.1 wchar code set
 giop=1.1 * * echo_wchar[1] omniORB has no GIOP 1.1 wchar code set
 giop=1.1 * * echo_wchar[2] omniORB has no GIOP 1.1 wchar code set

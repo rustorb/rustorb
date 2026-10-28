@@ -41,6 +41,9 @@ jobs:
       - name: Run the naming service check
         run: interop/run-naming-check.sh
 
+      - name: Send hand-built GIOP requests to each server
+        run: interop/run-wire-probe.sh
+
       - name: Compare GIOP captures with the golden files
         run: interop/scripts/golden-compare --all interop/out interop/golden
 

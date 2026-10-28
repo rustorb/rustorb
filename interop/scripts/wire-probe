@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+"""Sends hand-built GIOP 1.2 requests to the Echo server and prints what it
+answers, to observe how an ORB reads wire forms its own clients never send.
+
+    wire-probe --host server --port 2810 [--no-wchar]
+
+Each line is `<case>: <result>`, where the result is the echoed value as
+the server sent it back (decoded by its BOM, or big endian without one) or
+the system exception it raised. The requests follow the CORBA 3.x GIOP
+specification only; run-wire-probe.sh compares the output with
+expected/wire-probe-<server>.txt.
+"""
+
+import argparse
+import socket
+import struct
+
+OBJECT_KEY = b"\xffInteropTest\x00Echo"
+# CONV_FRAME::CodeSetContext: ISO 8859-1 for char, UTF-16 for wchar.
+CODE_SET_CONTEXT = (1, b"\x01\x00\x00\x00" + struct.pack("<II", 0x00010001, 0x00010109))
+
+
+class Writer:
+    def __init__(self, little):
+        self.fmt = "<" if little else ">"
+        self.buf = bytearray()
+
+    def align(self, n):
+        # Offsets are relative to the start of the message (12-byte header).
+        while (12 + len(self.buf)) % n:
+            self.buf.append(0)
+
+    def ulong(self, v):
+        self.align(4)
+        self.buf += struct.pack(self.fmt + "I", v)
+
+    def octets(self, b):
+        self.ulong(len(b))
+        self.buf += b
+
+    def string(self, s):
+        self.octets(s.encode("latin-1") + b"\0")
+
+
+def request(little, request_id, operation, body):
+    w = Writer(little)
+    w.ulong(request_id)
+    w.buf += b"\x03\0\0\0"  # response_flags SYNC_WITH_TARGET, reserved
+    w.buf += struct.pack(w.fmt + "H", 0) + b"\0\0"  # KeyAddr
+    w.octets(OBJECT_KEY)
+    w.string(operation)
+    w.ulong(1)
+    w.ulong(CODE_SET_CONTEXT[0])
+    w.octets(CODE_SET_CONTEXT[1])
+    w.align(8)
+    w.buf += body(w)
+    header = b"GIOP\x01\x02" + bytes([1 if little else 0, 0])
+    return header + struct.pack(w.fmt + "I", len(w.buf)) + bytes(w.buf)
+
+
+def recv_message(sock):
+    def exact(n):
+        data = b""
+        while len(data) < n:
+            chunk = sock.recv(n - len(data))
+            if not chunk:
+                raise ConnectionError("connection closed")
+            data += chunk
+        return data
+    header = exact(12)
+    fmt = "<" if header[6] & 1 else ">"
+    return header + exact(struct.unpack(fmt + "I", header[8:12])[0])
+
+
+def utf16(data, default="be"):
+    if data[:2] == b"\xfe\xff":
+        return data[2:].decode("utf-16-be"), "BOM BE"
+    if data[:2] == b"\xff\xfe":
+        return data[2:].decode("utf-16-le"), "BOM LE"
+    return data.decode("utf-16-" + default, errors="replace"), "no BOM"
+
+
+def reply_result(msg, kind):
+    fmt = "<" if msg[6] & 1 else ">"
+    if msg[7] != 1:
+        return "message type %d" % msg[7]
+    pos = 12
+    pos += 4  # request id
+    status = struct.unpack_from(fmt + "I", msg, pos)[0]
+    pos += 4
+    count = struct.unpack_from(fmt + "I", msg, pos)[0]
+    pos += 4
+    for _ in range(count):
+        pos = (pos + 3) & ~3
+        n = struct.unpack_from(fmt + "I", msg, pos + 4)[0]  # after context_id
+        pos += 8 + n
+    if pos < len(msg):
+        pos = (pos + 7) & ~7
+    if status == 2:  # SYSTEM_EXCEPTION
+        n = struct.unpack_from(fmt + "I", msg, pos)[0]
+        repid = msg[pos + 4:pos + 4 + n - 1].decode()
+        p = (pos + 4 + n + 3) & ~3
+        minor = struct.unpack_from(fmt + "I", msg, p)[0]
+        return "%s minor 0x%08x" % (repid, minor)
+    if status != 0:
+        return "reply status %d" % status
+    if kind == "wstring":
+        n = struct.unpack_from(fmt + "I", msg, pos)[0]
+        text, form = utf16(msg[pos + 4:pos + 4 + n])
+        return "%r (%s)" % (text, form)
+    n = msg[pos]
+    text, form = utf16(msg[pos + 1:pos + 1 + n])
+    return "%r (length %d, %s)" % (text, n, form)
+
+
+def wstring_body(data):
+    return lambda w: struct.pack(w.fmt + "I", len(data)) + data
+
+
+def wchar_body(data):
+    return lambda w: bytes([len(data)]) + data
+
+
+CASES = [
+    # name, stream little endian, operation, body
+    ("wstring LE stream, no BOM, BE units", True, "wstring",
+     wstring_body("hello".encode("utf-16-be"))),
+    ("wstring LE stream, no BOM, LE units", True, "wstring",
+     wstring_body("hello".encode("utf-16-le"))),
+    ("wstring BE stream, no BOM, BE units", False, "wstring",
+     wstring_body("hello".encode("utf-16-be"))),
+    ("wstring LE stream, BOM BE", True, "wstring",
+     wstring_body(b"\xfe\xff" + "hello".encode("utf-16-be"))),
+    ("wstring BE stream, BOM LE", False, "wstring",
+     wstring_body(b"\xff\xfe" + "hello".encode("utf-16-le"))),
+    ("wstring LE stream, empty", True, "wstring", wstring_body(b"")),
+    ("wchar LE stream, length 2, BE", True, "wchar",
+     wchar_body("あ".encode("utf-16-be"))),
+    ("wchar LE stream, length 2, LE", True, "wchar",
+     wchar_body("あ".encode("utf-16-le"))),
+    ("wchar LE stream, length 4, BOM LE", True, "wchar",
+     wchar_body(b"\xff\xfe" + "あ".encode("utf-16-le"))),
+    ("wchar BE stream, length 4, BOM BE", False, "wchar",
+     wchar_body(b"\xfe\xff" + "あ".encode("utf-16-be"))),
+]
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--host", default="server")
+    parser.add_argument("--port", type=int, default=2810)
+    parser.add_argument("--no-wchar", action="store_true",
+                        help="skip wchar cases (the server cannot read wchar)")
+    args = parser.parse_args()
+
+    for i, (name, little, kind, body) in enumerate(CASES):
+        if kind == "wchar" and args.no_wchar:
+            continue
+        # A connection per case, so that a server closing the connection
+        # affects one case only.
+        with socket.create_connection((args.host, args.port), timeout=10) as sock:
+            sock.sendall(request(little, i + 1, "echo_" + kind, body))
+            try:
+                result = reply_result(recv_message(sock), kind)
+            except (ConnectionError, OSError) as e:
+                result = "no reply (%s)" % type(e).__name__
+        print("%s: %s" % (name, result))
+
+
+if __name__ == "__main__":
+    main()
