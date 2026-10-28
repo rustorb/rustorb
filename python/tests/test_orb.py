@@ -51,11 +51,14 @@ def setUpModule():
     global server_orb, client_orb, T, NT, T__POA, NT__POA
     if MISSING:
         raise unittest.SkipTest(MISSING)
+    idl_dir = os.path.join(ROOT, "interop", "idl")
     for idl in (
-        os.path.join(ROOT, "interop", "idl", "InteropTest.idl"),
+        os.path.join(idl_dir, "InteropTest.idl"),
+        os.path.join(idl_dir, "AnyTest.idl"),
+        os.path.join(idl_dir, "AnyTestHidden.idl"),
         os.path.join(HERE, "idl", "NativeTest.idl"),
     ):
-        if cli.main(["-bpython", "-C", OUT, idl]) != 0:
+        if cli.main(["-bpython", "-C", OUT, "-I" + idl_dir, idl]) != 0:
             raise AssertionError("rustorb-idl failed for %s" % idl)
     sys.path.insert(0, OUT)
     import InteropTest
@@ -411,6 +414,189 @@ class TypesTest(unittest.TestCase):
 
     def test_current(self):
         self.assertEqual(self.t.current_id(), "types-1")
+
+
+def make_any_servant():
+    import AnyTest__POA
+
+    class AnyEchoServant(AnyTest__POA.AnyEcho):
+        def echo(self, a):
+            return a
+
+        def echo_tc(self, tc):
+            return tc
+
+        def echo_nvlist(self, nvlist):
+            return nvlist
+
+        def out_inout(self, name, c):
+            return (CORBA.Any(CORBA.TC_string, name), c)
+
+        def describe(self, a):
+            tc = a.typecode()
+            return "%s %s" % (tc.kind(), getattr(a.value(), "__class__").__name__)
+
+    return AnyEchoServant()
+
+
+class AnyTypeCodeTest(unittest.TestCase):
+    """Any and TypeCode values (interop/idl/AnyTest.idl)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import AnyTest
+
+        cls.A = AnyTest
+        poa = server_orb.resolve_initial_references("RootPOA")
+        oid = poa.activate_object(make_any_servant())
+        cls.e = remote(client_orb, poa.id_to_reference(oid), AnyTest.AnyEcho)
+
+    def round_trip(self, a):
+        got = self.e.echo(a)
+        self.assertTrue(got.typecode().equal(a.typecode()), (got, a))
+        return got
+
+    def test_values(self):
+        A = self.A
+        node = A.Node("root", [A.Node("a", []), A.Node("b", [A.Node("c", [])])])
+        for a in (
+            CORBA.Any(CORBA.TC_long, 42),
+            CORBA.Any(CORBA.TC_ulonglong, 2**64 - 1),
+            CORBA.Any(CORBA.TC_double, 1.5),
+            CORBA.Any(CORBA.TC_boolean, True),
+            CORBA.Any(CORBA.TC_char, "x"),
+            CORBA.Any(CORBA.TC_string, "hello"),
+            CORBA.Any(CORBA.TC_wstring, "wide \u3042"),
+            CORBA.Any(A._tc_Short5, "abc"),
+            CORBA.Any(A._tc_Count, 7),
+            CORBA.Any(A._tc_Point, A.Point(1, 2.5)),
+            CORBA.Any(A._tc_Shade, A.DIM),
+            CORBA.Any(A._tc_Choice, A.Choice(3, "three")),
+            CORBA.Any(A._tc_Choice, A.Choice(9, True)),
+            CORBA.Any(A._tc_LongSeq, [1, 2, 3]),
+            CORBA.Any(A._tc_Octets, b"\x00\xff"),
+            CORBA.Any(A._tc_ShortArray, [1, -2, 3]),
+            CORBA.Any(A._tc_Node, node),
+            CORBA.Any(A._tc_Oops, A.Oops("bad", 3)),
+            CORBA.Any(CORBA.TC_any, CORBA.Any(CORBA.TC_long, 5)),
+            CORBA.Any(CORBA.TC_TypeCode, A._tc_Node),
+            CORBA.Any(CORBA.TC_null, None),
+        ):
+            got = self.round_trip(a)
+            self.assertEqual(got, a)
+            # Named types come back with the generated TypeCode and class.
+            if a.typecode()._id:
+                self.assertIs(got.typecode(), a.typecode())
+
+    def test_nvlist(self):
+        A = self.A
+        nv = [
+            A.NameValue("a", CORBA.Any(CORBA.TC_long, 1)),
+            A.NameValue("p", CORBA.Any(A._tc_Point, A.Point(3, -0.5))),
+        ]
+        self.assertEqual(self.e.echo_nvlist(nv), nv)
+        b, c = self.e.out_inout("x", CORBA.Any(CORBA.TC_long, 1))
+        self.assertEqual(b, CORBA.Any(CORBA.TC_string, "x"))
+        self.assertEqual(c, CORBA.Any(CORBA.TC_long, 1))
+
+    def test_object_references(self):
+        A = self.A
+        got = self.round_trip(CORBA.Any(A._tc_AnyEcho, self.e))
+        self.assertIsInstance(got.value(), A._objref_AnyEcho)
+        self.assertTrue(got.value()._is_equivalent(self.e))
+        self.assertIsNone(self.round_trip(CORBA.Any(A._tc_AnyEcho, None)).value())
+
+    def test_typecodes(self):
+        A = self.A
+        for tc in (A._tc_Node, A._tc_Choice, A._tc_NVList, A._tc_AnyEcho, CORBA.TC_long):
+            got = self.e.echo_tc(tc)
+            self.assertTrue(got.equal(tc))
+        choice = self.e.echo_tc(A._tc_Choice)
+        self.assertEqual(choice.member_count(), 4)
+        self.assertEqual(choice.member_label(2).value(), 3)
+        self.assertEqual(choice.default_index(), 3)
+        self.assertEqual(choice.member_label(3).typecode().kind(), CORBA.tk_octet)
+        node = self.e.echo_tc(A._tc_Node)
+        children = node.member_type(1)
+        self.assertEqual(children.kind(), CORBA.tk_alias)
+        self.assertIs(children.content_type().content_type(), node)
+        self.assertTrue(CORBA.TC_long.equivalent(A._tc_Count))
+        self.assertFalse(CORBA.TC_long.equal(A._tc_Count))
+
+    def test_types_made_at_run_time(self):
+        from rustorb import _rt
+
+        orb = client_orb
+        rec = orb.create_recursive_tc("IDL:Test/Tree:1.0")
+        tree = orb.create_struct_tc(
+            "IDL:Test/Tree:1.0",
+            "Tree",
+            [
+                CORBA.StructMember("label", CORBA.TC_string, None),
+                CORBA.StructMember("kids", orb.create_sequence_tc(0, rec), None),
+            ],
+        )
+        self.assertIs(tree.member_type(1).content_type(), tree)
+        Tree = tree._NP_class()
+        value = Tree("top", [Tree("leaf", [])])
+        got = self.round_trip(CORBA.Any(tree, value))
+        self.assertIs(got.typecode(), tree)
+        self.assertEqual(got.value(), value)
+
+        mood = orb.create_enum_tc("IDL:Test/Mood:1.0", "Mood", ["HAPPY", "SAD"])
+        union = orb.create_union_tc(
+            "IDL:Test/U:1.0",
+            "U",
+            mood,
+            [
+                CORBA.UnionMember("n", CORBA.Any(mood, mood._NP_class()._items[1]), CORBA.TC_long, None),
+                CORBA.UnionMember("d", CORBA.Any(CORBA.TC_octet, 0), CORBA.TC_string, None),
+            ],
+        )
+        U = union._NP_class()
+        u = U(mood._NP_class()._items[1], 5)
+        self.assertEqual(self.round_trip(CORBA.Any(union, u)).value(), u)
+        seq = orb.create_sequence_tc(2, CORBA.TC_long)
+        self.assertEqual(self.round_trip(CORBA.Any(seq, [1, 2])).value(), [1, 2])
+        with self.assertRaises(CORBA.BAD_PARAM):
+            self.e.echo(CORBA.Any(seq, [1, 2, 3]))
+
+        # A type this side does not know gets a new class.
+        del _rt.dynamic_types["IDL:Test/Tree:1.0"]
+        got = self.e.echo(CORBA.Any(tree, value))
+        self.assertIsNot(got.typecode(), tree)
+        self.assertTrue(got.typecode().equal(tree))
+        self.assertEqual(got.value().label, "top")
+        self.assertEqual(got.value().kids[0].label, "leaf")
+        self.assertIsNot(type(got.value()), Tree)
+
+    def test_hidden_types(self):
+        import AnyTestHidden as H
+
+        A = self.A
+        s = H.Secret("s", [A.Point(1, 2.0)], A.DARK)
+        for a in (
+            CORBA.Any(H._tc_Secret, s),
+            CORBA.Any(H._tc_Pick, H.Pick("b", s)),
+            CORBA.Any(H._tc_Moods, [H.SAD, H.HAPPY]),
+        ):
+            self.assertEqual(self.round_trip(a), a)
+
+    def test_bad_values(self):
+        A = self.A
+        for a in (
+            CORBA.Any(CORBA.TC_long, "x"),
+            CORBA.Any(A._tc_Short5, "toolong"),
+            CORBA.Any(A._tc_Point, 3),
+            CORBA.Any(A._tc_ShortArray, [1]),
+        ):
+            with self.assertRaises(CORBA.BAD_PARAM, msg=repr(a)):
+                self.e.echo(a)
+        with self.assertRaises(CORBA.BAD_PARAM):
+            self.e.echo(42)
+        declared = CORBA.TypeCode(CORBA.tk_struct, "IDL:Test/Never:1.0", "Never")
+        with self.assertRaises(CORBA.BAD_TYPECODE):
+            self.e.echo(CORBA.Any(declared, None))
 
 
 class LocalTest(unittest.TestCase):

@@ -3,7 +3,10 @@ use std::ops::{Deref, DerefMut};
 use rustorb_cdr::{CdrDecode, CdrEncode, Decoder, Encoder};
 use rustorb_giop::Ior;
 
-use crate::{CodeSets, CompletionStatus, ObjectRef, Orb, SystemException, SystemExceptionKind};
+use crate::value::{self, Any, Value};
+use crate::{
+    CodeSets, CompletionStatus, ObjectRef, Orb, SystemException, SystemExceptionKind, TypeCode,
+};
 
 /// The stream request arguments are written to.
 ///
@@ -48,6 +51,29 @@ impl OutStream<'_> {
             None => Ior::nil().encode(self.enc)?,
         }
         Ok(())
+    }
+
+    /// Writes a TypeCode. An unresolved recursive placeholder is
+    /// `BAD_TYPECODE`.
+    pub fn write_typecode(&mut self, tc: &TypeCode) -> Result<(), SystemException> {
+        tc.encode(self.enc).map_err(|e| match e {
+            rustorb_cdr::Error::InvalidTypeCode(_) => {
+                SystemException::new(SystemExceptionKind::BAD_TYPECODE, 0, CompletionStatus::No)
+            }
+            e => e.into(),
+        })
+    }
+
+    /// Writes a value of type `tc`. A value that does not fit the type is
+    /// `BAD_PARAM`.
+    pub fn write_value(&mut self, tc: &TypeCode, v: &Value) -> Result<(), SystemException> {
+        value::write(self, tc, v)
+    }
+
+    /// Writes an `any`: its TypeCode, then its value.
+    pub fn write_any(&mut self, any: &Any) -> Result<(), SystemException> {
+        self.write_typecode(any.typecode())?;
+        value::write(self, any.typecode(), any.value())
     }
 
     fn check_wchar(&self) -> Result<(), SystemException> {
@@ -153,6 +179,46 @@ impl<'a> InStream<'a> {
         } else {
             Some(ObjectRef::new(self.orb.clone(), ior))
         })
+    }
+
+    /// Reads a `char` in the negotiated `char` code set.
+    pub fn read_char_value(&mut self) -> Result<char, SystemException> {
+        let completed = self.completed;
+        let b = self.dec.read_char().map_err(|_| marshal_with(completed))?;
+        let s = self.code_sets.decode_string(&[b]).map_err(|mut e| {
+            e.completed = completed;
+            e
+        })?;
+        s.chars().next().ok_or_else(|| marshal_with(completed))
+    }
+
+    /// Reads a TypeCode.
+    pub fn read_typecode(&mut self) -> Result<TypeCode, SystemException> {
+        let completed = self.completed;
+        TypeCode::decode(&mut self.dec).map_err(|_| marshal_with(completed))
+    }
+
+    /// Reads a value of type `tc`.
+    pub fn read_value(&mut self, tc: &TypeCode) -> Result<Value, SystemException> {
+        value::read(self, tc)
+    }
+
+    /// Reads an `any`.
+    pub fn read_any(&mut self) -> Result<Any, SystemException> {
+        let tc = self.read_typecode()?;
+        let v = value::read(self, &tc)?;
+        Ok(Any::new(tc, v))
+    }
+
+    /// `MARSHAL` with the completion status of the stream.
+    pub fn marshal_error(&self) -> SystemException {
+        marshal_with(self.completed)
+    }
+
+    /// The completion status errors of this stream carry: yes for a
+    /// reply, no for request arguments.
+    pub fn completion_status(&self) -> CompletionStatus {
+        self.completed
     }
 
     /// Whether every byte of the body was read.

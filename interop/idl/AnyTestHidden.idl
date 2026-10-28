@@ -1,0 +1,22 @@
+// Types that only the clients of the stage 2 tests know: the servers echo
+// and describe any values of these types without knowing them.
+
+#include "AnyTest.idl"
+
+module AnyTestHidden {
+  typedef sequence<AnyTest::Point> PointSeq;
+
+  struct Secret {
+    string text;
+    PointSeq points;
+    AnyTest::Shade shade;
+  };
+
+  union Pick switch (char) {
+    case 'a': long n;
+    case 'b': Secret s;
+  };
+
+  enum Mood { HAPPY, SAD };
+  typedef sequence<Mood> Moods;
+};

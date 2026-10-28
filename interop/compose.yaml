@@ -9,6 +9,8 @@
 #   NAMING_CMD                  command that starts the naming service
 #                               (impls/rustorb/naming-service 2809 for rustorb)
 #   CLIENT_MAX_GIOP             highest GIOP version the client uses (omniORB)
+#   SUITE / ECHO_NAME           the test suite (basic: InteropTest.idl, any:
+#                               AnyTest.idl) and the name of its object
 #
 # Use run-matrix.sh rather than calling docker compose directly.
 
@@ -38,11 +40,13 @@ services:
       - --naming
       - corbaloc::naming:2809/NameService
       - --name
-      - interop/Echo
+      - ${ECHO_NAME:-interop/Echo}
       - --host
       - server
       - --port
       - "2810"
+      - --suite
+      - ${SUITE:-basic}
 
   client:
     image: ${CLIENT_IMAGE:-rustorb-interop-omniorb:latest}
@@ -67,9 +71,11 @@ services:
       - --naming
       - corbaloc::naming:2809/NameService
       - --name
-      - interop/Echo
+      - ${ECHO_NAME:-interop/Echo}
       - --host
       - client
       - --port
       - "2811"
       - --shutdown-server
+      - --suite
+      - ${SUITE:-basic}

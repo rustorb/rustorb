@@ -44,12 +44,18 @@ inline Options parse_args(int argc, char** argv, std::vector<std::string>& orb_a
     else if (a == "--port") opt.port = std::atoi(value().c_str());
     else if (a == "--timeout") opt.timeout = std::atof(value().c_str());
     else if (a == "--shutdown-server") opt.shutdown_server = true;
-    else orb_args.push_back(a);
+    else if (a == "--suite") {
+      // Only the InteropTest suite: the C++ binding has no Any yet.
+      if (value() != "basic") {
+        std::cerr << "only --suite basic is supported" << std::endl;
+        std::exit(2);
+      }
+    } else orb_args.push_back(a);
   }
   if (opt.naming.empty() || opt.name.empty()) {
     std::cerr << "usage: " << argv[0]
               << " --naming CORBALOC --name PATH [--host H] [--port N] [--timeout S]"
-              << " [--shutdown-server] [ORB options]" << std::endl;
+              << " [--shutdown-server] [--suite basic] [ORB options]" << std::endl;
     std::exit(2);
   }
   orb_args.push_back("-ORBInitRef");

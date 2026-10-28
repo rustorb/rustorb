@@ -8,6 +8,7 @@
 //! Options: `--naming CORBALOC --name PATH [--host HOST] [--port N]
 //! [--timeout S]`, plus ORB options.
 
+mod anytest;
 mod idl;
 
 use std::process::ExitCode;
@@ -212,6 +213,8 @@ struct Args {
     host: Option<String>,
     port: u16,
     timeout: Duration,
+    /// The AnyTest suite (`--suite any`) instead of InteropTest.
+    any: bool,
 }
 
 fn parse_args(args: Vec<String>) -> Result<(Args, Vec<String>), String> {
@@ -220,6 +223,7 @@ fn parse_args(args: Vec<String>) -> Result<(Args, Vec<String>), String> {
     let mut host = None;
     let mut port = 0;
     let mut timeout = Duration::from_secs(30);
+    let mut any = false;
     let mut rest = Vec::new();
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
@@ -233,6 +237,7 @@ fn parse_args(args: Vec<String>) -> Result<(Args, Vec<String>), String> {
                 let v = value("--timeout")?;
                 timeout = Duration::from_secs_f64(v.parse().map_err(|_| "bad --timeout")?);
             }
+            "--suite" => any = suite_is_any(&value("--suite")?)?,
             _ => rest.push(arg),
         }
     }
@@ -243,9 +248,18 @@ fn parse_args(args: Vec<String>) -> Result<(Args, Vec<String>), String> {
             host,
             port,
             timeout,
+            any,
         },
         rest,
     ))
+}
+
+fn suite_is_any(suite: &str) -> Result<bool, String> {
+    match suite {
+        "basic" => Ok(false),
+        "any" => Ok(true),
+        _ => Err(format!("bad --suite {suite}")),
+    }
 }
 
 /// Binds `obj` at `path`, creating the intermediate contexts.
@@ -284,7 +298,7 @@ fn run() -> Result<(), String> {
     let manager = root_poa.the_poa_manager();
     let poa = root_poa
         .create_poa(
-            "InteropTest",
+            if args.any { "AnyTest" } else { "InteropTest" },
             Some(&manager),
             &[
                 Policy::Lifespan(Lifespan::Persistent),
@@ -303,6 +317,22 @@ fn run() -> Result<(), String> {
         .id_to_reference(b"Echo")
         .map_err(|e| format!("id_to_reference: {e}"))?;
     let _ = servant.this.set(obj.clone());
+    // The AnyTest suite serves AnyEcho at --name, and Echo next to it (at
+    // NAME-Echo) for the client to shut the server down.
+    let mut bindings = vec![(args.name.clone(), obj.clone())];
+    if args.any {
+        let any_echo = Arc::new(anytest::AnyEcho::default());
+        poa.activate_object_with_id(b"AnyEcho", any_echo.clone())
+            .map_err(|e| format!("activate_object_with_id: {e}"))?;
+        let any_obj = poa
+            .id_to_reference(b"AnyEcho")
+            .map_err(|e| format!("id_to_reference: {e}"))?;
+        let _ = any_echo.this.set(any_obj.clone());
+        bindings = vec![
+            (args.name.clone(), any_obj),
+            (format!("{}-Echo", args.name), obj.clone()),
+        ];
+    }
     manager.activate().map_err(|e| format!("activate: {e}"))?;
 
     let root = orb
@@ -311,17 +341,19 @@ fn run() -> Result<(), String> {
         .ok_or("nil naming context")?;
     let root = NamingContext::unchecked_narrow(root);
     let deadline = Instant::now() + args.timeout;
-    loop {
-        match bind(&root, &args.name, &obj) {
-            Ok(()) => break,
-            Err(NamingError::System(e))
-                if (e.is(SystemExceptionKind::TRANSIENT)
-                    || e.is(SystemExceptionKind::COMM_FAILURE))
-                    && Instant::now() < deadline =>
-            {
-                std::thread::sleep(Duration::from_millis(200));
+    for (path, obj) in &bindings {
+        loop {
+            match bind(&root, path, obj) {
+                Ok(()) => break,
+                Err(NamingError::System(e))
+                    if (e.is(SystemExceptionKind::TRANSIENT)
+                        || e.is(SystemExceptionKind::COMM_FAILURE))
+                        && Instant::now() < deadline =>
+                {
+                    std::thread::sleep(Duration::from_millis(200));
+                }
+                Err(e) => return Err(format!("binding {path}: {e}")),
             }
-            Err(e) => return Err(format!("binding {}: {e}", args.name)),
         }
     }
     println!("server ready: {}", args.name);

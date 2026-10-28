@@ -5,6 +5,7 @@
 # Format: [giop=VER] CLIENT SERVER CASE REASON...   (CLIENT / SERVER may be *)
 #
 # A line with giop=VER applies only to `run-matrix.sh --giop VER` runs.
+# The list is for the basic suite; `--suite any` has no known failures.
 
 # omniORBpy 4.3.4 (and 4.3.2) unmarshals a GIOP 1.2 wchar with unmarshalChar()
 # instead of unmarshalWChar() on Python >= 3.3 (modules/pyMarshal.cc,

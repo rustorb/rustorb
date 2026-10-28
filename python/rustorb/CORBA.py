@@ -443,6 +443,31 @@ TC_longdouble = TypeCode(tk_longdouble)
 TC_wchar = TypeCode(tk_wchar)
 TC_wstring = TypeCode(tk_wstring)
 
+#: TCKind value -> TypeCode of the kinds without parameters.
+_SIMPLE = {
+    tc._k._v: tc
+    for tc in (
+        TC_null,
+        TC_void,
+        TC_short,
+        TC_long,
+        TC_ushort,
+        TC_ulong,
+        TC_float,
+        TC_double,
+        TC_boolean,
+        TC_char,
+        TC_octet,
+        TC_any,
+        TC_TypeCode,
+        TC_Principal,
+        TC_longlong,
+        TC_ulonglong,
+        TC_longdouble,
+        TC_wchar,
+    )
+}
+
 # ---------------------------------------------------------------------------
 # Any
 
@@ -732,8 +757,161 @@ class ORB(object):
         self._destroyed = True
         self._native.destroy()
 
+    # -- TypeCodes --
+
+    def create_struct_tc(self, id, name, members):
+        return _create_struct_like(tk_struct, id, name, members)
+
+    def create_exception_tc(self, id, name, members):
+        return _create_struct_like(tk_except, id, name, members)
+
+    def create_union_tc(self, id, name, discriminator_type, members):
+        from . import _rt
+
+        labels, ms, default = [], [], -1
+        for i, m in enumerate(members):
+            m_name, label, m_type = _member_fields(m, 3)
+            if isinstance(label, Any) and label._t._k is tk_octet and label._v == 0:
+                if default >= 0:
+                    raise BAD_PARAM(0, COMPLETED_NO)
+                default = i
+                labels.append(None)
+            else:
+                labels.append(label._v if isinstance(label, Any) else label)
+            ms.append((m_name, m_type))
+        tc = TypeCode(
+            tk_union,
+            id,
+            name,
+            members=ms,
+            labels=labels,
+            discriminator=discriminator_type,
+            default=default,
+        )
+        _resolve_recursive(tc, id)
+        _rt.make_class(tc)
+        return tc
+
+    def create_enum_tc(self, id, name, members):
+        from . import _rt
+
+        tc = TypeCode(tk_enum, id, name, members=list(members))
+        _rt.make_class(tc)
+        return tc
+
+    def create_alias_tc(self, id, name, original_type):
+        return TypeCode(tk_alias, id, name, content=original_type)
+
+    def create_value_box_tc(self, id, name, boxed_type):
+        return TypeCode(tk_value_box, id, name, content=boxed_type)
+
+    def create_interface_tc(self, id, name):
+        return TypeCode(tk_objref, id, name)
+
+    def create_abstract_interface_tc(self, id, name):
+        return TypeCode(tk_abstract_interface, id, name)
+
+    def create_local_interface_tc(self, id, name):
+        return TypeCode(tk_local_interface, id, name)
+
+    def create_native_tc(self, id, name):
+        return TypeCode(tk_native, id, name)
+
+    def create_string_tc(self, bound):
+        return TypeCode(tk_string, length=bound)
+
+    def create_wstring_tc(self, bound):
+        return TypeCode(tk_wstring, length=bound)
+
+    def create_fixed_tc(self, digits, scale):
+        return TypeCode(tk_fixed, digits=digits, scale=scale)
+
+    def create_sequence_tc(self, bound, element_type):
+        return TypeCode(tk_sequence, content=element_type, length=bound)
+
+    def create_array_tc(self, length, element_type):
+        return TypeCode(tk_array, content=element_type, length=length)
+
+    def create_recursive_tc(self, id):
+        """A placeholder for the struct or union ``id``, to use in its member
+        types; ``create_struct_tc`` and ``create_union_tc`` replace it."""
+        tc = TypeCode(tk_null, id)
+        tc._recursive = True
+        return tc
+
     def __repr__(self):
         return "<CORBA.ORB %r>" % self._id
+
+
+class StructMember(_types.Struct):
+    """A member for ``ORB.create_struct_tc``: ``name``, ``type`` and
+    ``type_def`` (unused, may be None)."""
+
+    _NP_RepositoryId = "IDL:omg.org/CORBA/StructMember:1.0"
+    _NP_members = ("name", "type", "type_def")
+
+    def __init__(self, name, type, type_def=None):  # noqa: A002
+        self.name = name
+        self.type = type
+        self.type_def = type_def
+
+
+class UnionMember(_types.Struct):
+    """A member for ``ORB.create_union_tc``: ``name``, ``label`` (an Any;
+    the octet 0 for the default member), ``type`` and ``type_def``."""
+
+    _NP_RepositoryId = "IDL:omg.org/CORBA/UnionMember:1.0"
+    _NP_members = ("name", "label", "type", "type_def")
+
+    def __init__(self, name, label, type, type_def=None):  # noqa: A002
+        self.name = name
+        self.label = label
+        self.type = type
+        self.type_def = type_def
+
+
+def _member_fields(m, n):
+    """(name, type) of a StructMember, (name, label, type) of a
+    UnionMember, or the same from a tuple."""
+    if isinstance(m, StructMember):
+        return m.name, m.type
+    if isinstance(m, UnionMember):
+        return m.name, m.label, m.type
+    return tuple(m)[:n]
+
+
+def _create_struct_like(kind, id, name, members):
+    from . import _rt
+
+    tc = TypeCode(kind, id, name, members=[_member_fields(m, 2) for m in members])
+    _resolve_recursive(tc, id)
+    _rt.make_class(tc)
+    return tc
+
+
+def _resolve_recursive(tc, id):
+    """Replace the placeholders of ``create_recursive_tc(id)`` in the member
+    types of ``tc`` by ``tc``."""
+    seen = set()
+
+    def fix(t):
+        if getattr(t, "_recursive", False) and t._id == id:
+            return tc
+        if id_(t) in seen:
+            return t
+        seen.add(id_(t))
+        if t._content is not None:
+            t._content = fix(t._content)
+        if t._disc is not None:
+            t._disc = fix(t._disc)
+        if t._members is not None and t._k is not tk_enum:
+            t._members = [(n, fix(mt)) for n, mt in t._members]
+        return t
+
+    id_ = _builtins.id
+    seen.add(id_(tc))
+    if tc._members is not None:
+        tc._members = [(n, fix(mt)) for n, mt in tc._members]
 
 
 def ORB_init(argv=None, orb_identifier=ORB_ID):

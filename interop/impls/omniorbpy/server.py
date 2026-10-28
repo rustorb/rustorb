@@ -152,6 +152,23 @@ def main():
         root_poa.create_lifespan_policy(PortableServer.PERSISTENT),
         root_poa.create_id_assignment_policy(PortableServer.USER_ID),
     ]
+    if args.suite == "any":
+        # The stage 2 suite: AnyTest::AnyEcho, plus an Echo object through
+        # which the client stops the server.
+        import anytest
+        poa = root_poa.create_POA("AnyTest", root_poa._get_the_POAManager(), policies)
+        poa.activate_object_with_id(b"AnyEcho", anytest.AnyEchoServant())
+        poa.activate_object_with_id(b"Echo", EchoServant(orb))
+        root_poa._get_the_POAManager().activate()
+        obj = poa.id_to_reference(b"AnyEcho")
+        root = root_context(orb, args.timeout)
+        bind(root, args.name, obj)
+        bind(root, args.name + "-Echo", poa.id_to_reference(b"Echo"))
+        print("server ready: %s" % args.name, flush=True)
+        orb.run()
+        orb.destroy()
+        print("server stopped", flush=True)
+        return 0
     poa = root_poa.create_POA("InteropTest", root_poa._get_the_POAManager(), policies)
     servant = EchoServant(orb)
     poa.activate_object_with_id(b"Echo", servant)

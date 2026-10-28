@@ -83,8 +83,10 @@ IDL to Python マッピングと omniORBpy の Python 3 版に合わせる。
 | enum | 列挙子（`EnumItem`）。別の enum の列挙子は `BAD_PARAM` |
 | `fixed` | `CORBA.fixed`（桁数・小数桁を超えると `BAD_PARAM`） |
 | オブジェクト参照 | スタブ（IOR の型 ID が既知でその派生なら最派生のスタブ）、nil は `None` |
+| `any` | `CORBA.Any`（受け取った型が生成コードになければ TypeCode とクラスをその場で作る。[any-typecode.md](any-typecode.md)） |
+| `TypeCode` | `CORBA.TypeCode` |
 
-`any`、`TypeCode`、valuetype、`long double` はまだ扱わず、`NO_IMPLEMENT` になる（Any と TypeCode は M5）。
+valuetype と `long double` はまだ扱わず、`NO_IMPLEMENT` になる。
 
 ## 例外
 

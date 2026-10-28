@@ -1,0 +1,116 @@
+// Stage 2 test IDL (M5): any and TypeCode.
+//
+// Every server serves AnyEcho next to InteropTest::Echo, and every client
+// runs the same cases. Both sides know the values of the table below by
+// name; the comment on each operation is its specification.
+//
+// | name           | type     | value                                          |
+// | -------------- | -------- | ---------------------------------------------- |
+// | long           | long     | 42                                             |
+// | short          | short    | -7                                             |
+// | ulonglong      | ulonglong| 18446744073709551615                           |
+// | float          | float    | 0.25                                           |
+// | double         | double   | 1.5                                            |
+// | boolean        | boolean  | TRUE                                           |
+// | char           | char     | 'x'                                            |
+// | octet          | octet    | 255                                            |
+// | string         | string   | "hello any"                                    |
+// | bounded        | Short5   | "abc"                                          |
+// | count          | Count    | 7                                              |
+// | point          | Point    | {x=1, y=2.5}                                   |
+// | shade          | Shade    | DIM                                            |
+// | choice_l       | Choice   | l=10 (discriminator 1)                         |
+// | choice_s       | Choice   | s="three" (discriminator 3)                    |
+// | choice_default | Choice   | b=TRUE (discriminator 9)                       |
+// | longseq        | LongSeq  | [1, 2, 3]                                      |
+// | octets         | Octets   | [0, 1, 255]                                    |
+// | shortarray     | ShortArray | [1, -2, 3]                                   |
+// | node           | Node     | root{a{}, b{c{}}}                              |
+// | nvlist         | NVList   | [("a", long 1), ("b", string "x"), ("p", Point {x=3, y=-0.5})] |
+// | any            | any      | an any holding long 5                          |
+// | typecode       | TypeCode | the TypeCode of Node                           |
+// | objref         | AnyEcho  | the AnyEcho object itself                      |
+// | nil            | AnyEcho  | nil                                            |
+// | oops           | Oops     | {why="bad", code=3}                            |
+// | empty          | (null)   | an empty any (TypeCode tk_null)                |
+//
+// The TypeCode of each value is the TypeCode of its IDL type (an alias
+// stays an alias). Values compare as their type does; floats are exact,
+// object references compare with is_equivalent. Two TypeCodes are the
+// same when TypeCode::equal says so.
+
+module AnyTest {
+  struct Point {
+    long x;
+    double y;
+  };
+
+  enum Shade { LIGHT, DARK, DIM };
+
+  union Choice switch (long) {
+    case 1: long l;
+    case 2:
+    case 3: string s;
+    default: boolean b;
+  };
+
+  typedef long Count;
+  typedef string<5> Short5;
+  typedef sequence<long> LongSeq;
+  typedef sequence<octet> Octets;
+  typedef short ShortArray[3];
+
+  struct Node;
+  typedef sequence<Node> NodeSeq;
+  struct Node {
+    string name;
+    NodeSeq children;
+  };
+
+  struct NameValue {
+    string name;
+    any value;
+  };
+  typedef sequence<NameValue> NVList;
+
+  exception Oops {
+    string why;
+    long code;
+  };
+
+  typedef sequence<string> Names;
+
+  interface AnyEcho {
+    // Returns a unchanged.
+    any echo(in any a);
+
+    // Returns the value of the table named `name`.
+    any make(in string name);
+
+    // Whether a is the value named `name`: its TypeCode is equal to the
+    // server's and its value is the same.
+    boolean check(in string name, in any a);
+
+    // b is the value named `name`; c must be the value named `name` on the
+    // way in (else BAD_PARAM) and is the value named "long" on the way
+    // out.
+    void out_inout(in string name, out any b, inout any c);
+
+    // Returns tc unchanged.
+    CORBA::TypeCode echo_tc(in CORBA::TypeCode tc);
+
+    // Returns the TypeCode of the value named `name`.
+    CORBA::TypeCode make_tc(in string name);
+
+    // Whether tc is equal to the TypeCode of the value named `name`.
+    boolean check_tc(in string name, in CORBA::TypeCode tc);
+
+    // Returns l unchanged.
+    NVList echo_nvlist(in NVList l);
+
+    // The kind (the TCKind name without tk_, "struct") and repository id
+    // ("" for kinds without one) of the TypeCode of a, as the server read
+    // it, separated by a space: "struct IDL:AnyTestHidden/Secret:1.0".
+    string describe(in any a);
+  };
+};

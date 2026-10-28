@@ -3,6 +3,7 @@
 #include <mutex>
 
 #include "common.h"
+#include "anytest.h"
 
 using namespace InteropTest;
 
@@ -138,7 +139,7 @@ class EchoImpl : public POA_InteropTest::Echo {
 };
 
 // Binds obj at path, creating intermediate contexts as needed.
-static void bind(CosNaming::NamingContext_ptr root, const std::string& path, CORBA::Object_ptr obj) {
+static void bind_name(CosNaming::NamingContext_ptr root, const std::string& path, CORBA::Object_ptr obj) {
   CosNaming::Name name = to_name(path);
   CosNaming::NamingContext_var ctx = CosNaming::NamingContext::_duplicate(root);
   for (CORBA::ULong i = 0; i + 1 < name.length(); ++i) {
@@ -163,6 +164,29 @@ int main(int argc, char** argv) {
   Options opt = parse_args(argc, argv, orb_args);
   try {
     CORBA::ORB_var orb = orb_init(orb_args);
+    if (opt.suite == "any") {
+      // The stage 2 suite: AnyTest::AnyEcho, with an Echo object next to it
+      // for the client to shut the server down.
+      PortableServer::POA_var poa = persistent_poa(orb, "AnyTest");
+      anytest::AnyEchoImpl* any_servant = new anytest::AnyEchoImpl;
+      PortableServer::ObjectId_var any_oid = PortableServer::string_to_ObjectId("AnyEcho");
+      poa->activate_object_with_id(any_oid, any_servant);
+      any_servant->_remove_ref();
+      EchoImpl* servant = new EchoImpl(orb);
+      PortableServer::ObjectId_var oid = PortableServer::string_to_ObjectId("Echo");
+      poa->activate_object_with_id(oid, servant);
+      servant->_remove_ref();
+      CORBA::Object_var any_obj = poa->id_to_reference(any_oid);
+      CORBA::Object_var obj = poa->id_to_reference(oid);
+      CosNaming::NamingContext_var root = root_context(orb, opt.timeout);
+      bind_name(root, opt.name, any_obj);
+      bind_name(root, opt.name + "-Echo", obj);
+      std::cout << "server ready: " << opt.name << std::endl;
+      orb->run();
+      orb->destroy();
+      std::cout << "server stopped" << std::endl;
+      return 0;
+    }
     PortableServer::POA_var poa = persistent_poa(orb, "InteropTest");
 
     EchoImpl* servant = new EchoImpl(orb);
@@ -172,7 +196,7 @@ int main(int argc, char** argv) {
 
     CORBA::Object_var obj = poa->id_to_reference(oid);
     CosNaming::NamingContext_var root = root_context(orb, opt.timeout);
-    bind(root, opt.name, obj);
+    bind_name(root, opt.name, obj);
     std::cout << "server ready: " << opt.name << std::endl;
 
     orb->run();

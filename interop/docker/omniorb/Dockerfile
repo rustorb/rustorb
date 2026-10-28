@@ -60,7 +60,8 @@ RUN make -C /src/omniorb-cpp OMNIORB=/opt/omniorb IDLDIR=/opt/interop/idl \
       OUT=/opt/interop/impls/omniorb-cpp install
 RUN mkdir -p /opt/interop/impls/omniorbpy/stubs \
  && omniidl -bpython -C /opt/interop/impls/omniorbpy/stubs \
-      -I/opt/interop/idl /opt/interop/idl/InteropTest.idl /opt/interop/idl/PoaProbe.idl
+      -I/opt/interop/idl /opt/interop/idl/InteropTest.idl /opt/interop/idl/PoaProbe.idl \
+      /opt/interop/idl/AnyTest.idl /opt/interop/idl/AnyTestHidden.idl
 
 # ---------------------------------------------------------------------------
 FROM ubuntu:${UBUNTU_VERSION}

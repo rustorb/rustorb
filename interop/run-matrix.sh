@@ -2,12 +2,13 @@
 # Runs the interop test matrix with Docker Compose.
 #
 #   ./run-matrix.sh [--build] [--capture] [--giop VER] [--naming IMPL] [--out DIR]
-#                   [CLIENT:SERVER ...]
+#                   [--suite SUITE] [CLIENT:SERVER ...]
 #
 # Without pairs, every client in $CLIENT_IMPLS is paired with every server in
 # $SERVER_IMPLS. Both default to $IMPLS plus rustorb, rustorbpy and rustorbcpp
 # (the Rust, the Python and the C++ client and server of rustorb), which are
-# built on the host.
+# built on the host; rustorbcpp is left out of the any suite until the C++
+# binding has Any.
 # --build    builds the omniORB image first
 # --capture  captures each client's traffic and splits it into GIOP messages
 # --giop VER limits the client to GIOP VER (e.g. 1.1); the results go to
@@ -15,6 +16,9 @@
 # --naming IMPL  the naming service: omninames (default) or rustorb; with
 #            rustorb the results go to <client>-to-<server>-naming-rustorb
 # --out DIR  where logs and captures go (default: interop/out)
+# --suite SUITE  basic (default): the InteropTest.idl cases; any: the
+#            AnyTest.idl cases (Any and TypeCode), whose results go to
+#            <client>-to-<server>-any
 #
 # Implementations live in impls/<name>/ and provide `server` and `client`
 # executables that accept the options in README.md. To use an implementation
@@ -24,13 +28,12 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 IMPLS="${IMPLS:-omniorbpy omniorb-cpp}"
-CLIENT_IMPLS="${CLIENT_IMPLS:-$IMPLS rustorb rustorbpy rustorbcpp}"
-SERVER_IMPLS="${SERVER_IMPLS:-$IMPLS rustorb rustorbpy rustorbcpp}"
 IMAGE="rustorb-interop-omniorb:latest"
 build=0
 capture=0
 giop=
 naming=omninames
+suite=basic
 out="$PWD/out"
 pairs=()
 
@@ -40,13 +43,23 @@ while [ $# -gt 0 ]; do
     --capture) capture=1 ;;
     --giop) giop="$2"; shift ;;
     --naming) naming="$2"; shift ;;
+    --suite) suite="$2"; shift ;;
     --out) out="$(realpath -m "$2")"; shift ;;
-    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
     *:*) pairs+=("$1") ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
 done
+
+case "$suite" in
+  basic) rustorb_impls="rustorb rustorbpy rustorbcpp"; export ECHO_NAME=interop/Echo ;;
+  any) rustorb_impls="rustorb rustorbpy"; export ECHO_NAME=interop/AnyEcho ;;
+  *) echo "unknown suite: $suite" >&2; exit 2 ;;
+esac
+export SUITE="$suite"
+CLIENT_IMPLS="${CLIENT_IMPLS:-$IMPLS $rustorb_impls}"
+SERVER_IMPLS="${SERVER_IMPLS:-$IMPLS $rustorb_impls}"
 
 if [ ${#pairs[@]} -eq 0 ]; then
   for c in $CLIENT_IMPLS; do
@@ -101,9 +114,11 @@ for pair in "${pairs[@]}"; do
 done
 
 # Prints the cases listed in known-failures.txt for a client / server pair
-# and the GIOP version limit of the run ($giop, empty for none).
+# and the GIOP version limit of the run ($giop, empty for none). The list is
+# for the basic suite: the any suite has no known failures.
 known_failures() {
   local client="$1" server="$2" c s case rest
+  [ "$suite" = basic ] || return 0
   while read -r c s case rest; do
     case "$c" in ''|'#'*) continue ;; esac
     # A leading giop=VER applies the line only to runs with --giop VER.
@@ -152,6 +167,9 @@ for pair in "${pairs[@]}"; do
   client="${pair%%:*}"
   server="${pair##*:}"
   name="${client}-to-${server}${giop:+-giop$giop}"
+  if [ "$suite" != basic ]; then
+    name+="-$suite"
+  fi
   if [ "$naming" != omninames ]; then
     name+="-naming-$naming"
   fi

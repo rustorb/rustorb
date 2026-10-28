@@ -13,6 +13,7 @@
 //! environment variable, as omniORB does). `--host` and `--port` give the
 //! endpoint of the callback object.
 
+mod anytest;
 mod idl;
 
 use std::fmt;
@@ -443,6 +444,8 @@ struct Args {
     port: u16,
     timeout: Duration,
     shutdown_server: bool,
+    /// The AnyTest suite (`--suite any`) instead of InteropTest.
+    any: bool,
 }
 
 fn parse_args(mut args: Vec<String>) -> Result<(Args, Vec<String>), String> {
@@ -452,6 +455,7 @@ fn parse_args(mut args: Vec<String>) -> Result<(Args, Vec<String>), String> {
     let mut port = 0;
     let mut timeout = Duration::from_secs(30);
     let mut shutdown_server = false;
+    let mut any = false;
     let mut rest = Vec::new();
     let mut iter = args.drain(..);
     while let Some(arg) = iter.next() {
@@ -466,6 +470,13 @@ fn parse_args(mut args: Vec<String>) -> Result<(Args, Vec<String>), String> {
             "--host" => host = Some(value("--host")?),
             "--port" => port = value("--port")?.parse().map_err(|_| "bad --port")?,
             "--shutdown-server" => shutdown_server = true,
+            "--suite" => {
+                any = match value("--suite")?.as_str() {
+                    "basic" => false,
+                    "any" => true,
+                    other => return Err(format!("bad --suite {other}")),
+                }
+            }
             _ => rest.push(arg),
         }
     }
@@ -477,6 +488,7 @@ fn parse_args(mut args: Vec<String>) -> Result<(Args, Vec<String>), String> {
             port,
             timeout,
             shutdown_server,
+            any,
         },
         rest,
     ))
@@ -513,6 +525,9 @@ fn run() -> Result<bool, String> {
         NamingError::System(e) => starting(e),
         _ => false,
     };
+    if args.any {
+        return run_any(&orb, &root, &args, bound);
+    }
     let echo = retry("the Echo server", args.timeout, bound, || {
         root.resolve(&name)?.ok_or_else(|| {
             SystemException::new(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No).into()
@@ -536,6 +551,58 @@ fn run() -> Result<bool, String> {
 
     if args.shutdown_server {
         echo.request("shutdown")
+            .send_oneway()
+            .map_err(|e| format!("shutdown: {e}"))?;
+    }
+    println!("\n{} passed, {} failed", r.passed, r.failed.len());
+    if !r.failed.is_empty() {
+        println!("failed: {}", r.failed.join(", "));
+    }
+    let _ = orb.shutdown(true);
+    Ok(r.failed.is_empty())
+}
+
+/// The AnyTest suite against the AnyEcho object at `--name`; the server's
+/// Echo object is at NAME-Echo.
+fn run_any(
+    orb: &Orb,
+    root: &NamingContext,
+    args: &Args,
+    bound: impl Fn(&NamingError) -> bool,
+) -> Result<bool, String> {
+    let name = to_name(&args.name).map_err(|e| format!("--name {}: {e}", args.name))?;
+    let echo = retry("the AnyEcho server", args.timeout, bound, || {
+        root.resolve(&name)?.ok_or_else(|| {
+            SystemException::new(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No).into()
+        })
+    })?;
+    let is_echo = echo
+        .is_a(anytest::ANY_ECHO_ID)
+        .map_err(|e| format!("_is_a: {e}"))?;
+    if !is_echo {
+        return Err(format!("{} is not an AnyTest::AnyEcho", args.name));
+    }
+    let reachable = |e: &Exception| e.as_system().is_some_and(starting);
+    retry("the AnyEcho server", args.timeout, reachable, || {
+        echo.non_existent()
+    })?;
+
+    let mut r = Runner {
+        passed: 0,
+        failed: Vec::new(),
+    };
+    for (case, f) in anytest::cases(&echo) {
+        r.case(&case, f);
+    }
+
+    if args.shutdown_server {
+        let path = format!("{}-Echo", args.name);
+        let server = to_name(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|n| root.resolve(&n).map_err(|e| e.to_string()))?
+            .ok_or("nil Echo")?;
+        server
+            .request("shutdown")
             .send_oneway()
             .map_err(|e| format!("shutdown: {e}"))?;
     }
