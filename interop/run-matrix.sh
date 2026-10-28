@@ -114,9 +114,11 @@ for pair in "${pairs[@]}"; do
 done
 
 # Prints the cases listed in known-failures.txt for a client / server pair
-# and the GIOP version limit of the run ($giop, empty for none).
+# and the GIOP version limit of the run ($giop, empty for none). The list is
+# for the basic suite: the any suite has no known failures.
 known_failures() {
   local client="$1" server="$2" c s case rest
+  [ "$suite" = basic ] || return 0
   while read -r c s case rest; do
     case "$c" in ''|'#'*) continue ;; esac
     # A leading giop=VER applies the line only to runs with --giop VER.
