@@ -37,3 +37,17 @@ path = "fuzz_targets/fragment_assembler.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "ior"
+path = "fuzz_targets/ior.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "object_url"
+path = "fuzz_targets/object_url.rs"
+test = false
+doc = false
+bench = false

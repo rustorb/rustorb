@@ -174,5 +174,5 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 - [x] Cargoワークスペースの雛形とクレート分割を作る
 - [x] omniORBとomniORBpyの相互接続テスト環境（Docker）と、第1段階のテスト用IDLを用意する（[interop/](../interop/README.md)）
 - [x] CDRエンコーダとGIOPメッセージ型の実装に着手する（`rustorb-cdr`、`rustorb-giop`、cargo-fuzzターゲット）
-- [ ] IOR（IIOPプロファイルとタグ付きコンポーネント）、corbaloc・corbanameのパースを実装する
+- [x] IOR（IIOPプロファイルとタグ付きコンポーネント）、corbaloc・corbanameのパースを実装する（`rustorb-giop`）
 - [ ] 相互接続環境のキャプチャで、GIOP 1.2のBOMなしwstringのバイト順（仕様はビッグエンディアン）と、GIOP 1.1のFragmentのアラインメントをomniORBと突き合わせる
