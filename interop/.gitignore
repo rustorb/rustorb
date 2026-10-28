@@ -1,0 +1,5 @@
+/out/
+/impls/omniorb-cpp/gen/
+/impls/omniorb-cpp/server
+/impls/omniorb-cpp/client
+**/__pycache__/

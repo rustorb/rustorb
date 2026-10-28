@@ -1,0 +1,49 @@
+name: Interop
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  omniorb:
+    name: omniORB / omniORBpy matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # omniORB and omniORBpy are built from source; the GitHub Actions cache
+      # keeps that layer, so only the test implementations are rebuilt.
+      - name: Build the omniORB image
+        uses: docker/build-push-action@v6
+        with:
+          context: interop
+          file: interop/docker/omniorb/Dockerfile
+          tags: rustorb-interop-omniorb:latest
+          load: true
+          cache-from: type=gha,scope=interop-omniorb
+          cache-to: type=gha,scope=interop-omniorb,mode=max
+
+      - name: Run the client / server matrix
+        run: interop/run-matrix.sh --capture
+
+      - name: Run the naming service check
+        run: interop/run-naming-check.sh
+
+      - name: Compare GIOP captures with the golden files
+        run: interop/scripts/golden-compare --all interop/out interop/golden
+
+      - name: Upload logs and captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: interop-omniorb
+          path: interop/out
+          if-no-files-found: ignore

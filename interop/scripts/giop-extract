@@ -1,0 +1,364 @@
+#!/usr/bin/env python3
+"""Splits the TCP streams of a pcap file into GIOP messages.
+
+Writes one .bin file per GIOP message (header included) and a messages.json
+index describing each one. Only the Python standard library is used, so the
+script runs anywhere.
+
+    giop-extract capture.pcap OUTDIR [--port-label 2809=naming ...]
+"""
+
+import argparse
+import json
+import os
+import struct
+import sys
+
+MSG_TYPES = ["Request", "Reply", "CancelRequest", "LocateRequest", "LocateReply",
+             "CloseConnection", "MessageError", "Fragment"]
+REPLY_STATUS = ["NO_EXCEPTION", "USER_EXCEPTION", "SYSTEM_EXCEPTION", "LOCATION_FORWARD",
+                "LOCATION_FORWARD_PERM", "NEEDS_ADDRESSING_MODE"]
+
+LINKTYPE_ETHERNET = 1
+LINKTYPE_RAW = 101
+LINKTYPE_LINUX_SLL = 113
+LINKTYPE_LINUX_SLL2 = 276
+
+
+def read_pcap(path):
+    """Yields (timestamp, link payload) for each packet; handles pcap only."""
+    with open(path, "rb") as f:
+        data = f.read()
+    magic = data[:4]
+    if magic in (b"\xd4\xc3\xb2\xa1", b"\x4d\x3c\xb2\xa1"):
+        endian = "<"
+    elif magic in (b"\xa1\xb2\xc3\xd4", b"\xa1\xb2\x3c\x4d"):
+        endian = ">"
+    else:
+        sys.exit("%s: not a pcap file (pcapng is not supported)" % path)
+    linktype = struct.unpack(endian + "I", data[20:24])[0]
+    off = 24
+    while off + 16 <= len(data):
+        sec, frac, incl, _orig = struct.unpack(endian + "IIII", data[off:off + 16])
+        off += 16
+        yield linktype, data[off:off + incl]
+        off += incl
+
+
+def ip_payload(linktype, frame):
+    if linktype == LINKTYPE_ETHERNET:
+        ethertype = struct.unpack(">H", frame[12:14])[0]
+        off = 14
+        while ethertype == 0x8100:
+            ethertype = struct.unpack(">H", frame[off + 2:off + 4])[0]
+            off += 4
+        return ethertype, frame[off:]
+    if linktype == LINKTYPE_LINUX_SLL:
+        return struct.unpack(">H", frame[14:16])[0], frame[16:]
+    if linktype == LINKTYPE_LINUX_SLL2:
+        return struct.unpack(">H", frame[0:2])[0], frame[20:]
+    if linktype == LINKTYPE_RAW:
+        return (0x0800 if frame[0] >> 4 == 4 else 0x86DD), frame
+    sys.exit("unsupported link type %d" % linktype)
+
+
+def tcp_segments(path):
+    """Yields (src, dst, seq, flags, payload) for each TCP segment."""
+    for linktype, frame in read_pcap(path):
+        ethertype, ip = ip_payload(linktype, frame)
+        if ethertype == 0x0800:
+            ihl = (ip[0] & 0x0F) * 4
+            total = struct.unpack(">H", ip[2:4])[0]
+            if ip[9] != 6:
+                continue
+            src_ip = ".".join(str(b) for b in ip[12:16])
+            dst_ip = ".".join(str(b) for b in ip[16:20])
+            tcp = ip[ihl:total]
+        elif ethertype == 0x86DD:
+            if ip[6] != 6:
+                continue
+            src_ip = ip[8:24].hex()
+            dst_ip = ip[24:40].hex()
+            plen = struct.unpack(">H", ip[4:6])[0]
+            tcp = ip[40:40 + plen]
+        else:
+            continue
+        sport, dport, seq = struct.unpack(">HHI", tcp[0:8])
+        doff = (tcp[12] >> 4) * 4
+        flags = tcp[13]
+        yield (src_ip, sport), (dst_ip, dport), seq, flags, tcp[doff:]
+
+
+class Stream:
+    """One direction of a TCP connection, reassembled by sequence number."""
+
+    def __init__(self):
+        self.isn = None
+        self.segments = {}
+
+    def add(self, seq, flags, payload):
+        if flags & 0x02:  # SYN
+            self.isn = (seq + 1) & 0xFFFFFFFF
+            return
+        if payload:
+            self.segments[seq] = payload
+
+    def data(self):
+        if not self.segments:
+            return b""
+        base = self.isn if self.isn is not None else min(self.segments)
+        out = bytearray()
+        pos = 0
+        for seq in sorted(self.segments, key=lambda s: (s - base) & 0xFFFFFFFF):
+            rel = (seq - base) & 0xFFFFFFFF
+            payload = self.segments[seq]
+            if rel + len(payload) <= pos:
+                continue  # retransmission
+            if rel > pos:
+                raise ValueError("gap in TCP stream at offset %d" % pos)
+            out += payload[pos - rel:]
+            pos = len(out)
+        return bytes(out)
+
+
+def connections(path):
+    """Returns [(client, server, client->server bytes, server->client bytes)].
+
+    Connections are ordered by their first packet. The client is the side
+    that sent the SYN.
+    """
+    conns = {}
+    order = []
+    for src, dst, seq, flags, payload in tcp_segments(path):
+        key = tuple(sorted([src, dst]))
+        if key not in conns:
+            conns[key] = {"client": None, "streams": {}}
+            order.append(key)
+        c = conns[key]
+        if flags & 0x02 and not flags & 0x10:  # SYN without ACK
+            c["client"] = src
+        c["streams"].setdefault(src, Stream()).add(seq, flags, payload)
+    result = []
+    for key in order:
+        c = conns[key]
+        client = c["client"] or key[0]
+        server = key[1] if client == key[0] else key[0]
+        empty = Stream()
+        result.append((client, server,
+                       c["streams"].get(client, empty).data(),
+                       c["streams"].get(server, empty).data()))
+    return result
+
+
+class Reader:
+    """Minimal CDR reader for GIOP headers."""
+
+    def __init__(self, data, little):
+        self.data = data
+        self.little = little
+        self.pos = 12
+        self.padding = []
+
+    def align(self, n):
+        # CDR alignment in GIOP counts from the start of the message header.
+        pad = (-self.pos) % n
+        if pad:
+            self.padding.append([self.pos, pad])
+        self.pos += pad
+
+    def ulong(self):
+        self.align(4)
+        v = struct.unpack_from("<I" if self.little else ">I", self.data, self.pos)[0]
+        self.pos += 4
+        return v
+
+    def ushort(self):
+        self.align(2)
+        v = struct.unpack_from("<H" if self.little else ">H", self.data, self.pos)[0]
+        self.pos += 2
+        return v
+
+    def octet(self):
+        v = self.data[self.pos]
+        self.pos += 1
+        return v
+
+    def octets(self):
+        n = self.ulong()
+        v = self.data[self.pos:self.pos + n]
+        self.pos += n
+        return v
+
+    def string(self):
+        return self.octets().rstrip(b"\x00").decode("latin-1")
+
+    def service_contexts(self):
+        ids = []
+        for _ in range(self.ulong()):
+            ids.append(self.ulong())
+            self.octets()
+        return ids
+
+
+def describe(msg):
+    """Decodes the GIOP header and the request / reply header."""
+    major, minor, flags, mtype = msg[4], msg[5], msg[6], msg[7]
+    little = bool(flags & 1)
+    info = {
+        "giop": "%d.%d" % (major, minor),
+        "type": MSG_TYPES[mtype] if mtype < len(MSG_TYPES) else str(mtype),
+        "little_endian": little,
+        "fragmented": bool(flags & 2),
+        "size": len(msg),
+    }
+    r = Reader(msg, little)
+    try:
+        if info["type"] == "Request":
+            if minor <= 1:
+                info["service_contexts"] = r.service_contexts()
+                info["request_id"] = r.ulong()
+                info["response_expected"] = bool(r.octet())
+                if minor == 1:
+                    r.pos += 3
+                info["object_key"] = r.octets().hex()
+                info["operation"] = r.string()
+                r.octets()  # requesting_principal
+                info["body_offset"] = r.pos
+            else:
+                info["request_id"] = r.ulong()
+                info["response_flags"] = r.octet()
+                r.pos += 3
+                disc = r.ushort()
+                if disc == 0:
+                    info["object_key"] = r.octets().hex()
+                else:
+                    info["target_addressing"] = disc
+                    return info
+                info["operation"] = r.string()
+                info["service_contexts"] = r.service_contexts()
+                body_start(r, info)
+        elif info["type"] == "Reply":
+            if minor <= 1:
+                info["service_contexts"] = r.service_contexts()
+                info["request_id"] = r.ulong()
+                info["reply_status"] = REPLY_STATUS[r.ulong()]
+                info["body_offset"] = r.pos
+            else:
+                info["request_id"] = r.ulong()
+                info["reply_status"] = REPLY_STATUS[r.ulong()]
+                info["service_contexts"] = r.service_contexts()
+                body_start(r, info)
+        elif info["type"] == "LocateRequest":
+            info["request_id"] = r.ulong()
+            if minor <= 1:
+                info["object_key"] = r.octets().hex()
+            elif r.ushort() == 0:
+                info["object_key"] = r.octets().hex()
+        elif info["type"] == "LocateReply":
+            info["request_id"] = r.ulong()
+            info["locate_status"] = r.ulong()
+        elif info["type"] == "CancelRequest":
+            info["request_id"] = r.ulong()
+    except (IndexError, struct.error, ValueError):
+        info["decode_error"] = True
+    # Alignment gaps in the header. omniORB does not clear them, so their
+    # contents are whatever was in its buffer and must not be compared.
+    info["padding"] = r.padding
+    return info
+
+
+def body_start(r, info):
+    """GIOP 1.2 aligns the request / reply body on 8 (when there is one)."""
+    if r.pos < len(r.data):
+        r.align(8)
+    info["body_offset"] = r.pos
+
+
+def split_giop(data):
+    out = []
+    pos = 0
+    while pos + 12 <= len(data):
+        if data[pos:pos + 4] != b"GIOP":
+            raise ValueError("no GIOP magic at offset %d" % pos)
+        little = data[pos + 6] & 1
+        size = struct.unpack_from("<I" if little else ">I", data, pos + 8)[0]
+        out.append(data[pos:pos + 12 + size])
+        pos += 12 + size
+    if pos != len(data):
+        raise ValueError("%d trailing bytes" % (len(data) - pos))
+    return out
+
+
+def interleave(c2s, s2c):
+    """Orders the messages of both directions as request / reply pairs.
+
+    pcap timestamps would also work, but this keeps the output independent of
+    timing: each Reply follows its Request, other messages keep their order.
+    """
+    replies = {}
+    rest = []
+    for m in s2c:
+        info = describe(m)
+        if "request_id" in info and info["type"] in ("Reply", "LocateReply"):
+            replies.setdefault(info["request_id"], []).append(m)
+        else:
+            rest.append(m)
+    ordered = []
+    for m in c2s:
+        ordered.append(("c2s", m))
+        info = describe(m)
+        rid = info.get("request_id")
+        if rid in replies and replies[rid]:
+            ordered.append(("s2c", replies[rid].pop(0)))
+    for rid in sorted(replies):
+        ordered += [("s2c", m) for m in replies[rid]]
+    ordered += [("s2c", m) for m in rest]
+    return ordered
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("pcap")
+    parser.add_argument("outdir")
+    parser.add_argument("--port-label", action="append", default=[],
+                        help="PORT=NAME, names the listening side of a connection")
+    args = parser.parse_args()
+
+    labels = {}
+    for item in args.port_label:
+        port, name = item.split("=", 1)
+        labels[int(port)] = name
+
+    os.makedirs(args.outdir, exist_ok=True)
+    index = []
+    n = 0
+    for conn_no, (client, server, c2s, s2c) in enumerate(connections(args.pcap)):
+        peer = labels.get(server[1], "%s:%d" % server)
+        try:
+            msgs = interleave(split_giop(c2s), split_giop(s2c))
+        except ValueError as e:
+            print("connection %d to %s: %s" % (conn_no, peer, e), file=sys.stderr)
+            continue
+        for direction, m in msgs:
+            info = describe(m)
+            label = info["type"]
+            if "operation" in info:
+                label += "-" + info["operation"]
+            filename = "%04d-c%d-%s-%s.bin" % (n, conn_no, direction, label)
+            with open(os.path.join(args.outdir, filename), "wb") as f:
+                f.write(m)
+            entry = {"file": filename, "connection": conn_no, "server": peer,
+                     "direction": direction}
+            entry.update(info)
+            index.append(entry)
+            n += 1
+
+    with open(os.path.join(args.outdir, "messages.json"), "w") as f:
+        json.dump(index, f, indent=1)
+        f.write("\n")
+    print("%d GIOP messages written to %s" % (n, args.outdir))
+
+
+if __name__ == "__main__":
+    main()

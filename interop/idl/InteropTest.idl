@@ -1,0 +1,149 @@
+// Test IDL for the rustorb interop tests (stage 1, no Any).
+//
+// Covers the constructs listed in docs/development-plan.md: basic types,
+// string / wstring, struct, enum, union, sequence, array, typedef, user
+// exceptions, attributes, oneway, object reference passing and callbacks.
+//
+// Every implementation of Echo must behave exactly as the comments say, so
+// that any client can be paired with any server.
+
+#ifndef INTEROP_TEST_IDL
+#define INTEROP_TEST_IDL
+
+#pragma prefix "rustorb.org"
+
+module InteropTest {
+
+  const long MAGIC = 0x52555354;  // "RUST"
+
+  typedef sequence<long> LongSeq;
+  typedef sequence<string> StringSeq;
+  typedef sequence<octet> OctetSeq;
+  typedef long LongArray[4];
+  typedef double Matrix[2][3];
+
+  enum Color { RED, GREEN, BLUE };
+
+  struct Point {
+    double x;
+    double y;
+  };
+
+  struct Record {
+    long id;
+    string name;
+    Color hue;
+    Point pos;
+    LongSeq values;
+    boolean active;
+  };
+  typedef sequence<Record> RecordSeq;
+
+  union Value switch (long) {
+    case 1: long l;
+    case 2: string s;
+    case 3: Point p;
+    case 4:
+    case 5: LongSeq seq;
+    default: boolean flag;
+  };
+
+  union Shade switch (Color) {
+    case RED: octet level;
+    case GREEN: string label;
+  };
+
+  exception Oops {
+    long code;
+    string reason;
+  };
+
+  exception DivideByZero {};
+
+  interface Callback {
+    // Returns "ack:" + message.
+    string notify(in string message);
+  };
+
+  interface Echo {
+    // --- basic types: each returns its argument unchanged ---
+    boolean echo_boolean(in boolean v);
+    octet echo_octet(in octet v);
+    char echo_char(in char v);
+    wchar echo_wchar(in wchar v);
+    short echo_short(in short v);
+    unsigned short echo_ushort(in unsigned short v);
+    long echo_long(in long v);
+    unsigned long echo_ulong(in unsigned long v);
+    long long echo_longlong(in long long v);
+    unsigned long long echo_ulonglong(in unsigned long long v);
+    float echo_float(in float v);
+    double echo_double(in double v);
+    string echo_string(in string v);
+    wstring echo_wstring(in wstring v);
+
+    // --- constructed types: each returns its argument unchanged ---
+    Color echo_color(in Color v);
+    Point echo_point(in Point v);
+    Record echo_record(in Record v);
+    RecordSeq echo_records(in RecordSeq v);
+    Value echo_value(in Value v);
+    Shade echo_shade(in Shade v);
+    LongArray echo_long_array(in LongArray v);
+    Matrix echo_matrix(in Matrix v);
+    LongSeq echo_long_seq(in LongSeq v);
+    StringSeq echo_string_seq(in StringSeq v);
+    OctetSeq echo_octets(in OctetSeq v);
+
+    // --- parameter modes ---
+    // Returns a + b, and sets b to the old value of a and a to the old b.
+    long swap(inout long a, inout long b);
+    // Returns a / b and sets remainder to a % b (truncating, like C).
+    // Raises DivideByZero when b == 0.
+    long divide(in long a, in long b, out long remainder) raises (DivideByZero);
+    // Sets p to { x: x, y: -x }, r to Record { id: x, name: "r" + x as
+    // decimal, hue: BLUE, pos: p, values: [x, x + 1], active: true }.
+    void make(in long x, out Point p, out Record r);
+
+    // --- exceptions ---
+    // Always raises Oops { code, reason }.
+    void fail(in long code, in string reason) raises (Oops);
+    // Always raises CORBA::BAD_PARAM with minor code 42, completed NO.
+    void fail_system();
+
+    // --- attributes ---
+    // Initially 0.
+    attribute long counter;
+    // "rustorb-interop-echo".
+    readonly attribute string name;
+
+    // --- oneway ---
+    // Appends message to the list returned by posted().
+    oneway void post(in string message);
+    // Returns every message received by post(), in order, and clears the list.
+    StringSeq posted();
+
+    // --- object references ---
+    // Returns a reference to this object.
+    Echo self_ref();
+    // Returns other if it is non-nil, or a reference to this object if nil.
+    Echo echo_ref(in Echo other);
+    // Returns true when other is nil.
+    boolean is_nil(in Echo other);
+
+    // --- callbacks ---
+    // Calls cb.notify(message) on the client's object and returns the result.
+    string call_back(in Callback cb, in string message);
+    // Stores cb; later trigger() calls notify on it.
+    void register_callback(in Callback cb);
+    // Calls notify(message) on the registered callback and returns the result.
+    // Raises Oops { 1, "no callback" } if nothing is registered.
+    string trigger(in string message) raises (Oops);
+
+    // --- lifecycle ---
+    // Stops the server process after replying.
+    oneway void shutdown();
+  };
+};
+
+#endif
