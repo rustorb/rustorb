@@ -1,0 +1,18 @@
+#!/bin/sh
+# Starts the rustorb naming service (rustorb-names) in the foreground, like
+# scripts/run-omninames. run-naming-check.sh and run-matrix.sh build it on
+# the host and mount this directory, with the binary in bin/, into the
+# naming container.
+#   naming-service [PORT]
+# The data stays in NAMING_LOGDIR (default /tmp/rustorb-names) across a
+# restart of the container; -start is only given the first time.
+set -eu
+port="${1:-2809}"
+logdir="${NAMING_LOGDIR:-/tmp/rustorb-names}"
+start=
+if [ ! -f "$logdir/naming.port" ]; then
+  start="-start $port"
+fi
+# shellcheck disable=SC2086 # $start is empty or two words
+exec "$(dirname "$0")/bin/rustorb-names" $start -logdir "$logdir" \
+  -ORBendPointPublish "giop:tcp:${NAMING_HOST:-$(hostname)}:$port"

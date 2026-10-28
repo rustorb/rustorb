@@ -9,13 +9,13 @@ rustorb) with every server (the same three); see
 | Path | Contents |
 | --- | --- |
 | `idl/InteropTest.idl` | Stage 1 test IDL (no Any) |
-| `impls/omniorbpy/` | Echo server and test client on omniORBpy, and the naming service check |
+| `impls/omniorbpy/` | Echo server and test client on omniORBpy, the naming service check and the naming service restart check |
 | `impls/omniorb-cpp/` | Echo server and test client on omniORB C++ |
-| `impls/rustorb/` | Echo server and test client on rustorb, with hand-written stubs and skeletons, the naming service check and the POA probe server |
+| `impls/rustorb/` | Echo server and test client on rustorb, with hand-written stubs and skeletons, the naming service check, the POA probe server and the start script of the rustorb naming service (`naming-service`) |
 | `docker/omniorb/Dockerfile` | omniORB 4.3.4 and omniORBpy 4.3.4 built from source, with the implementations above |
 | `compose.yaml` | naming service, server and client containers |
-| `run-matrix.sh` | runs every client / server combination |
-| `run-naming-check.sh` | runs a fixed CosNaming operation sequence (and `corbaname:` URLs) with the omniORBpy and rustorb clients and compares the output with `expected/naming-check.txt` |
+| `run-matrix.sh` | runs every client / server combination, with omniNames or (`--naming rustorb`) the rustorb naming service |
+| `run-naming-check.sh` | runs a fixed CosNaming operation sequence (and `corbaname:` URLs) with the omniORBpy and rustorb clients against omniNames or (`--naming rustorb`) the rustorb naming service, and compares the output with `expected/naming-check.txt`; for rustorb, also restarts the service and compares with `expected/naming-restart.txt` |
 | `run-wire-probe.sh` | sends hand-built GIOP requests (`scripts/wire-probe`) to each server and compares the answers with `expected/wire-probe-*.txt` |
 | `run-poa-probe.sh` | starts the POA probe servers (`impls/omniorbpy/poa-probe-server`, `impls/omniorb-cpp/poa_probe_server`, `impls/rustorb/poa-probe-server`, IDL `idl/PoaProbe.idl`) and runs `scripts/poa-probe` against them, comparing the output with `expected/poa-probe-*.txt` |
 | `known-failures.txt` | failures caused by the existing ORBs, treated as expected |
@@ -33,6 +33,8 @@ interop/run-matrix.sh --build --capture        # all pairs, with GIOP captures
 interop/run-matrix.sh --capture --giop 1.1     # all pairs, clients limited to GIOP 1.1
 interop/run-matrix.sh omniorbpy:omniorb-cpp    # one pair: CLIENT:SERVER
 interop/run-naming-check.sh
+interop/run-naming-check.sh --naming rustorb   # against rustorb-names, with a restart
+interop/run-matrix.sh --naming rustorb         # all pairs, rustorb-names instead of omniNames
 interop/run-wire-probe.sh
 interop/run-poa-probe.sh
 interop/scripts/golden-compare --all interop/out interop/golden
@@ -130,6 +132,21 @@ interop/run-naming-check.sh                    # omniorbpy and rustorb
 interop/run-naming-check.sh --client rustorb
 ```
 
+## The rustorb naming service
+
+`--naming rustorb` replaces omniNames with `rustorb-names` (the daemon of
+`crates/rustorb-naming`), built with cargo on the host and mounted into the
+naming container like the client and server. `impls/rustorb/naming-service`
+starts it like `scripts/run-omninames`: on port 2809, publishing
+`naming:2809`, with its data in `/tmp/rustorb-names` of the container
+(`-start` only on the first start). The naming check must give the same
+output as with omniNames. Then `run-naming-check.sh` saves the IOR of the
+context `test`, restarts the naming container, and `naming_restart.py`
+checks that the bindings and the saved IOR still work. With
+`run-matrix.sh --naming rustorb`, the results go to
+`<client>-to-<server>-naming-rustorb`; they are not compared with the golden
+files, which hold the omniNames traffic.
+
 Without Docker, the client also runs against omniORB built on the host, for
 example `rustorb-interop-client --naming corbaloc::127.0.0.1:2809/NameService
 --name interop/Echo`, with the servers started with `--host 127.0.0.1`.
@@ -143,8 +160,9 @@ example `rustorb-interop-client --naming corbaloc::127.0.0.1:2809/NameService
    directory for `--capture`.
 3. Add the name to `IMPLS` in `run-matrix.sh` (or the environment) so that
    it is paired with every other implementation.
-4. To test another naming service, set `NAMING_IMAGE` and `NAMING_CMD`; it
-   must listen on `naming:2809` with the object key `NameService`.
+4. To test another naming service, set `NAMING_IMAGE` and `NAMING_CMD`
+   (`--naming rustorb` does this for rustorb); it must listen on
+   `naming:2809` with the object key `NameService`.
 
 ## Golden files
 

@@ -161,7 +161,7 @@ impl NamingContext {
         self.bind_op("rebind_context", n, Some(&nc.obj), false)
     }
 
-    fn bind_op(
+    pub(crate) fn bind_op(
         &self,
         operation: &str,
         n: &[NameComponent],
@@ -402,6 +402,7 @@ impl BindingIterator {
 /// name as a URL, like `NamingContextExt::to_url`: `to_url(":host:2809",
 /// "a/b c")` is `corbaname::host:2809#a/b%20c`.
 ///
+/// An empty name gives the URL of the context itself, `corbaname:{addr}`.
 /// An address list that `corbaloc:` does not accept, or with a protocol
 /// other than `iiop` and `rir`, is `InvalidAddress`; a malformed name is
 /// `InvalidName`.
@@ -414,6 +415,11 @@ pub fn to_url(addr: &str, sn: &str) -> Result<String, NamingError> {
         });
     if !valid {
         return Err(NamingError::InvalidAddress);
+    }
+    // An empty name is the context itself, as `corbaname:` without `#`
+    // (omniNames answers the same).
+    if sn.is_empty() {
+        return Ok(format!("corbaname:{addr}"));
     }
     name::to_name(sn)?;
     let mut url = format!("corbaname:{addr}#");
@@ -442,6 +448,7 @@ mod tests {
             "corbaname:iiop:1.2@host,:other#x.y/z%5C/w"
         );
         assert_eq!(to_url("rir:", "a").unwrap(), "corbaname:rir:#a");
+        assert_eq!(to_url(":host", "").unwrap(), "corbaname::host");
     }
 
     #[test]

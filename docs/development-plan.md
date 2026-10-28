@@ -197,5 +197,12 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - サーバントは tokio のワーカーとは別の長寿命スレッドプール（既定で最小4・最大100、`-ORBmaxServerThreadPoolSize`）で実行し、同じ接続の要求も並行に処理する。パニックは `UNKNOWN`
   - `Orb::run` / `shutdown(wait_for_completion)` / `destroy`：実行中の要求に返事を送ってから全接続に CloseConnection。サーバント内の `shutdown(true)` は `BAD_INV_ORDER` minor 3
   - 相互接続：`interop/impls/rustorb` に手書きスケルトンの Echo サーバーを加え、omniORB C++ / omniORBpy / rustorb の各クライアントから78ケースが通る（失敗は既存の `known-failures.txt` の範囲だけ）。rustorb クライアントもコールバック用の POA を持ち、スキップしていたコールバックの2ケースが通る
-- [ ] サーバー側の残り（実装順の3〜5：servant manager、AdapterActivator、デフォルトサーバント、SINGLE\_THREAD / MAIN\_THREAD、同一ORB内呼び出しの直接実行、rustorb のプローブサーバー、Naming Service デーモン）
+- [x] サーバー側の残り（実装順の3〜5：servant manager、AdapterActivator、デフォルトサーバント、SINGLE\_THREAD / MAIN\_THREAD、同一ORB内呼び出しの直接実行、rustorb のプローブサーバー、Naming Service デーモン）
+  - 3〜4 は servant manager・スレッドモデル・同一ORB内呼び出しと、rustorb のプローブサーバーで `run-poa-probe.sh` を通した
+  - 5：Naming Service（`rustorb-naming` の `NamingService` とデーモン `rustorb-names`）。ルートコンテキストは単純キー `NameService`（`Orb::register_object_key`）で、IOR の型IDは omniNames と同じ `NamingContextExt`。他のコンテキストは PERSISTENT / USER\_ID のPOA（`rustorb-naming`、ObjectId は16桁の16進数）と ServantLocator で、存在しないコンテキストは `OBJECT_NOT_EXIST` minor 1。BindingIterator は TRANSIENT のPOAで、最大1000個（超えたら古いものから破棄）
+  - 永続化は `Store` トレイト（`load` / `record` / `checkpoint`）で、`MemoryStore` と既定の `LogStore`（`naming.log` に1行1レコードで追記して応答前に fsync、1000件ごとにチェックポイント `naming.ckp` を一時ファイル＋renameで書いてログを世代番号つきで切り直す。起動時はチェックポイントとログを読み、書きかけの最終行は捨てる）
+  - デーモンは omniNames と同じ使い方：初回は `-start [PORT]`（既定2809）、以降はログディレクトリ（`-logdir`、`$RUSTORB_NAMES_LOGDIR`、既定 `/var/lib/rustorb-names`）に記録したポートで待ち受ける。`-memory`（永続化なし）、`-ignoreport`、`-checkpoint N`、ORB オプションも受ける
+  - omniNames の実測に合わせた挙動：`rebind` / `rebind_context` は型の違う既存の束縛も置き換える、nil の束縛を許す、`list(0)` は空列と反復子、`next_n(0)` は FALSE、終端の `next_one` は空の名前、ルートコンテキストも `destroy` できる（rustorb は次の起動で作り直す）、破棄したコンテキストを経由する解決は `OBJECT_NOT_EXIST`、`to_url` の名前が空なら `corbaname:アドレス`。他の命名サービスのコンテキストを束縛した場合は、そのコンテキストを呼んで解決を続ける
+  - omniNames との意図的な差：`list` の順序は名前順（omniNames は束縛した順）、`to_url` のエスケープは大文字の16進・UTF-8（クライアント側の `to_url` と同じ）
+  - 相互接続：`run-naming-check.sh --naming rustorb` で omniORBpy・rustorb の両クライアントの操作列が omniNames と同じ期待出力になり、デーモンを再起動しても束縛と再起動前のコンテキストのIORが使えることを確かめる。`run-matrix.sh --naming rustorb` でも9組すべてが omniNames のときと同じ結果になる
 - [ ] idl\_parser のP0（#133〜#137）が直りしだい、Python生成器（M1）に着手する

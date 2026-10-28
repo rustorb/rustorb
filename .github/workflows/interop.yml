@@ -46,6 +46,14 @@ jobs:
       - name: Run the naming service check
         run: interop/run-naming-check.sh
 
+      # The same check and matrix with the rustorb naming service in place
+      # of omniNames, and a restart of it.
+      - name: Run the naming service check against rustorb-names
+        run: interop/run-naming-check.sh --naming rustorb
+
+      - name: Run the matrix with rustorb-names
+        run: interop/run-matrix.sh --naming rustorb
+
       - name: Send hand-built GIOP requests to each server
         run: interop/run-wire-probe.sh
 

@@ -103,7 +103,7 @@ M2（サーバー側）に着手する前に、POA、サーバー側の接続処
 - **TRANSIENT**：`\xff` POAパス `\xfe` 起動識別子（8バイト） ObjectId（RootPOA はパスなしで `\xfe` から始まる）。起動識別子はORBの起動ごとの64ビット乱数にし、omniORB のような同じ秒での再起動による取り違えを防ぐ。TRANSIENT の参照は再起動で無効になる前提なので、omniORB と形式を合わせる意味はない
 - **SYSTEM\_ID**：生成するIDは、起動識別子（8バイト）とPOA内の通し番号（4バイト、ビッグエンディアン）。PERSISTENT のPOAでも再起動をまたいで重複しない
 - **POA名の制約**：POA名に NUL を許さない（UTF-8 では `\xfe` / `\xff` は現れないので、区切りと衝突しない）
-- **単純キー**：`\xff` / `\xfe` で始まらないキーは、ORBに登録した名前付きオブジェクト（`corbaloc::host:port/NameService` の `NameService` など）として引く。登録APIは `Orb::register_object_key(key, obj)`（omniORBpy 互換シムでは対応する独自APIに割り当てる）
+- **単純キー**：`\xff` / `\xfe` で始まらないキーは、ORBに登録した名前付きオブジェクト（`corbaloc::host:port/NameService` の `NameService` など）として引く。登録APIは `Orb::register_object_key(key, obj)`（単純キーの参照を返す。取り消しは `unregister_object_key`。omniORBpy 互換シムでは対応する独自APIに割り当てる）。単純キーの要求は登録したオブジェクトのPOAキーの要求として、転送なしでそのまま処理する
 - **探索**：キーを分解し、POAパスを先頭から辿る。途中のPOAが無ければ親の AdapterActivator を（あれば）アップコール層で呼ぶ。見つからなければ `OBJECT_NOT_EXIST`（minor は omniORB の実測に合わせて 1）。キーの解析とPOAの探索は I/O層で済ませ、AdapterActivator を呼ぶ必要がある要求だけアップコール層に回す
 
 ## POA

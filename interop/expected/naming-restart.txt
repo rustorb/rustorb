@@ -1,0 +1,6 @@
+before restart: list test (saved IOR)    -> [b.kind:nobject, loose:ncontext]
+before restart: resolve test/b.kind      -> object
+before restart: resolve test/loose (context) -> NamingContext
+after restart: list test (saved IOR)     -> [b.kind:nobject, loose:ncontext]
+after restart: resolve test/b.kind       -> object
+after restart: resolve test/loose (context) -> NamingContext
