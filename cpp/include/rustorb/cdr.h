@@ -17,7 +17,7 @@
 namespace rustorb {
 
 // Version of the contract between the generated code and this header.
-inline constexpr int generated_code_version = 1;
+inline constexpr int generated_code_version = 2;
 
 namespace cdr {
 
@@ -247,6 +247,112 @@ template <typename E, uint32_t Count> struct enum_codec {
   }
 };
 
+// any and TypeCode values.
+template <> struct codec<CORBA::Any> {
+  static void write(rorb_out* out, const CORBA::Any& v) {
+    rorb_out_write_any(out, v._rorb_handle());
+  }
+  static void read(rorb_in* in, CORBA::Any& v) {
+    rorb_any* h = rorb_in_read_any(in);
+    if (h) v = CORBA::Any(detail::adopt, h);
+  }
+};
+
+template <> struct codec<CORBA::object_reference<CORBA::TypeCode>> {
+  static void write(rorb_out* out, const CORBA::object_reference<CORBA::TypeCode>& v) {
+    rorb_out_write_typecode(out, detail::tc_handle(v));
+  }
+  static void read(rorb_in* in, CORBA::object_reference<CORBA::TypeCode>& v) {
+    rorb_typecode* h = rorb_in_read_typecode(in);
+    if (h) v = detail::typecode(h);
+  }
+};
+
+// type_code<T>::get(): the TypeCode of the C++ type T, for <<= and >>=.
+// The generated code specialises it for structs, unions, enums,
+// exceptions and interfaces; a typedef has the TypeCode of its type (set
+// the alias with Any::type).
+template <typename T, typename Enable = void> struct type_code;
+
+#define RUSTORB_SIMPLE_TYPE_CODE(TYPE, KIND)                       \
+  template <> struct type_code<TYPE> {                              \
+    static const detail::TypeCodeRef& get() {                       \
+      static const detail::TypeCodeRef tc = detail::tc_simple(KIND); \
+      return tc;                                                    \
+    }                                                               \
+  };
+
+RUSTORB_SIMPLE_TYPE_CODE(bool, CORBA::TCKind::tk_boolean)
+RUSTORB_SIMPLE_TYPE_CODE(char, CORBA::TCKind::tk_char)
+RUSTORB_SIMPLE_TYPE_CODE(wchar_t, CORBA::TCKind::tk_wchar)
+RUSTORB_SIMPLE_TYPE_CODE(uint8_t, CORBA::TCKind::tk_octet)
+RUSTORB_SIMPLE_TYPE_CODE(int16_t, CORBA::TCKind::tk_short)
+RUSTORB_SIMPLE_TYPE_CODE(uint16_t, CORBA::TCKind::tk_ushort)
+RUSTORB_SIMPLE_TYPE_CODE(int32_t, CORBA::TCKind::tk_long)
+RUSTORB_SIMPLE_TYPE_CODE(uint32_t, CORBA::TCKind::tk_ulong)
+RUSTORB_SIMPLE_TYPE_CODE(int64_t, CORBA::TCKind::tk_longlong)
+RUSTORB_SIMPLE_TYPE_CODE(uint64_t, CORBA::TCKind::tk_ulonglong)
+RUSTORB_SIMPLE_TYPE_CODE(float, CORBA::TCKind::tk_float)
+RUSTORB_SIMPLE_TYPE_CODE(double, CORBA::TCKind::tk_double)
+RUSTORB_SIMPLE_TYPE_CODE(std::string, CORBA::TCKind::tk_string)
+RUSTORB_SIMPLE_TYPE_CODE(std::wstring, CORBA::TCKind::tk_wstring)
+RUSTORB_SIMPLE_TYPE_CODE(CORBA::Any, CORBA::TCKind::tk_any)
+RUSTORB_SIMPLE_TYPE_CODE(CORBA::TypeCode, CORBA::TCKind::tk_TypeCode)
+
+#undef RUSTORB_SIMPLE_TYPE_CODE
+
+template <> struct type_code<CORBA::Object> {
+  static const detail::TypeCodeRef& get() {
+    static const detail::TypeCodeRef tc =
+        detail::tc_interface(CORBA::TCKind::tk_objref, CORBA::Object::_rorb_repository_id, "Object");
+    return tc;
+  }
+};
+
+template <uint32_t N> struct type_code<IDL::bounded_string<N>> {
+  static const detail::TypeCodeRef& get() {
+    static const detail::TypeCodeRef tc = detail::tc_string(false, N);
+    return tc;
+  }
+};
+
+template <uint32_t N> struct type_code<IDL::bounded_wstring<N>> {
+  static const detail::TypeCodeRef& get() {
+    static const detail::TypeCodeRef tc = detail::tc_string(true, N);
+    return tc;
+  }
+};
+
+template <typename T> struct type_code<std::vector<T>> {
+  static const detail::TypeCodeRef& get() {
+    static const detail::TypeCodeRef tc = detail::tc_sequence(type_code<T>::get(), 0);
+    return tc;
+  }
+};
+
+template <typename T, uint32_t N> struct type_code<IDL::bounded_vector<T, N>> {
+  static const detail::TypeCodeRef& get() {
+    static const detail::TypeCodeRef tc = detail::tc_sequence(type_code<T>::get(), N);
+    return tc;
+  }
+};
+
+template <typename T, size_t N> struct type_code<std::array<T, N>> {
+  static const detail::TypeCodeRef& get() {
+    static const detail::TypeCodeRef tc =
+        detail::tc_array(type_code<T>::get(), static_cast<uint32_t>(N));
+    return tc;
+  }
+};
+
+// A reference has the TypeCode of its interface (TypeCode references that
+// of TypeCode).
+template <typename T> struct type_code<CORBA::object_reference<T>> : type_code<T> {};
+
+template <typename T, typename = void> struct has_type_code : std::false_type {};
+template <typename T>
+struct has_type_code<T, std::void_t<decltype(type_code<T>::get())>> : std::true_type {};
+
 template <typename T> void write(rorb_out* out, const T& v) { codec<T>::write(out, v); }
 template <typename T> void read(rorb_in* in, T& v) { codec<T>::read(in, v); }
 
@@ -401,5 +507,49 @@ struct InterfaceRegistration {
 
 }  // namespace detail
 }  // namespace rustorb
+
+namespace CORBA {
+
+// any <<= value: the any holds a copy of the value, with the TypeCode of
+// its C++ type.
+template <typename T, typename = std::enable_if_t<rustorb::cdr::has_type_code<T>::value>>
+void operator<<=(Any& a, const T& v) {
+  a._rorb_insert(rustorb::cdr::type_code<T>::get(),
+                 [&](rorb_out* out) { rustorb::cdr::codec<T>::write(out, v); });
+}
+
+inline void operator<<=(Any& a, const char* s) { a <<= std::string(s); }
+inline void operator<<=(Any& a, const wchar_t* s) { a <<= std::wstring(s); }
+
+// any >>= value: if the TypeCode of the any is equivalent to that of the
+// C++ type, sets value and returns true.
+template <typename T, typename = std::enable_if_t<rustorb::cdr::has_type_code<T>::value>>
+bool operator>>=(const Any& a, T& v) {
+  return a._rorb_extract(rustorb::cdr::type_code<T>::get(),
+                         [&](rorb_in* in) { rustorb::cdr::codec<T>::read(in, v); });
+}
+
+// The TypeCodes of the basic types.
+inline const IDL::traits<TypeCode>::ref_type _tc_null = rustorb::detail::tc_simple(TCKind::tk_null);
+inline const IDL::traits<TypeCode>::ref_type _tc_void = rustorb::detail::tc_simple(TCKind::tk_void);
+inline const IDL::traits<TypeCode>::ref_type _tc_short = rustorb::cdr::type_code<int16_t>::get();
+inline const IDL::traits<TypeCode>::ref_type _tc_long = rustorb::cdr::type_code<int32_t>::get();
+inline const IDL::traits<TypeCode>::ref_type _tc_longlong = rustorb::cdr::type_code<int64_t>::get();
+inline const IDL::traits<TypeCode>::ref_type _tc_ushort = rustorb::cdr::type_code<uint16_t>::get();
+inline const IDL::traits<TypeCode>::ref_type _tc_ulong = rustorb::cdr::type_code<uint32_t>::get();
+inline const IDL::traits<TypeCode>::ref_type _tc_ulonglong = rustorb::cdr::type_code<uint64_t>::get();
+inline const IDL::traits<TypeCode>::ref_type _tc_float = rustorb::cdr::type_code<float>::get();
+inline const IDL::traits<TypeCode>::ref_type _tc_double = rustorb::cdr::type_code<double>::get();
+inline const IDL::traits<TypeCode>::ref_type _tc_boolean = rustorb::cdr::type_code<bool>::get();
+inline const IDL::traits<TypeCode>::ref_type _tc_char = rustorb::cdr::type_code<char>::get();
+inline const IDL::traits<TypeCode>::ref_type _tc_wchar = rustorb::cdr::type_code<wchar_t>::get();
+inline const IDL::traits<TypeCode>::ref_type _tc_octet = rustorb::cdr::type_code<uint8_t>::get();
+inline const IDL::traits<TypeCode>::ref_type _tc_any = rustorb::cdr::type_code<Any>::get();
+inline const IDL::traits<TypeCode>::ref_type _tc_TypeCode = rustorb::cdr::type_code<TypeCode>::get();
+inline const IDL::traits<TypeCode>::ref_type _tc_string = rustorb::cdr::type_code<std::string>::get();
+inline const IDL::traits<TypeCode>::ref_type _tc_wstring = rustorb::cdr::type_code<std::wstring>::get();
+inline const IDL::traits<TypeCode>::ref_type _tc_Object = rustorb::cdr::type_code<Object>::get();
+
+}  // namespace CORBA
 
 #endif

@@ -34,6 +34,13 @@ impl CodeSets {
         wchar_data: None,
     };
 
+    /// The native code sets of rustorb, UTF-8 and UTF-16: what values
+    /// marshalled outside a connection use.
+    pub const NATIVE: CodeSets = CodeSets {
+        char_data: NATIVE_CHAR,
+        wchar_data: Some(NATIVE_WCHAR),
+    };
+
     /// Chooses the transmission code sets for a server that published
     /// `info`, as the client side of the negotiation.
     pub fn negotiate(info: &CodeSetComponentInfo) -> Result<CodeSets, SystemException> {

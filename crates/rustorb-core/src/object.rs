@@ -212,7 +212,7 @@ impl Reply {
         InStream {
             dec: self.body.decoder(),
             code_sets: self.code_sets,
-            orb: &self.orb,
+            orb: Some(&self.orb),
             completed: CompletionStatus::Yes,
             wchar_needs_code_set: false,
         }

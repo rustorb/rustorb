@@ -472,7 +472,7 @@ impl Server {
         let mut input = InStream {
             dec: body.decoder(),
             code_sets,
-            orb: &orb,
+            orb: Some(&orb),
             completed: CompletionStatus::No,
             wchar_needs_code_set: true,
         };

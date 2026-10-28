@@ -14,6 +14,11 @@ use crate::{
 /// default POA of servants.
 static DEFAULT_ORB: Mutex<Option<Orb>> = Mutex::new(None);
 
+/// The first ORB initialised and not destroyed, if any.
+pub(crate) fn default_orb() -> Option<Orb> {
+    DEFAULT_ORB.lock().unwrap().clone()
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rorb_orb_init(
     argc: *mut c_int,

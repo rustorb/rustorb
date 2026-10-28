@@ -14,11 +14,14 @@
 //! - [`servant`]: servants implemented by the caller through a table of
 //!   callbacks, and the replies they write.
 //! - [`poa`]: the POA, its manager and `PortableServer::Current`.
+//! - [`any`]: TypeCodes, and anys whose values the caller puts in and
+//!   takes out through the same streams.
 
 // Every function takes raw pointers from C; what they must point to is
 // documented once, in the header.
 #![allow(clippy::missing_safety_doc)]
 
+pub mod any;
 pub mod object;
 pub mod orb;
 pub mod poa;
@@ -62,6 +65,8 @@ pub mod local {
     pub const NO_SERVANT: u32 = 11;
     pub const NO_CONTEXT: u32 = 12;
     pub const INVALID_NAME: u32 = 13;
+    pub const TC_BAD_KIND: u32 = 14;
+    pub const TC_BOUNDS: u32 = 15;
 }
 
 /// `rorb_exception`.

@@ -40,7 +40,7 @@ interop/run-matrix.sh omniorbpy:omniorb-cpp    # one pair: CLIENT:SERVER
 interop/run-naming-check.sh
 interop/run-naming-check.sh --naming rustorb   # against rustorb-names, with a restart
 interop/run-matrix.sh --naming rustorb         # all pairs, rustorb-names instead of omniNames
-interop/run-matrix.sh --suite any              # Any / TypeCode suite (not rustorbcpp yet)
+interop/run-matrix.sh --suite any              # Any / TypeCode suite
 interop/run-wire-probe.sh
 interop/run-poa-probe.sh
 IDL_PARSER_DIR=path/to/idl_parser interop/run-pymapping-check.sh

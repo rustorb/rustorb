@@ -7,8 +7,7 @@
 # Without pairs, every client in $CLIENT_IMPLS is paired with every server in
 # $SERVER_IMPLS. Both default to $IMPLS plus rustorb, rustorbpy and rustorbcpp
 # (the Rust, the Python and the C++ client and server of rustorb), which are
-# built on the host; rustorbcpp is left out of the any suite until the C++
-# binding has Any.
+# built on the host.
 # --build    builds the omniORB image first
 # --capture  captures each client's traffic and splits it into GIOP messages
 # --giop VER limits the client to GIOP VER (e.g. 1.1); the results go to
@@ -53,11 +52,12 @@ while [ $# -gt 0 ]; do
 done
 
 case "$suite" in
-  basic) rustorb_impls="rustorb rustorbpy rustorbcpp"; export ECHO_NAME=interop/Echo ;;
-  any) rustorb_impls="rustorb rustorbpy"; export ECHO_NAME=interop/AnyEcho ;;
+  basic) export ECHO_NAME=interop/Echo ;;
+  any) export ECHO_NAME=interop/AnyEcho ;;
   *) echo "unknown suite: $suite" >&2; exit 2 ;;
 esac
 export SUITE="$suite"
+rustorb_impls="rustorb rustorbpy rustorbcpp"
 CLIENT_IMPLS="${CLIENT_IMPLS:-$IMPLS $rustorb_impls}"
 SERVER_IMPLS="${SERVER_IMPLS:-$IMPLS $rustorb_impls}"
 

@@ -20,7 +20,17 @@ pub struct OutStream<'a> {
     pub(crate) code_sets: CodeSets,
 }
 
-impl OutStream<'_> {
+impl<'a> OutStream<'a> {
+    /// A stream over `enc` outside any message, with the native code
+    /// sets (UTF-8 and UTF-16). Bindings use it to marshal the value of an
+    /// `any` on its own, to read it back with [`InStream::standalone`].
+    pub fn standalone(enc: &'a mut Encoder) -> OutStream<'a> {
+        OutStream {
+            enc,
+            code_sets: CodeSets::NATIVE,
+        }
+    }
+
     /// The transmission code sets of the connection.
     pub fn code_sets(&self) -> CodeSets {
         self.code_sets
@@ -113,7 +123,9 @@ impl DerefMut for OutStream<'_> {
 pub struct InStream<'a> {
     pub(crate) dec: Decoder<'a>,
     pub(crate) code_sets: CodeSets,
-    pub(crate) orb: &'a Orb,
+    /// The ORB of the object references read; `None` for a standalone
+    /// stream without one, which reads only nil references.
+    pub(crate) orb: Option<&'a Orb>,
     pub(crate) completed: CompletionStatus,
     /// Whether `wchar` data needs a negotiated `wchar` code set, as for
     /// request arguments (`BAD_PARAM`, `WCHAR_TCS_NOT_KNOWN`).
@@ -121,6 +133,20 @@ pub struct InStream<'a> {
 }
 
 impl<'a> InStream<'a> {
+    /// A stream over `dec` outside any message, with the native code sets,
+    /// as [`OutStream::standalone`] writes. Object references read belong
+    /// to `orb`; without one, only nil references can be read
+    /// (`BAD_INV_ORDER`). Errors are completed no.
+    pub fn standalone(dec: Decoder<'a>, orb: Option<&'a Orb>) -> InStream<'a> {
+        InStream {
+            dec,
+            code_sets: CodeSets::NATIVE,
+            orb,
+            completed: CompletionStatus::No,
+            wchar_needs_code_set: false,
+        }
+    }
+
     /// The transmission code sets of the connection.
     pub fn code_sets(&self) -> CodeSets {
         self.code_sets
@@ -174,11 +200,13 @@ impl<'a> InStream<'a> {
     pub fn read_object(&mut self) -> Result<Option<ObjectRef>, SystemException> {
         let completed = self.completed;
         let ior = Ior::decode(&mut self.dec).map_err(|_| marshal_with(completed))?;
-        Ok(if ior.is_nil() {
-            None
-        } else {
-            Some(ObjectRef::new(self.orb.clone(), ior))
-        })
+        if ior.is_nil() {
+            return Ok(None);
+        }
+        let orb = self.orb.ok_or_else(|| {
+            SystemException::new(SystemExceptionKind::BAD_INV_ORDER, 0, completed)
+        })?;
+        Ok(Some(ObjectRef::new(orb.clone(), ior)))
     }
 
     /// Reads a `char` in the negotiated `char` code set.

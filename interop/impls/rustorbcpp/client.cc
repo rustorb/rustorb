@@ -6,8 +6,38 @@
 
 #include <sstream>
 
+#define ANYTEST_HIDDEN
+#include "anytest.h"
 #include "cases.h"
 #include "common.h"
+
+// The stage 2 suite (AnyTest.idl) against the AnyEcho object at opt.name;
+// the server's Echo object is at opt.name + "-Echo".
+static int run_any(IDL::traits<CORBA::ORB>::ref_type orb,
+                   IDL::traits<CosNaming::NamingContext>::ref_type root, const Options& opt) {
+  CosNaming::Name name = to_name(opt.name);
+  auto obj = retry("the AnyEcho server", [&]() { return root->resolve(name); }, opt.timeout);
+  auto echo = IDL::traits<AnyTest::AnyEcho>::narrow(obj);
+  if (!echo) {
+    std::cout << opt.name << " is not an AnyTest::AnyEcho" << std::endl;
+    return 1;
+  }
+  retry("the AnyEcho server", [&]() { return echo->_non_existent(); }, opt.timeout);
+
+  Runner r;
+  anytest::run_cases(r, echo, [](bool cond, const std::string& what) {
+    if (!cond) throw CheckFailed{what};
+  });
+
+  if (opt.shutdown_server) {
+    auto server = IDL::traits<InteropTest::Echo>::narrow(root->resolve(to_name(opt.name + "-Echo")));
+    server->shutdown();
+  }
+
+  r.summary();
+  orb->destroy();
+  return r.failed().empty() ? 0 : 1;
+}
 
 int main(int argc, char** argv) {
   std::vector<std::string> orb_args;
@@ -17,6 +47,7 @@ int main(int argc, char** argv) {
     auto poa = persistent_poa(orb, "InteropTestClient");
 
     auto root = root_context(orb, opt.timeout);
+    if (opt.suite == "any") return run_any(orb, root, opt);
     CosNaming::Name name = to_name(opt.name);
     auto obj = retry("the Echo server", [&]() { return root->resolve(name); }, opt.timeout);
     auto echo = IDL::traits<InteropTest::Echo>::narrow(obj);

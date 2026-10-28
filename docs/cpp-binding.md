@@ -71,10 +71,12 @@ int main(int argc, char* argv[]) {
 | struct・例外 | 生成クラス。メンバーごとに取得・設定の関数、全メンバーのコンストラクタ、`==` |
 | union | 生成クラス。`_d()`、メンバーの関数（設定すると判別子も変わる）、`_default()`。選ばれていないメンバーを読むと `BAD_PARAM` |
 | enum | `enum class : uint32_t` |
+| `any` | `CORBA::Any`（`<<=` / `>>=`、[any-typecode.md](any-typecode.md)） |
+| `TypeCode` | `IDL::traits<CORBA::TypeCode>::ref_type`。型ごとに `_tc_<名前>` |
 | インターフェース | `IDL::traits<I>::ref_type`（`CORBA::object_reference<I>`、`shared_ptr` 相当）。nil は `nullptr` |
 | サーバント | `CORBA::servant_reference<T>`（侵入型の参照カウント）、`CORBA::make_reference<T>(...)` で作る |
 
-C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP 上の綴りは IDL のまま）。`any`、`TypeCode`、`fixed`、`long double`、valuetype、abstract interface はまだ生成できず、rustorb-idl がエラーにする（Any と TypeCode は M5）。
+C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP 上の綴りは IDL のまま）。`fixed`、`long double`、valuetype、abstract interface はまだ生成できず、rustorb-idl がエラーにする。
 
 `narrow` は、同じプロセスのスタブなら C++ の型で、そうでなければ生成コードが登録した継承関係（リポジトリID）で判定し、どちらでも決まらなければ相手に `_is_a` を問い合わせる。
 
@@ -102,6 +104,7 @@ C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP �
 
 - `cpp/tests/test_mapping.cc`：`cpp/tests/idl/CxxMapping.idl`（定数、typedef、上限付きの型、多次元配列、再帰的な struct と union、すべての種類の判別子、入れ子の型、予約語の名前、多重継承、oneway、inout / out、ユーザー例外とシステム例外、オブジェクト参照の列）を、同じプロセスの2つの ORB の間と、同一 ORB 内で往復させる
 - `cpp/tests/test_interop.cc`：相互接続の78ケース（`interop/impls/rustorbcpp/cases.h`）を同じプロセスの2つの ORB の間で回す
+- `cpp/tests/test_any.cc`：Any / TypeCode の相互接続の178ケース（`interop/impls/rustorbcpp/anytest.h`）を同じプロセスの2つの ORB の間で回し、TypeCode の操作、`ORB::create_*_tc`、`<<=` / `>>=` の規則を確かめる
 - CI（`ci.yml` の `cpp`）は g++ と clang++ の両方で `-Wall -Wextra -Werror` でビルドして ctest を回す。ローカルでは ASan・UBSan・LeakSanitizer でも警告なし
 - `crates/rustorb-codegen/python/tests/test_cxx_backend.py`：コマンドライン、生成物の形、対応しない構文のエラー、生成コードのコンパイル
 - 相互接続：`interop/impls/rustorbcpp` を omniORB C++・omniORBpy・rustorb（Rust・Python）とすべての組み合わせで、omniNames と rustorb-names の両方、GIOP 1.1 でも回す。失敗は既存の `known-failures.txt`（omniORB 側の wchar）の範囲だけ
@@ -109,7 +112,7 @@ C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP �
 ## 残り
 
 - servant manager（`ServantActivator`・`ServantLocator`）と `AdapterActivator` の C++ API（コアと Python には既にある。C ABI に関数表を足す）
-- `any`・`TypeCode`（M5）、`fixed`、valuetype
+- `fixed`、valuetype、DynAny
 - 呼び出しごとのタイムアウトの C++ API（C ABI の `rorb_invocation` にはある）、`ORB::create_policy` などの残りの ORB 操作
 - IDL4-CPP の構文（アノテーションなど）
 - `run-poa-probe.sh` と `run-wire-probe.sh` への C++ の rustorb の追加
