@@ -149,7 +149,7 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 | 既存ORBとの細かい非互換 | 実運用で接続できない | ゴールデンテストと相互接続マトリクスを最初からCIに入れる |
 | 言語間のオブジェクト参照の寿命管理 | メモリリーク、解放済み参照の利用 | 参照カウントをRust側に一元化し、各言語のテストでリークを検出 |
 | Any / TypeCode の実装負荷 | MVPの遅れ | MVPから外し、M5に回す |
-| idl\_parser の拡張が必要になる | コアとパーサの並行改修 | M0でAST上の不足を洗い出してから着手 |
+| idl\_parser の拡張が必要になる | コアとパーサの並行改修 | M0でAST上の不足を洗い出し済み（[idl-parser-gap-analysis.md](idl-parser-gap-analysis.md)）。P0の5件をM1の前に直す |
 | 4言語の保守負担 | 進捗の分散 | Pythonを先行させ、C++・Javaはコア安定後に着手 |
 
 ## 未決事項と次のアクション
@@ -170,7 +170,7 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 
 **次のアクション**
 
-- [ ] idl\_parser のリポジトリを共有し、ASTの構造と不足を確認する
+- [x] idl\_parser のリポジトリを共有し、ASTの構造と不足を確認する（[idl-parser-gap-analysis.md](idl-parser-gap-analysis.md)）
 - [x] Cargoワークスペースの雛形とクレート分割を作る
 - [ ] omniORBとomniORBpyの相互接続テスト環境（Docker）と、第1段階のテスト用IDLを用意する
 - [ ] CDRエンコーダとGIOPメッセージ型の実装に着手する
