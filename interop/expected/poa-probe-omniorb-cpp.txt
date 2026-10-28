@@ -118,7 +118,7 @@ SINGLE_THREAD 2 POAs, 2 connections: overlapped
 MAIN_THREAD 4 pipelined on one connection: serialized, all on the main thread
 MAIN_THREAD 2 objects, 2 connections: serialized, all on the main thread
 MAIN_THREAD and ORB_CTRL, 2 connections: overlapped, 1 on the main thread, a thread per call
-ORB_CTRL 4 oneways on one connection, first one slow: processed as 2, 3, 4, 1
+ORB_CTRL 4 oneways on one connection, first one slow: processed as 2, 3, 4 in any order, then 1
 SINGLE_THREAD 4 oneways on one connection, first one slow: processed as 1, 2, 3, 4
 relay ORB_CTRL -> ORB_CTRL: ok, inner call on the same thread as the outer call
 relay SINGLE_THREAD -> same POA: ok, inner call on the same thread as the outer call

@@ -56,7 +56,7 @@ M2（サーバー側）に着手する前に、POA、サーバー側の接続処
 | ORB\_CTRL、1接続に4件・16件をパイプライン | すべて並行に実行（1件ごとに別スレッド、16件同時） |
 | ORB\_CTRL、1接続で逐次に6件 | 同じ1スレッド |
 | ORB\_CTRL、別の接続で逐次 | 前の接続のスレッドを再利用 |
-| ORB\_CTRL、1接続にonewayを4件（1件目だけ300ms） | 2, 3, 4, 1 の順に処理（**onewayの順序も保たれない**） |
+| ORB\_CTRL、1接続にonewayを4件（1件目だけ300ms） | 2, 3, 4 が先に終わり、1 が最後（**onewayの順序も保たれない**。2〜4 の間の順序は実行ごとに変わりうるので、プローブは「any order」と出す） |
 | SINGLE\_THREAD、1接続にパイプライン | 直列、要求順に返る。スレッドは固定されない |
 | SINGLE\_THREAD、同じPOAの別オブジェクトを2接続から | 直列（POA単位） |
 | SINGLE\_THREAD、別のPOA同士 | 並行 |
@@ -254,13 +254,15 @@ typedef struct rustorb_servant_vtbl {
 | --- | --- | --- |
 | TRANSIENT の起動識別子 | 秒単位の時刻（同じ秒の再起動で取り違える） | 64ビット乱数 |
 | `_repository_id` | `BAD_OPERATION` | 仕様どおり応答 |
-| 知らない操作・引数不足の minor | omniORB 独自の VMCID（`0x4154....`） | OMG 標準の minor（実装時に仕様の表から選ぶ） |
+| 知らない操作の minor | omniORB 独自の VMCID（`0x41540026`） | OMG 標準の minor 2（`0x4f4d0002`） |
+| 引数不足の `MARSHAL`、`_interface` の `INTF_REPOS` の minor | omniORB 独自の VMCID | 現状は 0（OMG 標準の minor は未選定） |
+| IOR のコンポーネント | ORB\_TYPE（omniORB の値）と CODE\_SETS | CODE\_SETS のみ（rustorb には OMG が割り当てた ORB type がない） |
 
 それ以外（キーの探索結果、POAManager の各状態、LocateRequest の応答、servant manager の呼び方、スレッドへの割り当て、終了時の CloseConnection）は omniORB の実測に合わせる。
 
 ## 検証方法
 
-- `interop/run-poa-probe.sh` に rustorb のプローブサーバー（`impls/rustorb` に追加）を加え、omniORB と同じ期待出力になることを確認する。上の「意図的な差」に当たる行だけ、rustorb 用の期待ファイルで差を明示する
+- `interop/run-poa-probe.sh` に rustorb のプローブサーバー（`impls/rustorb/src/poa_probe_server.rs`）を加え、omniORB と同じ期待出力になることを確認する。上の「意図的な差」に当たる行だけが `interop/expected/poa-probe-rustorb.txt` で omniORB と異なる（M2 段階4で確認済み）
 - 相互接続マトリクスに rustorb サーバーを加え、コールバックの2ケース（現在 skip）を rustorb クライアントでも通す
 - 負荷試験（パイプライン、多接続、入れ子呼び出し）でプールの上限と枯渇時の挙動を確認する
 
