@@ -82,6 +82,10 @@ def float_eq(a, b):
     return struct.pack(">f", a) == struct.pack(">f", b)
 
 
+# Number of records in the echo_records[large] case.
+LARGE_RECORDS = 400
+
+
 def run_cases(r, echo, poa, orb):
     T = InteropTest
 
@@ -115,6 +119,13 @@ def run_cases(r, echo, poa, orb):
     r.case("echo_record", echo_case(echo, "echo_record", rec))
     r.case("echo_records", echo_case(echo, "echo_records", [rec, rec2, rec]))
     r.case("echo_records[empty]", echo_case(echo, "echo_records", []))
+    # Large enough to be sent in several fragments, with doubles after each
+    # fragment boundary; record i has a name of varying length so that the
+    # doubles land at every alignment.
+    large = [T.Record(i, "r%d" % i, [T.RED, T.GREEN, T.BLUE][i % 3],
+                      T.Point(i + 0.5, -0.25 * i), [i, i + 1], i % 2 == 0)
+             for i in range(LARGE_RECORDS)]
+    r.case("echo_records[large]", echo_case(echo, "echo_records", large))
     for i, v in enumerate([
         T.Value(l=-5), T.Value(s="union"), T.Value(p=p),
         T.Value(4, [1, 2]), T.Value(5, []), T.Value(99, True), T.Value(0, False),

@@ -8,7 +8,8 @@
 //! - [`MessageEncoder`] writes a message header and lets the caller append
 //!   the body; it patches the message size when finished. Replies use the
 //!   version of the request, so every version can be written.
-//! - [`FragmentAssembler`] joins GIOP 1.1/1.2 fragments into one message.
+//! - [`FragmentAssembler`] joins GIOP 1.1/1.2 fragments into one message,
+//!   keeping the alignment of each fragment.
 //!
 //! IOR parsing beyond the raw [`Ior`] structure and corbaloc come later.
 
@@ -21,7 +22,7 @@ mod service_context;
 mod writer;
 
 pub use error::{Error, Result};
-pub use fragment::FragmentAssembler;
+pub use fragment::{AssembledMessage, FragmentAssembler};
 pub use header::{MessageHeader, MsgType, Version};
 pub use ior::{Ior, TAG_INTERNET_IOP, TAG_MULTIPLE_COMPONENTS, TaggedProfile};
 pub use message::{

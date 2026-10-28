@@ -4,6 +4,8 @@ use crate::{ByteOrder, CdrVersion, Error, Result};
 ///
 /// Alignment is relative to the stream offset of the first byte, which is
 /// `0` unless the decoder was created with [`Decoder::with_offset`].
+/// [`Decoder::set_segments`] restarts the stream offset at given bytes,
+/// for data joined from several messages.
 #[derive(Debug, Clone)]
 pub struct Decoder<'a> {
     buf: &'a [u8],
@@ -11,7 +13,22 @@ pub struct Decoder<'a> {
     order: ByteOrder,
     version: CdrVersion,
     base: usize,
+    segments: &'a [Segment],
     wstring_default_order: ByteOrder,
+}
+
+/// A point in a decoder's buffer from which the stream offset restarts.
+///
+/// The byte at index `start` of the buffer is at stream offset `offset`,
+/// and the bytes after it follow on, until the next segment. This
+/// describes a message joined from fragments whose contents are aligned
+/// relative to each fragment rather than to the joined message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Segment {
+    /// Index of the first byte of the segment in the buffer.
+    pub start: usize,
+    /// Stream offset of that byte.
+    pub offset: usize,
 }
 
 macro_rules! read_number {
@@ -49,8 +66,17 @@ impl<'a> Decoder<'a> {
             order,
             version,
             base,
+            segments: &[],
             wstring_default_order: ByteOrder::Big,
         }
+    }
+
+    /// Restarts the stream offset at the given buffer indexes. `segments`
+    /// must be sorted by `start`; bytes before the first segment keep the
+    /// offset given when the decoder was created.
+    pub fn set_segments(&mut self, segments: &'a [Segment]) {
+        debug_assert!(segments.windows(2).all(|w| w[0].start < w[1].start));
+        self.segments = segments;
     }
 
     /// Opens an encapsulation: reads the byte order octet and returns a
@@ -82,7 +108,14 @@ impl<'a> Decoder<'a> {
 
     /// The stream offset of the next byte.
     pub fn position(&self) -> usize {
-        self.base + self.pos
+        let i = self.segments.partition_point(|s| s.start <= self.pos);
+        match i.checked_sub(1) {
+            Some(i) => {
+                let segment = self.segments[i];
+                segment.offset + (self.pos - segment.start)
+            }
+            None => self.base + self.pos,
+        }
     }
 
     /// Bytes left to read.

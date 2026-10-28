@@ -58,7 +58,8 @@ def normalized(m):
     data = bytearray.fromhex(m["hex"])
     for start, length in m.get("padding", []):
         data[start:start + length] = bytes(length)
-    if m["type"] in ("Request", "Reply", "LocateRequest", "LocateReply", "CancelRequest"):
+    if m["type"] in ("Request", "Reply", "LocateRequest", "LocateReply", "CancelRequest",
+                     "Fragment"):
         if m["giop"] in ("1.2", "1.3") or m["type"] in ("LocateRequest", "LocateReply",
                                                         "CancelRequest"):
             data[12:16] = b"\0\0\0\0"

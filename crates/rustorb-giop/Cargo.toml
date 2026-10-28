@@ -12,3 +12,6 @@ workspace = true
 
 [dependencies]
 rustorb-cdr.workspace = true
+
+[dev-dependencies]
+serde_json = "1.0.154"

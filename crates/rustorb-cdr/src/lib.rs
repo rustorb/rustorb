@@ -21,7 +21,7 @@ mod encoder;
 mod error;
 mod traits;
 
-pub use decoder::Decoder;
+pub use decoder::{Decoder, Segment};
 pub use encoder::Encoder;
 pub use error::{Error, Result};
 pub use traits::{CdrDecode, CdrEncode};

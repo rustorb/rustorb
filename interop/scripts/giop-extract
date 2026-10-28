@@ -259,6 +259,8 @@ def describe(msg):
             info["locate_status"] = r.ulong()
         elif info["type"] == "CancelRequest":
             info["request_id"] = r.ulong()
+        elif info["type"] == "Fragment" and minor >= 2:
+            info["request_id"] = r.ulong()
     except (IndexError, struct.error, ValueError):
         info["decode_error"] = True
     # Alignment gaps in the header. omniORB does not clear them, so their
@@ -289,30 +291,70 @@ def split_giop(data):
     return out
 
 
+def fragment_units(msgs):
+    """Groups each fragmented message with its Fragment messages.
+
+    GIOP 1.1 Fragments continue the last fragmented message on the
+    connection; GIOP 1.2 Fragments carry the request id of the message they
+    continue. Returns a list of message lists, in the order the first
+    message of each was sent.
+    """
+    units = []
+    pending_11 = None
+    pending_12 = {}
+    for m in msgs:
+        info = describe(m)
+        more = info["fragmented"]
+        if info["type"] == "Fragment":
+            if info["giop"] in ("1.0", "1.1"):
+                unit = pending_11
+                if not more:
+                    pending_11 = None
+            else:
+                rid = info.get("request_id")
+                unit = pending_12.get(rid)
+                if not more:
+                    pending_12.pop(rid, None)
+            if unit is not None:
+                unit.append(m)
+                continue
+        unit = [m]
+        units.append(unit)
+        if more:
+            if info["giop"] in ("1.0", "1.1"):
+                pending_11 = unit
+            elif "request_id" in info:
+                pending_12[info["request_id"]] = unit
+    return units
+
+
 def interleave(c2s, s2c):
     """Orders the messages of both directions as request / reply pairs.
 
     pcap timestamps would also work, but this keeps the output independent of
     timing: each Reply follows its Request, other messages keep their order.
+    Fragments follow the message they continue.
     """
     replies = {}
     rest = []
-    for m in s2c:
-        info = describe(m)
+    for unit in fragment_units(s2c):
+        info = describe(unit[0])
         if "request_id" in info and info["type"] in ("Reply", "LocateReply"):
-            replies.setdefault(info["request_id"], []).append(m)
+            replies.setdefault(info["request_id"], []).append(unit)
         else:
-            rest.append(m)
+            rest.append(unit)
     ordered = []
-    for m in c2s:
-        ordered.append(("c2s", m))
-        info = describe(m)
+    for unit in fragment_units(c2s):
+        ordered += [("c2s", m) for m in unit]
+        info = describe(unit[0])
         rid = info.get("request_id")
-        if rid in replies and replies[rid]:
-            ordered.append(("s2c", replies[rid].pop(0)))
+        if info["type"] != "Fragment" and rid in replies and replies[rid]:
+            ordered += [("s2c", m) for m in replies[rid].pop(0)]
     for rid in sorted(replies):
-        ordered += [("s2c", m) for m in replies[rid]]
-    ordered += [("s2c", m) for m in rest]
+        for unit in replies[rid]:
+            ordered += [("s2c", m) for m in unit]
+    for unit in rest:
+        ordered += [("s2c", m) for m in unit]
     return ordered
 
 

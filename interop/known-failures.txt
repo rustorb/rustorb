@@ -2,7 +2,9 @@
 # run-matrix.sh treats these as expected, and reports a listed case that
 # starts passing so that the entry can be removed.
 #
-# Format: CLIENT SERVER CASE REASON...   (CLIENT / SERVER may be *)
+# Format: [giop=VER] CLIENT SERVER CASE REASON...   (CLIENT / SERVER may be *)
+#
+# A line with giop=VER applies only to `run-matrix.sh --giop VER` runs.
 
 # omniORBpy 4.3.4 (and 4.3.2) unmarshals a GIOP 1.2 wchar with unmarshalChar()
 # instead of unmarshalWChar() on Python >= 3.3 (modules/pyMarshal.cc,
@@ -14,3 +16,16 @@ omniorbpy * echo_wchar[2] omniORBpy cannot unmarshal wchar replies
 * omniorbpy echo_wchar[0] omniORBpy cannot unmarshal wchar requests
 * omniorbpy echo_wchar[1] omniORBpy cannot unmarshal wchar requests
 * omniorbpy echo_wchar[2] omniORBpy cannot unmarshal wchar requests
+
+# omniORB registers its UTF-16 wchar code set (TCS_W_UTF_16, cs-UTF-16.cc)
+# for GIOP 1.2 only, so wchar / wstring do not work over GIOP 1.1. The
+# omniORBpy client raises BAD_PARAM_WCharTCSNotKnown before sending. The
+# omniORB C++ client sends the value in the GIOP 1.2 form anyway, and both
+# servers reply with that BAD_PARAM.
+giop=1.1 * * echo_wchar[0] omniORB has no GIOP 1.1 wchar code set
+giop=1.1 * * echo_wchar[1] omniORB has no GIOP 1.1 wchar code set
+giop=1.1 * * echo_wchar[2] omniORB has no GIOP 1.1 wchar code set
+giop=1.1 * * echo_wstring[0] omniORB has no GIOP 1.1 wchar code set
+giop=1.1 * * echo_wstring[1] omniORB has no GIOP 1.1 wchar code set
+giop=1.1 * * echo_wstring[2] omniORB has no GIOP 1.1 wchar code set
+giop=1.1 * * echo_wstring[3] omniORB has no GIOP 1.1 wchar code set

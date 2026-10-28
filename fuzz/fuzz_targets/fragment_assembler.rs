@@ -3,7 +3,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use rustorb_giop::{FragmentAssembler, MessageHeader, decode_message};
+use rustorb_giop::{FragmentAssembler, MessageHeader};
 
 fuzz_target!(|data: &[u8]| {
     let mut asm = FragmentAssembler::new(1 << 16);
@@ -13,7 +13,7 @@ fuzz_target!(|data: &[u8]| {
         let (msg, tail) = rest.split_at(len);
         rest = tail;
         if let Ok(Some(whole)) = asm.push(msg) {
-            let _ = decode_message(&whole);
+            let _ = whole.decode();
         }
     }
 });

@@ -1,4 +1,4 @@
-use rustorb_cdr::{ByteOrder, CdrDecode, CdrEncode, CdrVersion, Decoder, Encoder, Error};
+use rustorb_cdr::{ByteOrder, CdrDecode, CdrEncode, CdrVersion, Decoder, Encoder, Error, Segment};
 
 const V12: CdrVersion = CdrVersion::Giop1_2;
 
@@ -168,9 +168,29 @@ fn string_decoding_errors() {
 
 #[test]
 fn wstring_giop_1_2() {
+    // Octet length, then a BOM and UTF-16 in the stream byte order with no
+    // terminator, as omniORB writes it.
     let mut enc = Encoder::new(ByteOrder::Little, V12);
     enc.write_wstring("Aé").unwrap();
-    // Octet length, then big-endian UTF-16 with no BOM or terminator.
+    assert_eq!(
+        enc.as_bytes(),
+        [6, 0, 0, 0, 0xFF, 0xFE, 0x41, 0x00, 0xE9, 0x00]
+    );
+    let mut enc = Encoder::new(ByteOrder::Big, V12);
+    enc.write_wstring("Aé").unwrap();
+    assert_eq!(
+        enc.as_bytes(),
+        [0, 0, 0, 6, 0xFE, 0xFF, 0x00, 0x41, 0x00, 0xE9]
+    );
+    // An empty string has no BOM.
+    let mut enc = Encoder::new(ByteOrder::Little, V12);
+    enc.write_wstring("").unwrap();
+    assert_eq!(enc.as_bytes(), [0, 0, 0, 0]);
+
+    // Without a BOM: big-endian UTF-16, whatever the stream byte order.
+    let mut enc = Encoder::new(ByteOrder::Little, V12);
+    enc.set_wstring_bom(false);
+    enc.write_wstring("Aé").unwrap();
     assert_eq!(enc.as_bytes(), [4, 0, 0, 0, 0x00, 0x41, 0x00, 0xE9]);
 
     let mut dec = Decoder::new(enc.as_bytes(), ByteOrder::Little, V12);
@@ -191,7 +211,7 @@ fn wstring_giop_1_2() {
     for order in [ByteOrder::Big, ByteOrder::Little] {
         let mut enc = Encoder::new(order, V12);
         enc.write_wstring("🦀").unwrap();
-        assert_eq!(enc.len(), 4 + 4);
+        assert_eq!(enc.len(), 4 + 2 + 4);
         let mut dec = Decoder::new(enc.as_bytes(), order, V12);
         assert_eq!(dec.read_wstring().unwrap(), "🦀");
     }
@@ -421,4 +441,29 @@ fn byte_order_flags() {
     assert_eq!(ByteOrder::Little.flag(), 1);
     assert_eq!(ByteOrder::from_flag(1), Ok(ByteOrder::Little));
     assert!(ByteOrder::from_flag(2).is_err());
+}
+
+#[test]
+fn segments_restart_alignment() {
+    // Two runs of bytes whose alignment restarts at offset 12 of a second
+    // message, as in a GIOP 1.1 message joined from fragments.
+    let mut first = Encoder::with_offset(ByteOrder::Little, V12, 12);
+    first.write_u32(1);
+    first.write_f64(2.5);
+    let mut second = Encoder::with_offset(ByteOrder::Little, V12, 12);
+    second.write_u16(3);
+    second.write_f64(4.5);
+    let mut buf = first.as_bytes().to_vec();
+    let start = buf.len();
+    buf.extend_from_slice(second.as_bytes());
+
+    let segments = [Segment { start, offset: 12 }];
+    let mut dec = Decoder::with_offset(&buf, ByteOrder::Little, V12, 12);
+    dec.set_segments(&segments);
+    assert_eq!(dec.read_u32().unwrap(), 1);
+    assert_eq!(dec.read_f64().unwrap(), 2.5);
+    assert_eq!(dec.position(), 12);
+    assert_eq!(dec.read_u16().unwrap(), 3);
+    assert_eq!(dec.read_f64().unwrap(), 4.5);
+    assert!(dec.is_empty());
 }

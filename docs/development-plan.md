@@ -175,4 +175,6 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 - [x] omniORBとomniORBpyの相互接続テスト環境（Docker）と、第1段階のテスト用IDLを用意する（[interop/](../interop/README.md)）
 - [x] CDRエンコーダとGIOPメッセージ型の実装に着手する（`rustorb-cdr`、`rustorb-giop`、cargo-fuzzターゲット）
 - [ ] IOR（IIOPプロファイルとタグ付きコンポーネント）、corbaloc・corbanameのパースを実装する
-- [ ] 相互接続環境のキャプチャで、GIOP 1.2のBOMなしwstringのバイト順（仕様はビッグエンディアン）と、GIOP 1.1のFragmentのアラインメントをomniORBと突き合わせる
+- [x] 相互接続環境のキャプチャで、GIOP 1.2のBOMなしwstringのバイト順（仕様はビッグエンディアン）と、GIOP 1.1のFragmentのアラインメントをomniORBと突き合わせる（[interop/README.md](../interop/README.md#omniorb-wire-format-findings)）
+  - wstring：omniORBは空でなければ常にBOM付き・ストリームのバイト順で送り、BOMなしはビッグエンディアンとして読む。wcharは常にビッグエンディアン・BOMなし。rustorbの送信もBOM付きに合わせた（`Encoder::set_wstring_bom(false)` で仕様どおりのBOMなしビッグエンディアン）
+  - GIOP 1.1 Fragment：omniORBは各Fragmentのデータを、そのFragmentの先頭を基準にアラインメントする。連結したメッセージ基準とは8バイト境界が4バイトずれるため、`FragmentAssembler` はFragmentごとの区切り（`Segment`）を保持して復号する。GIOP 1.2では両者は一致する
