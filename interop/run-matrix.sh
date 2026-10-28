@@ -5,8 +5,9 @@
 #                   [CLIENT:SERVER ...]
 #
 # Without pairs, every client in $CLIENT_IMPLS is paired with every server in
-# $SERVER_IMPLS. Both default to $IMPLS plus rustorb and rustorbpy (the Rust
-# and the Python client and server of rustorb), which are built on the host.
+# $SERVER_IMPLS. Both default to $IMPLS plus rustorb, rustorbpy and rustorbcpp
+# (the Rust, the Python and the C++ client and server of rustorb), which are
+# built on the host.
 # --build    builds the omniORB image first
 # --capture  captures each client's traffic and splits it into GIOP messages
 # --giop VER limits the client to GIOP VER (e.g. 1.1); the results go to
@@ -23,8 +24,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 IMPLS="${IMPLS:-omniorbpy omniorb-cpp}"
-CLIENT_IMPLS="${CLIENT_IMPLS:-$IMPLS rustorb rustorbpy}"
-SERVER_IMPLS="${SERVER_IMPLS:-$IMPLS rustorb rustorbpy}"
+CLIENT_IMPLS="${CLIENT_IMPLS:-$IMPLS rustorb rustorbpy rustorbcpp}"
+SERVER_IMPLS="${SERVER_IMPLS:-$IMPLS rustorb rustorbpy rustorbcpp}"
 IMAGE="rustorb-interop-omniorb:latest"
 build=0
 capture=0
@@ -88,6 +89,13 @@ done
 for pair in "${pairs[@]}"; do
   if [ "${pair%%:*}" = rustorbpy ] || [ "${pair##*:}" = rustorbpy ]; then
     impls/rustorbpy/build.sh
+    break
+  fi
+done
+# The rustorb C++ client and server, with stubs from rustorb-idl -bc++11.
+for pair in "${pairs[@]}"; do
+  if [ "${pair%%:*}" = rustorbcpp ] || [ "${pair##*:}" = rustorbcpp ]; then
+    impls/rustorbcpp/build.sh
     break
   fi
 done

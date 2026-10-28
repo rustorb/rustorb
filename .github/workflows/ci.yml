@@ -79,6 +79,31 @@ jobs:
       - name: Build the wheel with maturin
         run: pip wheel ./python --no-deps -w dist
 
+  cpp:
+    name: C++ (rustorb-ffi, the C++ mapping and rustorb-idl -bc++11)
+    strategy:
+      fail-fast: false
+      matrix:
+        cxx: [g++, clang++]
+    runs-on: ubuntu-latest
+    env:
+      CXX: ${{ matrix.cxx }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: sugarsweetrobotics/idl_parser
+          ref: 5eef768bb61e0ee7c5cd08c42c45789a45585f60
+          path: idl_parser
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cmake -S cpp -B build/cpp -DIDL_PARSER_DIR=${{ github.workspace }}/idl_parser
+      - run: cmake --build build/cpp
+      - run: ctest --test-dir build/cpp --output-on-failure
+
   msrv:
     runs-on: ubuntu-latest
     steps:

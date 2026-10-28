@@ -326,6 +326,15 @@ impl Drop for OrbInner {
     }
 }
 
+/// Clones of one ORB are equal.
+impl PartialEq for Orb {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+}
+
+impl Eq for Orb {}
+
 impl fmt::Debug for Orb {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Orb")

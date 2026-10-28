@@ -7,3 +7,5 @@
 /impls/rustorb/bin/
 /impls/rustorbpy/lib/
 /impls/rustorbpy/stubs/
+/impls/rustorbcpp/bin/
+/impls/rustorbcpp/gen/

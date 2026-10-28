@@ -4,3 +4,4 @@ __pycache__/
 # (python/build-native.sh or maturin develop).
 /python/rustorb/_native*.so
 /python/rustorb/_native*.pyd
+/build
