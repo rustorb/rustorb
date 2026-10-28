@@ -5,6 +5,24 @@ Rust製のCORBA実装
 
 - [開発計画](docs/development-plan.md)
 
+## クレート構成
+
+| クレート | 役割 | ライセンス |
+| --- | --- | --- |
+| `rustorb-cdr` | CDRのエンコード・デコード | MIT OR Apache-2.0 |
+| `rustorb-giop` | GIOP/IIOPメッセージ型、IOR・corbaloc | MIT OR Apache-2.0 |
+| `rustorb-core` | ORB本体（接続管理、リクエスト配送、POA）。内部でtokioを使い、公開APIは同期 | MIT OR Apache-2.0 |
+| `rustorb-naming` | CosNaming（Naming Service） | MIT OR Apache-2.0 |
+| `rustorb-ffi` | C++・Javaバインディング向けの安定C ABI層 | MIT OR Apache-2.0 |
+| `rustorb-codegen` | IDLコード生成器（idl_parserのASTを入力） | GPL-3.0-or-later |
+
+ビルドとテスト：
+
+```sh
+cargo build --workspace
+cargo test --workspace
+```
+
 ## ライセンス
 
 rustorb は、以下のいずれかを利用者が選べるデュアルライセンスで提供します。
