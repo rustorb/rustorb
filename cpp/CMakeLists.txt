@@ -1,0 +1,106 @@
+# The rustorb C++ binding: the headers in include/ (the IDL to C++11 mapping
+# runtime, header only) on the C ABI of crates/rustorb-ffi, and its tests.
+#
+#   cmake -S cpp -B build/cpp -DIDL_PARSER_DIR=path/to/idl_parser
+#   cmake --build build/cpp && ctest --test-dir build/cpp
+#
+# The build runs cargo for librustorb_ffi (static) and rustorb-idl -bc++11
+# for the test IDLs; rustorb-idl needs idl_parser, importable or in
+# IDL_PARSER_DIR. Set RUSTORB_FFI_LIBRARY to use a librustorb_ffi built
+# elsewhere instead.
+
+cmake_minimum_required(VERSION 3.16)
+project(rustorb_cpp CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+get_filename_component(RUSTORB_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
+set(IDL_PARSER_DIR "" CACHE PATH "a checkout of idl_parser, if it is not importable")
+set(RUSTORB_FFI_LIBRARY "" CACHE FILEPATH "librustorb_ffi to link (default: built with cargo)")
+
+find_package(Threads REQUIRED)
+find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
+
+if(RUSTORB_FFI_LIBRARY)
+  add_custom_target(rustorb_ffi_build)
+else()
+  find_program(CARGO cargo REQUIRED)
+  set(RUSTORB_FFI_LIBRARY
+      "${RUSTORB_ROOT}/target/release/${CMAKE_STATIC_LIBRARY_PREFIX}rustorb_ffi${CMAKE_STATIC_LIBRARY_SUFFIX}")
+  # Always run: cargo knows whether it is up to date.
+  add_custom_target(rustorb_ffi_build
+    COMMAND "${CARGO}" build --release --locked -p rustorb-ffi
+            --manifest-path "${RUSTORB_ROOT}/Cargo.toml"
+    BYPRODUCTS "${RUSTORB_FFI_LIBRARY}"
+    COMMENT "Building librustorb_ffi with cargo"
+    VERBATIM)
+endif()
+
+add_library(rustorb INTERFACE)
+add_dependencies(rustorb rustorb_ffi_build)
+target_include_directories(rustorb INTERFACE
+  "${CMAKE_CURRENT_SOURCE_DIR}/include"
+  "${RUSTORB_ROOT}/crates/rustorb-ffi/include")
+target_link_libraries(rustorb INTERFACE "${RUSTORB_FFI_LIBRARY}" Threads::Threads ${CMAKE_DL_LIBS})
+if(UNIX AND NOT APPLE)
+  target_link_libraries(rustorb INTERFACE m)
+elseif(APPLE)
+  target_link_libraries(rustorb INTERFACE "-framework CoreFoundation" "-framework Security")
+elseif(WIN32)
+  target_link_libraries(rustorb INTERFACE ws2_32 userenv ntdll bcrypt)
+endif()
+
+# rustorb_idl_generate(<var> <idl>...): runs rustorb-idl -bc++11 on each IDL
+# file and appends the generated sources to <var>.
+set(RUSTORB_IDL_PYTHONPATH "${RUSTORB_ROOT}/crates/rustorb-codegen/python")
+if(IDL_PARSER_DIR)
+  if(WIN32)
+    set(RUSTORB_IDL_PYTHONPATH "${IDL_PARSER_DIR}\;${RUSTORB_IDL_PYTHONPATH}")
+  else()
+    set(RUSTORB_IDL_PYTHONPATH "${IDL_PARSER_DIR}:${RUSTORB_IDL_PYTHONPATH}")
+  endif()
+endif()
+file(GLOB RUSTORB_IDL_GENERATOR "${RUSTORB_ROOT}/crates/rustorb-codegen/python/rustorb_idl/*.py")
+function(rustorb_idl_generate var)
+  set(outdir "${CMAKE_CURRENT_BINARY_DIR}/idl")
+  set(sources ${${var}})
+  foreach(idl ${ARGN})
+    get_filename_component(base "${idl}" NAME_WE)
+    add_custom_command(
+      OUTPUT "${outdir}/${base}.hh" "${outdir}/${base}.cc"
+      COMMAND "${CMAKE_COMMAND}" -E env "PYTHONPATH=${RUSTORB_IDL_PYTHONPATH}"
+              "${Python3_EXECUTABLE}" -m rustorb_idl -bc++11 -C "${outdir}" "${idl}"
+      DEPENDS "${idl}" ${RUSTORB_IDL_GENERATOR}
+      COMMENT "rustorb-idl -bc++11 ${base}.idl"
+      VERBATIM)
+    list(APPEND sources "${outdir}/${base}.cc")
+  endforeach()
+  set(${var} ${sources} PARENT_SCOPE)
+endfunction()
+
+if(MSVC)
+  set(RUSTORB_WARNINGS /W4)
+else()
+  set(RUSTORB_WARNINGS -Wall -Wextra -Werror)
+endif()
+
+enable_testing()
+
+rustorb_idl_generate(MAPPING_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/tests/idl/CxxMapping.idl")
+add_executable(test_mapping tests/test_mapping.cc ${MAPPING_SOURCES})
+target_include_directories(test_mapping PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl")
+target_link_libraries(test_mapping PRIVATE rustorb)
+target_compile_options(test_mapping PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME mapping COMMAND test_mapping)
+
+# The interop test cases of interop/impls/rustorbcpp, in one process.
+rustorb_idl_generate(INTEROP_SOURCES "${RUSTORB_ROOT}/interop/idl/InteropTest.idl")
+add_executable(test_interop tests/test_interop.cc ${INTEROP_SOURCES})
+target_include_directories(test_interop PRIVATE
+  "${CMAKE_CURRENT_BINARY_DIR}/idl" "${RUSTORB_ROOT}/interop/impls/rustorbcpp")
+target_link_libraries(test_interop PRIVATE rustorb)
+target_compile_options(test_interop PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME interop COMMAND test_interop)
+set_tests_properties(mapping interop PROPERTIES TIMEOUT 120)
