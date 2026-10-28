@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""Compares GIOP captures with golden files, or writes new golden files.
+
+A golden file is golden/<pair>.json: the GIOP messages of one client /
+server pair in the order giop-extract produced them, each with its header
+fields and the full message as hex.
+
+    golden-compare OUT/<pair>/capture/messages GOLDEN/<pair>.json
+    golden-compare --all OUT GOLDEN            # every pair that has a golden file
+    golden-compare --update --all OUT GOLDEN   # rewrite the golden files
+
+Request ids and the alignment padding in the GIOP header (which omniORB
+does not clear) are ignored when comparing, and messages of the operations in
+VOLATILE are left out, because how often the client polls them depends on
+timing, as are CloseConnection messages.
+"""
+
+import argparse
+import glob
+import json
+import os
+import sys
+
+VOLATILE = {"posted"}
+# Whether and when an ORB closes an idle connection depends on timing.
+VOLATILE_TYPES = {"CloseConnection"}
+FIELDS = ["server", "direction", "type", "operation", "giop", "little_endian"]
+EXTRA = ["request_id", "body_offset", "padding"]
+
+
+def load_capture(msg_dir):
+    with open(os.path.join(msg_dir, "messages.json")) as f:
+        index = json.load(f)
+    out = []
+    pending_op = {}
+    for e in index:
+        with open(os.path.join(msg_dir, e["file"]), "rb") as f:
+            data = f.read()
+        # Replies are tagged with the operation of their request, so that
+        # VOLATILE filtering covers both.
+        key = (e["connection"], e.get("request_id"))
+        if e["type"] == "Request":
+            pending_op[key] = e.get("operation")
+        op = e.get("operation") or pending_op.get(key)
+        entry = {k: e.get(k) for k in FIELDS}
+        entry["operation"] = op
+        for k in EXTRA:
+            if k in e:
+                entry[k] = e[k]
+        entry["hex"] = data.hex()
+        out.append(entry)
+    return [m for m in out
+            if m["operation"] not in VOLATILE and m["type"] not in VOLATILE_TYPES]
+
+
+def normalized(m):
+    """The message bytes with the request id and header padding zeroed."""
+    data = bytearray.fromhex(m["hex"])
+    for start, length in m.get("padding", []):
+        data[start:start + length] = bytes(length)
+    if m["type"] in ("Request", "Reply", "LocateRequest", "LocateReply", "CancelRequest"):
+        if m["giop"] in ("1.2", "1.3") or m["type"] in ("LocateRequest", "LocateReply",
+                                                        "CancelRequest"):
+            data[12:16] = b"\0\0\0\0"
+        # GIOP 1.0 / 1.1 put the service contexts first; the id is left as is.
+    return bytes(data)
+
+
+def label(m):
+    return "%s %s %s%s" % (m["server"], m["direction"], m["type"],
+                           " " + m["operation"] if m["operation"] else "")
+
+
+def compare(capture, golden, name):
+    problems = []
+    for i in range(max(len(capture), len(golden))):
+        c = capture[i] if i < len(capture) else None
+        g = golden[i] if i < len(golden) else None
+        if c is None:
+            problems.append("#%d missing: expected %s" % (i, label(g)))
+            continue
+        if g is None:
+            problems.append("#%d extra: %s" % (i, label(c)))
+            continue
+        if any(c[k] != g[k] for k in FIELDS):
+            problems.append("#%d expected %s, got %s" % (i, label(g), label(c)))
+            break  # the rest is shifted
+        a, b = normalized(c), normalized(g)
+        if a != b:
+            diff = next((j for j in range(min(len(a), len(b))) if a[j] != b[j]),
+                        min(len(a), len(b)))
+            problems.append("#%d %s: bytes differ at offset %d (%d vs %d bytes)"
+                            % (i, label(c), diff, len(a), len(b)))
+    if problems:
+        print("%s: %d difference(s)" % (name, len(problems)))
+        for p in problems[:20]:
+            print("  " + p)
+        return False
+    print("%s: %d messages match" % (name, len(capture)))
+    return True
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--all", action="store_true",
+                        help="arguments are the output and golden directories")
+    parser.add_argument("--update", action="store_true", help="write the golden files")
+    parser.add_argument("capture")
+    parser.add_argument("golden")
+    args = parser.parse_args()
+
+    if args.all:
+        if args.update:
+            dirs = sorted(glob.glob(os.path.join(args.capture, "*", "capture", "messages")))
+            pairs = [(d, os.path.join(args.golden, d.split(os.sep)[-3] + ".json")) for d in dirs]
+        else:
+            files = sorted(glob.glob(os.path.join(args.golden, "*.json")))
+            pairs = [(os.path.join(args.capture, os.path.basename(f)[:-5], "capture", "messages"), f)
+                     for f in files]
+        if not pairs:
+            sys.exit("nothing to compare")
+    else:
+        pairs = [(args.capture, args.golden)]
+
+    ok = True
+    for msg_dir, golden_file in pairs:
+        name = os.path.basename(golden_file)[:-5]
+        if not os.path.exists(os.path.join(msg_dir, "messages.json")):
+            print("%s: no capture in %s" % (name, msg_dir))
+            ok = False
+            continue
+        capture = load_capture(msg_dir)
+        if args.update:
+            os.makedirs(os.path.dirname(golden_file) or ".", exist_ok=True)
+            with open(golden_file, "w") as f:
+                json.dump(capture, f, indent=1)
+                f.write("\n")
+            print("%s: wrote %d messages to %s" % (name, len(capture), golden_file))
+            continue
+        with open(golden_file) as f:
+            golden = json.load(f)
+        ok = compare(capture, golden, name) and ok
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

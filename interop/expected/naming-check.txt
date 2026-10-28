@@ -1,0 +1,37 @@
+bind_new_context test                    -> ok
+bind test/a                              -> ok
+bind test/a (again)                      -> raises AlreadyBound
+rebind test/a                            -> ok
+resolve test/a                           -> equivalent
+bind test/b.kind                         -> ok
+resolve test/b (no kind)                 -> raises NotFound(missing_node, rest=b)
+resolve test/b.kind                      -> equivalent
+resolve test/missing                     -> raises NotFound(missing_node, rest=missing)
+resolve test/missing/deeper              -> raises NotFound(missing_node, rest=missing/deeper)
+resolve test/a/x (not a context)         -> raises NotFound(not_context, rest=a/x)
+resolve <empty>                          -> raises InvalidName
+bind <empty>                             -> raises InvalidName
+bind_new_context test/sub                -> ok
+bind_new_context test/sub (again)        -> raises AlreadyBound
+bind test/sub/c                          -> ok
+resolve test/sub (is a context)          -> NamingContext
+new_context                              -> ok
+bind_context test/loose                  -> ok
+rebind_context test/loose                -> ok
+list test (how_many=10)                  -> [a:nobject, b.kind:nobject, loose:ncontext, sub:ncontext]
+list test (how_many=1) + iterator        -> [a:nobject, b.kind:nobject, loose:ncontext, sub:ncontext] first=1 next_n(2)=True/2 next_n(2)=True/1 next_n(2)=False/0
+destroy test/sub (not empty)             -> raises NotEmpty
+unbind test/sub/c                        -> ok
+destroy test/sub                         -> ok
+resolve test/sub (dangling)              -> still bound
+unbind test/sub                          -> ok
+unbind test/a                            -> ok
+unbind test/a (again)                    -> raises NotFound(missing_node, rest=a)
+resolve test/a                           -> raises NotFound(missing_node, rest=a)
+to_string [a.b, c/d, .e]                 -> a.b/c\/d/.e
+to_name a.b/c\/d/.e                      -> [('a', 'b'), ('c/d', ''), ('', 'e')]
+to_url host:2809 a/b                     -> raises InvalidAddress
+to_url :host:2809 a/b c                  -> corbaname::host:2809#a/b%20c
+resolve_str test/b.kind                  -> equivalent
+to_name <invalid>                        -> raises InvalidName
+list test (final)                        -> [b.kind:nobject, loose:ncontext]

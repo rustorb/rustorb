@@ -1,0 +1,10 @@
+#!/bin/sh
+# Starts omniNames in the foreground with a fresh log directory.
+#   run-omninames [PORT]
+# IORs carry NAMING_HOST (default: the container's host name) instead of an
+# IP address, so captures do not depend on the Docker network.
+set -eu
+port="${1:-2809}"
+logdir="$(mktemp -d)"
+exec omniNames -start "$port" -logdir "$logdir" \
+  -ORBendPointPublish "giop:tcp:${NAMING_HOST:-$(hostname)}:$port"

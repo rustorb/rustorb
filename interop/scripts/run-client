@@ -1,0 +1,31 @@
+#!/bin/sh
+# Runs an interop client. When CAPTURE_DIR is set, the client's traffic is
+# captured with tcpdump and split into GIOP messages under $CAPTURE_DIR.
+#
+#   run-client impls/omniorbpy/client --naming ... --name ...
+set -u
+
+if [ -z "${CAPTURE_DIR:-}" ]; then
+  exec "$@"
+fi
+
+mkdir -p "$CAPTURE_DIR"
+pcap="$CAPTURE_DIR/capture.pcap"
+tcpdump -i "${CAPTURE_IFACE:-eth0}" -U -s 0 -w "$pcap" tcp 2>"$CAPTURE_DIR/tcpdump.log" &
+tcpdump_pid=$!
+# Wait until tcpdump has opened the interface.
+i=0
+while ! grep -q "listening on" "$CAPTURE_DIR/tcpdump.log" 2>/dev/null && [ $i -lt 50 ]; do
+  sleep 0.1
+  i=$((i + 1))
+done
+
+"$@"
+status=$?
+
+sleep 1
+kill -INT "$tcpdump_pid"
+wait "$tcpdump_pid"
+
+giop-extract "$pcap" "$CAPTURE_DIR/messages" ${CAPTURE_LABELS:-} || status=1
+exit $status

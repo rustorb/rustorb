@@ -172,5 +172,5 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 
 - [x] idl\_parser のリポジトリを共有し、ASTの構造と不足を確認する（[idl-parser-gap-analysis.md](idl-parser-gap-analysis.md)）
 - [x] Cargoワークスペースの雛形とクレート分割を作る
-- [ ] omniORBとomniORBpyの相互接続テスト環境（Docker）と、第1段階のテスト用IDLを用意する
+- [x] omniORBとomniORBpyの相互接続テスト環境（Docker）と、第1段階のテスト用IDLを用意する（[interop/](../interop/README.md)）
 - [ ] CDRエンコーダとGIOPメッセージ型の実装に着手する
