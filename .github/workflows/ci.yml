@@ -64,8 +64,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: fuzz
+      # The prebuilt cargo-fuzz is a musl binary and would default to the musl
+      # target, which the sanitizers do not support.
       - name: Run each fuzz target for 60 seconds
         run: |
           for target in $(cargo fuzz list); do
-            cargo fuzz run "$target" -- -max_total_time=60
+            cargo fuzz run --target x86_64-unknown-linux-gnu "$target" -- -max_total_time=60
           done
