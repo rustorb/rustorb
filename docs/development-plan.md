@@ -65,7 +65,7 @@ M0〜M3の約4〜7か月でMVPに到達し、その後C++とJavaを順に追加�
 | C++ | C ABI（安定ABI層）＋ヘッダオンリーのC++ラッパ | CPP11準拠のヘッダ・スケルトン | RAIIと参照カウントの対応、例外の伝播 |
 | Java | JNI（将来Java 22以降のFFM APIも検討） | IDL to Java準拠のクラス群 | JavaのGCとRust側参照の解放、コールバックのスレッドアタッチ |
 
-- Rustコアは`extern "C"`の安定ABI層（`corba-ffi`）を1つだけ公開し、C++とJavaはそこから使う。Pythonは開発効率を優先してPyO3で直接つなぐ
+- Rustコアは`extern "C"`の安定ABI層（`rustorb-ffi`）を1つだけ公開し、C++とJavaはそこから使う。Pythonは開発効率を優先してPyO3で直接つなぐ
 - オブジェクト参照はRust側で参照カウントし、各言語のハンドルが解放されたら減算する
 - 例外はシステム例外・ユーザー例外ともにCDRで表現し、各言語の例外クラスに変換する
 
@@ -97,9 +97,13 @@ M0〜M3の約4〜7か月でMVPに到達し、その後C++とJavaを順に追加�
 
 ## 未決事項と次のアクション
 
+**決定事項**
+
+- プロジェクト名は rustorb。クレート名は `rustorb-` を接頭辞にする（例：`rustorb-core`、`rustorb-ffi`）（[#2](https://github.com/rustorb/rustorb/issues/2)）
+- ライセンスは MIT OR Apache-2.0 のデュアル。ただし、GPL-3.0-or-later の idl\_parser を取り込むIDLコード生成器だけは GPL-3.0-or-later とし、生成されたコードは生成器のライセンスの対象外とする（[#2](https://github.com/rustorb/rustorb/issues/2)）
+
 **未決事項**
 
-- プロジェクト名とライセンス（omniORBはLGPL。Apache-2.0 / MIT のデュアルが候補）
 - 非同期ランタイム：tokioに固定するか、ランタイム非依存にするか
 - POAのデフォルトスレッドモデル（ORB\_CTRL\_MODEL の実装方針）
 - Pythonバインディングで omniORBpy とのAPI互換をどこまで保つか
