@@ -114,7 +114,7 @@ Fragments of a message follow it. `golden/<client>-to-<server>-giop1.1.json`
 is the same run with the client limited to GIOP 1.1 (omniORB's
 `ORBmaxGIOPVersion`, set through `CLIENT_MAX_GIOP` in `compose.yaml`). The CI
 job captures a fresh run and compares it with these files. It ignores
-request ids, the alignment padding in GIOP headers, the `posted` polling
+request ids, the alignment padding and reserved octets in GIOP headers, the `posted` polling
 (its count depends on timing) and CloseConnection messages. The oneway test
 runs last for the same reason. Repeated local runs match byte for byte.
 

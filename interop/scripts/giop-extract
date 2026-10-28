@@ -166,6 +166,11 @@ class Reader:
             self.padding.append([self.pos, pad])
         self.pos += pad
 
+    def reserved(self, n):
+        # Reserved octets are not cleared by omniORB either.
+        self.padding.append([self.pos, n])
+        self.pos += n
+
     def ulong(self):
         self.align(4)
         v = struct.unpack_from("<I" if self.little else ">I", self.data, self.pos)[0]
@@ -219,7 +224,7 @@ def describe(msg):
                 info["request_id"] = r.ulong()
                 info["response_expected"] = bool(r.octet())
                 if minor == 1:
-                    r.pos += 3
+                    r.reserved(3)
                 info["object_key"] = r.octets().hex()
                 info["operation"] = r.string()
                 r.octets()  # requesting_principal
@@ -227,7 +232,7 @@ def describe(msg):
             else:
                 info["request_id"] = r.ulong()
                 info["response_flags"] = r.octet()
-                r.pos += 3
+                r.reserved(3)
                 disc = r.ushort()
                 if disc == 0:
                     info["object_key"] = r.octets().hex()
@@ -263,7 +268,8 @@ def describe(msg):
             info["request_id"] = r.ulong()
     except (IndexError, struct.error, ValueError):
         info["decode_error"] = True
-    # Alignment gaps in the header. omniORB does not clear them, so their
+    # Alignment gaps and reserved octets in the header. omniORB does not
+    # clear them (observed in the captures), so their
     # contents are whatever was in its buffer and must not be compared.
     info["padding"] = r.padding
     return info
