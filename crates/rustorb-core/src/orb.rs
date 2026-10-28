@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 use std::{fmt, io};
 
@@ -10,6 +10,8 @@ use rustorb_giop::{CorbaName, Corbaloc, Ior, ObjectUrl, Version};
 use tokio::runtime::{Handle, Runtime};
 
 use crate::connection::Connection;
+use crate::poa::{self, Poa};
+use crate::server::Server;
 use crate::{
     CompletionStatus, Exception, ObjectRef, SystemException, SystemExceptionKind, minor, name,
 };
@@ -40,6 +42,59 @@ pub struct OrbOptions {
     pub default_init_ref: Option<String>,
     /// Number of tokio worker threads for network I/O.
     pub io_threads: usize,
+    /// Addresses to listen on for requests (`-ORBendPoint giop:tcp:HOST:PORT`).
+    /// Empty means one endpoint on every interface with a port the
+    /// operating system chooses. The server side starts listening when the
+    /// RootPOA is first used.
+    pub endpoints: Vec<EndpointAddr>,
+    /// Address published in IORs instead of the listening one
+    /// (`-ORBendPointPublish giop:tcp:HOST:PORT`); a port of 0 keeps the
+    /// listening port.
+    pub endpoint_publish: Option<EndpointAddr>,
+    /// Upcall threads kept running even when idle.
+    pub min_server_threads: usize,
+    /// Most upcall threads running at once (`-ORBmaxServerThreadPoolSize`).
+    /// Requests beyond that wait in a queue.
+    pub max_server_threads: usize,
+    /// How long an upcall thread beyond `min_server_threads` waits for work
+    /// before it ends.
+    pub server_thread_idle_timeout: Duration,
+    /// Requests of one connection that may wait or run at once. Beyond
+    /// that the connection is not read until one completes.
+    pub max_requests_per_connection: usize,
+}
+
+/// A TCP address of an endpoint, as in `giop:tcp:HOST:PORT`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EndpointAddr {
+    /// Host name or address. Empty means every interface when listening,
+    /// and the host name of the machine when published.
+    pub host: String,
+    /// TCP port; 0 lets the operating system choose.
+    pub port: u16,
+}
+
+impl EndpointAddr {
+    /// Parses `giop:tcp:HOST:PORT`; the host and the port may be empty, and
+    /// an IPv6 address is written in brackets.
+    pub fn parse(s: &str) -> Option<EndpointAddr> {
+        let rest = s.strip_prefix("giop:tcp:")?;
+        let (host, port) = rest.rsplit_once(':')?;
+        let port = if port.is_empty() {
+            0
+        } else {
+            port.parse().ok()?
+        };
+        let host = match host.strip_prefix('[') {
+            Some(h) => h.strip_suffix(']')?,
+            None if host.contains(':') => return None,
+            None => host,
+        };
+        Some(EndpointAddr {
+            host: host.to_owned(),
+            port,
+        })
+    }
 }
 
 impl Default for OrbOptions {
@@ -54,6 +109,12 @@ impl Default for OrbOptions {
             init_refs: HashMap::new(),
             default_init_ref: None,
             io_threads: 2,
+            endpoints: Vec::new(),
+            endpoint_publish: None,
+            min_server_threads: 4,
+            max_server_threads: 100,
+            server_thread_idle_timeout: Duration::from_secs(60),
+            max_requests_per_connection: 256,
         }
     }
 }
@@ -69,6 +130,9 @@ impl OrbOptions {
     /// | `-ORBmaxGIOPVersion 1.1` | [`max_giop_version`](OrbOptions::max_giop_version) |
     /// | `-ORBclientConnectTimeOutPeriod MS` | [`connect_timeout`](OrbOptions::connect_timeout) (0 for none) |
     /// | `-ORBclientCallTimeOutPeriod MS` | [`request_timeout`](OrbOptions::request_timeout) (0 for none) |
+    /// | `-ORBendPoint giop:tcp:HOST:PORT` | [`endpoints`](OrbOptions::endpoints) (repeatable) |
+    /// | `-ORBendPointPublish giop:tcp:HOST:PORT` | [`endpoint_publish`](OrbOptions::endpoint_publish) |
+    /// | `-ORBmaxServerThreadPoolSize N` | [`max_server_threads`](OrbOptions::max_server_threads) |
     ///
     /// The value may also follow the option name after `=`, as in
     /// `-ORBmaxGIOPVersion=1.1`.
@@ -84,7 +148,10 @@ impl OrbOptions {
                 Some((name, value))
                     if matches!(
                         name,
-                        "maxGIOPVersion" | "clientConnectTimeOutPeriod" | "clientCallTimeOutPeriod"
+                        "maxGIOPVersion"
+                            | "clientConnectTimeOutPeriod"
+                            | "clientCallTimeOutPeriod"
+                            | "maxServerThreadPoolSize"
                     ) =>
                 {
                     (name.to_owned(), Some(value.to_owned()))
@@ -98,6 +165,9 @@ impl OrbOptions {
                     | "maxGIOPVersion"
                     | "clientConnectTimeOutPeriod"
                     | "clientCallTimeOutPeriod"
+                    | "endPoint"
+                    | "endPointPublish"
+                    | "maxServerThreadPoolSize"
             ) {
                 rest.push(arg);
                 continue;
@@ -125,6 +195,20 @@ impl OrbOptions {
                 }
                 "clientConnectTimeOutPeriod" => self.connect_timeout = millis(&value)?,
                 "clientCallTimeOutPeriod" => self.request_timeout = millis(&value)?,
+                "endPoint" => self
+                    .endpoints
+                    .push(EndpointAddr::parse(&value).ok_or_else(bad_option)?),
+                "endPointPublish" => {
+                    self.endpoint_publish =
+                        Some(EndpointAddr::parse(&value).ok_or_else(bad_option)?);
+                }
+                "maxServerThreadPoolSize" => {
+                    let n: usize = value.parse().map_err(|_| bad_option())?;
+                    if n == 0 {
+                        return Err(bad_option());
+                    }
+                    self.max_server_threads = n;
+                }
                 _ => unreachable!(),
             }
         }
@@ -168,14 +252,17 @@ impl From<SystemException> for ResolveError {
     }
 }
 
-/// The client side of an ORB.
+/// An ORB: the client side, and the server side once the RootPOA is used.
 ///
 /// Network I/O runs on a tokio runtime owned by the ORB; the methods here
 /// and on [`ObjectRef`] block the calling thread. They must not be called
-/// from inside a tokio runtime (they fail with `BAD_INV_ORDER`).
+/// from inside a tokio runtime (they fail with `BAD_INV_ORDER`). Servants
+/// run on a pool of upcall threads owned by the ORB.
 ///
 /// `Orb` is a cheap handle: clones share the same ORB, which shuts down
-/// when the last clone and the last [`ObjectRef`] are gone.
+/// when the last clone and the last [`ObjectRef`] are gone. Servants that
+/// hold the ORB keep it alive until [`shutdown`](Orb::shutdown) or
+/// [`destroy`](Orb::destroy) drops them.
 #[derive(Clone)]
 pub struct Orb {
     pub(crate) inner: Arc<OrbInner>,
@@ -183,10 +270,14 @@ pub struct Orb {
 
 pub(crate) struct OrbInner {
     runtime: Option<Runtime>,
-    handle: Handle,
+    pub(crate) handle: Handle,
     pub(crate) options: OrbOptions,
     connections: Mutex<HashMap<(String, u16), Arc<Connection>>>,
     shut_down: AtomicBool,
+    server: Mutex<Option<Arc<Server>>>,
+    /// Set once shutdown has completed; `run` waits for it.
+    stopped: Mutex<bool>,
+    stopped_cond: Condvar,
 }
 
 impl Drop for OrbInner {
@@ -233,6 +324,9 @@ impl Orb {
                 options,
                 connections: Mutex::new(HashMap::new()),
                 shut_down: AtomicBool::new(false),
+                server: Mutex::new(None),
+                stopped: Mutex::new(false),
+                stopped_cond: Condvar::new(),
             }),
         })
     }
@@ -378,12 +472,98 @@ impl Orb {
         names
     }
 
-    /// Closes every connection with `CloseConnection` and refuses new
-    /// invocations (`BAD_INV_ORDER`). Calls in progress fail with
+    /// The RootPOA. The first call starts the server side: it opens the
+    /// [`endpoints`](OrbOptions::endpoints) (`INITIALIZE` if one cannot be
+    /// opened) and the upcall thread pool.
+    pub fn root_poa(&self) -> Result<Poa, SystemException> {
+        self.check_running()?;
+        let mut server = self.inner.server.lock().unwrap();
+        let server = match &*server {
+            Some(s) => Arc::clone(s),
+            None => {
+                let s = Server::start(self)?;
+                *server = Some(Arc::clone(&s));
+                s
+            }
+        };
+        Ok(Poa {
+            orb: self.clone(),
+            inner: Arc::clone(server.root()),
+        })
+    }
+
+    /// The server side, if the RootPOA was used.
+    pub(crate) fn server(&self) -> Option<Arc<Server>> {
+        self.inner.server.lock().unwrap().clone()
+    }
+
+    /// The addresses the server side publishes in IORs, as host and port;
+    /// empty until the RootPOA is used.
+    pub fn endpoints(&self) -> Vec<(String, u16)> {
+        self.server()
+            .map(|s| s.published().to_vec())
+            .unwrap_or_default()
+    }
+
+    /// `CORBA::ORB::run`: blocks until the ORB has shut down. Requests are
+    /// processed on the upcall threads whether or not a thread runs this.
+    pub fn run(&self) {
+        let mut stopped = self.inner.stopped.lock().unwrap();
+        while !*stopped {
+            stopped = self.inner.stopped_cond.wait(stopped).unwrap();
+        }
+    }
+
+    /// `CORBA::ORB::shutdown`. Refuses new invocations (`BAD_INV_ORDER`)
+    /// and new requests, drops the requests the POA managers hold, lets the
+    /// running ones finish and send their replies, destroys every POA, and
+    /// then closes every connection, client and server side, with
+    /// `CloseConnection`. Invocations still waiting for a reply fail with
     /// `COMM_FAILURE` or `TRANSIENT`.
-    pub fn shutdown(&self) {
+    ///
+    /// With `wait_for_completion`, returns when all that is done; called
+    /// from a servant it fails with `BAD_INV_ORDER` (would deadlock).
+    /// Without it, the shutdown runs on another thread and the call returns
+    /// at once, so a servant can call it and still send its reply.
+    pub fn shutdown(&self, wait_for_completion: bool) -> Result<(), SystemException> {
+        if wait_for_completion && poa::in_upcall() {
+            return Err(SystemException::new(
+                SystemExceptionKind::BAD_INV_ORDER,
+                minor::WOULD_DEADLOCK,
+                CompletionStatus::No,
+            ));
+        }
         if self.inner.shut_down.swap(true, Ordering::AcqRel) {
-            return;
+            if wait_for_completion {
+                self.run();
+            }
+            return Ok(());
+        }
+        if wait_for_completion {
+            // The shutdown blocks on the runtime, which cannot be done from
+            // inside a runtime (the caller's own, say).
+            if Handle::try_current().is_ok() {
+                std::thread::scope(|s| {
+                    let _ = s.spawn(|| self.complete_shutdown()).join();
+                });
+            } else {
+                self.complete_shutdown();
+            }
+        } else {
+            let orb = self.clone();
+            std::thread::Builder::new()
+                .name("rustorb-shutdown".into())
+                .spawn(move || orb.complete_shutdown())
+                .map_err(|_| {
+                    SystemException::new(SystemExceptionKind::NO_RESOURCES, 0, CompletionStatus::No)
+                })?;
+        }
+        Ok(())
+    }
+
+    fn complete_shutdown(&self) {
+        if let Some(server) = self.server() {
+            server.shutdown(&self.inner.handle);
         }
         let conns: Vec<_> = self
             .inner
@@ -400,6 +580,19 @@ impl Orb {
                 conn.close(version, order).await;
             }
         });
+        *self.inner.stopped.lock().unwrap() = true;
+        self.inner.stopped_cond.notify_all();
+    }
+
+    /// `CORBA::ORB::destroy`: [`shutdown(true)`](Orb::shutdown), and then
+    /// ends the upcall threads. Fails like `shutdown(true)` when called
+    /// from a servant.
+    pub fn destroy(&self) -> Result<(), SystemException> {
+        self.shutdown(true)?;
+        if let Some(server) = self.inner.server.lock().unwrap().take() {
+            server.stop_pool();
+        }
+        Ok(())
     }
 
     pub(crate) fn check_running(&self) -> Result<(), SystemException> {

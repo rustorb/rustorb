@@ -76,16 +76,22 @@ impl DerefMut for OutStream<'_> {
     }
 }
 
-/// The stream a reply or user exception is read from.
+/// The stream a reply, a user exception or the arguments of a request
+/// are read from.
 ///
 /// It dereferences to the CDR [`Decoder`] of the message body, and adds
 /// the operations that depend on the connection, like [`OutStream`].
-/// Errors are `MARSHAL` (or `DATA_CONVERSION`), completed yes.
+/// Errors are `MARSHAL` (or `DATA_CONVERSION`), completed yes when reading
+/// a reply and completed no when a servant reads its arguments.
 #[derive(Debug)]
 pub struct InStream<'a> {
     pub(crate) dec: Decoder<'a>,
     pub(crate) code_sets: CodeSets,
     pub(crate) orb: &'a Orb,
+    pub(crate) completed: CompletionStatus,
+    /// Whether `wchar` data needs a negotiated `wchar` code set, as for
+    /// request arguments (`BAD_PARAM`, `WCHAR_TCS_NOT_KNOWN`).
+    pub(crate) wchar_needs_code_set: bool,
 }
 
 impl<'a> InStream<'a> {
@@ -96,28 +102,52 @@ impl<'a> InStream<'a> {
 
     /// Reads a value with its [`CdrDecode`] implementation.
     pub fn read<T: CdrDecode>(&mut self) -> Result<T, SystemException> {
-        T::decode(&mut self.dec).map_err(marshal)
+        let completed = self.completed;
+        T::decode(&mut self.dec).map_err(|_| marshal_with(completed))
     }
 
     /// Reads a `string` in the negotiated `char` code set.
     pub fn read_string(&mut self) -> Result<String, SystemException> {
-        let bytes = self.dec.read_string_bytes().map_err(marshal)?;
-        self.code_sets.decode_string(bytes)
+        let completed = self.completed;
+        let bytes = self
+            .dec
+            .read_string_bytes()
+            .map_err(|_| marshal_with(completed))?;
+        self.code_sets.decode_string(bytes).map_err(|mut e| {
+            e.completed = completed;
+            e
+        })
     }
 
     /// Reads a `wchar` (one UTF-16 code unit).
     pub fn read_wchar(&mut self) -> Result<u16, SystemException> {
-        self.dec.read_wchar().map_err(marshal)
+        self.check_wchar()?;
+        let completed = self.completed;
+        self.dec.read_wchar().map_err(|_| marshal_with(completed))
     }
 
     /// Reads a `wstring`.
     pub fn read_wstring(&mut self) -> Result<String, SystemException> {
-        self.dec.read_wstring().map_err(marshal)
+        self.check_wchar()?;
+        let completed = self.completed;
+        self.dec.read_wstring().map_err(|_| marshal_with(completed))
+    }
+
+    fn check_wchar(&self) -> Result<(), SystemException> {
+        if self.wchar_needs_code_set && self.code_sets.wchar_data.is_none() {
+            return Err(SystemException::new(
+                SystemExceptionKind::BAD_PARAM,
+                crate::minor::WCHAR_TCS_NOT_KNOWN,
+                self.completed,
+            ));
+        }
+        Ok(())
     }
 
     /// Reads an object reference; a nil reference is `None`.
     pub fn read_object(&mut self) -> Result<Option<ObjectRef>, SystemException> {
-        let ior = Ior::decode(&mut self.dec).map_err(marshal)?;
+        let completed = self.completed;
+        let ior = Ior::decode(&mut self.dec).map_err(|_| marshal_with(completed))?;
         Ok(if ior.is_nil() {
             None
         } else {
@@ -146,5 +176,9 @@ impl DerefMut for InStream<'_> {
 }
 
 pub(crate) fn marshal(_: rustorb_cdr::Error) -> SystemException {
-    SystemException::new(SystemExceptionKind::MARSHAL, 0, CompletionStatus::Yes)
+    marshal_with(CompletionStatus::Yes)
+}
+
+fn marshal_with(completed: CompletionStatus) -> SystemException {
+    SystemException::new(SystemExceptionKind::MARSHAL, 0, completed)
 }

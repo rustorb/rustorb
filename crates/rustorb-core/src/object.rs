@@ -218,6 +218,8 @@ impl Reply {
             dec: self.body.decoder(),
             code_sets: self.code_sets,
             orb: &self.orb,
+            completed: CompletionStatus::Yes,
+            wchar_needs_code_set: false,
         }
     }
 

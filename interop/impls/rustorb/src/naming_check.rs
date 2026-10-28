@@ -383,7 +383,7 @@ fn run() -> Result<(), String> {
         || t.list(100),
         |(bl, _)| fmt_bindings(bl),
     );
-    orb.shutdown();
+    let _ = orb.shutdown(true);
     Ok(())
 }
 

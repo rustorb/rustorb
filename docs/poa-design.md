@@ -131,12 +131,13 @@ pub trait Servant: Send + Sync {
     /// 最派生インターフェースのリポジトリID（IORの type_id と _is_a に使う）
     fn repository_id(&self) -> &str;
     fn is_a(&self, repository_id: &str) -> bool;
-    /// op の引数を input から読み、結果を output に書く
-    fn dispatch(&self, op: &str, input: &mut InStream, output: &mut ServerReply) -> Result<(), Exception>;
+    /// op の引数を input から読み、結果を reply に書く
+    fn dispatch(&self, op: &str, input: &mut InStream, reply: &mut ServerReply) -> Result<(), SystemException>;
 }
 ```
 
-- `ServerReply` は戻り値・out引数を書く `OutStream` と、ユーザー例外を返す手段を持つ。システム例外は `Err(Exception::System(..))` で返す
+- `ServerReply` は戻り値・out引数を書く `OutStream`（`output()`）と、ユーザー例外を返す `user_exception(repository_id)`（メンバーを書く `OutStream` を返す）を持つ。システム例外は `Err(SystemException)` で返す
+- 知らない操作はサーバント（生成されるスケルトン）が `BAD_OPERATION` minor 2（仕様の「対象が操作・属性を知らない」）で返す。サーバント内で引数を読めなければ `MARSHAL`（COMPLETED\_NO）
 - `_is_a`・`_non_existent` はディスパッチャが処理し、サーバントには来ない。`_interface` は `INTF_REPOS`、`_repository_id` は仕様（CORBA 3.x）どおりに応答する（omniORB は `BAD_OPERATION` だが、追加しても既存クライアントに影響しない）。それ以外の未知の操作は `BAD_OPERATION`
 - POACurrent（`orb.resolve_initial_references("POACurrent")`）はアップコール中のスレッドローカルに、POA・ObjectId・サーバントを置いて実装する
 

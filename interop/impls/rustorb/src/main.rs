@@ -3,354 +3,83 @@
 //! Resolves the Echo object from the naming service (with the
 //! `rustorb-naming` client) and runs the same cases
 //! as the omniORB clients (see `interop/README.md`), with hand-written stubs
-//! until the code generator exists. The callback cases need a server side
-//! ORB and are skipped for now.
+//! until the code generator exists. For the callback cases it serves an
+//! `InteropTest::Callback` object from a PERSISTENT / USER_ID POA named
+//! `InteropTestClient` (ObjectId `Callback`), as the omniORB clients do.
 //!
-//! Options: `--naming CORBALOC --name PATH [--timeout S] [--shutdown-server]`,
-//! plus ORB options such as `-ORBmaxGIOPVersion 1.1` (also read from the
-//! `ORBmaxGIOPVersion` environment variable, as omniORB does). `--host` and `--port`
-//! are accepted and ignored, as the client has no objects of its own yet.
+//! Options: `--naming CORBALOC --name PATH [--host HOST] [--port N]
+//! [--timeout S] [--shutdown-server]`, plus ORB options such as
+//! `-ORBmaxGIOPVersion 1.1` (also read from the `ORBmaxGIOPVersion`
+//! environment variable, as omniORB does). `--host` and `--port` give the
+//! endpoint of the callback object.
+
+mod idl;
 
 use std::fmt;
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use rustorb_core::cdr::CdrEncode;
+use idl::{
+    Char, Color, DIVIDE_BY_ZERO_ID, ECHO_ID, Get, MAGIC, OOPS_ID, Point, Put, Record, Shade, Value,
+    WChar, WString,
+};
 use rustorb_core::{
-    CompletionStatus, Exception, InStream, ObjectRef, Orb, OutStream, SystemException,
-    SystemExceptionKind,
+    CompletionStatus, Exception, IdAssignment, InStream, Lifespan, ObjectRef, Orb, Policy, Servant,
+    ServerReply, SystemException, SystemExceptionKind, minor,
 };
 use rustorb_naming::{NamingContext, NamingError, to_name};
 
-type Sys<T> = Result<T, SystemException>;
+const CALLBACK_ID: &str = "IDL:rustorb.org/InteropTest/Callback:1.0";
 
-/// Writes an IDL value to a request.
-trait Put {
-    fn put(&self, out: &mut OutStream<'_>) -> Sys<()>;
-}
+/// `InteropTest::Callback`: `notify` returns `"ack:" + message`.
+struct Callback;
 
-/// Reads an IDL value from a reply.
-trait Get: Sized {
-    fn get(input: &mut InStream<'_>) -> Sys<Self>;
-}
+impl Servant for Callback {
+    fn repository_id(&self) -> &str {
+        CALLBACK_ID
+    }
 
-macro_rules! primitive {
-    ($($ty:ty),*) => {
-        $(
-            impl Put for $ty {
-                fn put(&self, out: &mut OutStream<'_>) -> Sys<()> {
-                    Ok(self.encode(out)?)
-                }
+    fn dispatch(
+        &self,
+        operation: &str,
+        input: &mut InStream<'_>,
+        reply: &mut ServerReply,
+    ) -> Result<(), SystemException> {
+        match operation {
+            "notify" => {
+                let message = input.read_string()?;
+                reply.output().write_string(&format!("ack:{message}"))
             }
-            impl Get for $ty {
-                fn get(input: &mut InStream<'_>) -> Sys<Self> {
-                    input.read::<$ty>()
-                }
-            }
-        )*
-    };
-}
-
-primitive!(bool, u8, i16, u16, i32, u32, i64, u64, f32, f64);
-
-impl Put for () {
-    fn put(&self, _: &mut OutStream<'_>) -> Sys<()> {
-        Ok(())
-    }
-}
-
-impl Get for () {
-    fn get(_: &mut InStream<'_>) -> Sys<Self> {
-        Ok(())
-    }
-}
-
-impl Put for String {
-    fn put(&self, out: &mut OutStream<'_>) -> Sys<()> {
-        out.write_string(self)
-    }
-}
-
-impl Put for &str {
-    fn put(&self, out: &mut OutStream<'_>) -> Sys<()> {
-        out.write_string(self)
-    }
-}
-
-impl Get for String {
-    fn get(input: &mut InStream<'_>) -> Sys<Self> {
-        input.read_string()
-    }
-}
-
-/// IDL `char`.
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Char(u8);
-
-impl Put for Char {
-    fn put(&self, out: &mut OutStream<'_>) -> Sys<()> {
-        out.write_char(self.0);
-        Ok(())
-    }
-}
-
-impl Get for Char {
-    fn get(input: &mut InStream<'_>) -> Sys<Self> {
-        Ok(Char(input.read::<u8>()?))
-    }
-}
-
-/// IDL `wchar`.
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct WChar(u16);
-
-impl Put for WChar {
-    fn put(&self, out: &mut OutStream<'_>) -> Sys<()> {
-        out.write_wchar(self.0)
-    }
-}
-
-impl Get for WChar {
-    fn get(input: &mut InStream<'_>) -> Sys<Self> {
-        Ok(WChar(input.read_wchar()?))
-    }
-}
-
-/// IDL `wstring`.
-#[derive(Debug, Clone, PartialEq)]
-struct WString(String);
-
-impl Put for WString {
-    fn put(&self, out: &mut OutStream<'_>) -> Sys<()> {
-        out.write_wstring(&self.0)
-    }
-}
-
-impl Get for WString {
-    fn get(input: &mut InStream<'_>) -> Sys<Self> {
-        Ok(WString(input.read_wstring()?))
-    }
-}
-
-impl<T: Put> Put for Vec<T> {
-    fn put(&self, out: &mut OutStream<'_>) -> Sys<()> {
-        out.write_len(self.len())?;
-        self.iter().try_for_each(|v| v.put(out))
-    }
-}
-
-impl<T: Get> Get for Vec<T> {
-    fn get(input: &mut InStream<'_>) -> Sys<Self> {
-        let len = input.read::<u32>()? as usize;
-        if len > input.remaining() {
-            return Err(marshal());
-        }
-        (0..len).map(|_| T::get(input)).collect()
-    }
-}
-
-impl<T: Put, const N: usize> Put for [T; N] {
-    fn put(&self, out: &mut OutStream<'_>) -> Sys<()> {
-        self.iter().try_for_each(|v| v.put(out))
-    }
-}
-
-impl<T: Get + Default + Copy, const N: usize> Get for [T; N] {
-    fn get(input: &mut InStream<'_>) -> Sys<Self> {
-        let mut a = [T::default(); N];
-        for v in &mut a {
-            *v = T::get(input)?;
-        }
-        Ok(a)
-    }
-}
-
-impl Put for Option<ObjectRef> {
-    fn put(&self, out: &mut OutStream<'_>) -> Sys<()> {
-        out.write_object(self.as_ref())
-    }
-}
-
-impl Get for Option<ObjectRef> {
-    fn get(input: &mut InStream<'_>) -> Sys<Self> {
-        input.read_object()
-    }
-}
-
-macro_rules! tuple {
-    ($($name:ident),*) => {
-        impl<$($name: Put),*> Put for ($($name,)*) {
-            #[allow(non_snake_case)]
-            fn put(&self, out: &mut OutStream<'_>) -> Sys<()> {
-                let ($($name,)*) = self;
-                $($name.put(out)?;)*
-                Ok(())
-            }
-        }
-        impl<$($name: Get),*> Get for ($($name,)*) {
-            fn get(input: &mut InStream<'_>) -> Sys<Self> {
-                Ok(($($name::get(input)?,)*))
-            }
-        }
-    };
-}
-
-tuple!(A);
-tuple!(A, B);
-tuple!(A, B, C);
-
-fn marshal() -> SystemException {
-    SystemException::new(SystemExceptionKind::MARSHAL, 0, CompletionStatus::Yes)
-}
-
-// --- InteropTest types -----------------------------------------------------
-
-const MAGIC: i32 = 0x5255_5354;
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Color {
-    Red,
-    Green,
-    Blue,
-}
-
-impl Put for Color {
-    fn put(&self, out: &mut OutStream<'_>) -> Sys<()> {
-        (*self as u32).put(out)
-    }
-}
-
-impl Get for Color {
-    fn get(input: &mut InStream<'_>) -> Sys<Self> {
-        match u32::get(input)? {
-            0 => Ok(Color::Red),
-            1 => Ok(Color::Green),
-            2 => Ok(Color::Blue),
-            _ => Err(marshal()),
+            _ => Err(SystemException::new(
+                SystemExceptionKind::BAD_OPERATION,
+                minor::UNKNOWN_OPERATION,
+                CompletionStatus::No,
+            )),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Point {
-    x: f64,
-    y: f64,
+/// Activates the Callback object and returns its reference.
+fn serve_callback(orb: &Orb) -> Result<ObjectRef, String> {
+    let root = orb.root_poa().map_err(|e| format!("RootPOA: {e}"))?;
+    let manager = root.the_poa_manager();
+    let poa = root
+        .create_poa(
+            "InteropTestClient",
+            Some(&manager),
+            &[
+                Policy::Lifespan(Lifespan::Persistent),
+                Policy::IdAssignment(IdAssignment::User),
+            ],
+        )
+        .map_err(|e| format!("create_POA: {e}"))?;
+    poa.activate_object_with_id(b"Callback", Arc::new(Callback))
+        .map_err(|e| format!("activate_object_with_id: {e}"))?;
+    manager.activate().map_err(|e| format!("activate: {e}"))?;
+    poa.id_to_reference(b"Callback")
+        .map_err(|e| format!("id_to_reference: {e}"))
 }
-
-impl Put for Point {
-    fn put(&self, out: &mut OutStream<'_>) -> Sys<()> {
-        (self.x, self.y).put(out)
-    }
-}
-
-impl Get for Point {
-    fn get(input: &mut InStream<'_>) -> Sys<Self> {
-        let (x, y) = Get::get(input)?;
-        Ok(Point { x, y })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-struct Record {
-    id: i32,
-    name: String,
-    hue: Color,
-    pos: Point,
-    values: Vec<i32>,
-    active: bool,
-}
-
-impl Put for Record {
-    fn put(&self, out: &mut OutStream<'_>) -> Sys<()> {
-        self.id.put(out)?;
-        self.name.put(out)?;
-        self.hue.put(out)?;
-        self.pos.put(out)?;
-        self.values.put(out)?;
-        self.active.put(out)
-    }
-}
-
-impl Get for Record {
-    fn get(input: &mut InStream<'_>) -> Sys<Self> {
-        Ok(Record {
-            id: Get::get(input)?,
-            name: Get::get(input)?,
-            hue: Get::get(input)?,
-            pos: Get::get(input)?,
-            values: Get::get(input)?,
-            active: Get::get(input)?,
-        })
-    }
-}
-
-/// `union Value switch (long)`.
-#[derive(Debug, Clone, PartialEq)]
-enum Value {
-    L(i32),
-    S(String),
-    P(Point),
-    /// Discriminator 4 or 5.
-    Seq(i32, Vec<i32>),
-    /// The default member, with its discriminator.
-    Flag(i32, bool),
-}
-
-impl Put for Value {
-    fn put(&self, out: &mut OutStream<'_>) -> Sys<()> {
-        match self {
-            Value::L(v) => (1i32, *v).put(out),
-            Value::S(v) => (2i32, v.clone()).put(out),
-            Value::P(v) => (3i32, *v).put(out),
-            Value::Seq(d, v) => (*d, v.clone()).put(out),
-            Value::Flag(d, v) => (*d, *v).put(out),
-        }
-    }
-}
-
-impl Get for Value {
-    fn get(input: &mut InStream<'_>) -> Sys<Self> {
-        Ok(match i32::get(input)? {
-            1 => Value::L(Get::get(input)?),
-            2 => Value::S(Get::get(input)?),
-            3 => Value::P(Get::get(input)?),
-            d @ (4 | 5) => Value::Seq(d, Get::get(input)?),
-            d => Value::Flag(d, Get::get(input)?),
-        })
-    }
-}
-
-/// `union Shade switch (Color)`, with an implicit default for BLUE.
-#[derive(Debug, Clone, PartialEq)]
-enum Shade {
-    Level(u8),
-    Label(String),
-    Blue,
-}
-
-impl Put for Shade {
-    fn put(&self, out: &mut OutStream<'_>) -> Sys<()> {
-        match self {
-            Shade::Level(v) => (Color::Red, *v).put(out),
-            Shade::Label(v) => (Color::Green, v.clone()).put(out),
-            Shade::Blue => Color::Blue.put(out),
-        }
-    }
-}
-
-impl Get for Shade {
-    fn get(input: &mut InStream<'_>) -> Sys<Self> {
-        Ok(match Color::get(input)? {
-            Color::Red => Shade::Level(Get::get(input)?),
-            Color::Green => Shade::Label(Get::get(input)?),
-            Color::Blue => Shade::Blue,
-        })
-    }
-}
-
-const OOPS_ID: &str = "IDL:rustorb.org/InteropTest/Oops:1.0";
-const DIVIDE_BY_ZERO_ID: &str = "IDL:rustorb.org/InteropTest/DivideByZero:1.0";
-const ECHO_ID: &str = "IDL:rustorb.org/InteropTest/Echo:1.0";
 
 // --- invocation helpers ----------------------------------------------------
 
@@ -408,10 +137,6 @@ impl Runner {
             }
         }
     }
-
-    fn skip(&mut self, name: &str, why: &str) {
-        println!("skip {name}: {why}");
-    }
 }
 
 fn check(cond: bool, msg: impl FnOnce() -> String) -> Result<(), String> {
@@ -426,17 +151,11 @@ where
     check(got == v, || format!("sent {v:?}, got {got:?}"))
 }
 
-impl<T: Put> Put for &T {
-    fn put(&self, out: &mut OutStream<'_>) -> Sys<()> {
-        (*self).put(out)
-    }
-}
-
 fn s(e: Exception) -> String {
     e.to_string()
 }
 
-fn run_cases(r: &mut Runner, e: &ObjectRef) {
+fn run_cases(r: &mut Runner, e: &ObjectRef, cb: &ObjectRef) {
     for (i, v) in [true, false].into_iter().enumerate() {
         r.case(&format!("echo_boolean[{i}]"), || echo(e, "echo_boolean", v));
     }
@@ -685,8 +404,15 @@ fn run_cases(r: &mut Runner, e: &ObjectRef) {
         check(nil && !not_nil, || format!("got {nil} {not_nil}"))
     });
 
-    r.skip("call_back", "rustorb has no POA yet");
-    r.skip("register_callback/trigger", "rustorb has no POA yet");
+    r.case("call_back", || {
+        let got: String = call(e, "call_back", (Some(cb.clone()), "hi")).map_err(s)?;
+        check(got == "ack:hi", || format!("got {got:?}"))
+    });
+    r.case("register_callback/trigger", || {
+        call::<_, ()>(e, "register_callback", (Some(cb.clone()),)).map_err(s)?;
+        let got: String = call(e, "trigger", ("later",)).map_err(s)?;
+        check(got == "ack:later", || format!("got {got:?}"))
+    });
 
     r.case("oneway post", || {
         let _: Vec<String> = call(e, "posted", ()).map_err(s)?;
@@ -713,6 +439,8 @@ fn run_cases(r: &mut Runner, e: &ObjectRef) {
 struct Args {
     naming: String,
     name: String,
+    host: Option<String>,
+    port: u16,
     timeout: Duration,
     shutdown_server: bool,
 }
@@ -720,6 +448,8 @@ struct Args {
 fn parse_args(mut args: Vec<String>) -> Result<(Args, Vec<String>), String> {
     let mut naming = None;
     let mut name = None;
+    let mut host = None;
+    let mut port = 0;
     let mut timeout = Duration::from_secs(30);
     let mut shutdown_server = false;
     let mut rest = Vec::new();
@@ -733,9 +463,8 @@ fn parse_args(mut args: Vec<String>) -> Result<(Args, Vec<String>), String> {
                 let v = value("--timeout")?;
                 timeout = Duration::from_secs_f64(v.parse().map_err(|_| "bad --timeout")?);
             }
-            "--host" | "--port" => {
-                value(&arg)?;
-            }
+            "--host" => host = Some(value("--host")?),
+            "--port" => port = value("--port")?.parse().map_err(|_| "bad --port")?,
             "--shutdown-server" => shutdown_server = true,
             _ => rest.push(arg),
         }
@@ -744,6 +473,8 @@ fn parse_args(mut args: Vec<String>) -> Result<(Args, Vec<String>), String> {
         Args {
             naming: naming.ok_or("--naming is required")?,
             name: name.ok_or("--name is required")?,
+            host,
+            port,
             timeout,
             shutdown_server,
         },
@@ -758,6 +489,13 @@ fn run() -> Result<bool, String> {
     match std::env::var("ORBmaxGIOPVersion") {
         Ok(v) if !v.is_empty() => orb_args.extend(["-ORBmaxGIOPVersion".to_owned(), v]),
         _ => {}
+    }
+    if args.port != 0 || args.host.is_some() {
+        let host = args.host.clone().unwrap_or_default();
+        orb_args.extend([
+            "-ORBendPoint".to_owned(),
+            format!("giop:tcp:{host}:{}", args.port),
+        ]);
     }
     let orb = Orb::init(&mut orb_args).map_err(|e| format!("ORB_init: {e}"))?;
     if !orb_args.is_empty() {
@@ -789,11 +527,12 @@ fn run() -> Result<bool, String> {
         echo.non_existent()
     })?;
 
+    let cb = serve_callback(&orb)?;
     let mut r = Runner {
         passed: 0,
         failed: Vec::new(),
     };
-    run_cases(&mut r, &echo);
+    run_cases(&mut r, &echo, &cb);
 
     if args.shutdown_server {
         echo.request("shutdown")
@@ -804,7 +543,7 @@ fn run() -> Result<bool, String> {
     if !r.failed.is_empty() {
         println!("failed: {}", r.failed.join(", "));
     }
-    orb.shutdown();
+    let _ = orb.shutdown(true);
     Ok(r.failed.is_empty())
 }
 
