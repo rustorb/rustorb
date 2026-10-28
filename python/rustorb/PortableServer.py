@@ -187,6 +187,14 @@ def _wrap_poa(native):
     return POA(native)
 
 
+def _oid(oid):
+    """An object id argument as bytes: a str is encoded in UTF-8, as
+    omniORBpy does."""
+    if isinstance(oid, str):
+        return oid.encode("utf-8")
+    return oid
+
+
 class POA(CORBA.LocalObject):
     """``PortableServer::POA``. Get the RootPOA with
     ``orb.resolve_initial_references("RootPOA")``."""
@@ -311,10 +319,10 @@ class POA(CORBA.LocalObject):
         return self._native.activate_object(p_servant)
 
     def activate_object_with_id(self, id, p_servant):
-        self._native.activate_object_with_id(id, p_servant)
+        self._native.activate_object_with_id(_oid(id), p_servant)
 
     def deactivate_object(self, oid):
-        self._native.deactivate_object(oid)
+        self._native.deactivate_object(_oid(oid))
 
     # -- references --
 
@@ -322,7 +330,7 @@ class POA(CORBA.LocalObject):
         return _make_objref(self._native.create_reference(intf), intf)
 
     def create_reference_with_id(self, oid, intf):
-        return _make_objref(self._native.create_reference_with_id(oid, intf), intf)
+        return _make_objref(self._native.create_reference_with_id(_oid(oid), intf), intf)
 
     def servant_to_id(self, p_servant):
         return self._native.servant_to_id(p_servant)
@@ -339,10 +347,46 @@ class POA(CORBA.LocalObject):
         return self._native.reference_to_id(_native_ref(reference))
 
     def id_to_servant(self, oid):
-        return self._native.id_to_servant(oid)
+        return self._native.id_to_servant(_oid(oid))
 
     def id_to_reference(self, oid):
-        return _make_objref(self._native.id_to_reference(oid))
+        return _make_objref(self._native.id_to_reference(_oid(oid)))
+
+
+class _INSPOA(POA):
+    """omniORB's ``omniINSPOA`` (``orb.resolve_initial_references``): its
+    references have the object id, in UTF-8, as their object key."""
+
+    def __init__(self, native, orb):
+        POA.__init__(self, native)
+        self._orb = orb
+
+    def _key(self, oid):
+        try:
+            return _oid(oid).decode("utf-8")
+        except UnicodeDecodeError:
+            raise CORBA.BAD_PARAM(0, CORBA.COMPLETED_NO)
+
+    def _keyed(self, oid, native, repoId=None):
+        return _make_objref(self._orb.register_object_key(self._key(oid), native), repoId)
+
+    def activate_object_with_id(self, id, p_servant):
+        POA.activate_object_with_id(self, id, p_servant)
+        self._keyed(id, self._native.id_to_reference(_oid(id)))
+
+    def deactivate_object(self, oid):
+        self._orb.unregister_object_key(self._key(oid))
+        POA.deactivate_object(self, oid)
+
+    def create_reference_with_id(self, oid, intf):
+        return self._keyed(oid, self._native.create_reference_with_id(_oid(oid), intf), intf)
+
+    def servant_to_reference(self, p_servant):
+        oid = self._native.servant_to_id(p_servant)
+        return self._keyed(oid, self._native.id_to_reference(oid), p_servant._NP_RepositoryId)
+
+    def id_to_reference(self, oid):
+        return self._keyed(oid, self._native.id_to_reference(_oid(oid)))
 
 
 # ---------------------------------------------------------------------------

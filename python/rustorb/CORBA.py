@@ -562,6 +562,8 @@ class Object(object):
     """
 
     _NP_RepositoryId = "IDL:omg.org/CORBA/Object:1.0"
+    #: The nil reference, as for the interface classes of generated code.
+    _nil = None
 
     def __init__(self, obj=None):
         self._obj = obj
@@ -693,6 +695,7 @@ class ORB(object):
         self._native = native
         self._id = orb_id
         self._root_poa = None
+        self._ins_poa = None
         self._lock = _threading.Lock()
         self._destroyed = False
 
@@ -721,6 +724,8 @@ class ORB(object):
             from . import PortableServer
 
             return PortableServer.Current()
+        if identifier == "omniINSPOA":
+            return self._get_ins_poa()
         try:
             native = self._native.resolve_initial_references(identifier)
         except LookupError:
@@ -728,7 +733,7 @@ class ORB(object):
         return _rt.make_objref(native, Object._NP_RepositoryId)
 
     def list_initial_services(self):
-        return ["RootPOA", "POACurrent"] + list(self._native.list_initial_services())
+        return ["RootPOA", "POACurrent", "omniINSPOA"] + list(self._native.list_initial_services())
 
     def _get_root_poa(self):
         with self._lock:
@@ -737,6 +742,24 @@ class ORB(object):
 
                 self._root_poa = PortableServer._wrap_poa(self._native.root_poa())
             return self._root_poa
+
+    def _get_ins_poa(self):
+        # omniORB's "omniINSPOA" (OpenRTM-aist uses it): a child of the
+        # RootPOA with its own manager, where references have the object
+        # id as their object key, for corbaloc::host:port/ID. The keys
+        # stay the same across restarts whatever the lifespan policy, so
+        # it is TRANSIENT, which needs no fixed port.
+        root = self._get_root_poa()
+        with self._lock:
+            if self._ins_poa is None:
+                from . import PortableServer
+
+                policy = root.create_id_assignment_policy(PortableServer.USER_ID)
+                native = root._native.create_poa(
+                    "omniINSPOA", None, [(policy.policy_type, int(policy.value))]
+                )
+                self._ins_poa = PortableServer._INSPOA(native, self._native)
+            return self._ins_poa
 
     def run(self):
         self._native.run()

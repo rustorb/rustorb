@@ -5,3 +5,6 @@ __pycache__/
 /python/rustorb/_native*.so
 /python/rustorb/_native*.pyd
 /build
+# setuptools output of pip wheel ./python/omniorb-compat
+/python/omniorb-compat/build
+/python/omniorb-compat/*.egg-info

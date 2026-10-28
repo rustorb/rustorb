@@ -133,7 +133,7 @@ impl OrbOptions {
     /// | `-ORBclientConnectTimeOutPeriod MS` | [`connect_timeout`](OrbOptions::connect_timeout) (0 for none) |
     /// | `-ORBclientCallTimeOutPeriod MS` | [`request_timeout`](OrbOptions::request_timeout) (0 for none) |
     /// | `-ORBendPoint giop:tcp:HOST:PORT` | [`endpoints`](OrbOptions::endpoints) (repeatable) |
-    /// | `-ORBendPointPublish giop:tcp:HOST:PORT` | [`endpoint_publish`](OrbOptions::endpoint_publish) |
+    /// | `-ORBendPointPublish giop:tcp:HOST:PORT` | [`endpoint_publish`](OrbOptions::endpoint_publish) (`all(addr)` for the default) |
     /// | `-ORBmaxServerThreadPoolSize N` | [`max_server_threads`](OrbOptions::max_server_threads) |
     ///
     /// The value may also follow the option name after `=`, as in
@@ -200,6 +200,9 @@ impl OrbOptions {
                 "endPoint" => self
                     .endpoints
                     .push(EndpointAddr::parse(&value).ok_or_else(bad_option)?),
+                // `all(addr)` (every address of the host, omniORB's
+                // spelling) is what the ORB publishes anyway.
+                "endPointPublish" if value == "all(addr)" => self.endpoint_publish = None,
                 "endPointPublish" => {
                     self.endpoint_publish =
                         Some(EndpointAddr::parse(&value).ok_or_else(bad_option)?);

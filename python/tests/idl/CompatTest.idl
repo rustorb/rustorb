@@ -1,0 +1,47 @@
+// Types for the tests of the omniORBpy compatibility package
+// (python/tests/test_omniorb_compat.py), shaped like OpenRTM-aist's data
+// port types and NVList.
+module CompatTest {
+  struct Time {
+    unsigned long sec;
+    unsigned long nsec;
+  };
+  struct TimedLong {
+    Time tm;
+    long data;
+  };
+  struct TimedString {
+    Time tm;
+    string data;
+  };
+  struct TimedWString {
+    Time tm;
+    wstring data;
+  };
+  struct TimedShortSeq {
+    Time tm;
+    sequence<short> data;
+  };
+  enum State { IDLE, ACTIVE, ERROR };
+  struct TimedState {
+    Time tm;
+    State data;
+  };
+  typedef long Handle;
+  struct NameValue {
+    string name;
+    any value;
+  };
+  typedef sequence<NameValue> NVList;
+
+  interface Echo {
+    string say(in string s);
+  };
+  struct Mixed {
+    Handle h;
+    State s;
+    Echo e;
+    long arr[2];
+    any a;
+  };
+};

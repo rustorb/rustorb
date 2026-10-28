@@ -87,6 +87,11 @@ jobs:
       - name: Compare the generated Python code with omniidl -bpython
         run: interop/run-pymapping-check.sh
 
+      # OpenRTM-aist-Python on rustorb through the omniORBpy compatibility
+      # package, connected with RTCs on omniORBpy.
+      - name: Run OpenRTM-aist-Python examples
+        run: interop/run-openrtm.sh
+
       - name: Compare GIOP captures with the golden files
         run: interop/scripts/golden-compare --all interop/out interop/golden
 
