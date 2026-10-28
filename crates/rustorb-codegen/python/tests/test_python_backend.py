@@ -324,7 +324,7 @@ class InterfaceTest(unittest.TestCase):
         self.assertEqual(ops["_get_counter"].out_types, (CORBA.TC_long,))
         self.assertEqual(ops["_set_counter"].in_types, (CORBA.TC_long,))
         self.assertNotIn("_set_name", ops)
-        self.assertIs(ops["echo_ushort"].in_types[0], CORBA.TC_ushort)  # idl_parser#159
+        self.assertIs(ops["echo_ushort"].in_types[0], CORBA.TC_ushort)
         self.assertIs(ops["echo_ulonglong"].out_types[0], CORBA.TC_ulonglong)
 
     def test_stub_calls(self):

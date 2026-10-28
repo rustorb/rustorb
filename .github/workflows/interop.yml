@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: sugarsweetrobotics/idl_parser
-          ref: 84ddf43391382521e765729858bf704e2c579215
+          ref: 5eef768bb61e0ee7c5cd08c42c45789a45585f60
           path: idl_parser
       - uses: actions/setup-python@v5
         with:

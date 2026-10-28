@@ -10,7 +10,7 @@ license = { text = "GPL-3.0-or-later" }
 requires-python = ">=3.9"
 # idl_parser with the fixes the generator needs (sugarsweetrobotics/idl_parser#133-#144)
 dependencies = [
-  "idl_parser @ git+https://github.com/sugarsweetrobotics/idl_parser@84ddf43391382521e765729858bf704e2c579215",
+  "idl_parser @ git+https://github.com/sugarsweetrobotics/idl_parser@5eef768bb61e0ee7c5cd08c42c45789a45585f60",
 ]
 
 [project.scripts]

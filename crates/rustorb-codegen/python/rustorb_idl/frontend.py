@@ -38,61 +38,6 @@ class GeneratorError(Exception):
 
 
 # ---------------------------------------------------------------------------
-# Workaround for sugarsweetrobotics/idl_parser#159: the return type of an
-# operation may be a basic type of several words ("unsigned long"), which
-# IDLMethod.parse_blocks reads as the type "unsigned" and the name "long".
-# Join the words into one token before the method is read. Remove once
-# idl_parser#159 is fixed.
-
-_MULTI_WORD_TYPES = (
-    ("unsigned", "long", "long"),
-    ("unsigned", "long"),
-    ("unsigned", "short"),
-    ("long", "long"),
-    ("long", "double"),
-)
-
-
-def _install_return_type_workaround():
-    method = idl_interface.IDLMethod
-    if getattr(method, "_rustorb_idl_159", False):
-        return
-    original = method.parse_blocks
-
-    def parse_blocks(self, blocks, filepath=None):
-        blocks = list(blocks)
-        i = 0
-        while i < len(blocks) and (blocks[i].startswith("@") or blocks[i] == "oneway"):
-            # an annotation with arguments: @name ( ... )
-            if blocks[i].startswith("@") and i + 1 < len(blocks) and blocks[i + 1] == "(":
-                depth = 0
-                while i < len(blocks):
-                    if blocks[i] == "(":
-                        depth += 1
-                    elif blocks[i] == ")":
-                        depth -= 1
-                        if depth == 0:
-                            break
-                    i += 1
-            i += 1
-        for words in _MULTI_WORD_TYPES:
-            if (
-                tuple(blocks[i : i + len(words)]) == words
-                and len(blocks) > i + len(words)
-                and blocks[i + len(words)] != "("
-            ):
-                blocks[i : i + len(words)] = [" ".join(words)]
-                break
-        return original(self, blocks, filepath)
-
-    method.parse_blocks = parse_blocks
-    method._rustorb_idl_159 = True
-
-
-_install_return_type_workaround()
-
-
-# ---------------------------------------------------------------------------
 # Loading
 
 

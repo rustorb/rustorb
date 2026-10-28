@@ -209,5 +209,5 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - idl\_parser の #133〜#144 はすべて修正済み。生成器は Python で書くことにした（idl\_parser を直接使う。どちらの案でも生成時に Python と idl\_parser が要るため、JSON 中間表現＋Rust の利点は小さい）
   - `rustorb-idl -bpython`（`crates/rustorb-codegen/python`）：omniidl -bpython と同じレイアウト（`Foo_idl.py`、`Module/`、`Module__POA/`、`_GlobalIDL`）と `.pyi`。生成コードが使う `rustorb` パッケージの純 Python 部分（`python/rustorb`：TypeCode、例外、struct / union / enum の基底、生成コードとの取り決め `_rt`）
   - 互換の確認：`interop/run-pymapping-check.sh` が omniidl と rustorb-idl の生成物の公開API（定数、型の構築、TypeCode、クラスの継承、スタブのメソッド）を omniORBpy 上と rustorb 上で出力して比べる。差は仕様に従った4点だけ
-  - idl\_parser の不具合を1件報告（[idl\_parser#159](https://github.com/sugarsweetrobotics/idl_parser/issues/159)、戻り値が複数語の型）。生成器に回避策を入れてある
+  - idl\_parser の不具合を1件報告（[idl\_parser#159](https://github.com/sugarsweetrobotics/idl_parser/issues/159)、戻り値が複数語の型）。修正済みで、生成器はその修正を含むコミットに固定した
 - [ ] Python バインディング（M3）：PyO3 のネイティブモジュールで `ORB_init`、生成コードの `_invoke`（TypeCode に従うマーシャリング）、POA と `_this()` をつなぎ、Python の rustorb を相互接続マトリクスに入れる
