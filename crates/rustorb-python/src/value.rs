@@ -1,0 +1,622 @@
+//! IDL values in between Python and CDR.
+//!
+//! Marshalling goes through [`Value`] in two steps: Python objects are
+//! checked and converted while attached to the interpreter, and the CDR
+//! is written or read while detached from it, on whichever thread the ORB
+//! uses. A request can then be sent, forwarded and sent again without
+//! taking the GIL, and a servant thread holds the GIL only for the Python
+//! part of an upcall.
+
+use pyo3::prelude::*;
+use pyo3::types::{PyBytes, PyList, PyString, PyTuple};
+use rustorb_core::cdr::CdrEncode;
+use rustorb_core::{CompletionStatus, InStream, ObjectRef, OutStream, SystemException};
+
+use crate::error::{bad_param, corba, marshal, rt, sys_err};
+use crate::orb::ObjRef;
+use crate::tc::Tc;
+
+/// A value of an IDL type, described by its [`Tc`].
+#[derive(Debug, Clone)]
+pub(crate) enum Value {
+    Void,
+    Bool(bool),
+    Octet(u8),
+    Short(i16),
+    UShort(u16),
+    Long(i32),
+    ULong(u32),
+    LongLong(i64),
+    ULongLong(u64),
+    Float(f32),
+    Double(f64),
+    Char(char),
+    WChar(u16),
+    /// `string` and `wstring`.
+    String(String),
+    /// A sequence or an array of `octet`.
+    Octets(Vec<u8>),
+    /// A sequence or an array of `char`.
+    Chars(String),
+    /// A sequence, an array, or the members of a struct or an exception.
+    List(Vec<Value>),
+    /// A union: the discriminator, and the index of the TypeCode entry of
+    /// the selected member with its value.
+    Union {
+        disc: Box<Value>,
+        member: Option<(usize, Box<Value>)>,
+    },
+    Enum(u32),
+    /// A fixed point value: its digits (as many as the type has, most
+    /// significant first) and its sign.
+    Fixed {
+        digits: Vec<u8>,
+        negative: bool,
+    },
+    Objref(Option<ObjectRef>),
+}
+
+impl Value {
+    /// The number a union discriminator stands for (see
+    /// [`label_key`](crate::tc::label_key)).
+    fn key(&self) -> Option<i128> {
+        Some(match *self {
+            Value::Bool(v) => i128::from(v),
+            Value::Octet(v) => i128::from(v),
+            Value::Short(v) => i128::from(v),
+            Value::UShort(v) => i128::from(v),
+            Value::Long(v) => i128::from(v),
+            Value::ULong(v) => i128::from(v),
+            Value::LongLong(v) => i128::from(v),
+            Value::ULongLong(v) => i128::from(v),
+            Value::Char(c) => i128::from(u32::from(c)),
+            Value::WChar(c) => i128::from(c),
+            Value::Enum(v) => i128::from(v),
+            _ => return None,
+        })
+    }
+}
+
+/// The entry of a union TypeCode the discriminator selects.
+fn union_entry(labels: &[Option<i128>], default: Option<usize>, disc: &Value) -> Option<usize> {
+    let key = disc.key();
+    labels
+        .iter()
+        .position(|l| l.is_some() && *l == key)
+        .or(default)
+}
+
+// --- Python to Value -----------------------------------------------------------
+
+/// Converts a Python value of type `tc`. Errors are Python exceptions; the
+/// caller turns those that are not CORBA exceptions into `BAD_PARAM`.
+pub(crate) fn from_py(tc: &Tc, obj: &Bound<'_, PyAny>) -> PyResult<Value> {
+    let py = obj.py();
+    Ok(match tc {
+        Tc::Void => Value::Void,
+        Tc::Short => Value::Short(obj.extract()?),
+        Tc::Long => Value::Long(obj.extract()?),
+        Tc::UShort => Value::UShort(obj.extract()?),
+        Tc::ULong => Value::ULong(obj.extract()?),
+        Tc::LongLong => Value::LongLong(obj.extract()?),
+        Tc::ULongLong => Value::ULongLong(obj.extract()?),
+        Tc::Float => Value::Float(obj.extract::<f64>()? as f32),
+        Tc::Double => Value::Double(obj.extract()?),
+        Tc::Boolean => Value::Bool(obj.is_truthy()?),
+        Tc::Octet => Value::Octet(obj.extract()?),
+        Tc::Char => Value::Char(one_char(obj)?),
+        Tc::WChar => {
+            let c = u32::from(one_char(obj)?);
+            Value::WChar(u16::try_from(c).map_err(|_| sys_err(py, &bad_param()))?)
+        }
+        Tc::String(bound) | Tc::WString(bound) => {
+            let s: String = obj.extract()?;
+            check_bound(py, s.chars().count(), *bound)?;
+            Value::String(s)
+        }
+        Tc::Fixed { digits, scale } => fixed_from_py(obj, *digits, *scale)?,
+        Tc::Sequence { content, bound } => {
+            list_from_py(content, obj, |len| check_bound(py, len, *bound))?
+        }
+        Tc::Array { content, length } => list_from_py(content, obj, |len| {
+            if len == *length as usize {
+                Ok(())
+            } else {
+                Err(sys_err(py, &bad_param()))
+            }
+        })?,
+        Tc::Alias(content) => from_py(content, obj)?,
+        Tc::Struct { members, .. } => {
+            let mut values = Vec::with_capacity(members.len());
+            for (name, mtc) in members {
+                values.push(from_py(mtc, &obj.getattr(name.bind(py))?)?);
+            }
+            Value::List(values)
+        }
+        Tc::Union {
+            discriminator,
+            labels,
+            members,
+            default,
+            ..
+        } => {
+            let disc = from_py(discriminator, &obj.getattr("_d")?)?;
+            let member = match union_entry(labels, *default, &disc) {
+                Some(i) => Some((i, Box::new(from_py(&members[i], &obj.getattr("_v")?)?))),
+                None => None,
+            };
+            Value::Union {
+                disc: Box::new(disc),
+                member,
+            }
+        }
+        Tc::Enum { id, count, .. } => {
+            if let Ok(parent) = obj.getattr("_parent_id") {
+                if parent.extract::<String>()? != *id {
+                    return Err(sys_err(py, &bad_param()));
+                }
+            }
+            let v: u32 = obj.getattr("_v")?.extract()?;
+            if v >= *count {
+                return Err(sys_err(py, &bad_param()));
+            }
+            Value::Enum(v)
+        }
+        Tc::Objref { .. } => {
+            if obj.is_none() {
+                Value::Objref(None)
+            } else {
+                let native = obj.getattr("_obj")?;
+                let native = native
+                    .cast::<ObjRef>()
+                    .map_err(|_| sys_err(py, &bad_param()))?;
+                Value::Objref(Some(native.get().obj.clone()))
+            }
+        }
+        Tc::Unsupported(kind) => return Err(unsupported(py, kind)),
+    })
+}
+
+/// A sequence or an array, whose length `check_len` checks. Sequences and
+/// arrays of octet are `bytes` (a list of integers is accepted too), those
+/// of char are `str` (or `bytes`); others are lists or tuples.
+fn list_from_py(
+    content: &Tc,
+    obj: &Bound<'_, PyAny>,
+    check_len: impl Fn(usize) -> PyResult<()>,
+) -> PyResult<Value> {
+    let py = obj.py();
+    Ok(match content.unaliased() {
+        Tc::Octet => {
+            let bytes: Vec<u8> = if let Ok(b) = obj.cast::<PyBytes>() {
+                b.as_bytes().to_vec()
+            } else if obj.is_instance_of::<PyString>() {
+                return Err(sys_err(py, &bad_param()));
+            } else {
+                obj.extract()?
+            };
+            check_len(bytes.len())?;
+            Value::Octets(bytes)
+        }
+        Tc::Char => {
+            let s: String = if let Ok(b) = obj.cast::<PyBytes>() {
+                b.as_bytes().iter().map(|&c| char::from(c)).collect()
+            } else {
+                obj.extract()?
+            };
+            check_len(s.chars().count())?;
+            Value::Chars(s)
+        }
+        _ => {
+            if obj.is_instance_of::<PyString>() || obj.is_instance_of::<PyBytes>() {
+                return Err(sys_err(py, &bad_param()));
+            }
+            let mut values = Vec::new();
+            for item in obj.try_iter()? {
+                values.push(from_py(content, &item?)?);
+            }
+            check_len(values.len())?;
+            Value::List(values)
+        }
+    })
+}
+
+fn one_char(obj: &Bound<'_, PyAny>) -> PyResult<char> {
+    let s = obj.cast::<PyString>()?.to_cow()?;
+    let mut chars = s.chars();
+    match (chars.next(), chars.next()) {
+        (Some(c), None) => Ok(c),
+        _ => Err(sys_err(obj.py(), &bad_param())),
+    }
+}
+
+fn check_bound(py: Python<'_>, len: usize, bound: u32) -> PyResult<()> {
+    if bound != 0 && len > bound as usize {
+        return Err(sys_err(py, &bad_param()));
+    }
+    Ok(())
+}
+
+fn unsupported(py: Python<'_>, kind: &str) -> PyErr {
+    let _ = kind;
+    sys_err(
+        py,
+        &SystemException::new(
+            rustorb_core::SystemExceptionKind::NO_IMPLEMENT,
+            0,
+            CompletionStatus::No,
+        ),
+    )
+}
+
+/// A `CORBA.fixed` (or any number) as the digits of `fixed<digits, scale>`.
+fn fixed_from_py(obj: &Bound<'_, PyAny>, digits: u16, scale: i16) -> PyResult<Value> {
+    let py = obj.py();
+    let decimal = py
+        .import("decimal")?
+        .getattr("Decimal")?
+        .call1((obj.str()?,))?;
+    let text: String = decimal.call_method1("__format__", ("f",))?.extract()?;
+    let (negative, text) = match text.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, text.as_str()),
+    };
+    let (int, frac) = text.split_once('.').unwrap_or((text, ""));
+    let scale = usize::try_from(scale).map_err(|_| sys_err(py, &bad_param()))?;
+    let frac = frac.trim_end_matches('0');
+    if frac.len() > scale {
+        return Err(sys_err(py, &bad_param()));
+    }
+    let int = int.trim_start_matches('0');
+    let width = digits as usize;
+    if int.len() + scale > width {
+        return Err(sys_err(py, &bad_param()));
+    }
+    let mut all = "0".repeat(width - scale - int.len());
+    all.push_str(int);
+    all.push_str(frac);
+    all.push_str(&"0".repeat(scale - frac.len()));
+    let digits: Vec<u8> = all.bytes().map(|b| b - b'0').collect();
+    let negative = negative && digits.iter().any(|&d| d != 0);
+    Ok(Value::Fixed { digits, negative })
+}
+
+// --- Value to Python -----------------------------------------------------------
+
+/// Converts a value of type `tc` to Python.
+pub(crate) fn to_py<'py>(py: Python<'py>, tc: &Tc, value: Value) -> PyResult<Bound<'py, PyAny>> {
+    Ok(match (tc, value) {
+        (Tc::Void, _) => py.None().into_bound(py),
+        (Tc::Alias(content), v) => to_py(py, content, v)?,
+        (_, Value::Bool(v)) => v.into_pyobject(py)?.to_owned().into_any(),
+        (_, Value::Octet(v)) => v.into_pyobject(py)?.into_any(),
+        (_, Value::Short(v)) => v.into_pyobject(py)?.into_any(),
+        (_, Value::UShort(v)) => v.into_pyobject(py)?.into_any(),
+        (_, Value::Long(v)) => v.into_pyobject(py)?.into_any(),
+        (_, Value::ULong(v)) => v.into_pyobject(py)?.into_any(),
+        (_, Value::LongLong(v)) => v.into_pyobject(py)?.into_any(),
+        (_, Value::ULongLong(v)) => v.into_pyobject(py)?.into_any(),
+        (_, Value::Float(v)) => f64::from(v).into_pyobject(py)?.into_any(),
+        (_, Value::Double(v)) => v.into_pyobject(py)?.into_any(),
+        (_, Value::Char(c)) => PyString::new(py, c.encode_utf8(&mut [0; 4])).into_any(),
+        (_, Value::WChar(c)) => py
+            .import("builtins")?
+            .getattr("chr")?
+            .call1((u32::from(c),))?,
+        (_, Value::String(s)) | (_, Value::Chars(s)) => PyString::new(py, &s).into_any(),
+        (_, Value::Octets(b)) => PyBytes::new(py, &b).into_any(),
+        (Tc::Sequence { content, .. } | Tc::Array { content, .. }, Value::List(items)) => {
+            let list = PyList::empty(py);
+            for item in items {
+                list.append(to_py(py, content, item)?)?;
+            }
+            list.into_any()
+        }
+        (Tc::Struct { class, members, .. }, Value::List(items)) => {
+            let mut args = Vec::with_capacity(items.len());
+            for ((_, mtc), item) in members.iter().zip(items) {
+                args.push(to_py(py, mtc, item)?);
+            }
+            class.bind(py).call1(PyTuple::new(py, args)?)?
+        }
+        (
+            Tc::Union {
+                class,
+                discriminator,
+                members,
+                ..
+            },
+            Value::Union { disc, member },
+        ) => {
+            let d = to_py(py, discriminator, *disc)?;
+            let v = match member {
+                Some((i, v)) => to_py(py, &members[i], *v)?,
+                None => py.None().into_bound(py),
+            };
+            class.bind(py).call1((d, v))?
+        }
+        (Tc::Enum { items, .. }, Value::Enum(v)) => items.bind(py).get_item(v as usize)?,
+        (Tc::Fixed { scale, .. }, Value::Fixed { digits, negative }) => {
+            let text = fixed_text(&digits, *scale, negative);
+            corba(py)?.getattr("fixed")?.call1((text,))?
+        }
+        (Tc::Objref { id }, Value::Objref(obj)) => match obj {
+            None => py.None().into_bound(py),
+            Some(obj) => rt(py)?
+                .getattr("make_objref")?
+                .call1((ObjRef { obj }, id.as_str()))?,
+        },
+        (Tc::Unsupported(kind), _) => return Err(unsupported(py, kind)),
+        _ => return Err(sys_err(py, &bad_param())),
+    })
+}
+
+fn fixed_text(digits: &[u8], scale: i16, negative: bool) -> String {
+    let scale = usize::try_from(scale).unwrap_or(0).min(digits.len());
+    let split = digits.len() - scale;
+    let mut text = String::new();
+    if negative {
+        text.push('-');
+    }
+    let int: String = digits[..split]
+        .iter()
+        .map(|d| char::from(b'0' + d))
+        .collect();
+    let int = int.trim_start_matches('0');
+    text.push_str(if int.is_empty() { "0" } else { int });
+    if scale > 0 {
+        text.push('.');
+        text.extend(digits[split..].iter().map(|d| char::from(b'0' + d)));
+    }
+    text
+}
+
+// --- CDR -------------------------------------------------------------------------
+
+fn mismatch() -> SystemException {
+    // A Value that does not fit its TypeCode: from_py made it, so this
+    // cannot happen.
+    SystemException::new(
+        rustorb_core::SystemExceptionKind::INTERNAL,
+        0,
+        CompletionStatus::No,
+    )
+}
+
+/// Writes `value` of type `tc`.
+pub(crate) fn encode(
+    tc: &Tc,
+    value: &Value,
+    out: &mut OutStream<'_>,
+) -> Result<(), SystemException> {
+    match (tc, value) {
+        (Tc::Void, _) => {}
+        (Tc::Alias(content), v) => encode(content, v, out)?,
+        (_, Value::Bool(v)) => v.encode(out)?,
+        (_, Value::Octet(v)) => v.encode(out)?,
+        (_, Value::Short(v)) => v.encode(out)?,
+        (_, Value::UShort(v)) => v.encode(out)?,
+        (_, Value::Long(v)) => v.encode(out)?,
+        (_, Value::ULong(v)) => v.encode(out)?,
+        (_, Value::LongLong(v)) => v.encode(out)?,
+        (_, Value::ULongLong(v)) => v.encode(out)?,
+        (_, Value::Float(v)) => v.encode(out)?,
+        (_, Value::Double(v)) => v.encode(out)?,
+        (_, Value::Char(c)) => {
+            let bytes = out.code_sets().encode_string(c.encode_utf8(&mut [0; 4]))?;
+            match bytes[..] {
+                [b] => out.write_char(b),
+                _ => return Err(data_conversion()),
+            }
+        }
+        (_, Value::WChar(c)) => out.write_wchar(*c)?,
+        (Tc::String(_), Value::String(s)) => out.write_string(s)?,
+        (Tc::WString(_), Value::String(s)) => out.write_wstring(s)?,
+        (Tc::Sequence { .. }, Value::Octets(b)) => out.write_octet_seq(b)?,
+        (Tc::Array { .. }, Value::Octets(b)) => out.write_octets(b),
+        (Tc::Sequence { .. } | Tc::Array { .. }, Value::Chars(s)) => {
+            let bytes = out.code_sets().encode_string(s)?;
+            if bytes.len() != s.chars().count() {
+                return Err(data_conversion());
+            }
+            if matches!(tc, Tc::Sequence { .. }) {
+                out.write_len(bytes.len())?;
+            }
+            out.write_octets(&bytes);
+        }
+        (Tc::Sequence { content, .. }, Value::List(items)) => {
+            out.write_len(items.len())?;
+            for item in items {
+                encode(content, item, out)?;
+            }
+        }
+        (Tc::Array { content, .. }, Value::List(items)) => {
+            for item in items {
+                encode(content, item, out)?;
+            }
+        }
+        (Tc::Struct { members, .. }, Value::List(items)) => {
+            for ((_, mtc), item) in members.iter().zip(items) {
+                encode(mtc, item, out)?;
+            }
+        }
+        (
+            Tc::Union {
+                discriminator,
+                members,
+                ..
+            },
+            Value::Union { disc, member },
+        ) => {
+            encode(discriminator, disc, out)?;
+            if let Some((i, v)) = member {
+                encode(&members[*i], v, out)?;
+            }
+        }
+        (Tc::Enum { .. }, Value::Enum(v)) => v.encode(out)?,
+        (Tc::Fixed { .. }, Value::Fixed { digits, negative }) => {
+            // Packed decimal: two digits per octet, a leading zero digit
+            // when the count is even, and the sign in the last half octet.
+            let mut nibbles = Vec::with_capacity(digits.len() + 2);
+            if digits.len() % 2 == 0 {
+                nibbles.push(0);
+            }
+            nibbles.extend_from_slice(digits);
+            nibbles.push(if *negative { 0xd } else { 0xc });
+            let bytes: Vec<u8> = nibbles.chunks(2).map(|p| (p[0] << 4) | p[1]).collect();
+            out.write_octets(&bytes);
+        }
+        (Tc::Objref { .. }, Value::Objref(obj)) => out.write_object(obj.as_ref())?,
+        _ => return Err(mismatch()),
+    }
+    Ok(())
+}
+
+fn data_conversion() -> SystemException {
+    SystemException::new(
+        rustorb_core::SystemExceptionKind::DATA_CONVERSION,
+        0,
+        CompletionStatus::No,
+    )
+}
+
+/// Reads a value of type `tc`. Errors carry `completed`, the completion
+/// status of the stream (yes for a reply, no for request arguments).
+pub(crate) fn decode(
+    tc: &Tc,
+    input: &mut InStream<'_>,
+    completed: CompletionStatus,
+) -> Result<Value, SystemException> {
+    let m = |_| marshal(completed);
+    Ok(match tc {
+        Tc::Void => Value::Void,
+        Tc::Alias(content) => decode(content, input, completed)?,
+        Tc::Short => Value::Short(input.read()?),
+        Tc::Long => Value::Long(input.read()?),
+        Tc::UShort => Value::UShort(input.read()?),
+        Tc::ULong => Value::ULong(input.read()?),
+        Tc::LongLong => Value::LongLong(input.read()?),
+        Tc::ULongLong => Value::ULongLong(input.read()?),
+        Tc::Float => Value::Float(input.read()?),
+        Tc::Double => Value::Double(input.read()?),
+        Tc::Boolean => Value::Bool(input.read()?),
+        Tc::Octet => Value::Octet(input.read()?),
+        Tc::Char => {
+            let b = input.read_char().map_err(m)?;
+            let s = input.code_sets().decode_string(&[b]).map_err(|mut e| {
+                e.completed = completed;
+                e
+            })?;
+            Value::Char(s.chars().next().ok_or_else(|| marshal(completed))?)
+        }
+        Tc::WChar => Value::WChar(input.read_wchar()?),
+        Tc::String(bound) => {
+            let s = input.read_string()?;
+            check_read_bound(s.chars().count(), *bound, completed)?;
+            Value::String(s)
+        }
+        Tc::WString(bound) => {
+            let s = input.read_wstring()?;
+            check_read_bound(s.chars().count(), *bound, completed)?;
+            Value::String(s)
+        }
+        Tc::Fixed { digits, .. } => {
+            let n = *digits as usize;
+            let bytes = input.read_octets(n / 2 + 1).map_err(m)?;
+            let mut nibbles: Vec<u8> = bytes.iter().flat_map(|b| [b >> 4, b & 0xf]).collect();
+            let sign = nibbles.pop().unwrap_or(0xc);
+            if n % 2 == 0 {
+                nibbles.remove(0);
+            }
+            if nibbles.iter().any(|&d| d > 9) {
+                return Err(marshal(completed));
+            }
+            Value::Fixed {
+                digits: nibbles,
+                negative: sign == 0xd,
+            }
+        }
+        Tc::Sequence { content, bound } => {
+            let len = input.read_len(content.min_size().max(1)).map_err(m)?;
+            check_read_bound(len, *bound, completed)?;
+            decode_items(content, input, len, completed)?
+        }
+        Tc::Array { content, length } => decode_items(content, input, *length as usize, completed)?,
+        Tc::Struct { members, .. } => {
+            let mut values = Vec::with_capacity(members.len());
+            for (_, mtc) in members {
+                values.push(decode(mtc, input, completed)?);
+            }
+            Value::List(values)
+        }
+        Tc::Union {
+            discriminator,
+            labels,
+            members,
+            default,
+            ..
+        } => {
+            let disc = decode(discriminator, input, completed)?;
+            let member = match union_entry(labels, *default, &disc) {
+                Some(i) => Some((i, Box::new(decode(&members[i], input, completed)?))),
+                None => None,
+            };
+            Value::Union {
+                disc: Box::new(disc),
+                member,
+            }
+        }
+        Tc::Enum { count, .. } => {
+            let v: u32 = input.read()?;
+            if v >= *count {
+                return Err(marshal(completed));
+            }
+            Value::Enum(v)
+        }
+        Tc::Objref { .. } => Value::Objref(input.read_object()?),
+        Tc::Unsupported(_) => {
+            return Err(SystemException::new(
+                rustorb_core::SystemExceptionKind::NO_IMPLEMENT,
+                0,
+                completed,
+            ));
+        }
+    })
+}
+
+fn decode_items(
+    content: &Tc,
+    input: &mut InStream<'_>,
+    len: usize,
+    completed: CompletionStatus,
+) -> Result<Value, SystemException> {
+    let m = |_| marshal(completed);
+    Ok(match content.unaliased() {
+        Tc::Octet => Value::Octets(input.read_octets(len).map_err(m)?.to_vec()),
+        Tc::Char => {
+            let bytes = input.read_octets(len).map_err(m)?;
+            Value::Chars(input.code_sets().decode_string(bytes).map_err(|mut e| {
+                e.completed = completed;
+                e
+            })?)
+        }
+        _ => {
+            let mut items = Vec::with_capacity(len.min(4096));
+            for _ in 0..len {
+                items.push(decode(content, input, completed)?);
+            }
+            Value::List(items)
+        }
+    })
+}
+
+fn check_read_bound(
+    len: usize,
+    bound: u32,
+    completed: CompletionStatus,
+) -> Result<(), SystemException> {
+    if bound != 0 && len > bound as usize {
+        return Err(marshal(completed));
+    }
+    Ok(())
+}

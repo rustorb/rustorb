@@ -3,7 +3,7 @@ use std::future::Future;
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{fmt, io};
 
 use rustorb_cdr::ByteOrder;
@@ -596,6 +596,15 @@ impl Orb {
     /// processed on the upcall threads whether or not a thread runs this.
     /// Several threads may run it at once.
     pub fn run(&self) {
+        while !self.run_timeout(None) {}
+    }
+
+    /// [`run`](Orb::run) for at most `timeout` (`None` for no limit).
+    /// Returns true when the ORB has shut down, false when the time ran
+    /// out. For a binding that must look at its own events, such as
+    /// signals, while it runs the ORB.
+    pub fn run_timeout(&self, timeout: Option<Duration>) -> bool {
+        let deadline = timeout.map(|t| Instant::now() + t);
         let _main = MainThreadGuard::enter();
         let mut main = self.inner.main.lock().unwrap();
         loop {
@@ -606,9 +615,22 @@ impl Orb {
                 continue;
             }
             if main.stopped {
-                return;
+                return true;
             }
-            main = self.inner.main_cond.wait(main).unwrap();
+            main = match deadline {
+                None => self.inner.main_cond.wait(main).unwrap(),
+                Some(deadline) => {
+                    let now = Instant::now();
+                    if now >= deadline {
+                        return false;
+                    }
+                    self.inner
+                        .main_cond
+                        .wait_timeout(main, deadline - now)
+                        .unwrap()
+                        .0
+                }
+            };
         }
     }
 

@@ -1,16 +1,24 @@
 """The CORBA module of the IDL to Python mapping.
 
-This first version has the parts that code generated from IDL needs:
-TypeCodes, ``Any`` values, the exception hierarchy and the base class of
-object references. The ORB itself (``ORB_init``, invocations) comes with
-the native module.
+TypeCodes, ``Any`` values, the exception hierarchy, object references and
+the ORB (``CORBA.ORB_init``). The ORB, invocations and the POA are those
+of the native module ``rustorb._native``; the TypeCodes, values and
+exceptions are plain Python, so generated code can be imported without
+it.
 """
 
+import atexit as _atexit
 import builtins as _builtins
 import decimal as _decimal
+import threading as _threading
 from typing import Optional
 
 from . import _types
+
+try:
+    from . import _native
+except ImportError:  # the pure-Python parts work without it
+    _native = None  # type: ignore[assignment]
 
 # ---------------------------------------------------------------------------
 # TCKind
@@ -578,6 +586,194 @@ class Object(object):
     def _get_interface(self):
         raise NO_IMPLEMENT(0, COMPLETED_NO)
 
+    def __repr__(self):
+        return "<%s.%s %s>" % (
+            type(self).__module__,
+            type(self).__name__,
+            "nil" if self._obj is None else repr(self._obj.type_id()),
+        )
+
 
 def is_nil(obj):
     return obj is None
+
+
+class LocalObject(Object):
+    """Base of local objects (the POA, its manager, policies): they live in
+    this process only and have no IOR."""
+
+    def _is_a(self, repoId):
+        return repoId == "IDL:omg.org/CORBA/Object:1.0" or any(
+            getattr(c, "_NP_RepositoryId", None) == repoId for c in type(self).__mro__
+        )
+
+    def _non_existent(self):
+        return False
+
+    def _is_equivalent(self, other):
+        return self is other
+
+    def _hash(self, maximum):
+        return hash(self) % maximum
+
+    def _narrow(self, cls):
+        return self if isinstance(self, cls) else None
+
+    _unchecked_narrow = _narrow
+
+
+class Policy(LocalObject):
+    """``CORBA::Policy``. The POA's ``create_*_policy`` operations make
+    them; ``value`` is the enumerator of the policy value."""
+
+    _NP_RepositoryId = "IDL:omg.org/CORBA/Policy:1.0"
+    policy_type = 0
+
+    def __init__(self, value):
+        LocalObject.__init__(self)
+        self.value = value
+
+    def _get_policy_type(self):
+        return self.policy_type
+
+    def _get_value(self):
+        return self.value
+
+    def copy(self):
+        return type(self)(self.value)
+
+    def destroy(self):
+        pass
+
+
+# ---------------------------------------------------------------------------
+# The ORB
+
+#: The ORB identifier of ``ORB_init``.
+ORB_ID = "rustorb"
+
+_orbs: dict = {}
+_orbs_lock = _threading.Lock()
+
+
+class ORB(object):
+    """``CORBA::ORB``, made by :func:`ORB_init`."""
+
+    _NP_RepositoryId = "IDL:omg.org/CORBA/ORB:1.0"
+
+    class InvalidName(UserException):
+        _NP_RepositoryId = "IDL:omg.org/CORBA/ORB/InvalidName:1.0"
+
+    def __init__(self, native, orb_id):
+        self._native = native
+        self._id = orb_id
+        self._root_poa = None
+        self._lock = _threading.Lock()
+        self._destroyed = False
+
+    def id(self):
+        return self._id
+
+    def string_to_object(self, s):
+        from . import _rt
+
+        native = self._native.string_to_object(s)
+        if native is None:
+            return None
+        return _rt.make_objref(native, Object._NP_RepositoryId)
+
+    def object_to_string(self, obj):
+        if obj is None:
+            return self._native.object_to_string(None)
+        return self._native.object_to_string(obj._orb_object())
+
+    def resolve_initial_references(self, identifier):
+        from . import _rt
+
+        if identifier == "RootPOA":
+            return self._get_root_poa()
+        if identifier == "POACurrent":
+            from . import PortableServer
+
+            return PortableServer.Current()
+        try:
+            native = self._native.resolve_initial_references(identifier)
+        except LookupError:
+            raise ORB.InvalidName()
+        return _rt.make_objref(native, Object._NP_RepositoryId)
+
+    def list_initial_services(self):
+        return ["RootPOA", "POACurrent"] + list(self._native.list_initial_services())
+
+    def _get_root_poa(self):
+        with self._lock:
+            if self._root_poa is None:
+                from . import PortableServer
+
+                self._root_poa = PortableServer._wrap_poa(self._native.root_poa())
+            return self._root_poa
+
+    def run(self):
+        self._native.run()
+
+    def work_pending(self):
+        return self._native.work_pending()
+
+    def perform_work(self):
+        self._native.perform_work()
+
+    def shutdown(self, wait_for_completion):
+        self._native.shutdown(bool(wait_for_completion))
+
+    def destroy(self):
+        with _orbs_lock:
+            if _orbs.get(self._id) is self:
+                del _orbs[self._id]
+        self._destroyed = True
+        self._native.destroy()
+
+    def __repr__(self):
+        return "<CORBA.ORB %r>" % self._id
+
+
+def ORB_init(argv=None, orb_identifier=ORB_ID):
+    """Initialises the ORB ``orb_identifier``, or returns it if it exists.
+
+    ORB options (``-ORBInitRef``, ``-ORBendPoint``...) are taken from
+    ``argv`` and removed from it when it is a list.
+    """
+    if _native is None:
+        raise INITIALIZE(0, COMPLETED_NO)
+    if argv is None:
+        argv = []
+    with _orbs_lock:
+        orb = _orbs.get(orb_identifier)
+        if orb is not None:
+            return orb
+        native, rest = _native.Orb.init([str(a) for a in argv])
+        if isinstance(argv, list):
+            argv[:] = rest
+        orb = ORB(native, orb_identifier)
+        _orbs[orb_identifier] = orb
+        return orb
+
+
+def _default_orb():
+    """The first ORB that was initialised and is not destroyed."""
+    with _orbs_lock:
+        for orb in _orbs.values():
+            return orb
+    raise BAD_INV_ORDER(0, COMPLETED_NO)
+
+
+@_atexit.register
+def _destroy_orbs():
+    # Servants run on ORB threads; finish their requests while the
+    # interpreter can still run them.
+    with _orbs_lock:
+        orbs = list(_orbs.values())
+    for orb in orbs:
+        try:
+            orb.destroy()
+        except Exception:  # already destroyed
+            pass

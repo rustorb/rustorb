@@ -187,7 +187,7 @@ class Operation(object):
     ``exceptions`` are the TypeCodes of the user exceptions it raises.
     """
 
-    __slots__ = ("name", "in_types", "out_types", "exceptions", "oneway", "contexts")
+    __slots__ = ("name", "in_types", "out_types", "exceptions", "oneway", "contexts", "_native")
 
     def __init__(self, name, in_types, out_types, exceptions=(), oneway=False, contexts=()):
         self.name = name
@@ -196,6 +196,8 @@ class Operation(object):
         self.exceptions = tuple(exceptions)
         self.oneway = oneway
         self.contexts = tuple(contexts)
+        # The compiled form the native module makes on the first call.
+        self._native = None
 
     def __repr__(self):
         return "<Operation %s>" % self.name
@@ -230,6 +232,19 @@ def narrow(obj, cls, checked=True):
     if checked and not obj._is_a(repoId):
         return None
     return objref_cls(obj._obj)
+
+
+def make_objref(native, repoId):
+    """The Python object reference for ``native`` (a reference of the
+    native module) whose static type is the interface ``repoId``: an
+    instance of the stub class of the most derived interface known, from
+    the type id of the IOR, if it derives from the static type; else of the
+    static type's stub class, or ``CORBA.Object``."""
+    static = objref_classes.get(repoId, CORBA.Object)
+    cls = objref_classes.get(native.type_id())
+    if cls is None or not issubclass(cls, static):
+        cls = static
+    return cls(native)
 
 
 def operation(cls, name):

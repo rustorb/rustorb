@@ -1,0 +1,27 @@
+[package]
+name = "rustorb-python"
+description = "Native module of the rustorb Python package (rustorb._native), built with PyO3"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
+# The module only works loaded by Python; it is tested from Python
+# (python/tests).
+test = false
+doctest = false
+
+[dependencies]
+rustorb-core.workspace = true
+pyo3 = { version = "0.30", features = ["abi3-py39"] }
+
+[build-dependencies]
+pyo3-build-config = "0.30"

@@ -210,4 +210,10 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - `rustorb-idl -bpython`（`crates/rustorb-codegen/python`）：omniidl -bpython と同じレイアウト（`Foo_idl.py`、`Module/`、`Module__POA/`、`_GlobalIDL`）と `.pyi`。生成コードが使う `rustorb` パッケージの純 Python 部分（`python/rustorb`：TypeCode、例外、struct / union / enum の基底、生成コードとの取り決め `_rt`）
   - 互換の確認：`interop/run-pymapping-check.sh` が omniidl と rustorb-idl の生成物の公開API（定数、型の構築、TypeCode、クラスの継承、スタブのメソッド）を omniORBpy 上と rustorb 上で出力して比べる。差は仕様に従った4点だけ
   - idl\_parser の不具合を1件報告（[idl\_parser#159](https://github.com/sugarsweetrobotics/idl_parser/issues/159)、戻り値が複数語の型）。修正済みで、生成器はその修正を含むコミットに固定した
-- [ ] Python バインディング（M3）：PyO3 のネイティブモジュールで `ORB_init`、生成コードの `_invoke`（TypeCode に従うマーシャリング）、POA と `_this()` をつなぎ、Python の rustorb を相互接続マトリクスに入れる
+- [x] Python バインディング（M3）：PyO3 のネイティブモジュールで `ORB_init`、生成コードの `_invoke`（TypeCode に従うマーシャリング）、POA と `_this()` をつなぎ、Python の rustorb を相互接続マトリクスに入れる（[python-binding.md](python-binding.md)）
+  - `crates/rustorb-python`（`rustorb._native`、PyO3、abi3-py39）と、その上の標準マッピング（`CORBA.ORB_init`、`ORB`、`Object`、`PortableServer` の `POA`・`POAManager`・`Current`・ポリシー・servant manager）。`pip install ./python`（maturin）でホイールになる
+  - マーシャリングは2段階：GIL を持って Python の値を検査・変換し、CDR の読み書きと送受信は GIL を手放して行う。サーバントは Python のメソッドを呼ぶ間だけ GIL を取る。型は生成コードの TypeCode を操作ごとに一度 Rust の木に変換して使う
+  - `orb.run()` は Ctrl-C で止まる（コアに `Orb::run_timeout` を追加）。終了時は `atexit` で ORB を破棄する
+  - 相互接続：`interop/impls/rustorbpy` は omniORBpy のクライアント・サーバーの import を `rustorb` に替えただけのもの。ローカルでは Python⇔Python・Python⇔Rust（rustorb-names 経由）の両方向で78ケースすべてが通る。omniORB C++・omniORBpy との組み合わせは CI のマトリクスで確認する
+  - Python のテスト（`python/tests/test_orb.py`）：同じプロセスの2つの ORB 間を TCP で呼び、型の表現、例外、POA の操作、servant manager、POAManager の状態を確かめる
+- [ ] omniORBpy 互換シム（`from omniORB import ...` を通す別パッケージ）。対象 API は OpenRTM-aist-Python の利用箇所から決める

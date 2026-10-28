@@ -5,6 +5,7 @@ Rust製のCORBA実装
 
 - [開発計画](docs/development-plan.md)
 - [Python生成器（rustorb-idl -bpython）](docs/python-codegen.md)
+- [Python バインディング（PyO3）](docs/python-binding.md)
 
 ## クレート構成
 
@@ -14,10 +15,11 @@ Rust製のCORBA実装
 | `rustorb-giop` | GIOP/IIOPメッセージ型、IOR・corbaloc | MIT OR Apache-2.0 |
 | `rustorb-core` | ORB本体（接続管理、リクエスト配送、POA）。内部でtokioを使い、公開APIは同期 | MIT OR Apache-2.0 |
 | `rustorb-naming` | CosNaming（Naming Service） | MIT OR Apache-2.0 |
+| `rustorb-python` | Python パッケージ `rustorb` のネイティブモジュール `rustorb._native`（PyO3、[docs/python-binding.md](docs/python-binding.md)） | MIT OR Apache-2.0 |
 | `rustorb-ffi` | C++・Javaバインディング向けの安定C ABI層 | MIT OR Apache-2.0 |
 | `rustorb-codegen` | IDLコード生成器（idl_parserのASTを入力）。`python/` に `rustorb-idl` コマンド（Python バックエンド、[docs/python-codegen.md](docs/python-codegen.md)） | GPL-3.0-or-later |
 
-Python パッケージ `rustorb`（`python/rustorb`）は、IDL から生成した Python コードが使うランタイムです（いまは純 Python の部分だけで、ORB 本体のネイティブモジュールは M3 で追加します）。
+Python パッケージ `rustorb`（`python/rustorb`）は、Python から使う rustorb です。IDL から `rustorb-idl -bpython` で生成したコードと、`from rustorb import CORBA, PortableServer` で使います。`pip install ./python` で maturin がネイティブモジュール（`crates/rustorb-python`）をビルドしてインストールします。
 
 ビルドとテスト：
 
@@ -26,10 +28,11 @@ cargo build --workspace
 cargo test --workspace
 ```
 
-Python のテスト（生成器のテストには [idl_parser](https://github.com/sugarsweetrobotics/idl_parser) が必要）：
+Python のテスト（ORB と生成器のテストには [idl_parser](https://github.com/sugarsweetrobotics/idl_parser) が必要。ORB のテストはネイティブモジュールをソースツリーに置いてから）：
 
 ```sh
-python3 -m unittest discover -s python/tests
+python/build-native.sh
+PYTHONPATH=path/to/idl_parser python3 -m unittest discover -s python/tests
 PYTHONPATH=path/to/idl_parser python3 -m unittest discover -s crates/rustorb-codegen/python/tests
 ```
 
