@@ -179,3 +179,10 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 - [x] 相互接続環境のキャプチャで、GIOP 1.2のBOMなしwstringのバイト順（仕様はビッグエンディアン）と、GIOP 1.1のFragmentのアラインメントをomniORBと突き合わせる（[interop/README.md](../interop/README.md#omniorb-wire-format-findings)）
   - wstring：omniORBは空でなければ常にBOM付き・ストリームのバイト順で送り、BOMなしはビッグエンディアンとして読む（キャプチャと `interop/run-wire-probe.sh` による実測）。wcharは常にビッグエンディアン・BOMなし。rustorbの送信もBOM付きに合わせた（`Encoder::set_wstring_bom(false)` で仕様どおりのBOMなしビッグエンディアン）
   - GIOP 1.1 Fragment：omniORBは各Fragmentのデータを、そのFragmentの先頭を基準にアラインメントする。連結したメッセージ基準とは8バイト境界が4バイトずれるため、`FragmentAssembler` はFragmentごとの区切り（`Segment`）を保持して復号する。GIOP 1.2では両者は一致する
+- [x] `rustorb-core` にIIOPクライアントを実装し、omniORB C++ / omniORBpy サーバーへの呼び出しを相互接続環境で確認する（`interop/impls/rustorb`、手書きスタブ）
+  - ORB初期化（`-ORBInitRef`、`-ORBDefaultInitRef` など）、エンドポイントごとの接続プール、GIOP 1.0〜1.2 のRequest/Reply・LocateRequest、システム例外・ユーザー例外、`LOCATION_FORWARD`（転送先に届かなければ元のIORに戻る）、`NEEDS_ADDRESSING_MODE`、代替アドレス、`CloseConnection` 後の再送、タイムアウトと `CancelRequest`、`string_to_object`（IOR、corbaloc、`corbaloc:rir:`）
+  - コードセットはIORのコンポーネントから交渉する（rustorbのネイティブは `char` がUTF-8、`wchar` がUTF-16。`char` はISO 8859-1へ変換できる）。omniORBのIORは `char` がISO 8859-1でUTF-8へ変換可、`wchar` がUTF-16のため、UTF-8とUTF-16が選ばれる
+  - 相互接続：コールバックの2ケース（POAが必要）を除く76ケースが通る。失敗は既存の `known-failures.txt` の範囲（omniORBpyのwchar受信、GIOP 1.1のwchar）だけ
+- [ ] CosNamingのクライアント（`rustorb-naming`）と `corbaname:` を実装する
+- [ ] POA・スレッドモデルの設計書を作り、omniORBの挙動と突き合わせる（[#4](https://github.com/rustorb/rustorb/issues/4)）。その後サーバー側（POA）に着手し、相互接続のマトリクスに rustorb サーバーを加える
+- [ ] idl\_parser のP0（#133〜#137）が直りしだい、Python生成器（M1）に着手する

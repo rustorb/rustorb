@@ -1,0 +1,19 @@
+[package]
+name = "rustorb-interop"
+description = "rustorb client for the interop tests, with hand-written InteropTest stubs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "rustorb-interop-client"
+path = "src/main.rs"
+
+[dependencies]
+rustorb-core.workspace = true

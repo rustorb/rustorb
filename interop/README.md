@@ -2,15 +2,16 @@
 
 Docker based interop tests between CORBA implementations, run by
 [`.github/workflows/interop.yml`](../.github/workflows/interop.yml) on every
-push and pull request. rustorb has no ORB yet, so for now the matrix pairs
-omniORB with itself. rustorb is added later as one more implementation under
-`impls/` (see [Adding an implementation](#adding-an-implementation)).
+push and pull request. rustorb has a client side only so far: the matrix pairs
+the omniORB implementations with each other, and the rustorb client with each
+omniORB server (see [The rustorb client](#the-rustorb-client)).
 
 | Path | Contents |
 | --- | --- |
 | `idl/InteropTest.idl` | Stage 1 test IDL (no Any) |
 | `impls/omniorbpy/` | Echo server and test client on omniORBpy, and the naming service check |
 | `impls/omniorb-cpp/` | Echo server and test client on omniORB C++ |
+| `impls/rustorb/` | test client on rustorb, with hand-written stubs (no server yet) |
 | `docker/omniorb/Dockerfile` | omniORB 4.3.4 and omniORBpy 4.3.4 built from source, with the implementations above |
 | `compose.yaml` | naming service, server and client containers |
 | `run-matrix.sh` | runs every client / server combination |
@@ -92,6 +93,29 @@ ISO-8859-1, omniORB's native char code set, from both clients.
 Other arguments are ORB options. The server prints `server ready: PATH`
 once bound. The client prints `ok   <case>` or `FAIL <case>: <reason>` per
 case, then `N passed, M failed`, and exits with 0 only when all cases pass.
+
+## The rustorb client
+
+`impls/rustorb/` is a Cargo package in the workspace (`rustorb-interop`).
+Its stubs for `InteropTest.idl` and for `CosNaming::NamingContext::resolve`
+are written by hand until the code generator exists. It runs the same cases
+as the other clients, except `call_back` and `register_callback/trigger`,
+which need a POA and are printed as `skip`.
+
+`run-matrix.sh` builds it with cargo on the host when a `rustorb` client is in
+the run, copies the binary to `impls/rustorb/bin/` and the client container
+mounts that directory (the image and the CI runner are both Ubuntu 24.04).
+`CLIENT_IMPLS` and `SERVER_IMPLS` choose the clients and servers; rustorb is
+in `CLIENT_IMPLS` by default.
+
+```sh
+interop/run-matrix.sh rustorb:omniorb-cpp rustorb:omniorbpy
+interop/run-matrix.sh --giop 1.1 rustorb:omniorb-cpp
+```
+
+Without Docker, the client also runs against omniORB built on the host, for
+example `rustorb-interop-client --naming corbaloc::127.0.0.1:2809/NameService
+--name interop/Echo`, with the servers started with `--host 127.0.0.1`.
 
 ## Adding an implementation
 

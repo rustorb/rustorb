@@ -94,6 +94,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustorb-interop"
+version = "0.0.0"
+dependencies = [
+ "rustorb-core",
+]
+
+[[package]]
 name = "rustorb-naming"
 version = "0.0.0"
 dependencies = [

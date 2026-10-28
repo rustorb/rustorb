@@ -46,6 +46,8 @@ services:
       CAPTURE_LABELS: --port-label 2809=naming --port-label 2810=server --port-label 2811=client
     volumes:
       - ${OUT_DIR:-./out}:/out
+      # The rustorb client is built on the host (see run-matrix.sh).
+      - ./impls/rustorb:/opt/interop/impls/rustorb:ro
     command:
       - run-client
       - impls/${CLIENT_IMPL:-omniorbpy}/client
