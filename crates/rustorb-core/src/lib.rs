@@ -7,8 +7,9 @@
 //! The client side is implemented so far:
 //!
 //! - [`Orb`] owns the runtime and a pool of GIOP connections, one per
-//!   server endpoint. [`Orb::string_to_object`] accepts stringified IORs
-//!   and `corbaloc:` URLs, and [`Orb::resolve_initial_references`] the
+//!   server endpoint. [`Orb::string_to_object`] accepts stringified IORs,
+//!   `corbaloc:` and `corbaname:` URLs, and
+//!   [`Orb::resolve_initial_references`] the
 //!   `-ORBInitRef` / `-ORBDefaultInitRef` options.
 //! - [`ObjectRef::request`] builds a request whose arguments are written to
 //!   an [`OutStream`]; [`Request::invoke`] returns a [`Reply`] to read with
@@ -16,6 +17,8 @@
 //!   the target's profile allows, follow `LOCATION_FORWARD`, answer
 //!   `NEEDS_ADDRESSING_MODE`, try alternate addresses, and are sent again
 //!   after a `CloseConnection` from the server.
+//! - [`name`] has the CosNaming name type and its string form, used for
+//!   `corbaname:` and by the naming service client in `rustorb-naming`.
 //! - [`CodeSets`] negotiates the transmission code sets from the IOR and
 //!   converts `string` data; rustorb's native code sets are UTF-8 and
 //!   UTF-16.
@@ -23,6 +26,7 @@
 mod codeset;
 mod connection;
 mod exception;
+pub mod name;
 mod object;
 mod orb;
 mod stream;

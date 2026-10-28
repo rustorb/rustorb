@@ -668,7 +668,20 @@ fn string_to_object_and_back() {
     assert!(e.is(SystemExceptionKind::BAD_PARAM));
     assert_eq!(e.minor, minor::BAD_SCHEME_NAME);
     assert_eq!(bad("IOR:0").minor, minor::BAD_SCHEME_SPECIFIC_PART);
-    assert!(bad("corbaname::host#a/b").is(SystemExceptionKind::NO_IMPLEMENT));
+    // corbaname: asks the naming service, which is not there; a malformed
+    // name fails before that.
+    let port = closed_port();
+    assert!(bad(&format!("corbaname::127.0.0.1:{port}#a/b")).is(SystemExceptionKind::TRANSIENT));
+    assert_eq!(
+        bad(&format!("corbaname::127.0.0.1:{port}#a//b")).minor,
+        minor::BAD_SCHEME_SPECIFIC_PART
+    );
+    // With no name it is the context itself.
+    let ctx = orb
+        .string_to_object(&format!("corbaname::127.0.0.1:{port}"))
+        .unwrap()
+        .unwrap();
+    assert!(ctx.type_id().is_empty());
 }
 
 #[test]

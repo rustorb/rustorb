@@ -183,6 +183,10 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - ORB初期化（`-ORBInitRef`、`-ORBDefaultInitRef` など）、エンドポイントごとの接続プール、GIOP 1.0〜1.2 のRequest/Reply・LocateRequest、システム例外・ユーザー例外、`LOCATION_FORWARD`（転送先に届かなければ元のIORに戻る）、`NEEDS_ADDRESSING_MODE`、代替アドレス、`CloseConnection` 後の再送、タイムアウトと `CancelRequest`、`string_to_object`（IOR、corbaloc、`corbaloc:rir:`）
   - コードセットはIORのコンポーネントから交渉する（rustorbのネイティブは `char` がUTF-8、`wchar` がUTF-16。`char` はISO 8859-1へ変換できる）。omniORBのIORは `char` がISO 8859-1でUTF-8へ変換可、`wchar` がUTF-16のため、UTF-8とUTF-16が選ばれる
   - 相互接続：コールバックの2ケース（POAが必要）を除く76ケースが通る。失敗は既存の `known-failures.txt` の範囲（omniORBpyのwchar受信、GIOP 1.1のwchar）だけ
-- [ ] CosNamingのクライアント（`rustorb-naming`）と `corbaname:` を実装する
+- [x] CosNamingのクライアント（`rustorb-naming`）と `corbaname:` を実装する
+  - `NamingContext` / `NamingContextExt` / `BindingIterator` の手書きスタブと、ユーザー例外（`NotFound`、`CannotProceed`、`InvalidName`、`AlreadyBound`、`NotEmpty`、`InvalidAddress`）。宣言されていないユーザー例外は `UNKNOWN` にする
+  - 名前の文字列形式（`to_name` / `to_string`）と `NameComponent` は `rustorb-core` の `name` モジュールに置き、`Orb::string_to_object` が `corbaname:` を自分で解決する（`NamingContext::resolve` を呼ぶ）。名前を省略すると命名コンテキスト自体を返す
+  - omniORBの実測に合わせた例外：名前が見つからなければ `BAD_PARAM`（minor 10、`STRING_TO_OBJECT_OTHER`）、名前の形式が不正なら `BAD_PARAM`（minor 9、`BAD_SCHEME_SPECIFIC_PART`）、命名サービスのシステム例外はそのまま
+  - 相互接続：`interop/run-naming-check.sh` が omniORBpy と rustorb の両クライアントで同じ操作列（bind/rebind/resolve/list/unbind/destroy、NamingContextExt、`corbaname:`）を omniNames に対して実行し、同じ期待出力と一致することを確認した。Echoクライアントの名前解決も `rustorb-naming` に置き換えた
 - [ ] POA・スレッドモデルの設計書を作り、omniORBの挙動と突き合わせる（[#4](https://github.com/rustorb/rustorb/issues/4)）。その後サーバー側（POA）に着手し、相互接続のマトリクスに rustorb サーバーを加える
 - [ ] idl\_parser のP0（#133〜#137）が直りしだい、Python生成器（M1）に着手する
