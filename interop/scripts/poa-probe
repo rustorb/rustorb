@@ -725,8 +725,16 @@ class Probe:
                                         str_args(seq, 300 if seq == 1 else 0), response=False))
             time.sleep(1.0)
             conn.close()
-            self.out("%s 4 oneways on one connection, first one slow" % case,
-                     "processed as " + ", ".join(e.split()[1] for e in self.events()))
+            order = [e.split()[1] for e in self.events()]
+            # The fast ones run at the same time when the slow one does not
+            # hold them up, so their order among themselves is not stable.
+            if order == ["1", "2", "3", "4"]:
+                result = "processed as 1, 2, 3, 4"
+            elif sorted(order) == ["1", "2", "3", "4"] and order[-1] == "1":
+                result = "processed as 2, 3, 4 in any order, then 1"
+            else:
+                result = "processed as " + ", ".join(order)
+            self.out("%s 4 oneways on one connection, first one slow" % case, result)
 
         # An upcall calling another object of the same server.
         for case, src, dst in [("ORB_CTRL -> ORB_CTRL", "persistent_user", "persistent_user"),

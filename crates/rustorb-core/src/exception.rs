@@ -134,6 +134,17 @@ pub mod minor {
     pub const POA_DISCARDING: u32 = OMG_VMCID | 1;
     /// `OBJ_ADAPTER`: the POA manager of the target is inactive.
     pub const POA_INACTIVE: u32 = OMG_VMCID | 1;
+    /// `OBJ_ADAPTER`: `incarnate` returned a servant that is already active
+    /// in a POA with UNIQUE_ID.
+    pub const SERVANT_ALREADY_ACTIVE: u32 = OMG_VMCID | 2;
+    /// `OBJ_ADAPTER`: a POA with USE_DEFAULT_SERVANT has no default
+    /// servant.
+    pub const NO_DEFAULT_SERVANT: u32 = OMG_VMCID | 3;
+    /// `OBJ_ADAPTER`: a POA with USE_SERVANT_MANAGER has no servant
+    /// manager, or `set_servant_manager` got the wrong kind.
+    pub const NO_SERVANT_MANAGER: u32 = OMG_VMCID | 4;
+    /// `BAD_INV_ORDER`: `set_servant_manager` was called a second time.
+    pub const SERVANT_MANAGER_ALREADY_SET: u32 = OMG_VMCID | 6;
 }
 
 /// A CORBA system exception: one of the standard exceptions (or another

@@ -11,13 +11,13 @@ rustorb) with every server (the same three); see
 | `idl/InteropTest.idl` | Stage 1 test IDL (no Any) |
 | `impls/omniorbpy/` | Echo server and test client on omniORBpy, and the naming service check |
 | `impls/omniorb-cpp/` | Echo server and test client on omniORB C++ |
-| `impls/rustorb/` | Echo server and test client on rustorb, with hand-written stubs and skeletons, and the naming service check |
+| `impls/rustorb/` | Echo server and test client on rustorb, with hand-written stubs and skeletons, the naming service check and the POA probe server |
 | `docker/omniorb/Dockerfile` | omniORB 4.3.4 and omniORBpy 4.3.4 built from source, with the implementations above |
 | `compose.yaml` | naming service, server and client containers |
 | `run-matrix.sh` | runs every client / server combination |
 | `run-naming-check.sh` | runs a fixed CosNaming operation sequence (and `corbaname:` URLs) with the omniORBpy and rustorb clients and compares the output with `expected/naming-check.txt` |
 | `run-wire-probe.sh` | sends hand-built GIOP requests (`scripts/wire-probe`) to each server and compares the answers with `expected/wire-probe-*.txt` |
-| `run-poa-probe.sh` | starts the POA probe servers (`impls/omniorbpy/poa-probe-server`, `impls/omniorb-cpp/poa_probe_server`, IDL `idl/PoaProbe.idl`) and runs `scripts/poa-probe` against them, comparing the output with `expected/poa-probe-*.txt` |
+| `run-poa-probe.sh` | starts the POA probe servers (`impls/omniorbpy/poa-probe-server`, `impls/omniorb-cpp/poa_probe_server`, `impls/rustorb/poa-probe-server`, IDL `idl/PoaProbe.idl`) and runs `scripts/poa-probe` against them, comparing the output with `expected/poa-probe-*.txt` |
 | `known-failures.txt` | failures caused by the existing ORBs, treated as expected |
 | `scripts/giop-extract` | splits a pcap file into GIOP messages |
 | `scripts/golden-compare` | compares captured GIOP messages with `golden/*.json` |
@@ -219,9 +219,11 @@ keep rustorb in line with them.
 ## POA and thread model probes
 
 `run-poa-probe.sh` records how omniORB's POA dispatches requests, which
-[`docs/poa-design.md`](../docs/poa-design.md) relies on. The probe servers
-(`impls/omniorbpy/poa_probe_server.py`, `impls/omniorb-cpp/poa_probe_server.cc`)
-publish `PoaProbe::Target` objects in POAs with different policies (lifespans,
+[`docs/poa-design.md`](../docs/poa-design.md) relies on, and checks that
+rustorb's POA does the same. The probe servers
+(`impls/omniorbpy/poa_probe_server.py`, `impls/omniorb-cpp/poa_probe_server.cc`,
+`impls/rustorb/src/poa_probe_server.rs`, built on the host like the other
+rustorb programs) publish `PoaProbe::Target` objects in POAs with different policies (lifespans,
 id assignment, thread models, servant managers, a default servant, an
 AdapterActivator, a POA under its own POAManager) and a `Control` object
 that changes their state. `scripts/poa-probe` talks to them with hand-built
@@ -231,7 +233,7 @@ object keys, after a restart to see which keys survive and to run the
 probe, and once more for `ORB::shutdown(false)` inside an upcall.
 
 ```sh
-interop/run-poa-probe.sh                # both servers
+interop/run-poa-probe.sh                # all three servers
 interop/run-poa-probe.sh omniorb-cpp
 interop/run-poa-probe.sh --update       # record expected/poa-probe-*.txt again
 ```

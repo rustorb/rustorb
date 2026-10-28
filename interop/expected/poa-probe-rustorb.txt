@@ -1,0 +1,134 @@
+# keys
+key RootPOA (system id): \xfe... (21 bytes, differs from previous run from byte 1)
+key persistent_user obj: \xffpersistent_user\x00obj (same as previous run)
+key persistent_user/nested obj: \xffpersistent_user\xffnested\x00obj (same as previous run)
+key persistent_system (system id): \xffpersistent_system\x00... (31 bytes, differs from previous run from byte 19)
+key transient_user obj: \xfftransient_user\xfe... (27 bytes, differs from previous run from byte 16)
+key transient_system (system id): \xfftransient_system\xfe... (38 bytes, differs from previous run from byte 18)
+key single a: \xffsingle\x00a (same as previous run)
+key main a: \xffmain\x00a (same as previous run)
+key activator x: \xffactivator\x00x (same as previous run)
+key locator x: \xfflocator\x00x (same as previous run)
+key default x: \xffdefault\x00x (same as previous run)
+ior type_id: IDL:rustorb.org/PoaProbe/Target:1.0
+ior IIOP version: 1.2
+ior address: server:2820
+ior components: 0x1
+ior RootPOA address: server:2820
+# dispatch
+persistent_user/obj, request: NO_EXCEPTION, served as persistent_user/obj
+persistent_user/obj, locate: OBJECT_HERE
+persistent_user unknown oid, request: OBJECT_NOT_EXIST minor 0x4f4d0001 COMPLETED_NO
+persistent_user unknown oid, locate: UNKNOWN_OBJECT
+unknown POA, request: OBJECT_NOT_EXIST minor 0x4f4d0001 COMPLETED_NO
+unknown POA, locate: UNKNOWN_OBJECT
+unknown nested POA, request: OBJECT_NOT_EXIST minor 0x4f4d0001 COMPLETED_NO
+unknown nested POA, locate: UNKNOWN_OBJECT
+garbage key, request: OBJECT_NOT_EXIST minor 0x4f4d0001 COMPLETED_NO
+garbage key, locate: UNKNOWN_OBJECT
+empty key, request: OBJECT_NOT_EXIST minor 0x4f4d0001 COMPLETED_NO
+empty key, locate: UNKNOWN_OBJECT
+RootPOA key of previous run, request: OBJECT_NOT_EXIST minor 0x4f4d0001 COMPLETED_NO
+RootPOA key of previous run, locate: UNKNOWN_OBJECT
+transient_user key of previous run, request: OBJECT_NOT_EXIST minor 0x4f4d0001 COMPLETED_NO
+transient_user key of previous run, locate: UNKNOWN_OBJECT
+transient_system key of previous run, request: OBJECT_NOT_EXIST minor 0x4f4d0001 COMPLETED_NO
+transient_system key of previous run, locate: UNKNOWN_OBJECT
+persistent_system key of previous run, request: OBJECT_NOT_EXIST minor 0x4f4d0001 COMPLETED_NO
+persistent_system key of previous run, locate: UNKNOWN_OBJECT
+transient_user unknown oid, request: OBJECT_NOT_EXIST minor 0x4f4d0001 COMPLETED_NO
+transient_user unknown oid, locate: UNKNOWN_OBJECT
+unknown operation, request: BAD_OPERATION minor 0x4f4d0002 COMPLETED_NO
+unknown operation, locate: OBJECT_HERE
+wrong arguments (missing), request: MARSHAL minor 0x00000000 COMPLETED_NO
+wrong arguments (missing), locate: OBJECT_HERE
+deactivated object, request: OBJECT_NOT_EXIST minor 0x4f4d0001 COMPLETED_NO
+deactivated object, locate: UNKNOWN_OBJECT
+deactivated object, _non_existent: OBJECT_NOT_EXIST minor 0x4f4d0001 COMPLETED_NO
+reactivated object, request: NO_EXCEPTION, served as persistent_user/victim
+reactivated object, locate: OBJECT_HERE
+destroyed POA, request: OBJECT_NOT_EXIST minor 0x4f4d0001 COMPLETED_NO
+destroyed POA, locate: UNKNOWN_OBJECT
+activator/x first, request: NO_EXCEPTION, served as activator/x
+activator/x first, locate: OBJECT_HERE
+activator/x again, request: NO_EXCEPTION, served as activator/x
+activator/x again, locate: OBJECT_HERE
+activator/bad, request: OBJECT_NOT_EXIST minor 0x00000000 COMPLETED_NO
+activator/bad, locate: OBJECT_HERE
+activator/fwd, request: LOCATION_FORWARD, forward to server:2820 \xffpersistent_user\x00obj
+activator/fwd, locate: OBJECT_HERE
+activator events: unknown_adapter no_such_poa; unknown_adapter no_such_poa; unknown_adapter doomed; unknown_adapter doomed; incarnate x; incarnate bad; incarnate fwd
+activator events after deactivate: etherealize x
+activator/y, locate before any request: OBJECT_HERE
+activator events after locate: none
+locator/x, request: NO_EXCEPTION, served as locator/x
+locator/x, locate: OBJECT_HERE
+locator/fwd, request: LOCATION_FORWARD, forward to server:2820 \xffpersistent_user\x00obj
+locator/fwd, locate: OBJECT_HERE
+locator/bad, request: OBJECT_NOT_EXIST minor 0x00000000 COMPLETED_NO
+locator/bad, locate: OBJECT_HERE
+locator events: preinvoke x work; postinvoke x work; preinvoke fwd work; preinvoke bad work
+default/anything, request: NO_EXCEPTION, served as default/anything
+default/anything, locate: OBJECT_HERE
+adapter activator lazy1/q, request: NO_EXCEPTION, served as lazy1/q
+adapter activator lazy1/q, locate: OBJECT_HERE
+adapter activator no_such_poa, request: OBJECT_NOT_EXIST minor 0x4f4d0001 COMPLETED_NO
+adapter activator no_such_poa, locate: UNKNOWN_OBJECT
+adapter activator events: unknown_adapter lazy1; unknown_adapter zzz; unknown_adapter zzz
+builtin _non_existent: NO_EXCEPTION FALSE
+builtin _not_existent: BAD_OPERATION minor 0x4f4d0002 COMPLETED_NO
+builtin _is_a own type: NO_EXCEPTION TRUE
+builtin _is_a other type: NO_EXCEPTION FALSE
+builtin _interface: INTF_REPOS minor 0x00000000 COMPLETED_NO
+builtin _get_interface: BAD_OPERATION minor 0x4f4d0002 COMPLETED_NO
+builtin _repository_id: NO_EXCEPTION IDL:rustorb.org/PoaProbe/Target:1.0
+builtin _component: BAD_OPERATION minor 0x4f4d0002 COMPLETED_NO
+# versions
+request GIOP 1.0 LE: reply GIOP 1.0 LE, NO_EXCEPTION
+locate GIOP 1.0 LE: reply GIOP 1.0 LE, OBJECT_HERE
+request GIOP 1.0 BE: reply GIOP 1.0 LE, NO_EXCEPTION
+locate GIOP 1.0 BE: reply GIOP 1.0 LE, OBJECT_HERE
+request GIOP 1.1 LE: reply GIOP 1.1 LE, NO_EXCEPTION
+locate GIOP 1.1 LE: reply GIOP 1.1 LE, OBJECT_HERE
+request GIOP 1.1 BE: reply GIOP 1.1 LE, NO_EXCEPTION
+locate GIOP 1.1 BE: reply GIOP 1.1 LE, OBJECT_HERE
+request GIOP 1.2 LE: reply GIOP 1.2 LE, NO_EXCEPTION
+locate GIOP 1.2 LE: reply GIOP 1.2 LE, OBJECT_HERE
+request GIOP 1.2 BE: reply GIOP 1.2 LE, NO_EXCEPTION
+locate GIOP 1.2 BE: reply GIOP 1.2 LE, OBJECT_HERE
+# manager
+managed active, request: NO_EXCEPTION, served as managed/obj
+managed active, locate: OBJECT_HERE
+managed holding, request: no reply while holding, then NO_EXCEPTION after activate
+managed holding, locate: OBJECT_HERE
+managed discarding, request: TRANSIENT minor 0x4f4d0001 COMPLETED_NO
+managed discarding, locate: OBJECT_HERE
+managed inactive, request: OBJ_ADAPTER minor 0x4f4d0001 COMPLETED_NO
+managed inactive, locate: UNKNOWN_OBJECT
+managed inactive, activate again: Failed(AdapterInactive)
+# threads
+ORB_CTRL 4 pipelined on one connection: overlapped, a thread per call
+ORB_CTRL 16 pipelined on one connection: overlapped, a thread per call, all at once
+ORB_CTRL 6 sequential on one connection: serialized, one thread
+ORB_CTRL sequential on a second connection: serialized, one thread, reuses threads of the first connection
+ORB_CTRL 4 connections in parallel: overlapped, a thread per call
+SINGLE_THREAD 4 pipelined on one connection: serialized, replies in request order
+SINGLE_THREAD same POA, 2 objects, 2 connections: serialized
+SINGLE_THREAD 2 POAs, 2 connections: overlapped
+MAIN_THREAD 4 pipelined on one connection: serialized, all on the main thread
+MAIN_THREAD 2 objects, 2 connections: serialized, all on the main thread
+MAIN_THREAD and ORB_CTRL, 2 connections: overlapped, 1 on the main thread, a thread per call
+ORB_CTRL 4 oneways on one connection, first one slow: processed as 2, 3, 4 in any order, then 1
+SINGLE_THREAD 4 oneways on one connection, first one slow: processed as 1, 2, 3, 4
+relay ORB_CTRL -> ORB_CTRL: ok, inner call on the same thread as the outer call
+relay SINGLE_THREAD -> same POA: ok, inner call on the same thread as the outer call
+relay SINGLE_THREAD -> other SINGLE_THREAD POA: ok, inner call on the same thread as the outer call
+relay MAIN_THREAD -> MAIN_THREAD: ok, inner call on the same thread as the outer call
+relay ORB_CTRL -> MAIN_THREAD: ok, inner call on the main thread
+# shutdown
+shutdown(true) inside an upcall: IDL:omg.org/CORBA/BAD_INV_ORDER:1.0 minor 0x4f4d0003
+shutdown(false) with a call in progress, busy connection: NO_EXCEPTION, then CloseConnection
+shutdown(false), idle connection: CloseConnection
+shutdown(false), control connection: closed (ConnectionError)
+shutdown(false) inside an upcall: reply 'returned'
+shutdown(false) inside an upcall, connections: control: CloseConnection, other: CloseConnection

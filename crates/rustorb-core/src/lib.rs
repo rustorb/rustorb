@@ -34,7 +34,15 @@
 //! - A [`Servant`] reads its arguments from an [`InStream`] and writes the
 //!   result or a user exception to a [`ServerReply`]. Servants run on a
 //!   pool of long-lived upcall threads, never on the I/O threads, and
-//!   requests of one connection run in parallel.
+//!   requests of one connection run in parallel. SINGLE_THREAD_MODEL POAs
+//!   run their requests one at a time, and MAIN_THREAD_MODEL ones on the
+//!   thread in [`Orb::run`] or [`Orb::perform_work`].
+//! - Objects not in the active object map can be served by a default
+//!   servant, a [`ServantActivator`] or a [`ServantLocator`], and child
+//!   POAs created on demand by an [`AdapterActivator`]. [`PoaCurrent`]
+//!   tells a servant which object a request is for.
+//! - Calls to objects of the same ORB do not use the network: the request
+//!   is marshalled and dispatched on the calling thread.
 //! - [`Orb::run`] waits for [`Orb::shutdown`], which finishes the running
 //!   requests and closes every connection with `CloseConnection`.
 
@@ -57,11 +65,15 @@ pub use exception::{
 pub use object::{ObjectRef, Reply, Request};
 pub use orb::{EndpointAddr, Orb, OrbOptions, ResolveError};
 pub use poa::{
-    IdAssignment, IdUniqueness, ImplicitActivation, Lifespan, ObjectId, Poa, PoaError, PoaManager,
-    PoaManagerState, Policies, Policy, RequestProcessing, ServantRetention, ThreadPolicy,
+    IdAssignment, IdUniqueness, ImplicitActivation, Lifespan, ObjectId, Poa, PoaCurrent, PoaError,
+    PoaManager, PoaManagerState, Policies, Policy, RequestProcessing, ServantRetention,
+    ThreadPolicy,
 };
 pub use rustorb_cdr as cdr;
 pub use rustorb_giop as giop;
 pub use rustorb_giop::CompletionStatus;
-pub use servant::{Servant, ServerReply};
+pub use servant::{
+    AdapterActivator, Cookie, Servant, ServantActivator, ServantLocator, ServantManager,
+    ServantManagerError, ServerReply,
+};
 pub use stream::{InStream, OutStream};

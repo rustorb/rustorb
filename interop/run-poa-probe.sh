@@ -6,7 +6,9 @@
 #
 # --update   rewrites the expected files with the current output
 #
-# SERVER is omniorbpy or omniorb-cpp (default: both). Each server is started
+# SERVER is omniorbpy, omniorb-cpp or rustorb (default: all three). The
+# rustorb server is built on the host and mounted into the container, like
+# in run-matrix.sh. Each server is started
 # three times: once to record the object keys, once after a restart to check
 # which keys survive it and to run the probe (the last stage shuts the ORB
 # down), and once more for ORB::shutdown(false) called inside an upcall.
@@ -21,7 +23,7 @@ if [ "${1:-}" = "--update" ]; then
   shift
 fi
 servers=("$@")
-[ ${#servers[@]} -eq 0 ] && servers=(omniorbpy omniorb-cpp)
+[ ${#servers[@]} -eq 0 ] && servers=(omniorbpy omniorb-cpp rustorb)
 image=${SERVER_IMAGE:-rustorb-interop-omniorb:latest}
 network=interop-poa-probe
 
@@ -29,6 +31,7 @@ server_cmd() {
   case "$1" in
     omniorbpy) echo impls/omniorbpy/poa-probe-server ;;
     omniorb-cpp) echo impls/omniorb-cpp/poa_probe_server ;;
+    rustorb) echo impls/rustorb/poa-probe-server ;;
     *) echo "unknown server: $1" >&2; exit 2 ;;
   esac
 }
@@ -44,7 +47,7 @@ start_server() {
   docker rm -f poa-probe-server >/dev/null 2>&1 || true
   rm -f "$dir/control.ior"
   docker run -d --name poa-probe-server --hostname server --network "$network" \
-    -v "$PWD/out:/out" "$image" \
+    -v "$PWD/out:/out" -v "$PWD/impls/rustorb:/opt/interop/impls/rustorb:ro" "$image" \
     "$cmd" --host server --port 2820 --ior-file "/out/${dir#out/}/control.ior" >/dev/null
   for _ in $(seq 100); do
     [ -f "$dir/control.ior" ] && return 0
@@ -61,6 +64,14 @@ probe() {
   docker run --rm --network "$network" -v "$PWD/out:/out" "$image" \
     scripts/poa-probe --ior-file "/out/${dir#out/}/control.ior" "$@"
 }
+
+for server in "${servers[@]}"; do
+  if [ "$server" = rustorb ]; then
+    cargo build --release --locked -p rustorb-interop --manifest-path ../Cargo.toml
+    mkdir -p impls/rustorb/bin
+    cp ../target/release/rustorb-poa-probe-server impls/rustorb/bin/
+  fi
+done
 
 mkdir -p out
 docker network create "$network" >/dev/null 2>&1 || true

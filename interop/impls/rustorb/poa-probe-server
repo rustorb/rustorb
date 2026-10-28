@@ -1,0 +1,4 @@
+#!/bin/sh
+# rustorb POA probe server. run-poa-probe.sh builds it on the host and
+# mounts this directory, with the binary in bin/, into the server container.
+exec "$(dirname "$0")/bin/rustorb-poa-probe-server" "$@"
