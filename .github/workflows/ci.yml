@@ -52,3 +52,22 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.85
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --workspace --locked
+
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      # The prebuilt cargo-fuzz is a musl binary and would default to the musl
+      # target, which the sanitizers do not support.
+      - name: Run each fuzz target for 60 seconds
+        run: |
+          for target in $(cargo fuzz list); do
+            cargo fuzz run --target x86_64-unknown-linux-gnu "$target" -- -max_total_time=60
+          done
