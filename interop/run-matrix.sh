@@ -3,7 +3,10 @@
 #
 #   ./run-matrix.sh [--build] [--capture] [--giop VER] [--out DIR] [CLIENT:SERVER ...]
 #
-# Without pairs, every combination of $IMPLS is run as client and server.
+# Without pairs, every client in $CLIENT_IMPLS is paired with every server in
+# $SERVER_IMPLS. Both default to $IMPLS; rustorb has a client only so far, so
+# it is added to the clients but not to the servers. The rustorb client is
+# built with cargo on the host.
 # --build    builds the omniORB image first
 # --capture  captures each client's traffic and splits it into GIOP messages
 # --giop VER limits the client to GIOP VER (e.g. 1.1); the results go to
@@ -18,6 +21,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 IMPLS="${IMPLS:-omniorbpy omniorb-cpp}"
+CLIENT_IMPLS="${CLIENT_IMPLS:-$IMPLS rustorb}"
+SERVER_IMPLS="${SERVER_IMPLS:-$IMPLS}"
 IMAGE="rustorb-interop-omniorb:latest"
 build=0
 capture=0
@@ -31,7 +36,7 @@ while [ $# -gt 0 ]; do
     --capture) capture=1 ;;
     --giop) giop="$2"; shift ;;
     --out) out="$(realpath -m "$2")"; shift ;;
-    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
     *:*) pairs+=("$1") ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -39,8 +44,8 @@ while [ $# -gt 0 ]; do
 done
 
 if [ ${#pairs[@]} -eq 0 ]; then
-  for c in $IMPLS; do
-    for s in $IMPLS; do
+  for c in $CLIENT_IMPLS; do
+    for s in $SERVER_IMPLS; do
       pairs+=("$c:$s")
     done
   done
@@ -49,6 +54,17 @@ fi
 if [ $build -eq 1 ]; then
   docker build -f docker/omniorb/Dockerfile -t "$IMAGE" .
 fi
+
+# The rustorb client runs in the omniORB image (Ubuntu 24.04), so it is built
+# on the host and mounted into the container (see compose.yaml).
+for pair in "${pairs[@]}"; do
+  if [ "${pair%%:*}" = rustorb ]; then
+    cargo build --release --locked -p rustorb-interop --manifest-path ../Cargo.toml
+    mkdir -p impls/rustorb/bin
+    cp ../target/release/rustorb-interop-client impls/rustorb/bin/
+    break
+  fi
+done
 
 # Prints the cases listed in known-failures.txt for a client / server pair
 # and the GIOP version limit of the run ($giop, empty for none).

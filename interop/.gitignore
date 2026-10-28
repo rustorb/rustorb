@@ -3,3 +3,4 @@
 /impls/omniorb-cpp/server
 /impls/omniorb-cpp/client
 **/__pycache__/
+/impls/rustorb/bin/
