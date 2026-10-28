@@ -23,6 +23,13 @@ cargo build --workspace
 cargo test --workspace
 ```
 
+ファジング（nightlyと [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) が必要）：
+
+```sh
+cargo +nightly fuzz list
+cargo +nightly fuzz run giop_message
+```
+
 ## ライセンス
 
 rustorb は、以下のいずれかを利用者が選べるデュアルライセンスで提供します。
