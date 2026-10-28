@@ -82,6 +82,31 @@ M0〜M3の約4〜7か月でMVPに到達し、その後C++とJavaを順に追加�
 
 相互接続テストはDockerで各ORBの環境を用意し、GitHub Actionsで毎回回す。
 
+### 相互接続の優先順位
+
+最初の置き換え対象は2段階で決める。MVP（M0〜M3）は「Naming Service経由の汎用的なPython呼び出し」で完了を判定し、Any / TypeCode を実装するM5の完了後に「OpenRTM-aist-Pythonの動作」を次の完了条件にする（[#7](https://github.com/rustorb/rustorb/issues/7)）。OpenRTM-aistはSDOのプロパティ（NVList、値が any）やデータポートのCDR直列化を使うため、最初から対象にするとAnyをMVPへ前倒しすることになるので、段階を分ける。
+
+**第1段階：Naming経由の汎用Python呼び出し（MVPの完了条件）**
+
+| 優先度 | クライアント | サーバー | ネーミング |
+| --- | --- | --- | --- |
+| 1 | rustorb（Python） | omniORBpy | omniNames |
+| 1 | omniORBpy | rustorb（Python） | omniNames |
+| 1 | omniORBpy・rustorb（Python） | 両方 | rustorbのNaming Service |
+| 2 | rustorb（Python・Rust） | omniORB（C++） | omniNames |
+| 2 | omniORB（C++） | rustorb（Python・Rust） | omniNames |
+| 3 | rustorb ⇔ JacORB（両方向） | | Javaバインディングの着手時に追加 |
+
+- **題材のIDL**：自作の小さなテスト用IDLと CosNaming.idl を使う。テスト用IDLは基本型、string / wstring、struct、enum、union、sequence、配列、typedef、ユーザー例外、属性、oneway、オブジェクト参照の受け渡し、コールバック（サーバーからクライアントへの呼び返し）を含め、Anyは含めない
+- **ゴールデンテスト**：同じテスト用IDLで omniORBpy・omniORB が送受信するGIOPメッセージをキャプチャし、比較の基準にする
+- **Naming Service**：rustorbのNaming Serviceに omniORBpy と omniORB から bind・resolve・list を行い、omniNamesと同じ結果になることを確認する
+
+**第2段階：OpenRTM-aist-Python（M5完了後の完了条件）**
+
+- **組み合わせ**：互換シム経由で rustorb 上に載せた OpenRTM-aist-Python のRTCと、omniORB上の OpenRTM-aist（C++）のRTCを、データポートとサービスポートで両方向に接続する。ネーミングは omniNames と rustorb のNaming Service の両方で確認し、rtshell など既存ツールからの状態遷移（activate / deactivate）も通す
+- **題材のIDL**：OpenRTM-aist の RTC.idl、SDOPackage.idl、DataPort.idl（CORBA\_CdrDataPort）、Manager.idl など、RTCの通信に使うIDL一式
+- **互換シムの洗い出し**：OpenRTM-aist-Pythonが実際に呼ぶomniORBpy独自API（`cdrMarshal` / `cdrUnmarshal`、タイムアウト設定、例外ハンドラなど）をこの段階で確定し、互換シムに入れる範囲を決める
+
 ## 非同期ランタイムとスレッドモデル
 
 通信I/Oは内部のtokioで処理し、サーバント呼び出しはORB専用のスレッドプールに渡す。I/Oとアップコールを分けるのは、Python・Java・C++のサーバントがすべてブロッキング処理で、tokioのワーカー上で呼ぶとI/O全体が止まるため。
@@ -137,14 +162,15 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 - POAのデフォルトスレッドモデル（ORB\_CTRL\_MODEL）では、サーバント呼び出しをtokioのワーカーとは別の、ORB専用の長寿命OSスレッドプールで実行する。SINGLE\_THREAD\_MODEL（POAごとの直列化）と MAIN\_THREAD\_MODEL（`orb.run()` のスレッドで実行）は、このプールの上にキューを足して実現する（[#4](https://github.com/rustorb/rustorb/issues/4)）
 - Pythonバインディングは、OMGのIDL to Python標準マッピングと omniidl -bpython の生成レイアウトを omniORBpy と互換にし、omniORBpy独自拡張は実アプリで必要なものだけを別パッケージの互換シムで提供する（[#5](https://github.com/rustorb/rustorb/issues/5)）
 - Naming Serviceの永続化は保存先をトレイトで抽象化し、既定実装はomniNamesと同じ追記ログ＋チェックポイント方式とする。組み込みKVSは必要になった時点で機能フラグ付きで追加する（[#6](https://github.com/rustorb/rustorb/issues/6)）
+- 最初に置き換える用途は2段階とし、MVPはNaming Service経由の汎用的なPython呼び出し（omniORBpy・omniNamesとの相互接続を最優先）、M5（Any / TypeCode）の完了後はOpenRTM-aist-Pythonの動作を完了条件にする（[#7](https://github.com/rustorb/rustorb/issues/7)）
 
 **未決事項**
 
-- 最初に置き換えたい具体的な用途（相互接続テストの優先順位を決めるため）
+- なし（M2着手前のPOA・スレッドモデル設計書は [#4](https://github.com/rustorb/rustorb/issues/4) で継続）
 
 **次のアクション**
 
 - [ ] idl\_parser のリポジトリを共有し、ASTの構造と不足を確認する
 - [ ] Cargoワークスペースの雛形とクレート分割を作る
-- [ ] omniORBとomniORBpyの相互接続テスト環境（Docker）を用意する
+- [ ] omniORBとomniORBpyの相互接続テスト環境（Docker）と、第1段階のテスト用IDLを用意する
 - [ ] CDRエンコーダとGIOPメッセージ型の実装に着手する
