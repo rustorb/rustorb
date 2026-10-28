@@ -10,20 +10,34 @@
 //!   version of the request, so every version can be written.
 //! - [`FragmentAssembler`] joins GIOP 1.1/1.2 fragments into one message,
 //!   keeping the alignment of each fragment.
-//!
-//! IOR parsing beyond the raw [`Ior`] structure and corbaloc come later.
+//! - [`Ior`] reads and writes stringified IORs; [`IiopProfile`] interprets
+//!   IIOP 1.0 to 1.2 profile bodies and their [`TaggedComponent`]s, with
+//!   typed access to the ORB type, code sets and alternate addresses.
+//! - [`Corbaloc`], [`CorbaName`] and [`ObjectUrl`] parse and write
+//!   `corbaloc:` and `corbaname:` URLs.
 
+mod component;
+mod corbaloc;
 mod error;
 mod fragment;
 mod header;
+mod iiop;
 mod ior;
 mod message;
 mod service_context;
 mod writer;
 
+pub use component::{
+    AlternateIiopAddress, CodeSetComponent, CodeSetComponentInfo, TaggedComponent, component_tag,
+    orb_type, orb_type_component,
+};
+pub use corbaloc::{
+    CorbaName, Corbaloc, DEFAULT_CORBALOC_PORT, DEFAULT_CORBANAME_KEY, IiopAddr, ObjAddr, ObjectUrl,
+};
 pub use error::{Error, Result};
 pub use fragment::{AssembledMessage, FragmentAssembler};
 pub use header::{MessageHeader, MsgType, Version};
+pub use iiop::IiopProfile;
 pub use ior::{Ior, TAG_INTERNET_IOP, TAG_MULTIPLE_COMPONENTS, TaggedProfile};
 pub use message::{
     AddressingDisposition, Body, CancelRequestHeader, CompletionStatus, FragmentHeader,

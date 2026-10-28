@@ -49,6 +49,17 @@ pub enum Error {
     FragmentTooLarge(usize),
     /// GIOP 1.0 has no fragmentation.
     FragmentNotSupported,
+    /// A stringified IOR was malformed.
+    InvalidIorString(&'static str),
+    /// A `corbaloc:` or `corbaname:` URL was malformed, or had an unknown
+    /// scheme.
+    InvalidObjectUrl(&'static str),
+    /// A profile had a different tag than the one being read.
+    UnexpectedProfileTag(u32),
+    /// An IIOP profile's major version was not 1.
+    UnsupportedIiopVersion(Version),
+    /// An IIOP 1.0 profile cannot carry tagged components.
+    ComponentsInIiop1_0,
 }
 
 impl fmt::Display for Error {
@@ -82,6 +93,11 @@ impl fmt::Display for Error {
                 write!(f, "reassembled message of {n} bytes exceeds the limit")
             }
             Error::FragmentNotSupported => f.write_str("GIOP 1.0 does not support fragments"),
+            Error::InvalidIorString(why) => write!(f, "invalid stringified IOR: {why}"),
+            Error::InvalidObjectUrl(why) => write!(f, "invalid object URL: {why}"),
+            Error::UnexpectedProfileTag(tag) => write!(f, "unexpected profile tag {tag}"),
+            Error::UnsupportedIiopVersion(v) => write!(f, "unsupported IIOP version {v}"),
+            Error::ComponentsInIiop1_0 => f.write_str("IIOP 1.0 profiles cannot have components"),
         }
     }
 }
