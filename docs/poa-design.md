@@ -97,7 +97,7 @@ M2（サーバー側）に着手する前に、POA、サーバー側の接続処
 
 ## オブジェクトキー形式
 
-> キー形式を omniORB と互換にするかはユーザーに確認中（決定後に更新する）。以下は推奨案。
+> 決定（2026-10-28、ysuga）：PERSISTENT のキーは omniORB と同じ形式にし、TRANSIENT は rustorb 独自の起動識別子を使う。
 
 - **PERSISTENT**：omniORB と同じ `\xff` POAパス `\x00` ObjectId とし、入れ子は `\xff` で区切る。omniORB で動いていたサーバーを rustorb に置き換えても、保存済みの IOR や corbaloc（`corbaloc::host:port/%FFpoa%00id`）が引き続き使える
 - **TRANSIENT**：`\xff` POAパス `\xfe` 起動識別子（8バイト） ObjectId（RootPOA はパスなしで `\xfe` から始まる）。起動識別子はORBの起動ごとの64ビット乱数にし、omniORB のような同じ秒での再起動による取り違えを防ぐ。TRANSIENT の参照は再起動で無効になる前提なので、omniORB と形式を合わせる意味はない
