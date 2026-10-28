@@ -2,7 +2,7 @@
 
 Oct 28, 2026 · @ysuga · M5
 
-rustorb の `any` と `TypeCode` の実装をまとめる。M5 の範囲は Rust コアと Python バインディングで、C++ バインディング（C ABI、`cpp/include`、`rustorb-idl -bc++11`）は続く PR で扱う。完了条件は「Any / TypeCode を使う操作が omniORB C++・omniORBpy と相互接続できること」で、`interop/run-matrix.sh --suite any` で判定する。
+rustorb の `any` と `TypeCode` の実装をまとめる。M5 の範囲は Rust コア、Python バインディング、C++ バインディング（C ABI、`cpp/include`、`rustorb-idl -bc++11`）。完了条件は「Any / TypeCode を使う操作が omniORB C++・omniORBpy と相互接続できること」で、`interop/run-matrix.sh --suite any` で判定する。
 
 ## 構成
 
@@ -14,6 +14,9 @@ rustorb の `any` と `TypeCode` の実装をまとめる。M5 の範囲は Rust
 | `crates/rustorb-core/src/stream.rs` | `OutStream::write_typecode` / `write_value` / `write_any`、`InStream` の対応する読み込み |
 | `crates/rustorb-python/src/any.rs` | `CORBA.Any` / `CORBA.TypeCode` とコアの型の変換 |
 | `python/rustorb/CORBA.py`、`_rt.py` | `ORB.create_*_tc`、実行時に受け取った型のクラス生成 |
+| `crates/rustorb-ffi/src/any.rs` | C ABI の `rorb_typecode` / `rorb_any` |
+| `cpp/include/rustorb/corba.h`、`cdr.h` | `CORBA::TypeCode`、`CORBA::Any`、`<<=` / `>>=`、`ORB::create_*_tc` |
+| `crates/rustorb-codegen/python/rustorb_idl/cxx_backend.py` | 型ごとの `_tc_<名前>` と `rustorb::cdr::type_code` |
 | `interop/idl/AnyTest.idl`、`AnyTestHidden.idl` | 相互接続の IDL |
 
 ## TypeCode の表現
@@ -57,6 +60,26 @@ out.write_any(&any)?;
 - `ORB.create_struct_tc` など `create_*_tc` 一式、`CORBA.StructMember`、`CORBA.UnionMember` を追加した。`create_recursive_tc` は外側の型を作るときに解決する
 - TypeCode の問い合わせ（`kind`、`id`、`member_count` など）と `equal` / `equivalent` / `get_compact_typecode` は M1 の純 Python 実装のまま
 
+## C++
+
+IDL to C++11 のとおり、`CORBA::Any` に `<<=` で入れて `>>=` で取り出し、TypeCode は `IDL::traits<CORBA::TypeCode>::ref_type` で扱う。
+
+```cpp
+CORBA::Any a;
+a <<= AnyTest::Point(1, 2.5);
+AnyTest::Point p;
+if (a >>= p) { /* ... */ }
+a <<= int32_t{7};
+a.type(AnyTest::_tc_Count);   // 同じ型の別名に付け替える（違えば BAD_TYPECODE）
+```
+
+- **C ABI**：`rorb_typecode` はコアの `TypeCode`、`rorb_any` はコアの `Any`（TypeCode と `Value`）を指すハンドル。C++ の値の出し入れはコールバックで、生成コードの `codec<T>` が引数と同じように単独の CDR ストリーム（ネイティブのコードセット）に書いたものをコアが `Value` に読み、取り出しはその逆。例外の値はリポジトリ ID を除いて渡す。読み戻すオブジェクト参照は、値の中の最初の参照の ORB（なければ最初に初期化した ORB）に属する
+- **`<<=` / `>>=`**：`rustorb::cdr::type_code<T>` がある型に使える。基本型、`std::string`・`std::wstring`、上限付きの型、`std::vector`・`std::array`（TypeCode は要素の型から作る）、`CORBA::Any`、TypeCode、オブジェクト参照、生成コードの struct・union・enum・例外・インターフェース。`>>=` は any の TypeCode が C++ の型の TypeCode と `equivalent` のときだけ値を設定して true を返す
+- **typedef**：C++ では typedef は同じ型なので、`<<=` で入るのは元の型の TypeCode になる。別名の TypeCode にするには `Any::type()` で付け替える（`equivalent` なら受け付ける）
+- **生成コード**：型ごとに `_tc_<名前>`（`extern const`、インターフェースの中の型なら静的メンバー）と、それを最初に使うときに作る `_rorb_tc_<名前>()`。静的オブジェクトの初期化順に依存しない。再帰型は、作りかけの struct・union に戻る型をその場で組み立て、戻る参照を `create_recursive_tc` と同じ仮置きにする
+- `CORBA::_tc_long` などの基本型の TypeCode、`ORB::create_*_tc`（`StructMember` の `type_def` は省いた）、`TypeCode::BadKind` / `Bounds`
+- `CORBA::Any` には IDL to C++11 にない `==` を足した（TypeCode が `equal` で値が同じ）。any のメンバーを持つ struct の生成コードの `==` が使う
+
 ## 相互接続
 
 `interop/idl/AnyTest.idl` の `AnyTest::AnyEcho` を、すべての実装がクライアントとサーバーの両方で持つ。名前つきの27種の値（基本型、上限つき文字列、別名、struct、enum、union の各分岐、sequence、配列、再帰型、`NVList` 形の struct の sequence、入れ子の any、TypeCode、オブジェクト参照、nil、例外、空の any）について次を確かめる（178ケース）。
@@ -70,11 +93,11 @@ out.write_any(&any)?;
 - 型が合わない any を送って `BAD_PARAM` になること、別名を外した比較
 
 ```sh
-interop/run-matrix.sh --suite any               # 4×4 の組み合わせ、GIOP 1.2
+interop/run-matrix.sh --suite any               # 5×5 の組み合わせ、GIOP 1.2
 interop/run-matrix.sh --suite any --giop 1.1
 ```
 
-ローカルで omniORB 4.3.4 / omniORBpy をビルドして、rustorb（Rust）・rustorb（Python）・omniORBpy・omniORB C++ の16組すべてで、GIOP 1.2 と 1.1 の両方で178ケースが通ることを確かめた。C++ の rustorb（`rustorbcpp`）は C++ バインディングの Any 対応まで `--suite any` の対象外。
+ローカルで omniORB 4.3.4 / omniORBpy をビルドして、rustorb（Rust・Python・C++）・omniORBpy・omniORB C++ の25組すべてで、GIOP 1.2 と 1.1 の両方で178ケースが通ることを確かめた。`cpp/tests/test_any.cc` は同じケースを1プロセスの2つの ORB の間で回し、TypeCode の操作と `create_*_tc`、`<<=` / `>>=` の規則も確かめる。
 
 omniORB C++ の相互接続用プログラムは Any に omniidl の `-Wba`（と `-Wbd=DynSK.cc`）と `-lomniDynamic4` が要る。
 
@@ -85,6 +108,5 @@ omniORB C++ の相互接続用プログラムは Any に omniidl の `-Wba`（�
 
 ## 残り
 
-- C++ バインディングの Any / TypeCode（C ABI、`CORBA::Any` と `CORBA::TypeCode` のマッピング、`-bc++11` の生成、`rustorbcpp` の `--suite any`）
-- DynAny、valuetype の値、`long double`
+- DynAny、valuetype の値、`long double`、`fixed`（C++）
 - omniORBpy 互換シム（`omniORB.any` など）と OpenRTM-aist-Python の動作確認

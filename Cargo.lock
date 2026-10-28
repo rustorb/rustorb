@@ -157,6 +157,7 @@ dependencies = [
 name = "rustorb-ffi"
 version = "0.0.0"
 dependencies = [
+ "rustorb-cdr",
  "rustorb-core",
 ]
 

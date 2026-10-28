@@ -103,4 +103,13 @@ target_include_directories(test_interop PRIVATE
 target_link_libraries(test_interop PRIVATE rustorb)
 target_compile_options(test_interop PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME interop COMMAND test_interop)
-set_tests_properties(mapping interop PROPERTIES TIMEOUT 120)
+# any and TypeCode: the stage 2 interop cases, in one process.
+rustorb_idl_generate(ANY_SOURCES "${RUSTORB_ROOT}/interop/idl/AnyTest.idl"
+                     "${RUSTORB_ROOT}/interop/idl/AnyTestHidden.idl")
+add_executable(test_any tests/test_any.cc ${ANY_SOURCES})
+target_include_directories(test_any PRIVATE
+  "${CMAKE_CURRENT_BINARY_DIR}/idl" "${RUSTORB_ROOT}/interop/impls/rustorbcpp")
+target_link_libraries(test_any PRIVATE rustorb)
+target_compile_options(test_any PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME any COMMAND test_any)
+set_tests_properties(mapping interop any PROPERTIES TIMEOUT 120)

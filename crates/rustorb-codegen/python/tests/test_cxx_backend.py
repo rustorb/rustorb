@@ -34,6 +34,7 @@ IDLS = [
     os.path.join(CPP_IDL, "CxxMapping.idl"),
     os.path.join(TEST_IDL, "CosNaming.idl"),
     os.path.join(INTEROP_IDL, "InteropTest.idl"),
+    os.path.join(INTEROP_IDL, "AnyTest.idl"),
 ]
 
 
@@ -89,6 +90,33 @@ class CxxBackendTest(unittest.TestCase):
         # The operation name on the wire keeps the IDL spelling.
         self.assertIn('op == "delete"', read(os.path.join(self.outdir, "CxxMapping.cc")))
 
+    def test_typecodes(self):
+        header = read(os.path.join(self.outdir, "AnyTest.hh"))
+        source = read(os.path.join(self.outdir, "AnyTest.cc"))
+        # Every type has _tc_<name>, made by _rorb_tc_<name>().
+        for name in ("Point", "Shade", "Choice", "Count", "NodeSeq", "Node", "Oops", "AnyEcho"):
+            self.assertIn("extern const ::IDL::traits<::CORBA::TypeCode>::ref_type _tc_%s;" % name, header)
+            self.assertIn("AnyTest::_tc_%s = AnyTest::_rorb_tc_%s();" % (name, name), source)
+        # Types with a C++ type of their own have a type_code specialisation.
+        self.assertIn("template <> struct type_code<::AnyTest::Point>", header)
+        self.assertNotIn("type_code<::AnyTest::Count>", header)
+        # Inside Node, NodeSeq is made in place and refers back to Node.
+        self.assertIn(
+            '"children", ::rustorb::detail::tc_alias(::CORBA::TCKind::tk_alias, '
+            '"IDL:AnyTest/NodeSeq:1.0", "NodeSeq", ::rustorb::detail::tc_sequence('
+            '::rustorb::detail::tc_recursive("IDL:AnyTest/Node:1.0"), 0))',
+            source,
+        )
+        # Union labels, the default member last with its index.
+        self.assertIn('{3ULL, "s", ::rustorb::detail::tc_string(false, 0)}, {0, "b", ', source)
+        # any and TypeCode arguments.
+        self.assertIn("virtual ::CORBA::Any echo(const ::CORBA::Any& a);", header)
+        self.assertIn(
+            "virtual ::IDL::traits<::CORBA::TypeCode>::ref_type echo_tc("
+            "::IDL::traits<::CORBA::TypeCode>::ref_type tc);",
+            header,
+        )
+
     def test_options(self):
         path = os.path.join(INTEROP_IDL, "InteropTest.idl")
         self.assertEqual(cli.main(["-bc++11", "-Wbglobal=x", "-C", OUT, path]), 2)
@@ -97,7 +125,6 @@ class CxxBackendTest(unittest.TestCase):
 
     def test_unsupported(self):
         cases = {
-            "any": "module U { interface I { void f(in any a); }; };",
             "fixed": "module U { typedef fixed<5, 2> F; };",
             "valuetype": "module U { valuetype V { public long x; }; };",
             "abstract": "module U { abstract interface A { void f(); }; };",
@@ -110,7 +137,7 @@ class CxxBackendTest(unittest.TestCase):
 
     @unittest.skipUnless(CXX, "no C++ compiler")
     def test_compiles(self):
-        for base in ("CxxMapping", "CosNaming", "InteropTest"):
+        for base in ("CxxMapping", "CosNaming", "InteropTest", "AnyTest"):
             with self.subTest(base):
                 subprocess.run(
                     [

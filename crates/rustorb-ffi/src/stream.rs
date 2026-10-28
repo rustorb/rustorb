@@ -28,6 +28,10 @@ enum Target<'a, 'b> {
 pub struct Out<'a, 'b> {
     target: Target<'a, 'b>,
     pub(crate) error: Option<SystemException>,
+    /// The object references written, kept only by a standalone stream
+    /// (`rorb_any_insert` reads them back with their ORB).
+    pub(crate) objects: Vec<ObjectRef>,
+    standalone: bool,
 }
 
 /// What a `rorb_out*` points to; the lifetimes are those of the callback.
@@ -38,6 +42,16 @@ impl<'a, 'b> Out<'a, 'b> {
         Out {
             target: Target::Stream(stream),
             error: None,
+            objects: Vec::new(),
+            standalone: false,
+        }
+    }
+
+    /// A stream that keeps the object references written.
+    pub(crate) fn standalone(stream: &'a mut OutStream<'b>) -> Self {
+        Out {
+            standalone: true,
+            ..Out::new(stream)
         }
     }
 
@@ -45,6 +59,8 @@ impl<'a, 'b> Out<'a, 'b> {
         Out {
             target: Target::Reply(reply),
             error: None,
+            objects: Vec::new(),
+            standalone: false,
         }
     }
 
@@ -61,7 +77,10 @@ impl<'a, 'b> Out<'a, 'b> {
         (self as *mut Self).cast()
     }
 
-    fn with(&mut self, f: impl FnOnce(&mut OutStream<'_>) -> Result<(), SystemException>) {
+    pub(crate) fn with(
+        &mut self,
+        f: impl FnOnce(&mut OutStream<'_>) -> Result<(), SystemException>,
+    ) {
         if self.error.is_some() {
             return;
         }
@@ -154,7 +173,12 @@ pub unsafe extern "C" fn rorb_out_write_wstring(out: *mut RorbOut, p: *const u16
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rorb_out_write_object(out: *mut RorbOut, obj: *mut ObjectRef) {
-    unsafe { &mut *out }.with(|s| s.write_object(unsafe { obj.as_ref() }));
+    let out = unsafe { &mut *out };
+    let obj = unsafe { obj.as_ref() };
+    if out.standalone && out.error.is_none() {
+        out.objects.extend(obj.cloned());
+    }
+    out.with(|s| s.write_object(obj));
 }
 
 /// Element kinds of the array functions (`RORB_PRIM_*`).
@@ -258,7 +282,7 @@ impl<'a, 'b> In<'a, 'b> {
         sys(SystemExceptionKind::MARSHAL, 0, self.completed)
     }
 
-    fn read<T: Default>(
+    pub(crate) fn read<T: Default>(
         &mut self,
         f: impl FnOnce(&mut InStream<'b>) -> Result<T, SystemException>,
     ) -> T {

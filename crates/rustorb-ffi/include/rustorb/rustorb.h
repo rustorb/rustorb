@@ -8,7 +8,7 @@
  * Conventions
  *
  * - Handles (rorb_orb, rorb_object, rorb_poa, rorb_poa_manager,
- *   rorb_servant) are reference counted on the Rust side. A function that
+ *   rorb_servant, rorb_typecode, rorb_any) are reference counted on the Rust side. A function that
  *   returns a handle gives the caller one reference, which it gives back
  *   with the matching *_release function. *_clone adds a reference.
  *   Handles may be used from any thread.
@@ -48,6 +48,8 @@ typedef struct rorb_servant rorb_servant;
 typedef struct rorb_out rorb_out;
 typedef struct rorb_in rorb_in;
 typedef struct rorb_server_reply rorb_server_reply;
+typedef struct rorb_typecode rorb_typecode;
+typedef struct rorb_any rorb_any;
 
 /* --- status and exceptions ------------------------------------------- */
 
@@ -84,6 +86,8 @@ typedef int32_t rorb_status;
 #define RORB_NO_SERVANT 11            /* POA::NoServant */
 #define RORB_NO_CONTEXT 12            /* Current::NoContext */
 #define RORB_INVALID_NAME 13          /* ORB::InvalidName */
+#define RORB_TC_BAD_KIND 14           /* TypeCode::BadKind */
+#define RORB_TC_BOUNDS 15             /* TypeCode::Bounds */
 
 typedef struct rorb_exception {
   /* RORB_SYSTEM_EXCEPTION: the repository id, such as
@@ -109,6 +113,168 @@ typedef struct rorb_bytes {
 void rorb_bytes_free(rorb_bytes bytes);
 
 uint32_t rorb_abi_version(void);
+
+/* --- TypeCodes and anys ------------------------------------------------ */
+
+/* CORBA::TCKind values (tk_null = 0 ... tk_home = 36). */
+#define RORB_TK_NULL 0
+#define RORB_TK_VOID 1
+#define RORB_TK_SHORT 2
+#define RORB_TK_LONG 3
+#define RORB_TK_USHORT 4
+#define RORB_TK_ULONG 5
+#define RORB_TK_FLOAT 6
+#define RORB_TK_DOUBLE 7
+#define RORB_TK_BOOLEAN 8
+#define RORB_TK_CHAR 9
+#define RORB_TK_OCTET 10
+#define RORB_TK_ANY 11
+#define RORB_TK_TYPECODE 12
+#define RORB_TK_PRINCIPAL 13
+#define RORB_TK_OBJREF 14
+#define RORB_TK_STRUCT 15
+#define RORB_TK_UNION 16
+#define RORB_TK_ENUM 17
+#define RORB_TK_STRING 18
+#define RORB_TK_SEQUENCE 19
+#define RORB_TK_ARRAY 20
+#define RORB_TK_ALIAS 21
+#define RORB_TK_EXCEPT 22
+#define RORB_TK_LONGLONG 23
+#define RORB_TK_ULONGLONG 24
+#define RORB_TK_LONGDOUBLE 25
+#define RORB_TK_WCHAR 26
+#define RORB_TK_WSTRING 27
+#define RORB_TK_FIXED 28
+#define RORB_TK_VALUE 29
+#define RORB_TK_VALUE_BOX 30
+#define RORB_TK_NATIVE 31
+#define RORB_TK_ABSTRACT_INTERFACE 32
+#define RORB_TK_LOCAL_INTERFACE 33
+#define RORB_TK_COMPONENT 34
+#define RORB_TK_HOME 35
+#define RORB_TK_EVENT 36
+
+/* TypeCodes are immutable values. The constructors fail with BAD_PARAM
+   for parameters that make no valid type (an invalid name, duplicate
+   member names or labels, a member type that cannot be one...). The
+   queries fail with RORB_TC_BAD_KIND or RORB_TC_BOUNDS. */
+rorb_typecode* rorb_tc_clone(const rorb_typecode* tc);
+void rorb_tc_release(rorb_typecode* tc);
+
+/* The TypeCode of a kind without parameters (tk_string and tk_wstring
+   are unbounded). */
+rorb_status rorb_tc_simple(uint32_t kind, rorb_typecode** out, rorb_exception* exc);
+/* string (wide 0) or wstring (wide 1) with a bound (0 for none). */
+rorb_status rorb_tc_string(int32_t wide, uint32_t bound, rorb_typecode** out,
+                           rorb_exception* exc);
+rorb_status rorb_tc_fixed(uint16_t digits, int16_t scale, rorb_typecode** out,
+                          rorb_exception* exc);
+rorb_status rorb_tc_sequence(const rorb_typecode* content, uint32_t bound, rorb_typecode** out,
+                             rorb_exception* exc);
+rorb_status rorb_tc_array(const rorb_typecode* content, uint32_t length, rorb_typecode** out,
+                          rorb_exception* exc);
+/* kind is RORB_TK_ALIAS or RORB_TK_VALUE_BOX. */
+rorb_status rorb_tc_alias(uint32_t kind, const char* id, size_t id_len, const char* name,
+                          size_t name_len, const rorb_typecode* content, rorb_typecode** out,
+                          rorb_exception* exc);
+/* kind is RORB_TK_OBJREF, RORB_TK_ABSTRACT_INTERFACE,
+   RORB_TK_LOCAL_INTERFACE, RORB_TK_NATIVE, RORB_TK_COMPONENT or
+   RORB_TK_HOME. */
+rorb_status rorb_tc_interface(uint32_t kind, const char* id, size_t id_len, const char* name,
+                              size_t name_len, rorb_typecode** out, rorb_exception* exc);
+/* kind is RORB_TK_STRUCT or RORB_TK_EXCEPT; count members, each a name
+   (names[i], name_lens[i]) and a type. */
+rorb_status rorb_tc_struct(uint32_t kind, const char* id, size_t id_len, const char* name,
+                           size_t name_len, size_t count, const char* const* names,
+                           const size_t* name_lens, const rorb_typecode* const* types,
+                           rorb_typecode** out, rorb_exception* exc);
+/* One entry per label: labels[i] is the value of the discriminator as a
+   number (boolean 0 or 1, char and wchar their code, an enumerator its
+   position; signed values as two's complement), except for the entry
+   default_index (-1 for none), the default member. A member with several
+   labels has several consecutive entries with the same name. */
+rorb_status rorb_tc_union(const char* id, size_t id_len, const char* name, size_t name_len,
+                          const rorb_typecode* discriminator, size_t count,
+                          const uint64_t* labels, int32_t default_index,
+                          const char* const* names, const size_t* name_lens,
+                          const rorb_typecode* const* types, rorb_typecode** out,
+                          rorb_exception* exc);
+rorb_status rorb_tc_enum(const char* id, size_t id_len, const char* name, size_t name_len,
+                         size_t count, const char* const* names, const size_t* name_lens,
+                         rorb_typecode** out, rorb_exception* exc);
+/* ORB::create_recursive_tc: a placeholder for the struct, union or
+   valuetype with this repository id, replaced when a TypeCode of that
+   type is made with it in its members. */
+rorb_status rorb_tc_recursive(const char* id, size_t id_len, rorb_typecode** out,
+                              rorb_exception* exc);
+
+uint32_t rorb_tc_kind(const rorb_typecode* tc);
+/* Strings valid while tc is. */
+rorb_status rorb_tc_id(const rorb_typecode* tc, const char** s, size_t* len,
+                       rorb_exception* exc);
+rorb_status rorb_tc_name(const rorb_typecode* tc, const char** s, size_t* len,
+                         rorb_exception* exc);
+rorb_status rorb_tc_member_count(const rorb_typecode* tc, uint32_t* count, rorb_exception* exc);
+rorb_status rorb_tc_member_name(const rorb_typecode* tc, uint32_t index, const char** s,
+                                size_t* len, rorb_exception* exc);
+rorb_status rorb_tc_member_type(const rorb_typecode* tc, uint32_t index, rorb_typecode** out,
+                                rorb_exception* exc);
+/* An any holding the label (the octet 0 for the default member). */
+rorb_status rorb_tc_member_label(const rorb_typecode* tc, uint32_t index, rorb_any** out,
+                                 rorb_exception* exc);
+rorb_status rorb_tc_discriminator_type(const rorb_typecode* tc, rorb_typecode** out,
+                                       rorb_exception* exc);
+rorb_status rorb_tc_default_index(const rorb_typecode* tc, int32_t* index, rorb_exception* exc);
+rorb_status rorb_tc_length(const rorb_typecode* tc, uint32_t* length, rorb_exception* exc);
+rorb_status rorb_tc_content_type(const rorb_typecode* tc, rorb_typecode** out,
+                                 rorb_exception* exc);
+rorb_status rorb_tc_fixed_digits(const rorb_typecode* tc, uint16_t* digits, rorb_exception* exc);
+rorb_status rorb_tc_fixed_scale(const rorb_typecode* tc, int16_t* scale, rorb_exception* exc);
+rorb_status rorb_tc_member_visibility(const rorb_typecode* tc, uint32_t index, int16_t* v,
+                                      rorb_exception* exc);
+rorb_status rorb_tc_type_modifier(const rorb_typecode* tc, int16_t* v, rorb_exception* exc);
+/* *out is NULL for a valuetype without one. */
+rorb_status rorb_tc_concrete_base_type(const rorb_typecode* tc, rorb_typecode** out,
+                                       rorb_exception* exc);
+int32_t rorb_tc_equal(const rorb_typecode* a, const rorb_typecode* b);
+int32_t rorb_tc_equivalent(const rorb_typecode* a, const rorb_typecode* b);
+/* TypeCode::get_compact_typecode */
+rorb_typecode* rorb_tc_compact(const rorb_typecode* tc);
+/* The TypeCode with its aliases removed. */
+rorb_typecode* rorb_tc_unaliased(const rorb_typecode* tc);
+
+/* An any: a TypeCode and a value of that type. rorb_any_new makes an
+   empty one (tk_null). */
+rorb_any* rorb_any_new(void);
+rorb_any* rorb_any_clone(const rorb_any* any);
+void rorb_any_release(rorb_any* any);
+rorb_typecode* rorb_any_type(const rorb_any* any);
+/* Replaces the TypeCode with an equivalent one (an alias, say), else
+   BAD_TYPECODE. */
+rorb_status rorb_any_set_type(rorb_any* any, const rorb_typecode* tc, rorb_exception* exc);
+/* Whether the TypeCodes are equal and the values the same (floats
+   compared exactly, object references with is_equivalent). */
+int32_t rorb_any_equal(const rorb_any* a, const rorb_any* b);
+/* If the any holds a value of a discriminator type (an integer, boolean,
+   char, wchar or enum), stores it as a union label (see rorb_tc_union) and
+   returns 1; else returns 0. */
+int32_t rorb_any_label(const rorb_any* any, uint64_t* label);
+/* Makes an any of type tc holding the value write(context, out) writes,
+   as it writes an argument of that type (an exception without its
+   repository id). A value that does not fit the type is BAD_PARAM.
+   write returns RORB_OK or RORB_CALLBACK_FAILED. */
+rorb_status rorb_any_insert(const rorb_typecode* tc,
+                            rorb_status (*write)(void* context, rorb_out* out), void* context,
+                            rorb_any** out, rorb_exception* exc);
+/* Calls read(context, in) to read the value, as an argument of the type
+   of the any; the caller has checked that type. A stream error is
+   MARSHAL. Object references read belong to the ORB of the first one in
+   the value, else to the first ORB initialised; without either, they
+   are BAD_INV_ORDER. */
+rorb_status rorb_any_extract(const rorb_any* any,
+                             rorb_status (*read)(void* context, rorb_in* in), void* context,
+                             rorb_exception* exc);
 
 /* --- ORB --------------------------------------------------------------- */
 
@@ -213,6 +379,9 @@ void rorb_out_write_string(rorb_out* out, const char* s, size_t len);
 void rorb_out_write_wstring(rorb_out* out, const uint16_t* s, size_t len);
 /* obj may be NULL (a nil reference). */
 void rorb_out_write_object(rorb_out* out, rorb_object* obj);
+/* A TypeCode with an unresolved recursive placeholder is BAD_TYPECODE. */
+void rorb_out_write_typecode(rorb_out* out, const rorb_typecode* tc);
+void rorb_out_write_any(rorb_out* out, const rorb_any* any);
 /* count elements of kind, in the host's representation. */
 void rorb_out_write_array(rorb_out* out, int32_t kind, const void* data, size_t count);
 /* Whether an error happened on the stream. */
@@ -236,6 +405,9 @@ const char* rorb_in_read_string(rorb_in* in, size_t* len);
 const uint16_t* rorb_in_read_wstring(rorb_in* in, size_t* len);
 /* NULL for a nil reference (or an error). */
 rorb_object* rorb_in_read_object(rorb_in* in);
+/* NULL after an error. */
+rorb_typecode* rorb_in_read_typecode(rorb_in* in);
+rorb_any* rorb_in_read_any(rorb_in* in);
 void rorb_in_read_array(rorb_in* in, int32_t kind, void* data, size_t count);
 /* A sequence length, checked against the bytes left for elements of at
    least min_element_size bytes. */
