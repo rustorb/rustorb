@@ -8,7 +8,8 @@
 //! - [`MessageEncoder`] writes a message header and lets the caller append
 //!   the body; it patches the message size when finished. Replies use the
 //!   version of the request, so every version can be written.
-//! - [`FragmentAssembler`] joins GIOP 1.1/1.2 fragments into one message.
+//! - [`FragmentAssembler`] joins GIOP 1.1/1.2 fragments into one message,
+//!   keeping the alignment of each fragment.
 //! - [`Ior`] reads and writes stringified IORs; [`IiopProfile`] interprets
 //!   IIOP 1.0 to 1.2 profile bodies and their [`TaggedComponent`]s, with
 //!   typed access to the ORB type, code sets and alternate addresses.
@@ -34,7 +35,7 @@ pub use corbaloc::{
     CorbaName, Corbaloc, DEFAULT_CORBALOC_PORT, DEFAULT_CORBANAME_KEY, IiopAddr, ObjAddr, ObjectUrl,
 };
 pub use error::{Error, Result};
-pub use fragment::FragmentAssembler;
+pub use fragment::{AssembledMessage, FragmentAssembler};
 pub use header::{MessageHeader, MsgType, Version};
 pub use iiop::IiopProfile;
 pub use ior::{Ior, TAG_INTERNET_IOP, TAG_MULTIPLE_COMPONENTS, TaggedProfile};

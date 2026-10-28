@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
-use rustorb_cdr::ByteOrder;
+use rustorb_cdr::{ByteOrder, Segment};
 
-use crate::{Error, MessageHeader, MsgType, Result, Version};
+use crate::message::decode_segmented;
+use crate::{Error, Message, MessageHeader, MsgType, Result, Version};
 
 /// Joins fragmented GIOP 1.1 and 1.2 messages.
 ///
@@ -15,6 +16,17 @@ use crate::{Error, MessageHeader, MsgType, Result, Version};
 /// GIOP 1.1 allows one fragmented message at a time per connection. GIOP
 /// 1.2 interleaves them by request id, which is the first field of every
 /// message that can be fragmented.
+///
+/// The data in each `Fragment` is aligned relative to the start of that
+/// `Fragment` message, as omniORB writes and reads it. In GIOP 1.2 the
+/// data of a fragment starts at offset 16 and every fragment but the last
+/// ends on an 8-byte boundary, so this is the same as aligning the joined
+/// message. In GIOP 1.1 it is not:
+/// omniORB ends each fragment on an 8-byte boundary and continues at
+/// offset 12 of the next, so an 8-byte value after a fragment boundary
+/// would be read 4 bytes off. The joined message therefore carries a
+/// [`Segment`] for each fragment, which [`AssembledMessage::decode`] passes
+/// on to the body decoder.
 #[derive(Debug)]
 pub struct FragmentAssembler {
     max_message_size: usize,
@@ -27,6 +39,43 @@ struct Pending {
     version: Version,
     byte_order: ByteOrder,
     data: Vec<u8>,
+    segments: Vec<Segment>,
+}
+
+/// A whole message returned by a [`FragmentAssembler`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssembledMessage {
+    data: Vec<u8>,
+    segments: Vec<Segment>,
+}
+
+impl AssembledMessage {
+    /// The message bytes, header included. For a joined message the
+    /// header has the more-fragments flag cleared and the total size.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.data
+    }
+
+    /// Consumes the message and returns its bytes.
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.data
+    }
+
+    /// Where each fragment after the first starts in the message, with the
+    /// offset its alignment restarts at. Empty for an unfragmented message.
+    pub fn segments(&self) -> &[Segment] {
+        &self.segments
+    }
+
+    /// Whether the message was joined from fragments.
+    pub fn was_fragmented(&self) -> bool {
+        !self.segments.is_empty()
+    }
+
+    /// Decodes the message, keeping the alignment of each fragment.
+    pub fn decode(&self) -> Result<(MessageHeader, Message)> {
+        decode_segmented(&self.data, &self.segments)
+    }
 }
 
 impl Default for FragmentAssembler {
@@ -61,7 +110,7 @@ impl FragmentAssembler {
 
     /// Takes one complete message and returns a whole message when one is
     /// ready.
-    pub fn push(&mut self, msg: &[u8]) -> Result<Option<Vec<u8>>> {
+    pub fn push(&mut self, msg: &[u8]) -> Result<Option<AssembledMessage>> {
         let header = MessageHeader::parse(msg)?;
         let expected = header.total_len();
         if msg.len() != expected {
@@ -78,13 +127,17 @@ impl FragmentAssembler {
 
         if header.msg_type != MsgType::Fragment {
             if !header.more_fragments {
-                return Ok(Some(msg.to_vec()));
+                return Ok(Some(AssembledMessage {
+                    data: msg.to_vec(),
+                    segments: Vec::new(),
+                }));
             }
             self.check_size(msg.len())?;
             let pending = Pending {
                 version: header.version,
                 byte_order: header.byte_order,
                 data: msg.to_vec(),
+                segments: Vec::new(),
             };
             if v12 {
                 let id = request_id(&header, msg)?;
@@ -101,21 +154,28 @@ impl FragmentAssembler {
             return Ok(None);
         }
 
-        let (mut pending, data, id) = if v12 {
+        let (mut pending, data_start, id) = if v12 {
             let id = request_id(&header, msg)?;
             let pending = self
                 .pending_1_2
                 .remove(&id)
                 .ok_or(Error::UnexpectedFragment)?;
-            (pending, &msg[MessageHeader::SIZE + 4..], Some(id))
+            (pending, MessageHeader::SIZE + 4, Some(id))
         } else {
             let pending = self.pending_1_1.take().ok_or(Error::UnexpectedFragment)?;
-            (pending, &msg[MessageHeader::SIZE..], None)
+            (pending, MessageHeader::SIZE, None)
         };
         if pending.version != header.version || pending.byte_order != header.byte_order {
             return Err(Error::FragmentMismatch);
         }
+        let data = &msg[data_start..];
         self.check_size(pending.data.len() + data.len())?;
+        if !data.is_empty() {
+            pending.segments.push(Segment {
+                start: pending.data.len(),
+                offset: data_start,
+            });
+        }
         pending.data.extend_from_slice(data);
 
         if header.more_fragments {
@@ -133,7 +193,10 @@ impl FragmentAssembler {
         whole.message_size = u32::try_from(pending.data.len() - MessageHeader::SIZE)
             .map_err(|_| Error::MessageTooLarge(pending.data.len()))?;
         pending.data[..MessageHeader::SIZE].copy_from_slice(&whole.to_bytes());
-        Ok(Some(pending.data))
+        Ok(Some(AssembledMessage {
+            data: pending.data,
+            segments: pending.segments,
+        }))
     }
 
     fn check_size(&self, len: usize) -> Result<()> {

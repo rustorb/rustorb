@@ -6,6 +6,7 @@
 #   SERVER_IMPL / CLIENT_IMPL   directory under impls/ (omniorbpy, omniorb-cpp)
 #   *_IMAGE                     image that contains that implementation
 #   NAMING_CMD                  command that starts the naming service
+#   CLIENT_MAX_GIOP             highest GIOP version the client uses (omniORB)
 #
 # Use run-matrix.sh rather than calling docker compose directly.
 
@@ -40,6 +41,8 @@ services:
     cap_add: [NET_RAW, NET_ADMIN]
     environment:
       CAPTURE_DIR: ${CAPTURE_DIR:-}
+      # omniORB reads ORB<option> from the environment; empty means unset.
+      ORBmaxGIOPVersion: ${CLIENT_MAX_GIOP:-}
       CAPTURE_LABELS: --port-label 2809=naming --port-label 2810=server --port-label 2811=client
     volumes:
       - ${OUT_DIR:-./out}:/out

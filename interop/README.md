@@ -15,6 +15,7 @@ omniORB with itself. rustorb is added later as one more implementation under
 | `compose.yaml` | naming service, server and client containers |
 | `run-matrix.sh` | runs every client / server combination |
 | `run-naming-check.sh` | runs a fixed CosNaming operation sequence and compares it with `expected/naming-check.txt` |
+| `run-wire-probe.sh` | sends hand-built GIOP requests (`scripts/wire-probe`) to each server and compares the answers with `expected/wire-probe-*.txt` |
 | `known-failures.txt` | failures caused by the existing ORBs, treated as expected |
 | `scripts/giop-extract` | splits a pcap file into GIOP messages |
 | `scripts/golden-compare` | compares captured GIOP messages with `golden/*.json` |
@@ -27,12 +28,15 @@ and omniORBpy, which takes a few minutes.
 
 ```sh
 interop/run-matrix.sh --build --capture        # all pairs, with GIOP captures
+interop/run-matrix.sh --capture --giop 1.1     # all pairs, clients limited to GIOP 1.1
 interop/run-matrix.sh omniorbpy:omniorb-cpp    # one pair: CLIENT:SERVER
 interop/run-naming-check.sh
+interop/run-wire-probe.sh
 interop/scripts/golden-compare --all interop/out interop/golden
 ```
 
-Logs and captures go to `interop/out/<client>-to-<server>/`:
+Logs and captures go to `interop/out/<client>-to-<server>/` (with
+`-giop1.1` appended for `--giop 1.1`):
 `client.log`, `server.log`, `naming.log`, and with `--capture`,
 `capture/capture.pcap` and `capture/messages/` (one `.bin` file per GIOP
 message, header included, and a `messages.json` index).
@@ -68,7 +72,7 @@ reference passing (including nil) and callbacks from the server to the
 client. Any is left for stage 2 (M5).
 
 The comment on each operation is its specification. Every server must
-implement it exactly, and every client runs the same cases (77 at the
+implement it exactly, and every client runs the same cases (78 at the
 moment) with the same values, so that the captures from different clients
 can be compared too. For example, the char string test sends `caf\xe9` in
 ISO-8859-1, omniORB's native char code set, from both clients.
@@ -105,9 +109,12 @@ case, then `N passed, M failed`, and exits with 0 only when all cases pass.
 
 `golden/<client>-to-<server>.json` holds every GIOP message the client sent
 and received (naming service, Echo server and callbacks), in request / reply
-order, with the decoded header fields and the whole message as hex. The CI
+order, with the decoded header fields and the whole message as hex. The
+Fragments of a message follow it. `golden/<client>-to-<server>-giop1.1.json`
+is the same run with the client limited to GIOP 1.1 (omniORB's
+`ORBmaxGIOPVersion`, set through `CLIENT_MAX_GIOP` in `compose.yaml`). The CI
 job captures a fresh run and compares it with these files. It ignores
-request ids, the alignment padding in GIOP headers, the `posted` polling
+request ids, the alignment padding and reserved octets in GIOP headers, the `posted` polling
 (its count depends on timing) and CloseConnection messages. The oneway test
 runs last for the same reason. Repeated local runs match byte for byte.
 
@@ -121,15 +128,52 @@ tests must mask padding (or compare decoded values) rather than expect
 omniORB's bytes there. Apart from padding, the omniORB C++ and omniORBpy
 clients send identical request bodies for every Echo operation.
 
-They are the reference for the rustorb CDR / GIOP golden tests: a rustorb
-encoder must produce the same bytes as omniORB for the same request, and
-the decoder must read omniORB's replies. When the IDL, the test cases or the
+They are the reference for the rustorb CDR / GIOP golden tests
+([`crates/rustorb-giop/tests/omniorb_golden.rs`](../crates/rustorb-giop/tests/omniorb_golden.rs)):
+a rustorb encoder must produce the same bytes as omniORB for the same
+request, and the decoder must read omniORB's replies. When the IDL, the test cases or the
 omniORB version change, regenerate them:
 
 ```sh
 interop/run-matrix.sh --capture
 interop/scripts/golden-compare --update --all interop/out interop/golden
 ```
+
+## omniORB wire format findings
+
+Observed on the wire only: in the captures above, and with
+[`scripts/wire-probe`](scripts/wire-probe), which sends hand-built GIOP 1.2
+requests to each Echo server (`run-wire-probe.sh`, results in
+`expected/wire-probe-<server>.txt`). The golden tests in `rustorb-giop`
+keep rustorb in line with them.
+
+- **wstring sent (GIOP 1.2)**: omniORB and omniORBpy send a non-empty
+  wstring as a BOM followed by UTF-16 in the stream byte order (`ff fe` and
+  little-endian code units in their little-endian messages). An empty
+  wstring is just a zero length, with no BOM. rustorb writes the same bytes
+  by default (`Encoder::set_wstring_bom(false)` gives the big-endian form
+  without a BOM).
+- **wstring received (GIOP 1.2)**: both servers read a wstring without a
+  BOM as big endian, whatever the stream byte order (little-endian code
+  units come back as `栀攀氀氀漀`), as the specification says, and accept a
+  BOM of either order. rustorb reads the same way.
+- **wchar (GIOP 1.2)**: omniORB sends an octet length of 2 and the code
+  unit in big endian, no BOM, whatever the stream byte order. The omniORB
+  C++ server reads a length of 2 as big endian and a length of 4 as a BOM
+  followed by the code unit.
+- **Fragments (GIOP 1.1)**: the data in each Fragment is aligned relative
+  to the start of that Fragment message, not to the joined message. omniORB
+  ends every fragment but the last on an 8-byte boundary (fragments are
+  8192 bytes here) and continues at offset 12 of the next one, so an
+  8-byte value after a boundary is 4 bytes off if the fragments are simply
+  concatenated. The `echo_records[large]` case (400 records with doubles)
+  shows this in both directions. rustorb's `FragmentAssembler` keeps the
+  fragment boundaries for the decoder.
+- **Fragments (GIOP 1.2)**: the data starts at offset 16 of each Fragment
+  and fragments end on 8-byte boundaries, so the per-fragment and the
+  joined alignment agree.
+- **wchar / wstring over GIOP 1.1** do not work between omniORB peers (see
+  `known-failures.txt`).
 
 ## Known issues in omniORB found by these tests
 

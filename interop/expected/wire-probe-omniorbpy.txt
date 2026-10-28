@@ -1,0 +1,6 @@
+wstring LE stream, no BOM, BE units: 'hello' (BOM LE)
+wstring LE stream, no BOM, LE units: '栀攀氀氀漀' (BOM LE)
+wstring BE stream, no BOM, BE units: 'hello' (BOM LE)
+wstring LE stream, BOM BE: 'hello' (BOM LE)
+wstring BE stream, BOM LE: 'hello' (BOM LE)
+wstring LE stream, empty: '' (no BOM)

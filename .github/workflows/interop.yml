@@ -34,8 +34,15 @@ jobs:
       - name: Run the client / server matrix
         run: interop/run-matrix.sh --capture
 
+      # GIOP 1.1 has its own Fragment layout; the captures check it.
+      - name: Run the matrix with GIOP 1.1 clients
+        run: interop/run-matrix.sh --capture --giop 1.1
+
       - name: Run the naming service check
         run: interop/run-naming-check.sh
+
+      - name: Send hand-built GIOP requests to each server
+        run: interop/run-wire-probe.sh
 
       - name: Compare GIOP captures with the golden files
         run: interop/scripts/golden-compare --all interop/out interop/golden

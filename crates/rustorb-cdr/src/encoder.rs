@@ -10,6 +10,7 @@ pub struct Encoder {
     order: ByteOrder,
     version: CdrVersion,
     base: usize,
+    wstring_bom: bool,
 }
 
 macro_rules! write_number {
@@ -40,6 +41,7 @@ impl Encoder {
             order,
             version,
             base,
+            wstring_bom: true,
         }
     }
 
@@ -48,6 +50,15 @@ impl Encoder {
         let mut enc = Encoder::new(order, version);
         enc.write_octet(order.flag());
         enc
+    }
+
+    /// Chooses how a GIOP 1.2 `wstring` is written: with a BOM followed by
+    /// code units in the stream byte order (the default, as omniORB does),
+    /// or, when `false`, big endian without a BOM (the form the
+    /// specification defines for a missing BOM). Readers that follow
+    /// CORBA 2.4 or later accept both.
+    pub fn set_wstring_bom(&mut self, bom: bool) {
+        self.wstring_bom = bom;
     }
 
     /// The byte order of the stream.
@@ -175,7 +186,7 @@ impl Encoder {
     ///
     /// GIOP 1.1 writes an aligned `unsigned short` in the stream byte order.
     /// GIOP 1.2 writes an octet length of 2 followed by the code unit in big
-    /// endian without a BOM.
+    /// endian without a BOM, as omniORB does.
     pub fn write_wchar(&mut self, value: u16) -> Result<()> {
         match self.version {
             CdrVersion::Giop1_0 => return Err(Error::WcharNotSupported),
@@ -192,8 +203,10 @@ impl Encoder {
     ///
     /// GIOP 1.1 writes the number of code units including a terminating
     /// NUL, then aligned code units in the stream byte order. GIOP 1.2
-    /// writes the octet length, then big-endian code units without a BOM
-    /// or terminator.
+    /// writes the octet length, then the code units without a terminator:
+    /// by default a BOM followed by the stream byte order, or big endian
+    /// without a BOM (see [`Encoder::set_wstring_bom`]). An empty string is
+    /// just a zero length.
     pub fn write_wstring(&mut self, value: &str) -> Result<()> {
         match self.version {
             CdrVersion::Giop1_0 => Err(Error::WcharNotSupported),
@@ -207,7 +220,20 @@ impl Encoder {
                 Ok(())
             }
             CdrVersion::Giop1_2 => {
-                let bytes: Vec<u8> = value.encode_utf16().flat_map(u16::to_be_bytes).collect();
+                let order = if self.wstring_bom {
+                    self.order
+                } else {
+                    ByteOrder::Big
+                };
+                let bom = (self.wstring_bom && !value.is_empty()).then_some(0xFEFF);
+                let bytes: Vec<u8> = bom
+                    .into_iter()
+                    .chain(value.encode_utf16())
+                    .flat_map(|unit| match order {
+                        ByteOrder::Big => unit.to_be_bytes(),
+                        ByteOrder::Little => unit.to_le_bytes(),
+                    })
+                    .collect();
                 self.write_octet_seq(&bytes)
             }
         }
@@ -223,6 +249,7 @@ impl Encoder {
         F: FnOnce(&mut Encoder) -> Result<()>,
     {
         let mut inner = Encoder::encapsulation(self.order, self.version);
+        inner.wstring_bom = self.wstring_bom;
         f(&mut inner)?;
         self.write_octet_seq(&inner.buf)
     }

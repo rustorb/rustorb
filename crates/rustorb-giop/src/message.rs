@@ -1,4 +1,4 @@
-use rustorb_cdr::{ByteOrder, CdrDecode, CdrEncode, CdrVersion, Decoder, Encoder};
+use rustorb_cdr::{ByteOrder, CdrDecode, CdrEncode, CdrVersion, Decoder, Encoder, Segment};
 
 use crate::{Error, Ior, MessageHeader, MsgType, Result, ServiceContext, TaggedProfile, Version};
 
@@ -255,15 +255,26 @@ pub struct FragmentHeader {
 pub struct Body {
     data: Vec<u8>,
     offset: usize,
+    segments: Vec<Segment>,
     byte_order: ByteOrder,
     version: CdrVersion,
 }
 
 impl Body {
-    fn new(dec: &Decoder<'_>) -> Body {
+    fn new(dec: &Decoder<'_>, src: &Source<'_>) -> Body {
+        let start = src.len - dec.remaining();
         Body {
             data: dec.remaining_bytes().to_vec(),
             offset: dec.position(),
+            segments: src
+                .segments
+                .iter()
+                .filter(|s| s.start > start)
+                .map(|s| Segment {
+                    start: s.start - start,
+                    offset: s.offset,
+                })
+                .collect(),
             byte_order: dec.byte_order(),
             version: dec.version(),
         }
@@ -289,10 +300,25 @@ impl Body {
         self.data.is_empty()
     }
 
+    /// Where the alignment restarts inside the body: one segment for each
+    /// fragment after the first in a message joined by a
+    /// [`FragmentAssembler`](crate::FragmentAssembler), empty otherwise.
+    pub fn segments(&self) -> &[Segment] {
+        &self.segments
+    }
+
     /// A CDR decoder over the body with the message's alignment.
     pub fn decoder(&self) -> Decoder<'_> {
-        Decoder::with_offset(&self.data, self.byte_order, self.version, self.offset)
+        let mut dec = Decoder::with_offset(&self.data, self.byte_order, self.version, self.offset);
+        dec.set_segments(&self.segments);
+        dec
     }
+}
+
+/// The message a body is decoded from: its length and alignment segments.
+struct Source<'a> {
+    len: usize,
+    segments: &'a [Segment],
 }
 
 /// A decoded GIOP message.
@@ -360,6 +386,15 @@ impl Message {
 /// [`FragmentAssembler`](crate::FragmentAssembler) first to get the whole
 /// message.
 pub fn decode_message(buf: &[u8]) -> Result<(MessageHeader, Message)> {
+    decode_segmented(buf, &[])
+}
+
+/// Decodes a message whose alignment restarts at `segments`, as one joined
+/// from fragments.
+pub(crate) fn decode_segmented(
+    buf: &[u8],
+    segments: &[Segment],
+) -> Result<(MessageHeader, Message)> {
     let header = MessageHeader::parse(buf)?;
     let expected = header.total_len();
     if buf.len() < expected {
@@ -372,12 +407,17 @@ pub fn decode_message(buf: &[u8]) -> Result<(MessageHeader, Message)> {
         return Err(Error::TrailingBytes(buf.len() - expected));
     }
     let mut dec = Decoder::new(buf, header.byte_order, header.version.cdr_version());
+    dec.set_segments(segments);
     dec.skip(MessageHeader::SIZE)?;
-    let message = decode_body(&header, &mut dec)?;
+    let src = Source {
+        len: buf.len(),
+        segments,
+    };
+    let message = decode_body(&header, &mut dec, &src)?;
     Ok((header, message))
 }
 
-fn decode_body(header: &MessageHeader, dec: &mut Decoder<'_>) -> Result<Message> {
+fn decode_body(header: &MessageHeader, dec: &mut Decoder<'_>, src: &Source<'_>) -> Result<Message> {
     let v12 = header.version >= Version::V1_2;
     Ok(match header.msg_type {
         MsgType::Request => {
@@ -421,7 +461,7 @@ fn decode_body(header: &MessageHeader, dec: &mut Decoder<'_>) -> Result<Message>
             };
             Message::Request {
                 header,
-                body: body_after_header(dec, v12),
+                body: body_after_header(dec, src, v12),
             }
         }
         MsgType::Reply => {
@@ -446,7 +486,7 @@ fn decode_body(header: &MessageHeader, dec: &mut Decoder<'_>) -> Result<Message>
             };
             Message::Reply {
                 header,
-                body: body_after_header(dec, v12),
+                body: body_after_header(dec, src, v12),
             }
         }
         MsgType::CancelRequest => Message::CancelRequest(CancelRequestHeader {
@@ -468,7 +508,7 @@ fn decode_body(header: &MessageHeader, dec: &mut Decoder<'_>) -> Result<Message>
             };
             Message::LocateReply {
                 header,
-                body: body_after_header(dec, v12),
+                body: body_after_header(dec, src, v12),
             }
         }
         MsgType::CloseConnection => Message::CloseConnection,
@@ -477,7 +517,7 @@ fn decode_body(header: &MessageHeader, dec: &mut Decoder<'_>) -> Result<Message>
             let request_id = if v12 { Some(dec.read_u32()?) } else { None };
             Message::Fragment {
                 header: FragmentHeader { request_id },
-                body: Body::new(dec),
+                body: Body::new(dec, src),
             }
         }
     })
@@ -486,7 +526,7 @@ fn decode_body(header: &MessageHeader, dec: &mut Decoder<'_>) -> Result<Message>
 /// In GIOP 1.2 a body is aligned to 8 bytes. Senders may leave out the
 /// padding when there is no body, so padding is only skipped when there
 /// are bytes past it.
-fn body_after_header(dec: &mut Decoder<'_>, v12: bool) -> Body {
+fn body_after_header(dec: &mut Decoder<'_>, src: &Source<'_>, v12: bool) -> Body {
     if v12 {
         let pad = (8 - dec.position() % 8) % 8;
         if dec.remaining() > pad {
@@ -495,7 +535,7 @@ fn body_after_header(dec: &mut Decoder<'_>, v12: bool) -> Body {
             dec.skip(dec.remaining()).expect("checked remaining");
         }
     }
-    Body::new(dec)
+    Body::new(dec, src)
 }
 
 /// `CORBA::CompletionStatus`.

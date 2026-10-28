@@ -7,6 +7,7 @@
 #include <cmath>
 #include <functional>
 #include <sstream>
+#include <string>
 
 #include "common.h"
 
@@ -194,6 +195,23 @@ static void run_cases(Runner& r, InteropTest::Echo_ptr echo, PortableServer::POA
   r.run("echo_records[empty]", [&]() {
     RecordSeq_var got = echo->echo_records(RecordSeq());
     CHECK(got->length() == 0);
+  });
+  // Large enough to be sent in several fragments, with doubles after each
+  // fragment boundary; record i has a name of varying length so that the
+  // doubles land at every alignment.
+  r.run("echo_records[large]", [&]() {
+    const CORBA::ULong n = 400;
+    const Color colors[] = {RED, GREEN, BLUE};
+    RecordSeq seq;
+    seq.length(n);
+    for (CORBA::ULong i = 0; i < n; ++i) {
+      CORBA::Long id = static_cast<CORBA::Long>(i);
+      seq[i] = make_record(id, ("r" + std::to_string(i)).c_str(), colors[i % 3],
+                           Point{id + 0.5, -0.25 * id}, {id, id + 1}, i % 2 == 0);
+    }
+    RecordSeq_var got = echo->echo_records(seq);
+    CHECK(got->length() == n);
+    for (CORBA::ULong i = 0; i < n; ++i) CHECK(same(got[i], seq[i]));
   });
 
   std::vector<Value> values(7);

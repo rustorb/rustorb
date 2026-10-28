@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Runs the interop test matrix with Docker Compose.
 #
-#   ./run-matrix.sh [--build] [--capture] [--out DIR] [CLIENT:SERVER ...]
+#   ./run-matrix.sh [--build] [--capture] [--giop VER] [--out DIR] [CLIENT:SERVER ...]
 #
 # Without pairs, every combination of $IMPLS is run as client and server.
 # --build    builds the omniORB image first
 # --capture  captures each client's traffic and splits it into GIOP messages
+# --giop VER limits the client to GIOP VER (e.g. 1.1); the results go to
+#            <client>-to-<server>-giop<VER>
 # --out DIR  where logs and captures go (default: interop/out)
 #
 # Implementations live in impls/<name>/ and provide `server` and `client`
@@ -19,6 +21,7 @@ IMPLS="${IMPLS:-omniorbpy omniorb-cpp}"
 IMAGE="rustorb-interop-omniorb:latest"
 build=0
 capture=0
+giop=
 out="$PWD/out"
 pairs=()
 
@@ -26,8 +29,9 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --build) build=1 ;;
     --capture) capture=1 ;;
+    --giop) giop="$2"; shift ;;
     --out) out="$(realpath -m "$2")"; shift ;;
-    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
     *:*) pairs+=("$1") ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -46,11 +50,17 @@ if [ $build -eq 1 ]; then
   docker build -f docker/omniorb/Dockerfile -t "$IMAGE" .
 fi
 
-# Prints the cases listed in known-failures.txt for a client / server pair.
+# Prints the cases listed in known-failures.txt for a client / server pair
+# and the GIOP version limit of the run ($giop, empty for none).
 known_failures() {
   local client="$1" server="$2" c s case rest
   while read -r c s case rest; do
     case "$c" in ''|'#'*) continue ;; esac
+    # A leading giop=VER applies the line only to runs with --giop VER.
+    if [[ "$c" == giop=* ]]; then
+      [ "${c#giop=}" = "$giop" ] || continue
+      read -r c s case rest <<< "$s $case $rest"
+    fi
     # shellcheck disable=SC2053 # CLIENT / SERVER are glob patterns
     if [[ "$client" == $c && "$server" == $s ]]; then
       echo "$case"
@@ -91,14 +101,14 @@ failed=0
 for pair in "${pairs[@]}"; do
   client="${pair%%:*}"
   server="${pair##*:}"
-  name="${client}-to-${server}"
+  name="${client}-to-${server}${giop:+-giop$giop}"
   dir="$out/$name"
   project="interop-$(echo "$name" | tr -c 'a-z0-9\n' '-')"
   rm -rf "$dir"
   mkdir -p "$dir"
 
   echo "=== client $client -> server $server"
-  export CLIENT_IMPL="$client" SERVER_IMPL="$server" OUT_DIR="$dir"
+  export CLIENT_IMPL="$client" SERVER_IMPL="$server" OUT_DIR="$dir" CLIENT_MAX_GIOP="$giop"
   if [ $capture -eq 1 ]; then
     export CAPTURE_DIR=/out/capture
   else

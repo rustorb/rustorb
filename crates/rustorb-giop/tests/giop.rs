@@ -1,10 +1,10 @@
 use rustorb_cdr::{ByteOrder, CdrDecode, CdrEncode};
 use rustorb_giop::{
-    CancelRequestHeader, CodeSetContext, CompletionStatus, Error, FragmentAssembler, Ior,
-    LocateReplyHeader, LocateRequestHeader, LocateStatus, Message, MessageEncoder, MessageHeader,
-    MsgType, ReplyHeader, ReplyStatus, RequestHeader, ServiceContext, SystemExceptionBody,
-    TAG_INTERNET_IOP, TaggedProfile, TargetAddress, Version, code_set, decode_message,
-    response_flags, service_id,
+    AssembledMessage, CancelRequestHeader, CodeSetContext, CompletionStatus, Error,
+    FragmentAssembler, Ior, LocateReplyHeader, LocateRequestHeader, LocateStatus, Message,
+    MessageEncoder, MessageHeader, MsgType, ReplyHeader, ReplyStatus, RequestHeader,
+    ServiceContext, SystemExceptionBody, TAG_INTERNET_IOP, TaggedProfile, TargetAddress, Version,
+    code_set, decode_message, response_flags, service_id,
 };
 
 const VERSIONS: [Version; 3] = [Version::V1_0, Version::V1_1, Version::V1_2];
@@ -489,15 +489,17 @@ fn reassemble_giop_1_2_fragments() {
     for (i, f) in init.iter().enumerate() {
         assert_eq!(asm.push(f).unwrap(), None, "fragment {i}");
         if i == 1 {
-            assert_eq!(asm.push(&close).unwrap().as_deref(), Some(&close[..]));
+            let got = asm.push(&close).unwrap().unwrap();
+            assert_eq!(got.as_bytes(), &close[..]);
+            assert!(!got.was_fragmented());
         }
     }
     assert!(asm.has_pending());
     let joined = asm.push(last).unwrap().unwrap();
     assert!(!asm.has_pending());
-    assert_eq!(joined, whole);
+    assert_eq!(joined.as_bytes(), whole);
 
-    let Message::Request { header: got, body } = decode_message(&joined).unwrap().1 else {
+    let Message::Request { header: got, body } = joined.decode().unwrap().1 else {
         panic!("not a request");
     };
     assert_eq!(got, header);
@@ -525,7 +527,7 @@ fn interleaved_giop_1_2_fragments() {
     for i in 0..streams[0].len().max(streams[1].len()) {
         for s in &streams {
             if let Some(f) = s.get(i) {
-                done.extend(asm.push(f).unwrap());
+                done.extend(asm.push(f).unwrap().map(AssembledMessage::into_bytes));
             }
         }
     }
@@ -562,7 +564,57 @@ fn reassemble_giop_1_1_fragments() {
     assert_eq!(asm.push(&first).unwrap(), None);
     // Only one fragmented message at a time in GIOP 1.1.
     assert_eq!(asm.push(&first), Err(Error::FragmentInProgress));
-    assert_eq!(asm.push(&frag).unwrap().unwrap(), whole);
+    assert_eq!(asm.push(&frag).unwrap().unwrap().as_bytes(), whole);
+}
+
+#[test]
+fn giop_1_1_fragments_align_per_fragment() {
+    // As omniORB writes them: the first message ends on an 8-byte
+    // boundary and the data of each Fragment is aligned relative to that
+    // Fragment, starting at offset 12.
+    let header = ReplyHeader {
+        request_id: 5,
+        reply_status: ReplyStatus::NoException,
+        service_context: vec![],
+    };
+    for order in ORDERS {
+        let mut m = MessageEncoder::reply(Version::V1_1, order, &header).unwrap();
+        m.body().write_u32(7);
+        m.body().write_u32(8);
+        let mut first = m.finish().unwrap();
+        first[6] |= 0x02; // more fragments
+        assert_eq!(first.len() % 8, 0);
+
+        let mut frag = MessageEncoder::fragment(Version::V1_1, order, 0, false).unwrap();
+        frag.body().write_f64(1.5); // padded to offset 16 of the fragment
+        frag.body().write_u32(9);
+        let frag = frag.finish().unwrap();
+        assert_eq!(frag.len(), 16 + 8 + 4);
+
+        let mut asm = FragmentAssembler::default();
+        assert_eq!(asm.push(&first).unwrap(), None);
+        let joined = asm.push(&frag).unwrap().unwrap();
+        assert!(joined.was_fragmented());
+        assert_eq!(joined.as_bytes().len(), first.len() + frag.len() - 12);
+        let Message::Reply { body, .. } = joined.decode().unwrap().1 else {
+            panic!("not a reply");
+        };
+        let mut dec = body.decoder();
+        assert_eq!(dec.read_u32().unwrap(), 7);
+        assert_eq!(dec.read_u32().unwrap(), 8);
+        assert_eq!(dec.read_f64().unwrap(), 1.5);
+        assert_eq!(dec.read_u32().unwrap(), 9);
+        assert!(dec.is_empty());
+
+        // Read as one stream, the double would be taken 4 bytes too early.
+        let (_, Message::Reply { body, .. }) = decode_message(joined.as_bytes()).unwrap() else {
+            panic!("not a reply");
+        };
+        let mut dec = body.decoder();
+        dec.read_u32().unwrap();
+        dec.read_u32().unwrap();
+        assert_ne!(dec.read_f64().unwrap(), 1.5);
+    }
 }
 
 #[test]
