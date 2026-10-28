@@ -1,0 +1,16 @@
+# Failures that come from the existing ORBs themselves, not from the tests.
+# run-matrix.sh treats these as expected, and reports a listed case that
+# starts passing so that the entry can be removed.
+#
+# Format: CLIENT SERVER CASE REASON...   (CLIENT / SERVER may be *)
+
+# omniORBpy 4.3.4 (and 4.3.2) unmarshals a GIOP 1.2 wchar with unmarshalChar()
+# instead of unmarshalWChar() on Python >= 3.3 (modules/pyMarshal.cc,
+# unmarshalPyObjectWChar). Marshalling is correct, so the requests and
+# replies it sends are fine, but it cannot read a wchar it receives.
+omniorbpy * echo_wchar[0] omniORBpy cannot unmarshal wchar replies
+omniorbpy * echo_wchar[1] omniORBpy cannot unmarshal wchar replies
+omniorbpy * echo_wchar[2] omniORBpy cannot unmarshal wchar replies
+* omniorbpy echo_wchar[0] omniORBpy cannot unmarshal wchar requests
+* omniorbpy echo_wchar[1] omniORBpy cannot unmarshal wchar requests
+* omniorbpy echo_wchar[2] omniORBpy cannot unmarshal wchar requests
