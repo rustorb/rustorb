@@ -1,6 +1,6 @@
 [package]
 name = "rustorb-interop"
-description = "rustorb client for the interop tests, with hand-written InteropTest stubs"
+description = "rustorb clients for the interop tests, with hand-written InteropTest stubs"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -15,5 +15,10 @@ workspace = true
 name = "rustorb-interop-client"
 path = "src/main.rs"
 
+[[bin]]
+name = "rustorb-naming-check"
+path = "src/naming_check.rs"
+
 [dependencies]
 rustorb-core.workspace = true
+rustorb-naming.workspace = true

@@ -142,6 +142,21 @@ def main():
     else:
         print("root context is not a NamingContextExt")
 
+    # corbaname: URLs, resolved by the ORB through the naming service.
+    base = args.naming.replace("corbaloc:", "corbaname:", 1)
+    equivalent = lambda o: "equivalent" if o._is_equivalent(obj) else "different object"
+    is_context = lambda o: "NamingContext" if o._narrow(NC) is not None else "not a context"
+    c.step("corbaname #test/b.kind", lambda: orb.string_to_object(base + "#test/b.kind"),
+           equivalent)
+    c.step("corbaname #test%2Fb%2ekind", lambda: orb.string_to_object(base + "#test%2Fb%2ekind"),
+           equivalent)
+    c.step("corbaname rir: #test/b.kind", lambda: orb.string_to_object("corbaname:rir:#test/b.kind"),
+           equivalent)
+    c.step("corbaname (no name)", lambda: orb.string_to_object(base), is_context)
+    c.step("corbaname #test/loose", lambda: orb.string_to_object(base + "#test/loose"), is_context)
+    c.step("corbaname #test/missing", lambda: orb.string_to_object(base + "#test/missing"))
+    c.step("corbaname #test//b (invalid)", lambda: orb.string_to_object(base + "#test//b"))
+
     c.step("list test (final)", lambda: t.list(100), lambda r: fmt_bindings(r[0]))
     orb.destroy()
     return 0

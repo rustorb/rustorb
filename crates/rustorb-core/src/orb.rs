@@ -6,11 +6,13 @@ use std::time::Duration;
 use std::{fmt, io};
 
 use rustorb_cdr::ByteOrder;
-use rustorb_giop::{Ior, ObjectUrl, Version};
+use rustorb_giop::{CorbaName, Corbaloc, Ior, ObjectUrl, Version};
 use tokio::runtime::{Handle, Runtime};
 
 use crate::connection::Connection;
-use crate::{CompletionStatus, ObjectRef, SystemException, SystemExceptionKind, minor};
+use crate::{
+    CompletionStatus, Exception, ObjectRef, SystemException, SystemExceptionKind, minor, name,
+};
 
 /// Settings of an [`Orb`].
 #[derive(Debug, Clone)]
@@ -240,13 +242,18 @@ impl Orb {
         &self.inner.options
     }
 
-    /// Turns a stringified IOR or a `corbaloc:` URL into a reference.
-    /// Returns `None` for a nil IOR.
+    /// Turns a stringified IOR, a `corbaloc:` or a `corbaname:` URL into a
+    /// reference. Returns `None` for a nil IOR, or a name bound to nil.
     ///
     /// `corbaloc:rir:` goes through
     /// [`resolve_initial_references`](Orb::resolve_initial_references).
-    /// `corbaname:` needs the naming service client and is not supported
-    /// yet (`NO_IMPLEMENT`).
+    /// `corbaname:` resolves the name after `#` in the naming context the
+    /// rest of the URL denotes (with no name, the context itself is
+    /// returned). The name must be a valid stringified name
+    /// (`BAD_PARAM`, minor `BAD_SCHEME_SPECIFIC_PART`); a name the naming
+    /// service cannot resolve raises `BAD_PARAM` with minor
+    /// `STRING_TO_OBJECT_OTHER`, and system exceptions from the naming
+    /// service are passed on.
     pub fn string_to_object(&self, s: &str) -> Result<Option<ObjectRef>, SystemException> {
         self.check_running()?;
         let url = ObjectUrl::parse(s).map_err(|_| {
@@ -266,37 +273,66 @@ impl Orb {
         match url {
             ObjectUrl::Ior(ior) if ior.is_nil() => Ok(None),
             ObjectUrl::Ior(ior) => Ok(Some(ObjectRef::new(self.clone(), ior))),
-            ObjectUrl::Corbaloc(loc) if loc.is_rir() => {
-                let name = String::from_utf8(loc.key).map_err(|_| {
-                    SystemException::new(
-                        SystemExceptionKind::BAD_PARAM,
-                        minor::BAD_SCHEME_SPECIFIC_PART,
-                        CompletionStatus::No,
-                    )
-                })?;
-                match self.resolve_initial_references(&name) {
-                    Ok(obj) => Ok(Some(obj)),
-                    Err(ResolveError::System(e)) => Err(e),
-                    Err(ResolveError::InvalidName(_)) => Err(SystemException::new(
-                        SystemExceptionKind::BAD_PARAM,
-                        minor::STRING_TO_OBJECT_OTHER,
-                        CompletionStatus::No,
-                    )),
-                }
-            }
-            ObjectUrl::Corbaloc(loc) => {
-                let ior = loc.to_ior(self.inner.options.byte_order).map_err(|_| {
-                    SystemException::new(
-                        SystemExceptionKind::BAD_PARAM,
-                        minor::BAD_ADDRESS,
-                        CompletionStatus::No,
-                    )
-                })?;
-                Ok(Some(ObjectRef::new(self.clone(), ior)))
-            }
-            ObjectUrl::CorbaName(_) => Err(SystemException::new(
-                SystemExceptionKind::NO_IMPLEMENT,
-                0,
+            ObjectUrl::Corbaloc(loc) => self.corbaloc_to_object(loc).map(Some),
+            ObjectUrl::CorbaName(url) => self.resolve_corbaname(url),
+        }
+    }
+
+    fn corbaloc_to_object(&self, loc: Corbaloc) -> Result<ObjectRef, SystemException> {
+        if loc.is_rir() {
+            let name = String::from_utf8(loc.key).map_err(|_| {
+                SystemException::new(
+                    SystemExceptionKind::BAD_PARAM,
+                    minor::BAD_SCHEME_SPECIFIC_PART,
+                    CompletionStatus::No,
+                )
+            })?;
+            return match self.resolve_initial_references(&name) {
+                Ok(obj) => Ok(obj),
+                Err(ResolveError::System(e)) => Err(e),
+                Err(ResolveError::InvalidName(_)) => Err(SystemException::new(
+                    SystemExceptionKind::BAD_PARAM,
+                    minor::STRING_TO_OBJECT_OTHER,
+                    CompletionStatus::No,
+                )),
+            };
+        }
+        let ior = loc.to_ior(self.inner.options.byte_order).map_err(|_| {
+            SystemException::new(
+                SystemExceptionKind::BAD_PARAM,
+                minor::BAD_ADDRESS,
+                CompletionStatus::No,
+            )
+        })?;
+        Ok(ObjectRef::new(self.clone(), ior))
+    }
+
+    /// Resolves a `corbaname:` URL: the `corbaloc` part gives the naming
+    /// context, and the name after `#`, if any, is resolved in it with
+    /// `CosNaming::NamingContext::resolve`.
+    fn resolve_corbaname(&self, url: CorbaName) -> Result<Option<ObjectRef>, SystemException> {
+        let context = self.corbaloc_to_object(url.context)?;
+        if url.name.is_empty() {
+            return Ok(Some(context));
+        }
+        let name = name::to_name(&url.name).map_err(|_| {
+            SystemException::new(
+                SystemExceptionKind::BAD_PARAM,
+                minor::BAD_SCHEME_SPECIFIC_PART,
+                CompletionStatus::No,
+            )
+        })?;
+        let reply = context
+            .request("resolve")
+            .args(|out| name::write_name(out, &name))
+            .invoke();
+        match reply {
+            Ok(reply) => reply.input().read_object(),
+            Err(Exception::System(e)) => Err(e),
+            // NotFound, CannotProceed or InvalidName.
+            Err(Exception::User(_)) => Err(SystemException::new(
+                SystemExceptionKind::BAD_PARAM,
+                minor::STRING_TO_OBJECT_OTHER,
                 CompletionStatus::No,
             )),
         }

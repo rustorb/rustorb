@@ -112,6 +112,9 @@ pub mod minor {
     /// `BAD_PARAM`: a `wchar` or `wstring` was used, but no `wchar`
     /// transmission code set is known for the connection.
     pub const WCHAR_TCS_NOT_KNOWN: u32 = OMG_VMCID | 23;
+    /// `UNKNOWN`: the target raised a user exception the operation does
+    /// not declare.
+    pub const UNLISTED_USER_EXCEPTION: u32 = OMG_VMCID | 1;
     /// `BAD_INV_ORDER`: the ORB has shut down.
     pub const ORB_SHUT_DOWN: u32 = OMG_VMCID | 4;
     /// `TRANSIENT`: no usable profile in the IOR.

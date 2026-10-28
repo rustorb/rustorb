@@ -34,4 +34,11 @@ to_url host:2809 a/b                     -> raises InvalidAddress
 to_url :host:2809 a/b c                  -> corbaname::host:2809#a/b%20c
 resolve_str test/b.kind                  -> equivalent
 to_name <invalid>                        -> raises InvalidName
+corbaname #test/b.kind                   -> equivalent
+corbaname #test%2Fb%2ekind               -> equivalent
+corbaname rir: #test/b.kind              -> equivalent
+corbaname (no name)                      -> NamingContext
+corbaname #test/loose                    -> NamingContext
+corbaname #test/missing                  -> raises BAD_PARAM(completed=COMPLETED_NO)
+corbaname #test//b (invalid)             -> raises BAD_PARAM(completed=COMPLETED_NO)
 list test (final)                        -> [b.kind:nobject, loose:ncontext]

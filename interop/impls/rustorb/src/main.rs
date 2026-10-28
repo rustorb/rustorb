@@ -1,6 +1,7 @@
 //! rustorb client for the interop tests.
 //!
-//! Resolves the Echo object from the naming service and runs the same cases
+//! Resolves the Echo object from the naming service (with the
+//! `rustorb-naming` client) and runs the same cases
 //! as the omniORB clients (see `interop/README.md`), with hand-written stubs
 //! until the code generator exists. The callback cases need a server side
 //! ORB and are skipped for now.
@@ -10,6 +11,7 @@
 //! `ORBmaxGIOPVersion` environment variable, as omniORB does). `--host` and `--port`
 //! are accepted and ignored, as the client has no objects of its own yet.
 
+use std::fmt;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
@@ -18,6 +20,7 @@ use rustorb_core::{
     CompletionStatus, Exception, InStream, ObjectRef, Orb, OutStream, SystemException,
     SystemExceptionKind,
 };
+use rustorb_naming::{NamingContext, NamingError, to_name};
 
 type Sys<T> = Result<T, SystemException>;
 
@@ -358,35 +361,25 @@ fn call<A: Put, T: Get>(obj: &ObjectRef, op: &str, args: A) -> Result<T, Excepti
     Ok(value)
 }
 
-/// `CosNaming::NamingContext::resolve`, with the name given as `a/b/c`.
-fn resolve(root: &ObjectRef, path: &str) -> Result<Option<ObjectRef>, Exception> {
-    let name: Vec<(String, String)> = path
-        .split('/')
-        .map(|id| (id.to_owned(), String::new()))
-        .collect();
-    call(root, "resolve", (name,))
+/// Whether `e` is worth retrying while a server starts: TRANSIENT or
+/// COMM_FAILURE.
+fn starting(e: &SystemException) -> bool {
+    e.is(SystemExceptionKind::TRANSIENT) || e.is(SystemExceptionKind::COMM_FAILURE)
 }
 
-/// Retries `f` while it fails with TRANSIENT, COMM_FAILURE or a user
-/// exception (NotFound while the server is starting).
-fn retry<T>(
+/// Retries `f` while it fails with an error `retriable` accepts.
+fn retry<T, E: fmt::Display>(
     what: &str,
     timeout: Duration,
-    mut f: impl FnMut() -> Result<T, Exception>,
+    retriable: impl Fn(&E) -> bool,
+    mut f: impl FnMut() -> Result<T, E>,
 ) -> Result<T, String> {
     let deadline = Instant::now() + timeout;
     loop {
         match f() {
             Ok(v) => return Ok(v),
             Err(e) => {
-                let retriable = match &e {
-                    Exception::User(_) => true,
-                    Exception::System(s) => {
-                        s.is(SystemExceptionKind::TRANSIENT)
-                            || s.is(SystemExceptionKind::COMM_FAILURE)
-                    }
-                };
-                if !retriable || Instant::now() >= deadline {
+                if !retriable(&e) || Instant::now() >= deadline {
                     return Err(format!("{what}: {e}"));
                 }
                 std::thread::sleep(Duration::from_millis(200));
@@ -774,8 +767,16 @@ fn run() -> Result<bool, String> {
         .string_to_object(&args.naming)
         .map_err(|e| format!("{}: {e}", args.naming))?
         .ok_or("nil naming context")?;
-    let echo = retry("the Echo server", args.timeout, || {
-        resolve(&root, &args.name)?.ok_or_else(|| {
+    let root = NamingContext::unchecked_narrow(root);
+    let name = to_name(&args.name).map_err(|e| format!("--name {}: {e}", args.name))?;
+    // NotFound until the server has bound the object.
+    let bound = |e: &NamingError| match e {
+        NamingError::NotFound { .. } => true,
+        NamingError::System(e) => starting(e),
+        _ => false,
+    };
+    let echo = retry("the Echo server", args.timeout, bound, || {
+        root.resolve(&name)?.ok_or_else(|| {
             SystemException::new(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No).into()
         })
     })?;
@@ -783,7 +784,10 @@ fn run() -> Result<bool, String> {
     if !is_echo {
         return Err(format!("{} is not an InteropTest::Echo", args.name));
     }
-    retry("the Echo server", args.timeout, || echo.non_existent())?;
+    let reachable = |e: &Exception| e.as_system().is_some_and(starting);
+    retry("the Echo server", args.timeout, reachable, || {
+        echo.non_existent()
+    })?;
 
     let mut r = Runner {
         passed: 0,

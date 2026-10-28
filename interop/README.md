@@ -11,11 +11,11 @@ omniORB server (see [The rustorb client](#the-rustorb-client)).
 | `idl/InteropTest.idl` | Stage 1 test IDL (no Any) |
 | `impls/omniorbpy/` | Echo server and test client on omniORBpy, and the naming service check |
 | `impls/omniorb-cpp/` | Echo server and test client on omniORB C++ |
-| `impls/rustorb/` | test client on rustorb, with hand-written stubs (no server yet) |
+| `impls/rustorb/` | test client on rustorb, with hand-written stubs (no server yet), and the naming service check |
 | `docker/omniorb/Dockerfile` | omniORB 4.3.4 and omniORBpy 4.3.4 built from source, with the implementations above |
 | `compose.yaml` | naming service, server and client containers |
 | `run-matrix.sh` | runs every client / server combination |
-| `run-naming-check.sh` | runs a fixed CosNaming operation sequence and compares it with `expected/naming-check.txt` |
+| `run-naming-check.sh` | runs a fixed CosNaming operation sequence (and `corbaname:` URLs) with the omniORBpy and rustorb clients and compares the output with `expected/naming-check.txt` |
 | `run-wire-probe.sh` | sends hand-built GIOP requests (`scripts/wire-probe`) to each server and compares the answers with `expected/wire-probe-*.txt` |
 | `known-failures.txt` | failures caused by the existing ORBs, treated as expected |
 | `scripts/giop-extract` | splits a pcap file into GIOP messages |
@@ -97,8 +97,8 @@ case, then `N passed, M failed`, and exits with 0 only when all cases pass.
 ## The rustorb client
 
 `impls/rustorb/` is a Cargo package in the workspace (`rustorb-interop`).
-Its stubs for `InteropTest.idl` and for `CosNaming::NamingContext::resolve`
-are written by hand until the code generator exists. It runs the same cases
+Its stubs for `InteropTest.idl` are written by hand until the code generator
+exists; the Echo object is resolved with the `rustorb-naming` client. It runs the same cases
 as the other clients, except `call_back` and `register_callback/trigger`,
 which need a POA and are printed as `skip`.
 
@@ -111,6 +111,18 @@ in `CLIENT_IMPLS` by default.
 ```sh
 interop/run-matrix.sh rustorb:omniorb-cpp rustorb:omniorbpy
 interop/run-matrix.sh --giop 1.1 rustorb:omniorb-cpp
+```
+
+`rustorb-naming-check` (`impls/rustorb/naming-check`) runs the operation
+sequence of `impls/omniorbpy/naming_check.py` with the `rustorb-naming`
+stubs and `corbaname:` URLs, and prints the same lines, so
+`run-naming-check.sh` compares both clients with the same expected output
+recorded from omniORBpy and omniNames (`--update` records it again;
+`--client rustorb` runs one client).
+
+```sh
+interop/run-naming-check.sh                    # omniorbpy and rustorb
+interop/run-naming-check.sh --client rustorb
 ```
 
 Without Docker, the client also runs against omniORB built on the host, for
