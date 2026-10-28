@@ -1,0 +1,13 @@
+[package]
+name = "rustorb-codegen"
+description = "IDL code generator for rustorb (Rust, Python, C++11 and Java)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+# The generator builds on idl_parser (GPL-3.0-or-later), so it is the one
+# crate that is not MIT OR Apache-2.0. Generated code is not covered.
+license = "GPL-3.0-or-later"
+repository.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,14 @@
+[package]
+name = "rustorb-giop"
+description = "GIOP/IIOP message types, IOR and corbaloc handling for rustorb"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+rustorb-cdr.workspace = true
