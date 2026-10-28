@@ -18,6 +18,7 @@ rustorb) with every server (the same three); see
 | `run-naming-check.sh` | runs a fixed CosNaming operation sequence (and `corbaname:` URLs) with the omniORBpy and rustorb clients against omniNames or (`--naming rustorb`) the rustorb naming service, and compares the output with `expected/naming-check.txt`; for rustorb, also restarts the service and compares with `expected/naming-restart.txt` |
 | `run-wire-probe.sh` | sends hand-built GIOP requests (`scripts/wire-probe`) to each server and compares the answers with `expected/wire-probe-*.txt` |
 | `run-poa-probe.sh` | starts the POA probe servers (`impls/omniorbpy/poa-probe-server`, `impls/omniorb-cpp/poa_probe_server`, `impls/rustorb/poa-probe-server`, IDL `idl/PoaProbe.idl`) and runs `scripts/poa-probe` against them, comparing the output with `expected/poa-probe-*.txt` |
+| `run-pymapping-check.sh` | generates Python code from `idl/InteropTest.idl`, `idl/PoaProbe.idl` and the IDL of `crates/rustorb-codegen/tests/idl/` with omniidl -bpython and with rustorb-idl, prints the public API of each (`scripts/pymapping-dump`) under omniORBpy and under the rustorb package, and compares the output with `expected/pymapping-*.txt` |
 | `known-failures.txt` | failures caused by the existing ORBs, treated as expected |
 | `scripts/giop-extract` | splits a pcap file into GIOP messages |
 | `scripts/golden-compare` | compares captured GIOP messages with `golden/*.json` |
@@ -37,6 +38,7 @@ interop/run-naming-check.sh --naming rustorb   # against rustorb-names, with a r
 interop/run-matrix.sh --naming rustorb         # all pairs, rustorb-names instead of omniNames
 interop/run-wire-probe.sh
 interop/run-poa-probe.sh
+IDL_PARSER_DIR=path/to/idl_parser interop/run-pymapping-check.sh
 interop/scripts/golden-compare --all interop/out interop/golden
 ```
 
@@ -261,6 +263,42 @@ ran them, which exception or locate status came back) rather than timings,
 so it is the same on every run. omniORB C++ and omniORBpy give identical
 results; the design document summarises them.
 
+## Python mapping check
+
+`run-pymapping-check.sh` checks that the Python code of
+`rustorb-idl -bpython` (see
+[`docs/python-codegen.md`](../docs/python-codegen.md)) has the same public
+API as the code of omniidl -bpython. `scripts/pymapping-dump` imports the
+generated packages and prints what applications see: constants and their
+values, enums, structs, unions and exceptions constructed and read back,
+every `_tc_*` TypeCode through the standard TypeCode operations, the
+interface, stub (`_objref_*`) and skeleton classes with their base classes
+and the methods of the stubs. It never looks at the runtime's internals (the
+operation and type descriptors of omniORBpy, for instance), so the two
+outputs can be compared line by line. rustorb-idl runs on the host and needs
+idl_parser (`IDL_PARSER_DIR`, or installed).
+
+```sh
+IDL_PARSER_DIR=path/to/idl_parser interop/run-pymapping-check.sh
+IDL_PARSER_DIR=path/to/idl_parser interop/run-pymapping-check.sh --update
+```
+
+`expected/pymapping-rustorb.txt` differs from
+`expected/pymapping-omniorbpy.txt` only where rustorb follows the CORBA
+specification on purpose:
+
+- the TypeCode of a local interface is `tk_local_interface` (omniORBpy:
+  `tk_objref`);
+- TypeCode member names are the IDL names: `global` for a member named
+  `global` (omniORBpy: `_global`, the Python name);
+- `CORBA.TC_Object` has the repository ID `IDL:omg.org/CORBA/Object:1.0`
+  (omniORBpy: an empty ID);
+- a typedef of a fixed type (`typedef fixed<5, 2> Money;`) has a class
+  `Money` like every other typedef (omniORBpy makes none).
+
+The unit tests of the generator compare the rustorb output with the
+expected file too, so a change of the generated API shows up without Docker.
+
 ## Known issues in omniORB found by these tests
 
 - **omniORBpy cannot unmarshal wchar** (4.3.2 and 4.3.4): on Python 3.3 and
@@ -270,6 +308,10 @@ results; the design document summarises them.
   "Garbage left at end of input message", and the omniORBpy client raises
   `COMM_FAILURE`. Marshalling is correct, so rustorb receiving wchar from
   omniORBpy is not affected.
+- **omniORBpy's `TypeCode.member_count()` returns a float for exceptions**
+  (4.3.4): `member_count()` of a `tk_except` TypeCode gives `2.0` instead of
+  `2`, so `range(tc.member_count())` raises `TypeError`.
+  `scripts/pymapping-dump` converts it with `int()`.
 - **omniORB C++ does not convert wchar_t above U+FFFF to surrogate pairs**:
   sending `L"\U0001F980"` raises `BAD_PARAM`, and received surrogate pairs
   stay as two `wchar_t` values. The C++ client therefore sends the

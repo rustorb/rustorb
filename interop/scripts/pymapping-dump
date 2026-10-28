@@ -1,0 +1,313 @@
+#!/usr/bin/env python3
+"""Print the public Python API of modules generated from IDL.
+
+    pymapping-dump --runtime omniorbpy|rustorb MODULE...
+
+Imports the packages that ``omniidl -bpython`` or ``rustorb-idl -bpython``
+generated (run from the output directory, or put it on PYTHONPATH) and
+prints, one line each and in a fixed order, what the IDL to Python mapping
+makes visible: constants and their values, enums and enumerators, structs,
+unions and exceptions (constructed and read back), TypeCodes (through the
+standard TypeCode operations), the interface classes, the stub
+(``_objref_``) and skeleton (``__POA``) classes and the methods of the
+stubs.
+
+Only names that applications use are printed: names beginning with ``_``
+are left out, except ``_tc_*``, ``_objref_*``, ``_NP_RepositoryId`` and
+``_nil``. Internals of the runtime are never looked at, so the output of the
+two runtimes can be compared line by line.
+"""
+
+import argparse
+import importlib
+import inspect
+import keyword
+import sys
+import types
+
+
+def parse_args():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--runtime", choices=("omniorbpy", "rustorb"), required=True)
+    ap.add_argument("modules", nargs="+")
+    return ap.parse_args()
+
+
+args = parse_args()
+sys.path.insert(0, ".")
+if args.runtime == "omniorbpy":
+    from omniORB import CORBA, PortableServer
+else:
+    from rustorb import CORBA, PortableServer
+
+OUT = []
+ROOTS = set()
+for _m in args.modules:
+    ROOTS.add(_m.split(".")[0])
+    ROOTS.add(_m.split(".")[0] + "__POA")
+
+
+def out(*parts):
+    OUT.append(" ".join(str(p) for p in parts))
+
+
+def in_idl(obj):
+    mod = getattr(obj, "__module__", None) or ""
+    return mod.split(".")[0] in ROOTS
+
+
+def class_name(cls):
+    if in_idl(cls):
+        return "%s.%s" % (cls.__module__, cls.__qualname__)
+    if cls is CORBA.Object:
+        return "CORBA.Object"
+    if cls is PortableServer.Servant:
+        return "PortableServer.Servant"
+    if cls is CORBA.UserException:
+        return "CORBA.UserException"
+    return None
+
+
+def bases(cls):
+    names = [class_name(c) for c in cls.__mro__[1:]]
+    return "[" + ", ".join(n for n in names if n) + "]"
+
+
+def is_enum_item(v):
+    return all(hasattr(v, a) for a in ("_n", "_v", "_parent_id")) and not inspect.isclass(v)
+
+
+def is_enum(v):
+    return hasattr(v, "_items") and hasattr(v, "_item") and not inspect.isclass(v)
+
+
+def value(v):
+    """A value printed the same way by both runtimes."""
+    if isinstance(v, bool):
+        return "int %d" % v  # omniORBpy gives booleans as 0 / 1
+    if isinstance(v, int):
+        return "int %d" % v
+    if isinstance(v, float):
+        return "float %r" % v
+    if isinstance(v, str):
+        return "str %r" % v
+    if isinstance(v, bytes):
+        return "bytes %r" % v
+    if is_enum_item(v):
+        return "enumitem %s %s %d" % (v._parent_id, v._n, v._v)
+    if v is None:
+        return "None"
+    if all(hasattr(v, a) for a in ("precision", "decimals", "value")):
+        return "fixed %d %d %d" % (v.precision(), v.decimals(), v.value())
+    return "%s %r" % (type(v).__name__, v)
+
+
+def tc_text(tc, active=()):
+    k = str(tc.kind()).replace("CORBA.", "")
+    if k in (
+        "tk_objref",
+        "tk_struct",
+        "tk_union",
+        "tk_enum",
+        "tk_alias",
+        "tk_except",
+        "tk_native",
+        "tk_abstract_interface",
+        "tk_local_interface",
+    ):
+        rid = tc.id()
+        if rid in active:
+            return "%s(recursive %s)" % (k, rid)
+        active = active + (rid,)
+        head = "%s(%s %s" % (k, rid, tc.name())
+    else:
+        head = "%s(" % k
+    parts = []
+    if k in ("tk_struct", "tk_except"):
+        for i in range(int(tc.member_count())):
+            parts.append("%s: %s" % (tc.member_name(i), tc_text(tc.member_type(i), active)))
+    elif k == "tk_union":
+        parts.append("switch %s" % tc_text(tc.discriminator_type(), active))
+        parts.append("default %d" % tc.default_index())
+        for i in range(int(tc.member_count())):
+            if i == tc.default_index():
+                label = "default"
+            else:
+                label = value(tc.member_label(i).value())
+            parts.append(
+                "case %s %s: %s" % (label, tc.member_name(i), tc_text(tc.member_type(i), active))
+            )
+    elif k == "tk_enum":
+        parts.append(", ".join(tc.member_name(i) for i in range(int(tc.member_count()))))
+    elif k in ("tk_string", "tk_wstring"):
+        parts.append(str(tc.length()))
+    elif k in ("tk_sequence", "tk_array"):
+        parts.append("%s, %d" % (tc_text(tc.content_type(), active), tc.length()))
+    elif k == "tk_alias":
+        parts.append(tc_text(tc.content_type(), active))
+    elif k == "tk_fixed":
+        parts.append("%d, %d" % (tc.fixed_digits(), tc.fixed_scale()))
+    if not parts:
+        return head + ")"
+    if head.endswith("("):
+        return head + "; ".join(parts) + ")"
+    return head + "; " + "; ".join(parts) + ")"
+
+
+def py_name(name):
+    return "_" + name if keyword.iskeyword(name) else name
+
+
+def try_call(f, *a, **kw):
+    try:
+        return "ok", f(*a, **kw)
+    except Exception as e:  # noqa: BLE001
+        return "raises " + type(e).__name__, None
+
+
+def public(name):
+    if name in ("_NP_RepositoryId", "_nil"):
+        return True
+    if name.startswith("_tc_") or name.startswith("_objref_"):
+        return True
+    return not name.startswith("_")
+
+
+def dump_struct(path, cls, tc):
+    n = int(tc.member_count())  # omniORBpy 4.3.4 gives a float for exceptions
+    members = [tc.member_name(i) for i in range(n)]
+    out(path, "struct", cls._NP_RepositoryId, bases(cls))
+    status, obj = try_call(cls, *["v%d" % i for i in range(n)])
+    if obj is not None:
+        out(path, "construct", status, [getattr(obj, py_name(m), "?") for m in members])
+    else:
+        out(path, "construct", status)
+    status, _ = try_call(cls, *["v%d" % i for i in range(n + 1)])
+    out(path, "construct with too many arguments", status)
+
+
+def dump_union(path, cls, tc):
+    out(path, "union", cls._NP_RepositoryId, bases(cls))
+    default = tc.default_index()
+    seen = set()
+    for i in range(int(tc.member_count())):
+        name = tc.member_name(i)
+        if i != default:
+            label = tc.member_label(i).value()
+            status, obj = try_call(cls, label, "v")
+            line = [path, "(%s, v)" % value(label), status]
+            if obj is not None:
+                line += ["_d", value(obj._d), "_v", value(obj._v)]
+                st2, got = try_call(getattr, obj, py_name(name))
+                line += [name, st2, value(got) if got is not None else ""]
+            out(*line)
+        if name in seen:
+            continue
+        seen.add(name)
+        status, obj = try_call(cls, **{py_name(name): "v"})
+        line = [path, "(%s=v)" % name, status]
+        if obj is not None:
+            line += ["_d", value(obj._d), "_v", value(obj._v)]
+        out(*line)
+
+
+def dump_exception(path, cls, tc):
+    n = int(tc.member_count())  # omniORBpy 4.3.4 gives a float for exceptions
+    members = [tc.member_name(i) for i in range(n)]
+    out(path, "exception", cls._NP_RepositoryId, bases(cls))
+    status, obj = try_call(cls, *["v%d" % i for i in range(n)])
+    if obj is not None:
+        out(path, "construct", status, [getattr(obj, py_name(m), "?") for m in members])
+    else:
+        out(path, "construct", status)
+
+
+def methods(cls, base):
+    skip = set(dir(base))
+    return sorted(n for n in dir(cls) if not n.startswith("__") and n not in skip and public(n))
+
+
+def dump_class(path, cls, container):
+    name = path.rsplit(".", 1)[-1]
+    tc = getattr(container, "_tc_" + name, None)
+    rid = getattr(cls, "_NP_RepositoryId", None)
+    if name.startswith("_objref_"):
+        out(path, "stub", rid, bases(cls), "methods", methods(cls, CORBA.Object))
+        return
+    if issubclass(cls, PortableServer.Servant):
+        out(path, "skeleton", rid, bases(cls))
+        return
+    if tc is None:
+        out(path, "class without TypeCode", rid, bases(cls))
+        return
+    k = str(tc.kind()).replace("CORBA.", "")
+    if k == "tk_struct":
+        dump_struct(path, cls, tc)
+    elif k == "tk_union":
+        dump_union(path, cls, tc)
+    elif k == "tk_except":
+        dump_exception(path, cls, tc)
+    elif k in ("tk_objref", "tk_abstract_interface", "tk_local_interface"):
+        status, _ = try_call(cls)
+        out(
+            path,
+            "interface",
+            rid,
+            bases(cls),
+            "construct",
+            status,
+            "_nil",
+            value(getattr(cls, "_nil", "?")),
+        )
+    elif k == "tk_alias":
+        status, _ = try_call(cls)
+        out(path, "typedef", rid, bases(cls), "construct", status)
+    else:
+        out(path, "class", k, rid, bases(cls))
+    dump_scope(path, cls, own_only=True)
+
+
+def dump_scope(path, scope, own_only=False):
+    names = vars(scope) if own_only else dir(scope)
+    for name in sorted(names):
+        if not public(name) or name in ("_NP_RepositoryId", "_nil"):
+            continue
+        v = getattr(scope, name)
+        p = "%s.%s" % (path, name)
+        if isinstance(v, types.ModuleType):
+            if v.__name__ == "%s.%s" % (scope.__name__, name) and not own_only:
+                dump_module(v)
+            continue
+        if isinstance(v, CORBA.TypeCode):
+            out(p, "typecode", tc_text(v))
+        elif inspect.isclass(v):
+            if own_only and not in_idl(v):
+                continue
+            dump_class(p, v, scope)
+        elif is_enum(v):
+            items = list(v._items)
+            out(
+                p,
+                "enum",
+                v._NP_RepositoryId,
+                [i._n for i in items],
+                "items-ok"
+                if all(v._item(i) is it for i, it in enumerate(items))
+                else "items-differ",
+            )
+        elif callable(v):
+            continue
+        else:
+            out(p, "const", value(v))
+
+
+def dump_module(mod):
+    out(mod.__name__, "module")
+    dump_scope(mod.__name__, mod)
+
+
+for name in args.modules:
+    dump_module(importlib.import_module(name))
+
+for line in OUT:
+    print(line)

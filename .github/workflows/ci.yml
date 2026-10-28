@@ -45,6 +45,30 @@ jobs:
       - run: cargo build --workspace --all-targets --locked
       - run: cargo test --workspace --locked
 
+  python:
+    name: Python (IDL generator and runtime)
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.13"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The generator reads IDL with idl_parser, pinned to a tested commit.
+      - uses: actions/checkout@v4
+        with:
+          repository: sugarsweetrobotics/idl_parser
+          ref: 5eef768bb61e0ee7c5cd08c42c45789a45585f60
+          path: idl_parser
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install mypy==1.13.0
+      - run: python -m unittest discover -s python/tests -v
+      - run: python -m unittest discover -s crates/rustorb-codegen/python/tests -v
+        env:
+          PYTHONPATH: ${{ github.workspace }}/idl_parser
+
   msrv:
     runs-on: ubuntu-latest
     steps:

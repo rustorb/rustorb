@@ -1,0 +1,317 @@
+Mapping module
+Mapping.APPLE const enumitem IDL:rustorb.org/Mapping/Fruit:1.0 APPLE 0
+Mapping.AbstractIface interface IDL:rustorb.org/Mapping/AbstractIface:1.0 [] construct raises RuntimeError _nil None
+Mapping.BANANA const enumitem IDL:rustorb.org/Mapping/Fruit:1.0 BANANA 1
+Mapping.Base interface IDL:rustorb.org/Mapping/Base:1.0 [] construct raises RuntimeError _nil None
+Mapping.Base.BASE_CONST const int 7
+Mapping.Base.BaseError exception IDL:rustorb.org/Mapping/Base/BaseError:1.0 [CORBA.UserException]
+Mapping.Base.BaseError construct ok ['v0']
+Mapping.Base.BaseInfo struct IDL:rustorb.org/Mapping/Base/BaseInfo:1.0 []
+Mapping.Base.BaseInfo construct ok ['v0']
+Mapping.Base.BaseInfo construct with too many arguments raises TypeError
+Mapping.Base.LaterSeq typedef IDL:rustorb.org/Mapping/Base/LaterSeq:1.0 [] construct raises RuntimeError
+Mapping.Base._tc_BaseError typecode tk_except(IDL:rustorb.org/Mapping/Base/BaseError:1.0 BaseError; why: tk_string(0))
+Mapping.Base._tc_BaseInfo typecode tk_struct(IDL:rustorb.org/Mapping/Base/BaseInfo:1.0 BaseInfo; id: tk_long())
+Mapping.Base._tc_LaterSeq typecode tk_alias(IDL:rustorb.org/Mapping/Base/LaterSeq:1.0 LaterSeq; tk_sequence(tk_objref(IDL:rustorb.org/Mapping/Later:1.0 Later), 0))
+Mapping.BaseAlias typedef IDL:rustorb.org/Mapping/BaseAlias:1.0 [] construct raises RuntimeError
+Mapping.BaseSeq typedef IDL:rustorb.org/Mapping/BaseSeq:1.0 [] construct raises RuntimeError
+Mapping.BoundedSeq typedef IDL:rustorb.org/Mapping/BoundedSeq:1.0 [] construct raises RuntimeError
+Mapping.ByBool union IDL:rustorb.org/Mapping/ByBool:1.0 []
+Mapping.ByBool (int 1, v) ok _d int 1 _v str 'v' yes ok str 'v'
+Mapping.ByBool (yes=v) ok _d int 1 _v str 'v'
+Mapping.ByBool (int 0, v) ok _d int 0 _v str 'v' no ok str 'v'
+Mapping.ByBool (no=v) ok _d int 0 _v str 'v'
+Mapping.ByBoolAlias typedef IDL:rustorb.org/Mapping/ByBoolAlias:1.0 [Mapping.ByBool] construct raises TypeError
+Mapping.ByChar union IDL:rustorb.org/Mapping/ByChar:1.0 []
+Mapping.ByChar (str 'a', v) ok _d str 'a' _v str 'v' a ok str 'v'
+Mapping.ByChar (a=v) ok _d str 'a' _v str 'v'
+Mapping.ByChar (str 'b', v) ok _d str 'b' _v str 'v' bc ok str 'v'
+Mapping.ByChar (bc=v) ok _d str 'c' _v str 'v'
+Mapping.ByChar (str 'c', v) ok _d str 'c' _v str 'v' bc ok str 'v'
+Mapping.ByEnum union IDL:rustorb.org/Mapping/ByEnum:1.0 []
+Mapping.ByEnum (enumitem IDL:rustorb.org/Mapping/Fruit:1.0 APPLE 0, v) ok _d enumitem IDL:rustorb.org/Mapping/Fruit:1.0 APPLE 0 _v str 'v' apple_count ok str 'v'
+Mapping.ByEnum (apple_count=v) ok _d enumitem IDL:rustorb.org/Mapping/Fruit:1.0 APPLE 0 _v str 'v'
+Mapping.ByEnum (enumitem IDL:rustorb.org/Mapping/Fruit:1.0 CHERRY 2, v) ok _d enumitem IDL:rustorb.org/Mapping/Fruit:1.0 CHERRY 2 _v str 'v' cherry_name ok str 'v'
+Mapping.ByEnum (cherry_name=v) ok _d enumitem IDL:rustorb.org/Mapping/Fruit:1.0 CHERRY 2 _v str 'v'
+Mapping.ByEnum (other=v) ok _d enumitem IDL:rustorb.org/Mapping/Fruit:1.0 BANANA 1 _v str 'v'
+Mapping.ByULongLong union IDL:rustorb.org/Mapping/ByULongLong:1.0 []
+Mapping.ByULongLong (int 7, v) ok _d int 7 _v str 'v' seven ok str 'v'
+Mapping.ByULongLong (seven=v) ok _d int 7 _v str 'v'
+Mapping.CHERRY const enumitem IDL:rustorb.org/Mapping/Fruit:1.0 CHERRY 2
+Mapping.C_CHAR const str 'q'
+Mapping.C_DOUBLE const float 0.25
+Mapping.C_ENUM const enumitem IDL:rustorb.org/Mapping/Fruit:1.0 BANANA 1
+Mapping.C_EXPR const int 2097149
+Mapping.C_FALSE const int 0
+Mapping.C_FIXED const fixed 3 1 125
+Mapping.C_FLOAT const float 1.5
+Mapping.C_LONG const int 1048576
+Mapping.C_LONGLONG const int -9000000000
+Mapping.C_OCTET const int 255
+Mapping.C_SHORT const int -3
+Mapping.C_STRING const str 'abcd'
+Mapping.C_TRUE const int 1
+Mapping.C_ULONG const int 4000000000
+Mapping.C_ULONGLONG const int 18000000000000000000
+Mapping.C_USHORT const int 3
+Mapping.C_WCHAR const str 'w'
+Mapping.C_WSTRING const str 'wide'
+Mapping.Count typedef IDL:rustorb.org/Mapping/Count:1.0 [] construct raises RuntimeError
+Mapping.Count2 typedef IDL:rustorb.org/Mapping/Count2:1.0 [] construct raises RuntimeError
+Mapping.Derived interface IDL:rustorb.org/Mapping/Derived:1.0 [Mapping.Base] construct raises RuntimeError _nil None
+Mapping.Empty exception IDL:rustorb.org/Mapping/Empty:1.0 [CORBA.UserException]
+Mapping.Empty construct ok []
+Mapping.Failure exception IDL:rustorb.org/Mapping/Failure:1.0 [CORBA.UserException]
+Mapping.Failure construct ok ['v0', 'v1', 'v2']
+Mapping.Fruit enum IDL:rustorb.org/Mapping/Fruit:1.0 ['APPLE', 'BANANA', 'CHERRY'] items-ok
+Mapping.FruitAlias typedef IDL:rustorb.org/Mapping/FruitAlias:1.0 [] construct raises RuntimeError
+Mapping.Grid typedef IDL:rustorb.org/Mapping/Grid:1.0 [] construct raises RuntimeError
+Mapping.Holder struct IDL:rustorb.org/Mapping/Holder:1.0 []
+Mapping.Holder construct ok ['v0', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8']
+Mapping.Holder construct with too many arguments raises TypeError
+Mapping.Inner module
+Mapping.Inner.INNER_NAME const str 'inner'
+Mapping.Inner.InnerIface interface IDL:rustorb.org/Mapping/Inner/InnerIface:1.0 [Mapping.Base] construct raises RuntimeError _nil None
+Mapping.Inner.InnerStruct struct IDL:rustorb.org/Mapping/Inner/InnerStruct:1.0 []
+Mapping.Inner.InnerStruct construct ok ['v0', 'v1']
+Mapping.Inner.InnerStruct construct with too many arguments raises TypeError
+Mapping.Inner._objref_InnerIface stub IDL:rustorb.org/Mapping/Inner/InnerIface:1.0 [Mapping._objref_Base, CORBA.Object] methods ['base_op', 'get', 'id', 'label']
+Mapping.Inner._tc_InnerIface typecode tk_objref(IDL:rustorb.org/Mapping/Inner/InnerIface:1.0 InnerIface)
+Mapping.Inner._tc_InnerStruct typecode tk_struct(IDL:rustorb.org/Mapping/Inner/InnerStruct:1.0 InnerStruct; two: tk_struct(IDL:rustorb.org/Mapping/Pair:1.0 Pair; first: tk_alias(IDL:rustorb.org/Mapping/Count:1.0 Count; tk_long()); second: tk_alias(IDL:rustorb.org/Mapping/Count2:1.0 Count2; tk_alias(IDL:rustorb.org/Mapping/Count:1.0 Count; tk_long()))); _global: tk_struct(IDL:rustorb.org/GlobalPoint:1.0 GlobalPoint; x: tk_long(); y: tk_long()))
+Mapping.Later interface IDL:rustorb.org/Mapping/Later:1.0 [] construct raises RuntimeError _nil None
+Mapping.LocalIface interface IDL:rustorb.org/Mapping/LocalIface:1.0 [] construct raises RuntimeError _nil None
+Mapping.Multi interface IDL:rustorb.org/Mapping/Multi:1.0 [Mapping.Derived, Mapping.Base, Mapping.Other] construct raises RuntimeError _nil None
+Mapping.NestedSeq typedef IDL:rustorb.org/Mapping/NestedSeq:1.0 [] construct raises RuntimeError
+Mapping.Node union IDL:rustorb.org/Mapping/Node:1.0 []
+Mapping.Node (int 1, v) ok _d int 1 _v str 'v' leaf ok str 'v'
+Mapping.Node (leaf=v) ok _d int 1 _v str 'v'
+Mapping.Node (int 2, v) ok _d int 2 _v str 'v' branch ok str 'v'
+Mapping.Node (branch=v) ok _d int 2 _v str 'v'
+Mapping.Other interface IDL:rustorb.org/Mapping/Other:1.0 [] construct raises RuntimeError _nil None
+Mapping.Outer struct IDL:rustorb.org/Mapping/Outer:1.0 []
+Mapping.Outer construct ok ['v0', 'v1']
+Mapping.Outer construct with too many arguments raises TypeError
+Mapping.Outer.Inner struct IDL:rustorb.org/Mapping/Outer/Inner:1.0 []
+Mapping.Outer.Inner construct ok ['v0']
+Mapping.Outer.Inner construct with too many arguments raises TypeError
+Mapping.Outer.Mode enum IDL:rustorb.org/Mapping/Outer/Mode:1.0 ['ON', 'OFF'] items-ok
+Mapping.Outer.OFF const enumitem IDL:rustorb.org/Mapping/Outer/Mode:1.0 OFF 1
+Mapping.Outer.ON const enumitem IDL:rustorb.org/Mapping/Outer/Mode:1.0 ON 0
+Mapping.Outer._tc_Inner typecode tk_struct(IDL:rustorb.org/Mapping/Outer/Inner:1.0 Inner; v: tk_long())
+Mapping.Outer._tc_Mode typecode tk_enum(IDL:rustorb.org/Mapping/Outer/Mode:1.0 Mode; ON, OFF)
+Mapping.Pair struct IDL:rustorb.org/Mapping/Pair:1.0 []
+Mapping.Pair construct ok ['v0', 'v1']
+Mapping.Pair construct with too many arguments raises TypeError
+Mapping.PairAlias typedef IDL:rustorb.org/Mapping/PairAlias:1.0 [Mapping.Pair] construct raises TypeError
+Mapping.PairSeq typedef IDL:rustorb.org/Mapping/PairSeq:1.0 [] construct raises RuntimeError
+Mapping.REOPENED const int 1
+Mapping.ShortString typedef IDL:rustorb.org/Mapping/ShortString:1.0 [] construct raises RuntimeError
+Mapping.Tree struct IDL:rustorb.org/Mapping/Tree:1.0 []
+Mapping.Tree construct ok ['v0', 'v1']
+Mapping.Tree construct with too many arguments raises TypeError
+Mapping.WithArray union IDL:rustorb.org/Mapping/WithArray:1.0 []
+Mapping.WithArray (int 0, v) ok _d int 0 _v str 'v' cells ok str 'v'
+Mapping.WithArray (cells=v) ok _d int 0 _v str 'v'
+Mapping.WithArray (int 1, v) ok _d int 1 _v str 'v' two ok str 'v'
+Mapping.WithArray (two=v) ok _d int 1 _v str 'v'
+Mapping._objref_AbstractIface stub IDL:rustorb.org/Mapping/AbstractIface:1.0 [CORBA.Object] methods ['abstract_op']
+Mapping._objref_Base stub IDL:rustorb.org/Mapping/Base:1.0 [CORBA.Object] methods ['base_op', 'id', 'label']
+Mapping._objref_Derived stub IDL:rustorb.org/Mapping/Derived:1.0 [Mapping._objref_Base, CORBA.Object] methods ['as_base', 'base_op', 'derived_op', 'id', 'label', 'laters', 'notify']
+Mapping._objref_Later stub IDL:rustorb.org/Mapping/Later:1.0 [CORBA.Object] methods ['next']
+Mapping._objref_LocalIface stub IDL:rustorb.org/Mapping/LocalIface:1.0 [CORBA.Object] methods ['local_op']
+Mapping._objref_Multi stub IDL:rustorb.org/Mapping/Multi:1.0 [Mapping._objref_Derived, Mapping._objref_Base, Mapping._objref_Other, CORBA.Object] methods ['as_base', 'base_op', 'derived_op', 'id', 'label', 'laters', 'multi_op', 'notify', 'other_op']
+Mapping._objref_Other stub IDL:rustorb.org/Mapping/Other:1.0 [CORBA.Object] methods ['other_op']
+Mapping._tc_AbstractIface typecode tk_abstract_interface(IDL:rustorb.org/Mapping/AbstractIface:1.0 AbstractIface)
+Mapping._tc_Base typecode tk_objref(IDL:rustorb.org/Mapping/Base:1.0 Base)
+Mapping._tc_BaseAlias typecode tk_alias(IDL:rustorb.org/Mapping/BaseAlias:1.0 BaseAlias; tk_objref(IDL:rustorb.org/Mapping/Base:1.0 Base))
+Mapping._tc_BaseSeq typecode tk_alias(IDL:rustorb.org/Mapping/BaseSeq:1.0 BaseSeq; tk_sequence(tk_objref(IDL:rustorb.org/Mapping/Base:1.0 Base), 0))
+Mapping._tc_BoundedSeq typecode tk_alias(IDL:rustorb.org/Mapping/BoundedSeq:1.0 BoundedSeq; tk_sequence(tk_long(), 5))
+Mapping._tc_ByBool typecode tk_union(IDL:rustorb.org/Mapping/ByBool:1.0 ByBool; switch tk_boolean(); default -1; case int 1 yes: tk_long(); case int 0 no: tk_string(0))
+Mapping._tc_ByBoolAlias typecode tk_alias(IDL:rustorb.org/Mapping/ByBoolAlias:1.0 ByBoolAlias; tk_union(IDL:rustorb.org/Mapping/ByBool:1.0 ByBool; switch tk_boolean(); default -1; case int 1 yes: tk_long(); case int 0 no: tk_string(0)))
+Mapping._tc_ByChar typecode tk_union(IDL:rustorb.org/Mapping/ByChar:1.0 ByChar; switch tk_char(); default -1; case str 'a' a: tk_long(); case str 'b' bc: tk_string(0); case str 'c' bc: tk_string(0))
+Mapping._tc_ByEnum typecode tk_union(IDL:rustorb.org/Mapping/ByEnum:1.0 ByEnum; switch tk_enum(IDL:rustorb.org/Mapping/Fruit:1.0 Fruit; APPLE, BANANA, CHERRY); default 2; case enumitem IDL:rustorb.org/Mapping/Fruit:1.0 APPLE 0 apple_count: tk_long(); case enumitem IDL:rustorb.org/Mapping/Fruit:1.0 CHERRY 2 cherry_name: tk_string(0); case default other: tk_boolean())
+Mapping._tc_ByULongLong typecode tk_union(IDL:rustorb.org/Mapping/ByULongLong:1.0 ByULongLong; switch tk_ulonglong(); default -1; case int 7 seven: tk_double())
+Mapping._tc_Count typecode tk_alias(IDL:rustorb.org/Mapping/Count:1.0 Count; tk_long())
+Mapping._tc_Count2 typecode tk_alias(IDL:rustorb.org/Mapping/Count2:1.0 Count2; tk_alias(IDL:rustorb.org/Mapping/Count:1.0 Count; tk_long()))
+Mapping._tc_Derived typecode tk_objref(IDL:rustorb.org/Mapping/Derived:1.0 Derived)
+Mapping._tc_Empty typecode tk_except(IDL:rustorb.org/Mapping/Empty:1.0 Empty)
+Mapping._tc_Failure typecode tk_except(IDL:rustorb.org/Mapping/Failure:1.0 Failure; code: tk_long(); message: tk_string(0); kind: tk_enum(IDL:rustorb.org/Mapping/Fruit:1.0 Fruit; APPLE, BANANA, CHERRY))
+Mapping._tc_Fruit typecode tk_enum(IDL:rustorb.org/Mapping/Fruit:1.0 Fruit; APPLE, BANANA, CHERRY)
+Mapping._tc_FruitAlias typecode tk_alias(IDL:rustorb.org/Mapping/FruitAlias:1.0 FruitAlias; tk_enum(IDL:rustorb.org/Mapping/Fruit:1.0 Fruit; APPLE, BANANA, CHERRY))
+Mapping._tc_Grid typecode tk_alias(IDL:rustorb.org/Mapping/Grid:1.0 Grid; tk_array(tk_array(tk_short(), 2), 2))
+Mapping._tc_Holder typecode tk_struct(IDL:rustorb.org/Mapping/Holder:1.0 Holder; numbers: tk_array(tk_long(), 3); pairs: tk_sequence(tk_struct(IDL:rustorb.org/Mapping/Pair:1.0 Pair; first: tk_alias(IDL:rustorb.org/Mapping/Count:1.0 Count; tk_long()); second: tk_alias(IDL:rustorb.org/Mapping/Count2:1.0 Count2; tk_alias(IDL:rustorb.org/Mapping/Count:1.0 Count; tk_long()))), 0); cells: tk_alias(IDL:rustorb.org/Mapping/Grid:1.0 Grid; tk_array(tk_array(tk_short(), 2), 2)); tag: tk_alias(IDL:rustorb.org/Mapping/ShortString:1.0 ShortString; tk_string(8)); bounded: tk_alias(IDL:rustorb.org/Mapping/BoundedSeq:1.0 BoundedSeq; tk_sequence(tk_long(), 5)); extra: tk_any(); target: tk_objref( Object); price: tk_alias(IDL:rustorb.org/Mapping/Money:1.0 Money; tk_fixed(5, 2)); wide: tk_wstring(4))
+Mapping._tc_Later typecode tk_objref(IDL:rustorb.org/Mapping/Later:1.0 Later)
+Mapping._tc_LocalIface typecode tk_objref(IDL:rustorb.org/Mapping/LocalIface:1.0 LocalIface)
+Mapping._tc_Money typecode tk_alias(IDL:rustorb.org/Mapping/Money:1.0 Money; tk_fixed(5, 2))
+Mapping._tc_Multi typecode tk_objref(IDL:rustorb.org/Mapping/Multi:1.0 Multi)
+Mapping._tc_NestedSeq typecode tk_alias(IDL:rustorb.org/Mapping/NestedSeq:1.0 NestedSeq; tk_sequence(tk_sequence(tk_string(0), 0), 0))
+Mapping._tc_Node typecode tk_union(IDL:rustorb.org/Mapping/Node:1.0 Node; switch tk_short(); default -1; case int 1 leaf: tk_long(); case int 2 branch: tk_sequence(tk_union(recursive IDL:rustorb.org/Mapping/Node:1.0), 0))
+Mapping._tc_Other typecode tk_objref(IDL:rustorb.org/Mapping/Other:1.0 Other)
+Mapping._tc_Outer typecode tk_struct(IDL:rustorb.org/Mapping/Outer:1.0 Outer; nested: tk_struct(IDL:rustorb.org/Mapping/Outer/Inner:1.0 Inner; v: tk_long()); switch_mode: tk_enum(IDL:rustorb.org/Mapping/Outer/Mode:1.0 Mode; ON, OFF))
+Mapping._tc_Pair typecode tk_struct(IDL:rustorb.org/Mapping/Pair:1.0 Pair; first: tk_alias(IDL:rustorb.org/Mapping/Count:1.0 Count; tk_long()); second: tk_alias(IDL:rustorb.org/Mapping/Count2:1.0 Count2; tk_alias(IDL:rustorb.org/Mapping/Count:1.0 Count; tk_long())))
+Mapping._tc_PairAlias typecode tk_alias(IDL:rustorb.org/Mapping/PairAlias:1.0 PairAlias; tk_struct(IDL:rustorb.org/Mapping/Pair:1.0 Pair; first: tk_alias(IDL:rustorb.org/Mapping/Count:1.0 Count; tk_long()); second: tk_alias(IDL:rustorb.org/Mapping/Count2:1.0 Count2; tk_alias(IDL:rustorb.org/Mapping/Count:1.0 Count; tk_long()))))
+Mapping._tc_PairSeq typecode tk_alias(IDL:rustorb.org/Mapping/PairSeq:1.0 PairSeq; tk_sequence(tk_struct(IDL:rustorb.org/Mapping/Pair:1.0 Pair; first: tk_alias(IDL:rustorb.org/Mapping/Count:1.0 Count; tk_long()); second: tk_alias(IDL:rustorb.org/Mapping/Count2:1.0 Count2; tk_alias(IDL:rustorb.org/Mapping/Count:1.0 Count; tk_long()))), 0))
+Mapping._tc_ShortString typecode tk_alias(IDL:rustorb.org/Mapping/ShortString:1.0 ShortString; tk_string(8))
+Mapping._tc_Tree typecode tk_struct(IDL:rustorb.org/Mapping/Tree:1.0 Tree; label: tk_string(0); children: tk_sequence(tk_struct(recursive IDL:rustorb.org/Mapping/Tree:1.0), 0))
+Mapping._tc_WithArray typecode tk_union(IDL:rustorb.org/Mapping/WithArray:1.0 WithArray; switch tk_long(); default -1; case int 0 cells: tk_alias(IDL:rustorb.org/Mapping/Grid:1.0 Grid; tk_array(tk_array(tk_short(), 2), 2)); case int 1 two: tk_struct(IDL:rustorb.org/Mapping/Pair:1.0 Pair; first: tk_alias(IDL:rustorb.org/Mapping/Count:1.0 Count; tk_long()); second: tk_alias(IDL:rustorb.org/Mapping/Count2:1.0 Count2; tk_alias(IDL:rustorb.org/Mapping/Count:1.0 Count; tk_long()))))
+_GlobalIDL module
+_GlobalIDL.GLOBAL_LIMIT const int 10
+_GlobalIDL.GlobalIface interface IDL:rustorb.org/GlobalIface:1.0 [] construct raises RuntimeError _nil None
+_GlobalIDL.GlobalPoint struct IDL:rustorb.org/GlobalPoint:1.0 []
+_GlobalIDL.GlobalPoint construct ok ['v0', 'v1']
+_GlobalIDL.GlobalPoint construct with too many arguments raises TypeError
+_GlobalIDL._objref_GlobalIface stub IDL:rustorb.org/GlobalIface:1.0 [CORBA.Object] methods ['ping']
+_GlobalIDL._tc_GlobalIface typecode tk_objref(IDL:rustorb.org/GlobalIface:1.0 GlobalIface)
+_GlobalIDL._tc_GlobalPoint typecode tk_struct(IDL:rustorb.org/GlobalPoint:1.0 GlobalPoint; x: tk_long(); y: tk_long())
+Mapping__POA module
+Mapping__POA.AbstractIface skeleton IDL:rustorb.org/Mapping/AbstractIface:1.0 [PortableServer.Servant]
+Mapping__POA.Base skeleton IDL:rustorb.org/Mapping/Base:1.0 [PortableServer.Servant]
+Mapping__POA.Derived skeleton IDL:rustorb.org/Mapping/Derived:1.0 [Mapping__POA.Base, PortableServer.Servant]
+Mapping__POA.Inner module
+Mapping__POA.Inner.InnerIface skeleton IDL:rustorb.org/Mapping/Inner/InnerIface:1.0 [Mapping__POA.Base, PortableServer.Servant]
+Mapping__POA.Later skeleton IDL:rustorb.org/Mapping/Later:1.0 [PortableServer.Servant]
+Mapping__POA.LocalIface skeleton IDL:rustorb.org/Mapping/LocalIface:1.0 [PortableServer.Servant]
+Mapping__POA.Multi skeleton IDL:rustorb.org/Mapping/Multi:1.0 [Mapping__POA.Derived, Mapping__POA.Base, Mapping__POA.Other, PortableServer.Servant]
+Mapping__POA.Other skeleton IDL:rustorb.org/Mapping/Other:1.0 [PortableServer.Servant]
+_GlobalIDL__POA module
+_GlobalIDL__POA.GlobalIface skeleton IDL:rustorb.org/GlobalIface:1.0 [PortableServer.Servant]
+CosNaming module
+CosNaming.Binding struct IDL:omg.org/CosNaming/Binding:1.0 []
+CosNaming.Binding construct ok ['v0', 'v1']
+CosNaming.Binding construct with too many arguments raises TypeError
+CosNaming.BindingIterator interface IDL:omg.org/CosNaming/BindingIterator:1.0 [] construct raises RuntimeError _nil None
+CosNaming.BindingList typedef IDL:omg.org/CosNaming/BindingList:1.0 [] construct raises RuntimeError
+CosNaming.BindingType enum IDL:omg.org/CosNaming/BindingType:1.0 ['nobject', 'ncontext'] items-ok
+CosNaming.Istring typedef IDL:omg.org/CosNaming/Istring:1.0 [] construct raises RuntimeError
+CosNaming.Name typedef IDL:omg.org/CosNaming/Name:1.0 [] construct raises RuntimeError
+CosNaming.NameComponent struct IDL:omg.org/CosNaming/NameComponent:1.0 []
+CosNaming.NameComponent construct ok ['v0', 'v1']
+CosNaming.NameComponent construct with too many arguments raises TypeError
+CosNaming.NamingContext interface IDL:omg.org/CosNaming/NamingContext:1.0 [] construct raises RuntimeError _nil None
+CosNaming.NamingContext.AlreadyBound exception IDL:omg.org/CosNaming/NamingContext/AlreadyBound:1.0 [CORBA.UserException]
+CosNaming.NamingContext.AlreadyBound construct ok []
+CosNaming.NamingContext.CannotProceed exception IDL:omg.org/CosNaming/NamingContext/CannotProceed:1.0 [CORBA.UserException]
+CosNaming.NamingContext.CannotProceed construct ok ['v0', 'v1']
+CosNaming.NamingContext.InvalidName exception IDL:omg.org/CosNaming/NamingContext/InvalidName:1.0 [CORBA.UserException]
+CosNaming.NamingContext.InvalidName construct ok []
+CosNaming.NamingContext.NotEmpty exception IDL:omg.org/CosNaming/NamingContext/NotEmpty:1.0 [CORBA.UserException]
+CosNaming.NamingContext.NotEmpty construct ok []
+CosNaming.NamingContext.NotFound exception IDL:omg.org/CosNaming/NamingContext/NotFound:1.0 [CORBA.UserException]
+CosNaming.NamingContext.NotFound construct ok ['v0', 'v1']
+CosNaming.NamingContext.NotFoundReason enum IDL:omg.org/CosNaming/NamingContext/NotFoundReason:1.0 ['missing_node', 'not_context', 'not_object'] items-ok
+CosNaming.NamingContext._tc_AlreadyBound typecode tk_except(IDL:omg.org/CosNaming/NamingContext/AlreadyBound:1.0 AlreadyBound)
+CosNaming.NamingContext._tc_CannotProceed typecode tk_except(IDL:omg.org/CosNaming/NamingContext/CannotProceed:1.0 CannotProceed; cxt: tk_objref(IDL:omg.org/CosNaming/NamingContext:1.0 NamingContext); rest_of_name: tk_alias(IDL:omg.org/CosNaming/Name:1.0 Name; tk_sequence(tk_struct(IDL:omg.org/CosNaming/NameComponent:1.0 NameComponent; id: tk_alias(IDL:omg.org/CosNaming/Istring:1.0 Istring; tk_string(0)); kind: tk_alias(IDL:omg.org/CosNaming/Istring:1.0 Istring; tk_string(0))), 0)))
+CosNaming.NamingContext._tc_InvalidName typecode tk_except(IDL:omg.org/CosNaming/NamingContext/InvalidName:1.0 InvalidName)
+CosNaming.NamingContext._tc_NotEmpty typecode tk_except(IDL:omg.org/CosNaming/NamingContext/NotEmpty:1.0 NotEmpty)
+CosNaming.NamingContext._tc_NotFound typecode tk_except(IDL:omg.org/CosNaming/NamingContext/NotFound:1.0 NotFound; why: tk_enum(IDL:omg.org/CosNaming/NamingContext/NotFoundReason:1.0 NotFoundReason; missing_node, not_context, not_object); rest_of_name: tk_alias(IDL:omg.org/CosNaming/Name:1.0 Name; tk_sequence(tk_struct(IDL:omg.org/CosNaming/NameComponent:1.0 NameComponent; id: tk_alias(IDL:omg.org/CosNaming/Istring:1.0 Istring; tk_string(0)); kind: tk_alias(IDL:omg.org/CosNaming/Istring:1.0 Istring; tk_string(0))), 0)))
+CosNaming.NamingContext._tc_NotFoundReason typecode tk_enum(IDL:omg.org/CosNaming/NamingContext/NotFoundReason:1.0 NotFoundReason; missing_node, not_context, not_object)
+CosNaming.NamingContext.missing_node const enumitem IDL:omg.org/CosNaming/NamingContext/NotFoundReason:1.0 missing_node 0
+CosNaming.NamingContext.not_context const enumitem IDL:omg.org/CosNaming/NamingContext/NotFoundReason:1.0 not_context 1
+CosNaming.NamingContext.not_object const enumitem IDL:omg.org/CosNaming/NamingContext/NotFoundReason:1.0 not_object 2
+CosNaming.NamingContextExt interface IDL:omg.org/CosNaming/NamingContextExt:1.0 [CosNaming.NamingContext] construct raises RuntimeError _nil None
+CosNaming.NamingContextExt.Address typedef IDL:omg.org/CosNaming/NamingContextExt/Address:1.0 [] construct raises RuntimeError
+CosNaming.NamingContextExt.InvalidAddress exception IDL:omg.org/CosNaming/NamingContextExt/InvalidAddress:1.0 [CORBA.UserException]
+CosNaming.NamingContextExt.InvalidAddress construct ok []
+CosNaming.NamingContextExt.StringName typedef IDL:omg.org/CosNaming/NamingContextExt/StringName:1.0 [] construct raises RuntimeError
+CosNaming.NamingContextExt.URLString typedef IDL:omg.org/CosNaming/NamingContextExt/URLString:1.0 [] construct raises RuntimeError
+CosNaming.NamingContextExt._tc_Address typecode tk_alias(IDL:omg.org/CosNaming/NamingContextExt/Address:1.0 Address; tk_string(0))
+CosNaming.NamingContextExt._tc_InvalidAddress typecode tk_except(IDL:omg.org/CosNaming/NamingContextExt/InvalidAddress:1.0 InvalidAddress)
+CosNaming.NamingContextExt._tc_StringName typecode tk_alias(IDL:omg.org/CosNaming/NamingContextExt/StringName:1.0 StringName; tk_string(0))
+CosNaming.NamingContextExt._tc_URLString typecode tk_alias(IDL:omg.org/CosNaming/NamingContextExt/URLString:1.0 URLString; tk_string(0))
+CosNaming._objref_BindingIterator stub IDL:omg.org/CosNaming/BindingIterator:1.0 [CORBA.Object] methods ['destroy', 'next_n', 'next_one']
+CosNaming._objref_NamingContext stub IDL:omg.org/CosNaming/NamingContext:1.0 [CORBA.Object] methods ['bind', 'bind_context', 'bind_new_context', 'destroy', 'list', 'new_context', 'rebind', 'rebind_context', 'resolve', 'unbind']
+CosNaming._objref_NamingContextExt stub IDL:omg.org/CosNaming/NamingContextExt:1.0 [CosNaming._objref_NamingContext, CORBA.Object] methods ['bind', 'bind_context', 'bind_new_context', 'destroy', 'list', 'new_context', 'rebind', 'rebind_context', 'resolve', 'resolve_str', 'to_name', 'to_string', 'to_url', 'unbind']
+CosNaming._tc_Binding typecode tk_struct(IDL:omg.org/CosNaming/Binding:1.0 Binding; binding_name: tk_alias(IDL:omg.org/CosNaming/Name:1.0 Name; tk_sequence(tk_struct(IDL:omg.org/CosNaming/NameComponent:1.0 NameComponent; id: tk_alias(IDL:omg.org/CosNaming/Istring:1.0 Istring; tk_string(0)); kind: tk_alias(IDL:omg.org/CosNaming/Istring:1.0 Istring; tk_string(0))), 0)); binding_type: tk_enum(IDL:omg.org/CosNaming/BindingType:1.0 BindingType; nobject, ncontext))
+CosNaming._tc_BindingIterator typecode tk_objref(IDL:omg.org/CosNaming/BindingIterator:1.0 BindingIterator)
+CosNaming._tc_BindingList typecode tk_alias(IDL:omg.org/CosNaming/BindingList:1.0 BindingList; tk_sequence(tk_struct(IDL:omg.org/CosNaming/Binding:1.0 Binding; binding_name: tk_alias(IDL:omg.org/CosNaming/Name:1.0 Name; tk_sequence(tk_struct(IDL:omg.org/CosNaming/NameComponent:1.0 NameComponent; id: tk_alias(IDL:omg.org/CosNaming/Istring:1.0 Istring; tk_string(0)); kind: tk_alias(IDL:omg.org/CosNaming/Istring:1.0 Istring; tk_string(0))), 0)); binding_type: tk_enum(IDL:omg.org/CosNaming/BindingType:1.0 BindingType; nobject, ncontext)), 0))
+CosNaming._tc_BindingType typecode tk_enum(IDL:omg.org/CosNaming/BindingType:1.0 BindingType; nobject, ncontext)
+CosNaming._tc_Istring typecode tk_alias(IDL:omg.org/CosNaming/Istring:1.0 Istring; tk_string(0))
+CosNaming._tc_Name typecode tk_alias(IDL:omg.org/CosNaming/Name:1.0 Name; tk_sequence(tk_struct(IDL:omg.org/CosNaming/NameComponent:1.0 NameComponent; id: tk_alias(IDL:omg.org/CosNaming/Istring:1.0 Istring; tk_string(0)); kind: tk_alias(IDL:omg.org/CosNaming/Istring:1.0 Istring; tk_string(0))), 0))
+CosNaming._tc_NameComponent typecode tk_struct(IDL:omg.org/CosNaming/NameComponent:1.0 NameComponent; id: tk_alias(IDL:omg.org/CosNaming/Istring:1.0 Istring; tk_string(0)); kind: tk_alias(IDL:omg.org/CosNaming/Istring:1.0 Istring; tk_string(0)))
+CosNaming._tc_NamingContext typecode tk_objref(IDL:omg.org/CosNaming/NamingContext:1.0 NamingContext)
+CosNaming._tc_NamingContextExt typecode tk_objref(IDL:omg.org/CosNaming/NamingContextExt:1.0 NamingContextExt)
+CosNaming.ncontext const enumitem IDL:omg.org/CosNaming/BindingType:1.0 ncontext 1
+CosNaming.nobject const enumitem IDL:omg.org/CosNaming/BindingType:1.0 nobject 0
+CosNaming__POA module
+CosNaming__POA.BindingIterator skeleton IDL:omg.org/CosNaming/BindingIterator:1.0 [PortableServer.Servant]
+CosNaming__POA.NamingContext skeleton IDL:omg.org/CosNaming/NamingContext:1.0 [PortableServer.Servant]
+CosNaming__POA.NamingContextExt skeleton IDL:omg.org/CosNaming/NamingContextExt:1.0 [CosNaming__POA.NamingContext, PortableServer.Servant]
+InteropTest module
+InteropTest.BLUE const enumitem IDL:rustorb.org/InteropTest/Color:1.0 BLUE 2
+InteropTest.Callback interface IDL:rustorb.org/InteropTest/Callback:1.0 [] construct raises RuntimeError _nil None
+InteropTest.Color enum IDL:rustorb.org/InteropTest/Color:1.0 ['RED', 'GREEN', 'BLUE'] items-ok
+InteropTest.DivideByZero exception IDL:rustorb.org/InteropTest/DivideByZero:1.0 [CORBA.UserException]
+InteropTest.DivideByZero construct ok []
+InteropTest.Echo interface IDL:rustorb.org/InteropTest/Echo:1.0 [] construct raises RuntimeError _nil None
+InteropTest.GREEN const enumitem IDL:rustorb.org/InteropTest/Color:1.0 GREEN 1
+InteropTest.LongArray typedef IDL:rustorb.org/InteropTest/LongArray:1.0 [] construct raises RuntimeError
+InteropTest.LongSeq typedef IDL:rustorb.org/InteropTest/LongSeq:1.0 [] construct raises RuntimeError
+InteropTest.MAGIC const int 1381323604
+InteropTest.Matrix typedef IDL:rustorb.org/InteropTest/Matrix:1.0 [] construct raises RuntimeError
+InteropTest.OctetSeq typedef IDL:rustorb.org/InteropTest/OctetSeq:1.0 [] construct raises RuntimeError
+InteropTest.Oops exception IDL:rustorb.org/InteropTest/Oops:1.0 [CORBA.UserException]
+InteropTest.Oops construct ok ['v0', 'v1']
+InteropTest.Point struct IDL:rustorb.org/InteropTest/Point:1.0 []
+InteropTest.Point construct ok ['v0', 'v1']
+InteropTest.Point construct with too many arguments raises TypeError
+InteropTest.RED const enumitem IDL:rustorb.org/InteropTest/Color:1.0 RED 0
+InteropTest.Record struct IDL:rustorb.org/InteropTest/Record:1.0 []
+InteropTest.Record construct ok ['v0', 'v1', 'v2', 'v3', 'v4', 'v5']
+InteropTest.Record construct with too many arguments raises TypeError
+InteropTest.RecordSeq typedef IDL:rustorb.org/InteropTest/RecordSeq:1.0 [] construct raises RuntimeError
+InteropTest.Shade union IDL:rustorb.org/InteropTest/Shade:1.0 []
+InteropTest.Shade (enumitem IDL:rustorb.org/InteropTest/Color:1.0 RED 0, v) ok _d enumitem IDL:rustorb.org/InteropTest/Color:1.0 RED 0 _v str 'v' level ok str 'v'
+InteropTest.Shade (level=v) ok _d enumitem IDL:rustorb.org/InteropTest/Color:1.0 RED 0 _v str 'v'
+InteropTest.Shade (enumitem IDL:rustorb.org/InteropTest/Color:1.0 GREEN 1, v) ok _d enumitem IDL:rustorb.org/InteropTest/Color:1.0 GREEN 1 _v str 'v' label ok str 'v'
+InteropTest.Shade (label=v) ok _d enumitem IDL:rustorb.org/InteropTest/Color:1.0 GREEN 1 _v str 'v'
+InteropTest.StringSeq typedef IDL:rustorb.org/InteropTest/StringSeq:1.0 [] construct raises RuntimeError
+InteropTest.Value union IDL:rustorb.org/InteropTest/Value:1.0 []
+InteropTest.Value (int 1, v) ok _d int 1 _v str 'v' l ok str 'v'
+InteropTest.Value (l=v) ok _d int 1 _v str 'v'
+InteropTest.Value (int 2, v) ok _d int 2 _v str 'v' s ok str 'v'
+InteropTest.Value (s=v) ok _d int 2 _v str 'v'
+InteropTest.Value (int 3, v) ok _d int 3 _v str 'v' p ok str 'v'
+InteropTest.Value (p=v) ok _d int 3 _v str 'v'
+InteropTest.Value (int 4, v) ok _d int 4 _v str 'v' seq ok str 'v'
+InteropTest.Value (seq=v) ok _d int 5 _v str 'v'
+InteropTest.Value (int 5, v) ok _d int 5 _v str 'v' seq ok str 'v'
+InteropTest.Value (flag=v) ok _d int -2147483648 _v str 'v'
+InteropTest._objref_Callback stub IDL:rustorb.org/InteropTest/Callback:1.0 [CORBA.Object] methods ['notify']
+InteropTest._objref_Echo stub IDL:rustorb.org/InteropTest/Echo:1.0 [CORBA.Object] methods ['call_back', 'counter', 'divide', 'echo_boolean', 'echo_char', 'echo_color', 'echo_double', 'echo_float', 'echo_long', 'echo_long_array', 'echo_long_seq', 'echo_longlong', 'echo_matrix', 'echo_octet', 'echo_octets', 'echo_point', 'echo_record', 'echo_records', 'echo_ref', 'echo_shade', 'echo_short', 'echo_string', 'echo_string_seq', 'echo_ulong', 'echo_ulonglong', 'echo_ushort', 'echo_value', 'echo_wchar', 'echo_wstring', 'fail', 'fail_system', 'is_nil', 'make', 'name', 'post', 'posted', 'register_callback', 'self_ref', 'shutdown', 'swap', 'trigger']
+InteropTest._tc_Callback typecode tk_objref(IDL:rustorb.org/InteropTest/Callback:1.0 Callback)
+InteropTest._tc_Color typecode tk_enum(IDL:rustorb.org/InteropTest/Color:1.0 Color; RED, GREEN, BLUE)
+InteropTest._tc_DivideByZero typecode tk_except(IDL:rustorb.org/InteropTest/DivideByZero:1.0 DivideByZero)
+InteropTest._tc_Echo typecode tk_objref(IDL:rustorb.org/InteropTest/Echo:1.0 Echo)
+InteropTest._tc_LongArray typecode tk_alias(IDL:rustorb.org/InteropTest/LongArray:1.0 LongArray; tk_array(tk_long(), 4))
+InteropTest._tc_LongSeq typecode tk_alias(IDL:rustorb.org/InteropTest/LongSeq:1.0 LongSeq; tk_sequence(tk_long(), 0))
+InteropTest._tc_Matrix typecode tk_alias(IDL:rustorb.org/InteropTest/Matrix:1.0 Matrix; tk_array(tk_array(tk_double(), 3), 2))
+InteropTest._tc_OctetSeq typecode tk_alias(IDL:rustorb.org/InteropTest/OctetSeq:1.0 OctetSeq; tk_sequence(tk_octet(), 0))
+InteropTest._tc_Oops typecode tk_except(IDL:rustorb.org/InteropTest/Oops:1.0 Oops; code: tk_long(); reason: tk_string(0))
+InteropTest._tc_Point typecode tk_struct(IDL:rustorb.org/InteropTest/Point:1.0 Point; x: tk_double(); y: tk_double())
+InteropTest._tc_Record typecode tk_struct(IDL:rustorb.org/InteropTest/Record:1.0 Record; id: tk_long(); name: tk_string(0); hue: tk_enum(IDL:rustorb.org/InteropTest/Color:1.0 Color; RED, GREEN, BLUE); pos: tk_struct(IDL:rustorb.org/InteropTest/Point:1.0 Point; x: tk_double(); y: tk_double()); values: tk_alias(IDL:rustorb.org/InteropTest/LongSeq:1.0 LongSeq; tk_sequence(tk_long(), 0)); active: tk_boolean())
+InteropTest._tc_RecordSeq typecode tk_alias(IDL:rustorb.org/InteropTest/RecordSeq:1.0 RecordSeq; tk_sequence(tk_struct(IDL:rustorb.org/InteropTest/Record:1.0 Record; id: tk_long(); name: tk_string(0); hue: tk_enum(IDL:rustorb.org/InteropTest/Color:1.0 Color; RED, GREEN, BLUE); pos: tk_struct(IDL:rustorb.org/InteropTest/Point:1.0 Point; x: tk_double(); y: tk_double()); values: tk_alias(IDL:rustorb.org/InteropTest/LongSeq:1.0 LongSeq; tk_sequence(tk_long(), 0)); active: tk_boolean()), 0))
+InteropTest._tc_Shade typecode tk_union(IDL:rustorb.org/InteropTest/Shade:1.0 Shade; switch tk_enum(IDL:rustorb.org/InteropTest/Color:1.0 Color; RED, GREEN, BLUE); default -1; case enumitem IDL:rustorb.org/InteropTest/Color:1.0 RED 0 level: tk_octet(); case enumitem IDL:rustorb.org/InteropTest/Color:1.0 GREEN 1 label: tk_string(0))
+InteropTest._tc_StringSeq typecode tk_alias(IDL:rustorb.org/InteropTest/StringSeq:1.0 StringSeq; tk_sequence(tk_string(0), 0))
+InteropTest._tc_Value typecode tk_union(IDL:rustorb.org/InteropTest/Value:1.0 Value; switch tk_long(); default 5; case int 1 l: tk_long(); case int 2 s: tk_string(0); case int 3 p: tk_struct(IDL:rustorb.org/InteropTest/Point:1.0 Point; x: tk_double(); y: tk_double()); case int 4 seq: tk_alias(IDL:rustorb.org/InteropTest/LongSeq:1.0 LongSeq; tk_sequence(tk_long(), 0)); case int 5 seq: tk_alias(IDL:rustorb.org/InteropTest/LongSeq:1.0 LongSeq; tk_sequence(tk_long(), 0)); case default flag: tk_boolean())
+InteropTest__POA module
+InteropTest__POA.Callback skeleton IDL:rustorb.org/InteropTest/Callback:1.0 [PortableServer.Servant]
+InteropTest__POA.Echo skeleton IDL:rustorb.org/InteropTest/Echo:1.0 [PortableServer.Servant]
+PoaProbe module
+PoaProbe.CallInfo struct IDL:rustorb.org/PoaProbe/CallInfo:1.0 []
+PoaProbe.CallInfo construct ok ['v0', 'v1', 'v2', 'v3', 'v4']
+PoaProbe.CallInfo construct with too many arguments raises TypeError
+PoaProbe.Control interface IDL:rustorb.org/PoaProbe/Control:1.0 [] construct raises RuntimeError _nil None
+PoaProbe.Failed exception IDL:rustorb.org/PoaProbe/Failed:1.0 [CORBA.UserException]
+PoaProbe.Failed construct ok ['v0']
+PoaProbe.StringSeq typedef IDL:rustorb.org/PoaProbe/StringSeq:1.0 [] construct raises RuntimeError
+PoaProbe.Target interface IDL:rustorb.org/PoaProbe/Target:1.0 [] construct raises RuntimeError _nil None
+PoaProbe._objref_Control stub IDL:rustorb.org/PoaProbe/Control:1.0 [CORBA.Object] methods ['activate_object', 'deactivate_object', 'destroy_poa', 'events', 'reference', 'set_state', 'shutdown_inside', 'shutdown_later']
+PoaProbe._objref_Target stub IDL:rustorb.org/PoaProbe/Target:1.0 [CORBA.Object] methods ['post', 'relay', 'work']
+PoaProbe._tc_CallInfo typecode tk_struct(IDL:rustorb.org/PoaProbe/CallInfo:1.0 CallInfo; thread: tk_string(0); object_id: tk_string(0); poa: tk_string(0); start: tk_double(); end: tk_double())
+PoaProbe._tc_Control typecode tk_objref(IDL:rustorb.org/PoaProbe/Control:1.0 Control)
+PoaProbe._tc_Failed typecode tk_except(IDL:rustorb.org/PoaProbe/Failed:1.0 Failed; reason: tk_string(0))
+PoaProbe._tc_StringSeq typecode tk_alias(IDL:rustorb.org/PoaProbe/StringSeq:1.0 StringSeq; tk_sequence(tk_string(0), 0))
+PoaProbe._tc_Target typecode tk_objref(IDL:rustorb.org/PoaProbe/Target:1.0 Target)
+PoaProbe__POA module
+PoaProbe__POA.Control skeleton IDL:rustorb.org/PoaProbe/Control:1.0 [PortableServer.Servant]
+PoaProbe__POA.Target skeleton IDL:rustorb.org/PoaProbe/Target:1.0 [PortableServer.Servant]

@@ -205,4 +205,9 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - omniNames の実測に合わせた挙動：`rebind` / `rebind_context` は型の違う既存の束縛も置き換える、nil の束縛を許す、`list(0)` は空列と反復子、`next_n(0)` は FALSE、終端の `next_one` は空の名前、ルートコンテキストも `destroy` できる（rustorb は次の起動で作り直す）、破棄したコンテキストを経由する解決は `OBJECT_NOT_EXIST`、`to_url` の名前が空なら `corbaname:アドレス`。他の命名サービスのコンテキストを束縛した場合は、そのコンテキストを呼んで解決を続ける
   - omniNames との意図的な差：`list` の順序は名前順（omniNames は束縛した順）、`to_url` のエスケープは大文字の16進・UTF-8（クライアント側の `to_url` と同じ）
   - 相互接続：`run-naming-check.sh --naming rustorb` で omniORBpy・rustorb の両クライアントの操作列が omniNames と同じ期待出力になり、デーモンを再起動しても束縛と再起動前のコンテキストのIORが使えることを確かめる。`run-matrix.sh --naming rustorb` でも9組すべてが omniNames のときと同じ結果になる
-- [ ] idl\_parser のP0（#133〜#137）が直りしだい、Python生成器（M1）に着手する
+- [x] idl\_parser のP0（#133〜#137）が直りしだい、Python生成器（M1）に着手する（[python-codegen.md](python-codegen.md)）
+  - idl\_parser の #133〜#144 はすべて修正済み。生成器は Python で書くことにした（idl\_parser を直接使う。どちらの案でも生成時に Python と idl\_parser が要るため、JSON 中間表現＋Rust の利点は小さい）
+  - `rustorb-idl -bpython`（`crates/rustorb-codegen/python`）：omniidl -bpython と同じレイアウト（`Foo_idl.py`、`Module/`、`Module__POA/`、`_GlobalIDL`）と `.pyi`。生成コードが使う `rustorb` パッケージの純 Python 部分（`python/rustorb`：TypeCode、例外、struct / union / enum の基底、生成コードとの取り決め `_rt`）
+  - 互換の確認：`interop/run-pymapping-check.sh` が omniidl と rustorb-idl の生成物の公開API（定数、型の構築、TypeCode、クラスの継承、スタブのメソッド）を omniORBpy 上と rustorb 上で出力して比べる。差は仕様に従った4点だけ
+  - idl\_parser の不具合を1件報告（[idl\_parser#159](https://github.com/sugarsweetrobotics/idl_parser/issues/159)、戻り値が複数語の型）。修正済みで、生成器はその修正を含むコミットに固定した
+- [ ] Python バインディング（M3）：PyO3 のネイティブモジュールで `ORB_init`、生成コードの `_invoke`（TypeCode に従うマーシャリング）、POA と `_this()` をつなぎ、Python の rustorb を相互接続マトリクスに入れる

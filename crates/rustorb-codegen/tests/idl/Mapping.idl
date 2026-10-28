@@ -1,0 +1,187 @@
+// Constructs of the IDL to Python mapping that the test IDLs of the interop
+// tests do not use. The Python generator is checked against omniidl
+// -bpython with this file (interop/run-pymapping-check.sh).
+
+#pragma prefix "rustorb.org"
+
+const long GLOBAL_LIMIT = 10;
+
+struct GlobalPoint {
+  long x;
+  long y;
+};
+
+interface GlobalIface {
+  long ping(in long v);
+};
+
+module Mapping {
+
+  // --- constants of every kind ---
+  const short C_SHORT = -3;
+  const unsigned short C_USHORT = 3;
+  const long C_LONG = 1 << 20;
+  const unsigned long C_ULONG = 4000000000;
+  const long long C_LONGLONG = -9000000000;
+  const unsigned long long C_ULONGLONG = 18000000000000000000;
+  const float C_FLOAT = 1.5;
+  const double C_DOUBLE = 1.0 / 4.0;
+  const boolean C_TRUE = TRUE;
+  const boolean C_FALSE = FALSE;
+  const char C_CHAR = 'q';
+  const wchar C_WCHAR = L'w';
+  const string C_STRING = "ab" "cd";
+  const wstring C_WSTRING = L"wide";
+  const octet C_OCTET = 255;
+  const long C_EXPR = C_LONG * 2 + C_SHORT;
+
+  enum Fruit { APPLE, BANANA, CHERRY };
+  const Fruit C_ENUM = BANANA;
+
+  // --- typedefs ---
+  typedef long Count;
+  typedef Count Count2;
+  typedef string<8> ShortString;
+  typedef sequence<long, 5> BoundedSeq;
+  typedef sequence<sequence<string> > NestedSeq;
+  typedef short Grid[2][2];
+  typedef Fruit FruitAlias;
+
+  struct Pair {
+    Count first;
+    Count2 second;
+  };
+  typedef Pair PairAlias;
+  typedef fixed<5, 2> Money;
+  const fixed C_FIXED = 12.50d;
+  typedef sequence<Pair> PairSeq;
+
+  // --- recursive struct and union ---
+  struct Tree {
+    string label;
+    sequence<Tree> children;
+  };
+
+  union Node switch (short) {
+    case 1: long leaf;
+    case 2: sequence<Node> branch;
+  };
+
+  // --- unions with every kind of discriminator ---
+  union ByBool switch (boolean) {
+    case TRUE: long yes;
+    case FALSE: string no;
+  };
+
+  union ByChar switch (char) {
+    case 'a': long a;
+    case 'b':
+    case 'c': string bc;
+  };
+
+  union ByEnum switch (Fruit) {
+    case APPLE: long apple_count;
+    case CHERRY: string cherry_name;
+    default: boolean other;
+  };
+
+  union ByULongLong switch (unsigned long long) {
+    case 7: double seven;
+  };
+
+  union WithArray switch (long) {
+    case 0: Grid cells;
+    case 1: Pair two;
+  };
+
+  // --- arrays and anonymous types in members ---
+  struct Holder {
+    long numbers[3];
+    sequence<Pair> pairs;
+    Grid cells;
+    ShortString tag;
+    BoundedSeq bounded;
+    any extra;
+    Object target;
+    Money price;
+    wstring<4> wide;
+  };
+
+  // --- types defined inside other types ---
+  struct Outer {
+    struct Inner {
+      long v;
+    } nested;
+    enum Mode { ON, OFF } switch_mode;
+  };
+
+  // --- exceptions ---
+  exception Failure {
+    long code;
+    string message;
+    Fruit kind;
+  };
+  exception Empty {};
+
+  // --- interfaces, inheritance and nested definitions ---
+  interface Later;
+
+  interface Base {
+    const long BASE_CONST = 7;
+    typedef sequence<Later> LaterSeq;
+    exception BaseError { string why; };
+    struct BaseInfo { long id; };
+
+    readonly attribute long id;
+    attribute string label;
+    void base_op() raises (BaseError);
+  };
+
+  interface Derived : Base {
+    long derived_op(in long a, inout long b, out long c) raises (Failure, Empty);
+    oneway void notify(in string msg);
+    Base as_base();
+    LaterSeq laters();
+  };
+
+  interface Other {
+    void other_op();
+  };
+
+  interface Multi : Derived, Other {
+    void multi_op(in Base::BaseInfo info);
+  };
+
+  interface Later {
+    Later next();
+  };
+
+  abstract interface AbstractIface {
+    void abstract_op();
+  };
+
+  local interface LocalIface {
+    void local_op();
+  };
+
+  typedef Base BaseAlias;
+  typedef ByBool ByBoolAlias;
+  typedef sequence<Base> BaseSeq;
+
+  // --- nested modules ---
+  module Inner {
+    const string INNER_NAME = "inner";
+    struct InnerStruct {
+      Pair two;
+      ::GlobalPoint global;
+    };
+    interface InnerIface : Base {
+      InnerStruct get();
+    };
+  };
+};
+
+module Mapping {
+  // A module opened again.
+  const long REOPENED = 1;
+};
