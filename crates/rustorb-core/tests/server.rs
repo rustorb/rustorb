@@ -17,8 +17,8 @@ use rustorb_core::giop::{
 use rustorb_core::{
     CompletionStatus, EndpointAddr, Exception, IdAssignment, IdUniqueness, ImplicitActivation,
     InStream, Lifespan, ObjectRef, Orb, OrbOptions, Poa, PoaError, PoaManagerState, Policy,
-    RequestProcessing, Servant, ServerReply, SystemException, SystemExceptionKind, ThreadPolicy,
-    minor,
+    RequestProcessing, Servant, ServantRetention, ServerReply, SystemException,
+    SystemExceptionKind, minor,
 };
 
 const TEST_ID: &str = "IDL:test/Test:1.0";
@@ -403,11 +403,14 @@ fn poa_operations_check_their_arguments() {
             ],
             1,
         ),
-        (vec![Policy::Thread(ThreadPolicy::SingleThread)], 0),
+        (
+            vec![Policy::ServantRetention(ServantRetention::NonRetain)],
+            0,
+        ),
         (
             vec![
                 Policy::Lifespan(Lifespan::Persistent),
-                Policy::RequestProcessing(RequestProcessing::UseServantManager),
+                Policy::RequestProcessing(RequestProcessing::UseDefaultServant),
             ],
             1,
         ),

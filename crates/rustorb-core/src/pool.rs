@@ -4,9 +4,14 @@
 //! tokio workers. `min` threads are started with the pool and stay; more
 //! are started while every thread is busy, up to `max`, and those end
 //! after `idle_timeout` without work. Jobs beyond `max` wait in a queue.
+//!
+//! A job goes to the thread that became idle last, so that calls made one
+//! after another run on the same thread (as they do with omniORB, which
+//! serves a connection on one thread while it is not busy).
 
 use std::collections::VecDeque;
 use std::panic::{self, AssertUnwindSafe};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -21,7 +26,6 @@ pub(crate) struct Pool {
 #[derive(Debug)]
 struct Shared {
     state: Mutex<State>,
-    cond: Condvar,
     min: usize,
     max: usize,
     idle_timeout: Duration,
@@ -29,8 +33,8 @@ struct Shared {
 
 struct State {
     queue: VecDeque<Job>,
-    /// Threads waiting for a job.
-    idle: usize,
+    /// Threads waiting for a job, the one idle the shortest last.
+    idle: Vec<Arc<Waiter>>,
     /// Threads running, idle or not.
     threads: usize,
     stopping: bool,
@@ -40,10 +44,25 @@ impl std::fmt::Debug for State {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("State")
             .field("queued", &self.queue.len())
-            .field("idle", &self.idle)
+            .field("idle", &self.idle.len())
             .field("threads", &self.threads)
             .field("stopping", &self.stopping)
             .finish()
+    }
+}
+
+/// How an idle thread is woken: each has its own condition variable (used
+/// with the state's mutex), so that the pool chooses which one runs a job.
+#[derive(Debug, Default)]
+struct Waiter {
+    cond: Condvar,
+    woken: AtomicBool,
+}
+
+impl Waiter {
+    fn wake(&self) {
+        self.woken.store(true, Ordering::Relaxed);
+        self.cond.notify_one();
     }
 }
 
@@ -54,11 +73,10 @@ impl Pool {
             shared: Arc::new(Shared {
                 state: Mutex::new(State {
                     queue: VecDeque::new(),
-                    idle: 0,
+                    idle: Vec::new(),
                     threads: 0,
                     stopping: false,
                 }),
-                cond: Condvar::new(),
                 min: min.min(max),
                 max,
                 idle_timeout,
@@ -72,16 +90,17 @@ impl Pool {
         pool
     }
 
-    /// Queues `job` for the next free thread, starting a thread if none is
-    /// free and the pool is below its maximum.
+    /// Queues `job` for the thread that became idle last, starting a
+    /// thread if none is idle and the pool is below its maximum.
     pub(crate) fn submit(&self, job: Job) {
         let mut state = self.shared.state.lock().unwrap();
         if state.stopping {
             return;
         }
         state.queue.push_back(job);
-        if state.idle >= state.queue.len() {
-            self.shared.cond.notify_one();
+        // Threads woken before take the jobs queued before.
+        if let Some(waiter) = state.idle.pop() {
+            waiter.wake();
         } else if state.threads < self.shared.max {
             spawn(&self.shared, &mut state);
         }
@@ -101,8 +120,10 @@ impl Drop for Pool {
         let mut state = self.shared.state.lock().unwrap();
         state.stopping = true;
         let queued = std::mem::take(&mut state.queue);
+        for waiter in state.idle.drain(..) {
+            waiter.wake();
+        }
         drop(state);
-        self.shared.cond.notify_all();
         drop(queued);
     }
 }
@@ -118,6 +139,7 @@ fn spawn(shared: &Arc<Shared>, state: &mut State) {
 }
 
 fn work(shared: &Shared) {
+    let me = Arc::new(Waiter::default());
     let mut state = shared.state.lock().unwrap();
     loop {
         if let Some(job) = state.queue.pop_front() {
@@ -131,15 +153,19 @@ fn work(shared: &Shared) {
         if state.stopping {
             break;
         }
-        state.idle += 1;
-        let (next, timeout) = shared
-            .cond
-            .wait_timeout(state, shared.idle_timeout)
-            .unwrap();
-        state = next;
-        state.idle -= 1;
-        if timeout.timed_out() && state.queue.is_empty() && state.threads > shared.min {
-            break;
+        me.woken.store(false, Ordering::Relaxed);
+        state.idle.push(Arc::clone(&me));
+        let mut timed_out = false;
+        while !me.woken.load(Ordering::Relaxed) && !timed_out {
+            let (next, timeout) = me.cond.wait_timeout(state, shared.idle_timeout).unwrap();
+            state = next;
+            timed_out = timeout.timed_out();
+        }
+        if !me.woken.load(Ordering::Relaxed) {
+            state.idle.retain(|w| !Arc::ptr_eq(w, &me));
+            if state.queue.is_empty() && state.threads > shared.min {
+                break;
+            }
         }
     }
     state.threads -= 1;
@@ -196,6 +222,24 @@ mod tests {
         got.sort_unstable();
         assert_eq!(got, (0..10).collect::<Vec<_>>());
         assert!(pool.threads() <= 2);
+    }
+
+    #[test]
+    fn jobs_one_after_another_run_on_the_same_thread() {
+        let pool = Pool::new(4, 8, Duration::from_secs(60));
+        // Let the threads start and go idle.
+        thread::sleep(Duration::from_millis(50));
+        let (tx, rx) = mpsc::channel();
+        let mut ids = Vec::new();
+        for _ in 0..6 {
+            let tx = tx.clone();
+            pool.submit(Box::new(move || tx.send(thread::current().id()).unwrap()));
+            ids.push(rx.recv_timeout(Duration::from_secs(5)).unwrap());
+            // Let the thread go idle again.
+            thread::sleep(Duration::from_millis(10));
+        }
+        ids.dedup();
+        assert_eq!(ids.len(), 1);
     }
 
     #[test]

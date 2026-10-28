@@ -1,5 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::future::Future;
+use std::panic::{self, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
@@ -10,7 +11,8 @@ use rustorb_giop::{CorbaName, Corbaloc, Ior, ObjectUrl, Version};
 use tokio::runtime::{Handle, Runtime};
 
 use crate::connection::Connection;
-use crate::poa::{self, Poa};
+use crate::poa::{self, MainThreadGuard, Poa};
+use crate::pool::Job;
 use crate::server::Server;
 use crate::{
     CompletionStatus, Exception, ObjectRef, SystemException, SystemExceptionKind, minor, name,
@@ -275,9 +277,41 @@ pub(crate) struct OrbInner {
     connections: Mutex<HashMap<(String, u16), Arc<Connection>>>,
     shut_down: AtomicBool,
     server: Mutex<Option<Arc<Server>>>,
-    /// Set once shutdown has completed; `run` waits for it.
-    stopped: Mutex<bool>,
-    stopped_cond: Condvar,
+    /// The MAIN_THREAD_MODEL requests, and whether shutdown has completed;
+    /// `run` waits for both.
+    main: Mutex<MainQueue>,
+    main_cond: Condvar,
+}
+
+#[derive(Default)]
+struct MainQueue {
+    jobs: VecDeque<Job>,
+    /// No more requests are queued (the server is shutting down).
+    closed: bool,
+    /// Shutdown has completed.
+    stopped: bool,
+}
+
+impl OrbInner {
+    /// Queues a MAIN_THREAD_MODEL request.
+    pub(crate) fn push_main(&self, job: Job) {
+        let mut main = self.main.lock().unwrap();
+        if main.closed {
+            return;
+        }
+        main.jobs.push_back(job);
+        self.main_cond.notify_one();
+    }
+
+    /// Drops the queued MAIN_THREAD_MODEL requests and refuses new ones.
+    pub(crate) fn close_main(&self) {
+        let jobs = {
+            let mut main = self.main.lock().unwrap();
+            main.closed = true;
+            std::mem::take(&mut main.jobs)
+        };
+        drop(jobs);
+    }
 }
 
 impl Drop for OrbInner {
@@ -325,8 +359,8 @@ impl Orb {
                 connections: Mutex::new(HashMap::new()),
                 shut_down: AtomicBool::new(false),
                 server: Mutex::new(None),
-                stopped: Mutex::new(false),
-                stopped_cond: Condvar::new(),
+                main: Mutex::default(),
+                main_cond: Condvar::new(),
             }),
         })
     }
@@ -497,6 +531,11 @@ impl Orb {
         self.inner.server.lock().unwrap().clone()
     }
 
+    /// The server side, if `host:port` is one of its endpoints.
+    pub(crate) fn local_server(&self, host: &str, port: u16) -> Option<Arc<Server>> {
+        self.server().filter(|s| s.is_local(host, port))
+    }
+
     /// The addresses the server side publishes in IORs, as host and port;
     /// empty until the RootPOA is used.
     pub fn endpoints(&self) -> Vec<(String, u16)> {
@@ -505,13 +544,47 @@ impl Orb {
             .unwrap_or_default()
     }
 
-    /// `CORBA::ORB::run`: blocks until the ORB has shut down. Requests are
+    /// `CORBA::ORB::run`: blocks until the ORB has shut down, running the
+    /// requests of MAIN_THREAD_MODEL POAs meanwhile. Other requests are
     /// processed on the upcall threads whether or not a thread runs this.
+    /// Several threads may run it at once.
     pub fn run(&self) {
-        let mut stopped = self.inner.stopped.lock().unwrap();
-        while !*stopped {
-            stopped = self.inner.stopped_cond.wait(stopped).unwrap();
+        let _main = MainThreadGuard::enter();
+        let mut main = self.inner.main.lock().unwrap();
+        loop {
+            if let Some(job) = main.jobs.pop_front() {
+                drop(main);
+                run_job(job);
+                main = self.inner.main.lock().unwrap();
+                continue;
+            }
+            if main.stopped {
+                return;
+            }
+            main = self.inner.main_cond.wait(main).unwrap();
         }
+    }
+
+    /// `CORBA::ORB::work_pending`: whether a MAIN_THREAD_MODEL request
+    /// waits for [`perform_work`](Orb::perform_work). `BAD_INV_ORDER` after
+    /// shutdown.
+    pub fn work_pending(&self) -> Result<bool, SystemException> {
+        self.check_running()?;
+        Ok(!self.inner.main.lock().unwrap().jobs.is_empty())
+    }
+
+    /// `CORBA::ORB::perform_work`: runs one waiting MAIN_THREAD_MODEL
+    /// request on the calling thread, if there is one, and returns without
+    /// waiting otherwise. For an application's own event loop.
+    /// `BAD_INV_ORDER` after shutdown.
+    pub fn perform_work(&self) -> Result<(), SystemException> {
+        self.check_running()?;
+        let job = self.inner.main.lock().unwrap().jobs.pop_front();
+        if let Some(job) = job {
+            let _main = MainThreadGuard::enter();
+            run_job(job);
+        }
+        Ok(())
     }
 
     /// `CORBA::ORB::shutdown`. Refuses new invocations (`BAD_INV_ORDER`)
@@ -580,8 +653,9 @@ impl Orb {
                 conn.close(version, order).await;
             }
         });
-        *self.inner.stopped.lock().unwrap() = true;
-        self.inner.stopped_cond.notify_all();
+        self.inner.close_main();
+        self.inner.main.lock().unwrap().stopped = true;
+        self.inner.main_cond.notify_all();
     }
 
     /// `CORBA::ORB::destroy`: [`shutdown(true)`](Orb::shutdown), and then
@@ -664,4 +738,10 @@ impl Orb {
             conns.remove(conn.endpoint());
         }
     }
+}
+
+/// Runs a MAIN_THREAD_MODEL request. Requests catch the panics of user
+/// code themselves; this keeps the loop going if anything else panics.
+fn run_job(job: Job) {
+    let _ = panic::catch_unwind(AssertUnwindSafe(job));
 }

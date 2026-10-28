@@ -2,10 +2,15 @@
 //! dispatch of requests to POAs.
 //!
 //! The I/O tasks only read and write GIOP messages, parse object keys and
-//! find the target POA; servants always run on the upcall pool. Replies go
-//! to a writer task per connection through a channel and are written in
-//! the order they complete, which need not be the order of the requests
-//! (omniORB does the same).
+//! find the target POA; user code (servants, servant managers, adapter
+//! activators) always runs on the upcall pool, or on the main thread for
+//! MAIN_THREAD_MODEL. Replies go to a writer task per connection through a
+//! channel and are written in the order they complete, which need not be
+//! the order of the requests (omniORB does the same).
+//!
+//! Calls from the ORB to its own objects do not go through the network:
+//! the request is marshalled as usual and dispatched on the calling thread
+//! ([`Server::call_local`]).
 
 use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
@@ -13,7 +18,7 @@ use std::hash::{BuildHasher, Hasher};
 use std::io;
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak, mpsc as std_mpsc};
 use std::time::{Duration, SystemTime};
 
 use rustorb_cdr::ByteOrder;
@@ -32,15 +37,16 @@ use tokio::task::JoinHandle;
 use crate::codeset::{CONVERSION_CHAR, NATIVE_CHAR, NATIVE_WCHAR};
 use crate::orb::OrbInner;
 use crate::poa::{
-    BOOT_ID_LEN, Dispatch, Disposition, ManagerInner, ParsedKey, PoaInner, PoaManager, UpcallGuard,
-    log, no_such_object, parse_key,
+    BOOT_ID_LEN, CurrentGuard, Dispatch, Disposition, Etherealization, ManagerInner, ParsedKey,
+    PoaInner, PoaManager, SerialEntry, UpcallGuard, etherealize_all, is_main_thread, log,
+    no_such_object, parse_key,
 };
 use crate::pool::{Job, Pool};
-use crate::servant::{OBJECT_ID, ServerReply, system_exception_reply};
+use crate::servant::{OBJECT_ID, ServerReply, location_forward_reply, system_exception_reply};
 use crate::stream::InStream;
 use crate::{
-    CodeSets, CompletionStatus, EndpointAddr, Lifespan, Orb, Servant, SystemException,
-    SystemExceptionKind,
+    CodeSets, CompletionStatus, EndpointAddr, Lifespan, Orb, Poa, Servant, ServantManagerError,
+    SystemException, SystemExceptionKind, ThreadPolicy,
 };
 
 /// The server side of an ORB, started with the RootPOA.
@@ -49,6 +55,9 @@ pub(crate) struct Server {
     boot_id: [u8; BOOT_ID_LEN],
     /// Host and port of each endpoint as published in IORs.
     published: Vec<(String, u16)>,
+    /// The ports of the endpoints that listen on a loopback address or on
+    /// every interface.
+    loopback_ports: Vec<u16>,
     fixed_port: bool,
     order: ByteOrder,
     max_message_size: usize,
@@ -135,6 +144,7 @@ impl Server {
         };
         let mut listeners = Vec::new();
         let mut published = Vec::new();
+        let mut loopback_ports = Vec::new();
         for (i, ep) in endpoints.iter().enumerate() {
             let bind_host = if ep.host.is_empty() {
                 "0.0.0.0"
@@ -145,6 +155,9 @@ impl Server {
                 std::net::TcpListener::bind((bind_host, ep.port)).map_err(|_| initialize())?;
             listener.set_nonblocking(true).map_err(|_| initialize())?;
             let port = listener.local_addr().map_err(|_| initialize())?.port();
+            if ep.host.is_empty() || is_loopback(&ep.host) {
+                loopback_ports.push(port);
+            }
             let publish = options.endpoint_publish.as_ref().filter(|_| i == 0);
             let host = match publish {
                 Some(p) if !p.host.is_empty() => p.host.clone(),
@@ -162,6 +175,7 @@ impl Server {
             orb: Arc::downgrade(&orb.inner),
             boot_id: new_boot_id(),
             published,
+            loopback_ports,
             fixed_port: endpoints.iter().any(|ep| ep.port != 0),
             order: options.byte_order,
             max_message_size: options.max_message_size,
@@ -258,14 +272,27 @@ impl Server {
         self.shutting_down.load(Ordering::Acquire)
     }
 
-    /// The POA and ObjectId a key denotes.
-    fn find(&self, key: &[u8]) -> Result<(Arc<PoaInner>, Vec<u8>), SystemException> {
+    /// The POA and ObjectId a key denotes. Without `orb`, a POA that only
+    /// an adapter activator could create is [`Lookup::NeedsActivator`];
+    /// with it, the activators are called (user code).
+    fn find(&self, key: &[u8], orb: Option<&Orb>) -> Result<(Arc<PoaInner>, Vec<u8>), Lookup> {
         let ParsedKey::Poa { path, boot_id, id } = parse_key(key) else {
-            return Err(no_such_object());
+            return Err(Lookup::Missing);
         };
         let mut poa = Arc::clone(self.root());
         for name in path {
-            poa = poa.child(name).ok_or_else(no_such_object)?;
+            poa = match orb {
+                Some(orb) => poa
+                    .find_or_activate_child(orb, name)
+                    .ok_or(Lookup::Missing)?,
+                None => poa.child(name).map_err(|activator| {
+                    if activator {
+                        Lookup::NeedsActivator
+                    } else {
+                        Lookup::Missing
+                    }
+                })?,
+            };
         }
         let lifespan_matches = match (poa.policies().lifespan, boot_id) {
             (Lifespan::Persistent, None) => true,
@@ -273,12 +300,12 @@ impl Server {
             _ => false,
         };
         if !lifespan_matches || poa.is_destroyed() {
-            return Err(no_such_object());
+            return Err(Lookup::Missing);
         }
         Ok((poa, id.to_vec()))
     }
 
-    fn ticket(self: &Arc<Self>, permit: OwnedSemaphorePermit) -> Ticket {
+    fn ticket(self: &Arc<Self>, permit: Option<OwnedSemaphorePermit>) -> Ticket {
         *self.in_flight.lock().unwrap() += 1;
         Ticket {
             server: Arc::clone(self),
@@ -303,7 +330,7 @@ impl Server {
         let Ok(permit) = Arc::clone(&conn.permits).acquire_owned().await else {
             return;
         };
-        let ticket = self.ticket(permit);
+        let ticket = self.ticket(Some(permit));
         let reply = ReplyTo::new(
             conn,
             version,
@@ -315,46 +342,83 @@ impl Server {
             reply.system(&no_such_object());
             return;
         };
-        let (poa, id) = match self.find(&key) {
-            Ok(found) => found,
-            Err(e) => {
-                reply.system(&e);
-                return;
-            }
+        let request = Incoming {
+            operation: header.operation,
+            body,
+            code_sets,
+            reply,
+            _ticket: ticket,
         };
-        let server = Arc::clone(self);
-        let target = Arc::clone(&poa);
-        let operation = header.operation;
-        let dispatch: Dispatch = Box::new(move |disposition| match disposition {
-            Disposition::Run => {
-                server.upcall(&target, &id, &operation, &body, code_sets, reply);
-                drop(ticket);
+        match self.find(&key, None) {
+            Ok((poa, id)) => self.admit(&poa, id, request),
+            Err(Lookup::Missing) => request.reply.system(&no_such_object()),
+            Err(Lookup::NeedsActivator) => {
+                // Adapter activators are user code: find the POA on an
+                // upcall thread.
+                let server = Arc::clone(self);
+                self.submit(Box::new(move || {
+                    let found = server
+                        .orb()
+                        .and_then(|orb| server.find(&key, Some(&orb)).ok());
+                    match found {
+                        Some((poa, id)) => server.admit(&poa, id, request),
+                        None => request.reply.system(&no_such_object()),
+                    }
+                }));
             }
-            Disposition::Reject(e) => {
-                reply.system(&e);
-                drop(ticket);
-            }
-        });
-        poa.manager.inner.dispatch(self, dispatch);
+        }
     }
 
-    /// Calls the servant, on an upcall thread.
-    fn upcall(
-        &self,
-        poa: &Arc<PoaInner>,
-        id: &[u8],
-        operation: &str,
-        body: &Body,
-        code_sets: CodeSets,
-        reply: ReplyTo,
-    ) {
+    /// Hands a request to the manager of its POA, which runs, holds or
+    /// refuses it.
+    fn admit(self: &Arc<Self>, poa: &Arc<PoaInner>, id: Vec<u8>, request: Incoming) {
+        let server = Arc::clone(self);
+        let target = Arc::clone(poa);
+        let dispatch: Dispatch = Box::new(move |disposition| match disposition {
+            Disposition::Run => {
+                let job = server.upcall_job(&target, id, request);
+                server.schedule(&target, job);
+            }
+            Disposition::Reject(e) => request.reply.system(&e),
+        });
+        poa.manager.inner.dispatch(dispatch);
+    }
+
+    fn upcall_job(self: &Arc<Self>, poa: &Arc<PoaInner>, id: Vec<u8>, request: Incoming) -> Job {
+        let server = Arc::clone(self);
+        let poa = Arc::clone(poa);
+        Box::new(move || server.upcall(&poa, &id, request))
+    }
+
+    /// Runs `job` on the thread the thread policy of `poa` asks for.
+    fn schedule(self: &Arc<Self>, poa: &Arc<PoaInner>, job: Job) {
+        match poa.policies().thread {
+            ThreadPolicy::OrbCtrl => self.submit(job),
+            ThreadPolicy::SingleThread => poa.run_serially(self, job),
+            ThreadPolicy::MainThread => {
+                if let Some(orb) = self.orb.upgrade() {
+                    orb.push_main(job);
+                }
+            }
+        }
+    }
+
+    /// Finds the servant and calls it, on the thread the request runs on.
+    fn upcall(self: &Arc<Self>, poa: &Arc<PoaInner>, id: &[u8], request: Incoming) {
+        let Incoming {
+            operation,
+            body,
+            code_sets,
+            reply,
+            _ticket,
+        } = request;
         if reply.is_cancelled() {
             return;
         }
         let Some(orb) = self.orb() else { return };
-        let Some(servant) = poa.servant(id) else {
-            reply.system(&no_such_object());
-            return;
+        let adapter = Poa {
+            orb: orb.clone(),
+            inner: Arc::clone(poa),
         };
         let _poa_activity = poa.activity().enter();
         let _manager_activity = poa.manager.inner.activity().enter();
@@ -362,6 +426,17 @@ impl Server {
         {
             Ok(out) => out,
             Err(e) => {
+                reply.system(&e);
+                return;
+            }
+        };
+        let resolved = match poa.resolve(&adapter, self, id, &operation) {
+            Ok(resolved) => resolved,
+            Err(ServantManagerError::ForwardRequest(to)) => {
+                reply.forward(to.ior());
+                return;
+            }
+            Err(ServantManagerError::System(e)) => {
                 reply.system(&e);
                 return;
             }
@@ -375,10 +450,12 @@ impl Server {
         };
         let result = {
             let _upcall = UpcallGuard::enter();
+            let _current = CurrentGuard::enter(&adapter, id, &resolved.servant);
             panic::catch_unwind(AssertUnwindSafe(|| {
-                invoke(&*servant, operation, &mut input, &mut out)
+                invoke(&*resolved.servant, &operation, &mut input, &mut out)
             }))
         };
+        resolved.finish(&adapter, id, &operation);
         match result {
             Ok(Ok(())) => match out.finish() {
                 Ok(msg) => reply.send(msg),
@@ -396,30 +473,183 @@ impl Server {
         }
     }
 
-    fn on_locate(&self, conn: &ServerConn, version: Version, header: &LocateRequestHeader) {
+    fn on_locate(
+        self: &Arc<Self>,
+        conn: &Arc<ServerConn>,
+        version: Version,
+        header: &LocateRequestHeader,
+    ) {
         if self.is_shutting_down() {
             return;
         }
         conn.saw_version(version);
-        let here = target_key(&header.target)
-            .and_then(|key| self.find(&key).ok())
-            .is_some_and(|(poa, id)| {
-                !poa.manager.inner.is_inactive() && poa.servant(&id).is_some()
-            });
-        let status = if here {
-            LocateStatus::ObjectHere
-        } else {
-            LocateStatus::UnknownObject
+        let order = self.order;
+        let request_id = header.request_id;
+        let conn = Arc::clone(conn);
+        let answer = move |here: bool| {
+            let status = if here {
+                LocateStatus::ObjectHere
+            } else {
+                LocateStatus::UnknownObject
+            };
+            let reply = LocateReplyHeader {
+                request_id,
+                locate_status: status,
+            };
+            if let Ok(msg) = MessageEncoder::locate_reply(version, order, &reply)
+                .and_then(MessageEncoder::finish)
+            {
+                conn.send(Outgoing::Message(msg));
+            }
         };
-        let reply = LocateReplyHeader {
-            request_id: header.request_id,
-            locate_status: status,
+        let Some(key) = target_key(&header.target) else {
+            answer(false);
+            return;
         };
-        if let Ok(msg) = MessageEncoder::locate_reply(version, self.order, &reply)
-            .and_then(MessageEncoder::finish)
-        {
-            conn.send(Outgoing::Message(msg));
+        match self.find(&key, None) {
+            Ok((poa, id)) => answer(located(&poa, &id)),
+            Err(Lookup::Missing) => answer(false),
+            Err(Lookup::NeedsActivator) => {
+                let server = Arc::clone(self);
+                self.submit(Box::new(move || {
+                    let found = server
+                        .orb()
+                        .and_then(|orb| server.find(&key, Some(&orb)).ok());
+                    answer(found.is_some_and(|(poa, id)| located(&poa, &id)));
+                }));
+            }
         }
+    }
+
+    // --- calls from this ORB ---------------------------------------------------
+
+    /// Whether `host:port` is an endpoint of this server, so that a call to
+    /// it can be made without the network.
+    pub(crate) fn is_local(&self, host: &str, port: u16) -> bool {
+        if self.is_shutting_down() {
+            return false;
+        }
+        self.published
+            .iter()
+            .any(|(h, p)| *p == port && h.eq_ignore_ascii_case(host))
+            || (is_loopback(host) && self.loopback_ports.contains(&port))
+    }
+
+    /// Runs a request of this ORB to one of its own objects, on the calling
+    /// thread, and returns the whole reply message (`None` for a oneway
+    /// request). The request goes through the POA manager like a remote
+    /// one. It is queued and waited for only when the thread policy asks
+    /// for another thread: MAIN_THREAD_MODEL called from a thread that is
+    /// not running the main loop, or SINGLE_THREAD_MODEL while another
+    /// thread runs a request of the POA.
+    pub(crate) fn call_local(
+        self: &Arc<Self>,
+        version: Version,
+        header: RequestHeader,
+        body: Body,
+        code_sets: CodeSets,
+        timeout: Option<Duration>,
+    ) -> Result<Option<Vec<u8>>, SystemException> {
+        if self.is_shutting_down() {
+            return Err(transient());
+        }
+        let Some(orb) = self.orb() else {
+            return Err(transient());
+        };
+        let response = header.response_expected();
+        let (tx, rx) = std_mpsc::channel();
+        let reply = ReplyTo::local(tx, version, self.order, header.request_id, response);
+        let request = Incoming {
+            operation: header.operation,
+            body,
+            code_sets,
+            reply,
+            _ticket: self.ticket(None),
+        };
+        let found = target_key(&header.target).and_then(|key| self.find(&key, Some(&orb)).ok());
+        match found {
+            None => request.reply.system(&no_such_object()),
+            Some((poa, id)) => {
+                // The manager's verdict comes at once, or when a holding
+                // manager changes its state.
+                let (dtx, drx) = std_mpsc::channel();
+                poa.manager.inner.dispatch(Box::new(move |disposition| {
+                    let _ = dtx.send(disposition);
+                }));
+                match wait(&drx, timeout, CompletionStatus::No)? {
+                    Disposition::Reject(e) => request.reply.system(&e),
+                    Disposition::Run => self.run_local(&poa, id, request),
+                }
+            }
+        }
+        if !response {
+            return Ok(None);
+        }
+        wait(&rx, timeout, CompletionStatus::Maybe).map(Some)
+    }
+
+    fn run_local(self: &Arc<Self>, poa: &Arc<PoaInner>, id: Vec<u8>, request: Incoming) {
+        match poa.policies().thread {
+            ThreadPolicy::OrbCtrl => self.upcall(poa, &id, request),
+            ThreadPolicy::SingleThread => match poa.enter_serially(self) {
+                SerialEntry::Reentrant => self.upcall(poa, &id, request),
+                SerialEntry::Acquired(_serial) => self.upcall(poa, &id, request),
+                SerialEntry::Busy => {
+                    let job = self.upcall_job(poa, id, request);
+                    poa.run_serially(self, job);
+                }
+            },
+            ThreadPolicy::MainThread if is_main_thread() => self.upcall(poa, &id, request),
+            ThreadPolicy::MainThread => {
+                let job = self.upcall_job(poa, id, request);
+                self.schedule(poa, job);
+            }
+        }
+    }
+
+    /// Answers a `LocateRequest` of this ORB to one of its own objects.
+    pub(crate) fn locate_local(&self, target: &TargetAddress) -> Result<bool, SystemException> {
+        if self.is_shutting_down() {
+            return Err(transient());
+        }
+        let Some(orb) = self.orb() else {
+            return Err(transient());
+        };
+        Ok(target_key(target)
+            .and_then(|key| self.find(&key, Some(&orb)).ok())
+            .is_some_and(|(poa, id)| located(&poa, &id)))
+    }
+
+    // --- etherealization -------------------------------------------------------
+
+    /// Etherealizes `work` once the requests running in its POAs have
+    /// finished: before returning with `wait`, else on an upcall thread.
+    pub(crate) fn etherealize(&self, work: Vec<Etherealization>, wait: bool) {
+        if work.is_empty() {
+            return;
+        }
+        let Some(orb) = self.orb() else { return };
+        let run = move || {
+            let mut waited: Vec<&Arc<PoaInner>> = Vec::new();
+            for e in &work {
+                if !waited.iter().any(|p| Arc::ptr_eq(p, e.poa())) {
+                    e.poa().activity().wait_idle();
+                    waited.push(e.poa());
+                }
+            }
+            etherealize_all(&orb, work);
+        };
+        if wait {
+            run();
+        } else {
+            self.submit(Box::new(run));
+        }
+    }
+
+    /// Etherealizes one deactivated object on an upcall thread.
+    pub(crate) fn etherealize_later(&self, work: Etherealization) {
+        let Some(orb) = self.orb() else { return };
+        self.submit(Box::new(move || work.run(&orb, None)));
     }
 
     fn add_connection(&self, conn: &Arc<ServerConn>) -> u64 {
@@ -457,12 +687,20 @@ impl Server {
         for manager in managers {
             manager.shut_down();
         }
+        // MAIN_THREAD_MODEL requests not yet started are dropped like held
+        // ones: nobody may be running the main loop to start them.
+        if let Some(orb) = self.orb.upgrade() {
+            orb.close_main();
+        }
         let mut in_flight = self.in_flight.lock().unwrap();
         while *in_flight > 0 {
             in_flight = self.in_flight_done.wait(in_flight).unwrap();
         }
         drop(in_flight);
-        self.root().destroy_tree();
+        let work = self.root().destroy_tree(true);
+        if let Some(orb) = self.orb() {
+            etherealize_all(&orb, work);
+        }
 
         let conns: Vec<_> = self
             .connections
@@ -490,6 +728,61 @@ impl Server {
     pub(crate) fn stop_pool(&self) {
         let pool = self.pool.lock().unwrap().take();
         drop(pool);
+    }
+}
+
+/// Why a key names no POA.
+enum Lookup {
+    /// There is no such POA, or the key is not one of this server's.
+    Missing,
+    /// A POA on the path is missing, but its parent has an adapter
+    /// activator that may create it.
+    NeedsActivator,
+}
+
+/// A request on its way to the servant.
+struct Incoming {
+    operation: String,
+    body: Body,
+    code_sets: CodeSets,
+    reply: ReplyTo,
+    _ticket: Ticket,
+}
+
+/// Whether a `LocateRequest` gets `OBJECT_HERE`. The servant manager is not
+/// asked, and a holding or discarding manager does not matter (omniORB
+/// answers the same).
+fn located(poa: &PoaInner, id: &[u8]) -> bool {
+    !poa.manager.inner.is_inactive() && poa.has_object(id)
+}
+
+fn transient() -> SystemException {
+    SystemException::new(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No)
+}
+
+fn is_loopback(host: &str) -> bool {
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|a| a.is_loopback())
+}
+
+/// Waits for a colocated call: `TIMEOUT` after `timeout`, and `TRANSIENT`
+/// if the request was dropped (at shutdown).
+fn wait<T>(
+    rx: &std_mpsc::Receiver<T>,
+    timeout: Option<Duration>,
+    completed: CompletionStatus,
+) -> Result<T, SystemException> {
+    match timeout {
+        Some(limit) => rx.recv_timeout(limit).map_err(|e| match e {
+            std_mpsc::RecvTimeoutError::Timeout => {
+                SystemException::new(SystemExceptionKind::TIMEOUT, 0, completed)
+            }
+            std_mpsc::RecvTimeoutError::Disconnected => transient(),
+        }),
+        None => rx.recv().map_err(|_| transient()),
     }
 }
 
@@ -543,7 +836,8 @@ fn target_key(target: &TargetAddress) -> Option<Vec<u8>> {
 /// holds its place among the connection's requests.
 struct Ticket {
     server: Arc<Server>,
-    _permit: OwnedSemaphorePermit,
+    /// The connection's permit; none for a colocated call.
+    _permit: Option<OwnedSemaphorePermit>,
 }
 
 impl Drop for Ticket {
@@ -640,11 +934,18 @@ impl ServerConn {
 /// Where the reply to one request goes. Dropping it without a reply
 /// forgets the request.
 struct ReplyTo {
-    conn: Option<Arc<ServerConn>>,
+    sink: Option<Sink>,
     version: Version,
     order: ByteOrder,
     request_id: u32,
     response: bool,
+}
+
+enum Sink {
+    /// A server connection.
+    Conn(Arc<ServerConn>),
+    /// The thread waiting for a colocated call.
+    Local(std_mpsc::Sender<Vec<u8>>),
 }
 
 impl ReplyTo {
@@ -657,7 +958,23 @@ impl ReplyTo {
     ) -> ReplyTo {
         conn.begin(request_id);
         ReplyTo {
-            conn: Some(Arc::clone(conn)),
+            sink: Some(Sink::Conn(Arc::clone(conn))),
+            version,
+            order,
+            request_id,
+            response,
+        }
+    }
+
+    fn local(
+        tx: std_mpsc::Sender<Vec<u8>>,
+        version: Version,
+        order: ByteOrder,
+        request_id: u32,
+        response: bool,
+    ) -> ReplyTo {
+        ReplyTo {
+            sink: Some(Sink::Local(tx)),
             version,
             order,
             request_id,
@@ -666,18 +983,36 @@ impl ReplyTo {
     }
 
     fn is_cancelled(&self) -> bool {
-        self.conn
-            .as_ref()
-            .is_some_and(|c| c.is_cancelled(self.request_id))
+        match &self.sink {
+            Some(Sink::Conn(c)) => c.is_cancelled(self.request_id),
+            _ => false,
+        }
     }
 
     /// Queues the reply, unless the request was oneway or cancelled.
     fn send(mut self, msg: Vec<u8>) {
-        if let Some(conn) = self.conn.take() {
-            let cancelled = conn.end(self.request_id);
-            if self.response && !cancelled {
-                conn.send(Outgoing::Message(msg));
+        match self.sink.take() {
+            Some(Sink::Conn(conn)) => {
+                let cancelled = conn.end(self.request_id);
+                if self.response && !cancelled {
+                    conn.send(Outgoing::Message(msg));
+                }
             }
+            Some(Sink::Local(tx)) if self.response => {
+                let _ = tx.send(msg);
+            }
+            Some(Sink::Local(_)) | None => {}
+        }
+    }
+
+    /// Sends the client to `ior` with `LOCATION_FORWARD`.
+    fn forward(self, ior: &Ior) {
+        if !self.response {
+            return;
+        }
+        match location_forward_reply(self.version, self.order, self.request_id, ior) {
+            Some(msg) => self.send(msg),
+            None => drop(self),
         }
     }
 
@@ -694,7 +1029,7 @@ impl ReplyTo {
 
 impl Drop for ReplyTo {
     fn drop(&mut self) {
-        if let Some(conn) = self.conn.take() {
+        if let Some(Sink::Conn(conn)) = self.sink.take() {
             conn.end(self.request_id);
         }
     }
