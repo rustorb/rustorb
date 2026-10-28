@@ -36,6 +36,13 @@ impl<'a> OutStream<'a> {
         self.code_sets
     }
 
+    /// Uses `code_sets` for the `char` and `wchar` data that follows, as
+    /// on a standalone stream that must match another ORB's native code
+    /// sets.
+    pub fn set_code_sets(&mut self, code_sets: CodeSets) {
+        self.code_sets = code_sets;
+    }
+
     /// Writes a `string` in the negotiated `char` code set.
     pub fn write_string(&mut self, s: &str) -> Result<(), SystemException> {
         let bytes = self.code_sets.encode_string(s)?;
@@ -150,6 +157,13 @@ impl<'a> InStream<'a> {
     /// The transmission code sets of the connection.
     pub fn code_sets(&self) -> CodeSets {
         self.code_sets
+    }
+
+    /// Uses `code_sets` for the `char` and `wchar` data that follows, as
+    /// on a standalone stream that must match another ORB's native code
+    /// sets.
+    pub fn set_code_sets(&mut self, code_sets: CodeSets) {
+        self.code_sets = code_sets;
     }
 
     /// Reads a value with its [`CdrDecode`] implementation.

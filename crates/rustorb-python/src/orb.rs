@@ -5,15 +5,17 @@ use std::hash::{Hash, Hasher};
 
 use pyo3::exceptions::PyLookupError;
 use pyo3::prelude::*;
-use pyo3::types::PyTuple;
+use pyo3::types::{PyBytes, PyTuple};
+use rustorb_core::cdr::{ByteOrder, CdrVersion, Decoder, Encoder};
+use rustorb_core::giop::code_set;
 use rustorb_core::{
-    CompletionStatus, Exception, ObjectRef, Orb as CoreOrb, ResolveError, SystemException,
-    SystemExceptionKind, minor,
+    CodeSets, CompletionStatus, Exception, InStream, ObjectRef, Orb as CoreOrb, OutStream,
+    ResolveError, SystemException, SystemExceptionKind, minor,
 };
 
-use crate::error::{marshal_err, sys_err};
+use crate::error::{marshal, marshal_err, sys_err};
 use crate::poa::Poa;
-use crate::tc::{CompiledOp, TcRef, compile_op};
+use crate::tc::{CompiledOp, TcRef, compile_op, compile_tc};
 use crate::value::{Value, decode, encode, from_py, to_py};
 
 /// An ORB (`CORBA.ORB` in Python wraps it).
@@ -105,6 +107,101 @@ impl Orb {
         py.detach(|| self.orb.destroy())
             .map_err(|e| sys_err(py, &e))
     }
+
+    /// Makes the object `obj` answer to the object key `key` and returns
+    /// a reference with that key (`corbaloc::host:port/KEY`).
+    fn register_object_key(
+        &self,
+        py: Python<'_>,
+        key: &str,
+        obj: PyRef<'_, ObjRef>,
+    ) -> PyResult<ObjRef> {
+        let obj = self
+            .orb
+            .register_object_key(key, &obj.obj)
+            .map_err(|e| sys_err(py, &e))?;
+        Ok(ObjRef { obj })
+    }
+
+    fn unregister_object_key(&self, key: &str) {
+        self.orb.unregister_object_key(key);
+    }
+
+    /// Marshals `value`, of the type `tc` (a `CORBA.TypeCode`), on its own
+    /// (`omniORB.cdrMarshal`): as an encapsulation in the byte order of
+    /// the host when `little_endian` is None, else as a plain stream in
+    /// that byte order. See [`MARSHAL_CODE_SETS`].
+    #[pyo3(signature = (tc, value, little_endian=None))]
+    fn cdr_marshal<'py>(
+        &self,
+        py: Python<'py>,
+        tc: &Bound<'py, PyAny>,
+        value: &Bound<'py, PyAny>,
+        little_endian: Option<bool>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let compiled = compile_tc(tc)?;
+        let value = from_py(&compiled, value).map_err(|e| marshal_err(py, e))?;
+        let mut enc = match little_endian {
+            None => Encoder::encapsulation(host_order(), CdrVersion::Giop1_2),
+            Some(little) => Encoder::new(order(little), CdrVersion::Giop1_2),
+        };
+        let mut out = OutStream::standalone(&mut enc);
+        out.set_code_sets(MARSHAL_CODE_SETS);
+        encode(&compiled, &value, &mut out).map_err(|e| sys_err(py, &e))?;
+        Ok(PyBytes::new(py, enc.as_bytes()))
+    }
+
+    /// Reads what [`cdr_marshal`](Orb::cdr_marshal) writes
+    /// (`omniORB.cdrUnmarshal`). Object references read belong to this
+    /// ORB. `MARSHAL` if `data` is too short or has bytes left over.
+    #[pyo3(signature = (tc, data, little_endian=None))]
+    fn cdr_unmarshal<'py>(
+        &self,
+        py: Python<'py>,
+        tc: &Bound<'py, PyAny>,
+        data: &[u8],
+        little_endian: Option<bool>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let compiled = compile_tc(tc)?;
+        let dec = match little_endian {
+            None => Decoder::encapsulation(data, CdrVersion::Giop1_2)
+                .map_err(|_| sys_err(py, &marshal(CompletionStatus::No)))?,
+            Some(little) => Decoder::new(data, order(little), CdrVersion::Giop1_2),
+        };
+        let value = py
+            .detach(|| {
+                let mut input = InStream::standalone(dec, Some(&self.orb));
+                input.set_code_sets(MARSHAL_CODE_SETS);
+                let value = decode(&compiled, &mut input, CompletionStatus::No)?;
+                if !input.is_empty() {
+                    return Err(marshal(CompletionStatus::No));
+                }
+                Ok(value)
+            })
+            .map_err(|e| sys_err(py, &e))?;
+        to_py(py, &compiled, value)
+    }
+}
+
+/// The code sets of `cdr_marshal` and `cdr_unmarshal`: ISO 8859-1 and
+/// UTF-16, the native code sets of omniORB, which marshals the same way.
+/// The bytes are often sent to another ORB as an octet sequence (as
+/// OpenRTM-aist's data ports do), with no code set negotiation.
+const MARSHAL_CODE_SETS: CodeSets = CodeSets {
+    char_data: code_set::ISO_8859_1,
+    wchar_data: Some(code_set::UTF_16),
+};
+
+fn order(little: bool) -> ByteOrder {
+    if little {
+        ByteOrder::Little
+    } else {
+        ByteOrder::Big
+    }
+}
+
+fn host_order() -> ByteOrder {
+    order(cfg!(target_endian = "little"))
 }
 
 /// An object reference (the `_obj` of a `CORBA.Object`).

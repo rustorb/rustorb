@@ -866,6 +866,13 @@ fn endpoint_options() {
     assert_eq!(profile.version, Version::V1_2);
     assert!(profile.code_sets().is_some());
 
+    // omniORB's `all(addr)` is the default publication.
+    let mut options = rustorb_core::OrbOptions::default();
+    let mut args = vec!["-ORBendPointPublish".to_owned(), "all(addr)".to_owned()];
+    options.parse_args(&mut args).unwrap();
+    assert!(args.is_empty());
+    assert_eq!(options.endpoint_publish, None);
+
     assert_eq!(
         EndpointAddr::parse("giop:tcp::"),
         Some(EndpointAddr {
