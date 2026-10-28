@@ -224,6 +224,10 @@ fn millis(value: &str) -> Result<Option<Duration>, SystemException> {
     Ok((ms > 0).then(|| Duration::from_millis(ms)))
 }
 
+fn bad_param() -> SystemException {
+    SystemException::new(SystemExceptionKind::BAD_PARAM, 0, CompletionStatus::No)
+}
+
 fn bad_option() -> SystemException {
     SystemException::new(SystemExceptionKind::BAD_PARAM, 0, CompletionStatus::No)
 }
@@ -524,6 +528,49 @@ impl Orb {
             orb: self.clone(),
             inner: Arc::clone(server.root()),
         })
+    }
+
+    /// Makes `obj`, an object of this ORB's POAs, answer to the simple
+    /// object key `key`, as in `corbaloc::host:port/NameService`, and
+    /// returns a reference with that key. Requests with the key are
+    /// dispatched to `obj` as if they had its own key: no
+    /// `LOCATION_FORWARD` is involved, so the reference stays valid as
+    /// long as the key is registered, also across restarts that register
+    /// it again.
+    ///
+    /// `BAD_PARAM` if `key` is empty or `obj` is not an object of this
+    /// ORB's POAs.
+    pub fn register_object_key(
+        &self,
+        key: &str,
+        obj: &ObjectRef,
+    ) -> Result<ObjectRef, SystemException> {
+        let server = self.server().ok_or_else(bad_param)?;
+        if key.is_empty() {
+            return Err(bad_param());
+        }
+        let target = obj
+            .ior()
+            .iiop_profiles()
+            .filter_map(Result::ok)
+            .find(|p| {
+                server.is_local(&p.host, p.port)
+                    && matches!(poa::parse_key(&p.object_key), poa::ParsedKey::Poa { .. })
+            })
+            .map(|p| p.object_key)
+            .ok_or_else(bad_param)?;
+        let ior = server.ior(obj.type_id(), key.as_bytes().to_vec())?;
+        server.set_simple_key(key.as_bytes(), Some(target));
+        Ok(ObjectRef::new(self.clone(), ior))
+    }
+
+    /// Removes a key registered with
+    /// [`register_object_key`](Orb::register_object_key); requests with it
+    /// then raise `OBJECT_NOT_EXIST`.
+    pub fn unregister_object_key(&self, key: &str) {
+        if let Some(server) = self.server() {
+            server.set_simple_key(key.as_bytes(), None);
+        }
     }
 
     /// The server side, if the RootPOA was used.

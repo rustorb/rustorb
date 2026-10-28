@@ -2,8 +2,8 @@ use std::fmt;
 
 use rustorb_core::name::{self, InvalidName, Name};
 use rustorb_core::{
-    CompletionStatus, Exception, InStream, SystemException, SystemExceptionKind, UserException,
-    minor,
+    CompletionStatus, Exception, InStream, ServerReply, SystemException, SystemExceptionKind,
+    UserException, minor,
 };
 
 use crate::client::NamingContext;
@@ -127,6 +127,33 @@ impl NamingError {
                 minor::UNLISTED_USER_EXCEPTION,
                 CompletionStatus::Yes,
             )),
+        }
+    }
+
+    /// Writes a user exception as the reply of a servant; a system
+    /// exception is returned instead.
+    pub(crate) fn write(&self, reply: &mut ServerReply) -> Result<(), SystemException> {
+        if let NamingError::System(e) = self {
+            return Err(e.clone());
+        }
+        let mut out = reply.user_exception(self.repository_id())?;
+        match self {
+            NamingError::NotFound { why, rest_of_name } => {
+                out.write_u32(match why {
+                    NotFoundReason::MissingNode => 0,
+                    NotFoundReason::NotContext => 1,
+                    NotFoundReason::NotObject => 2,
+                });
+                name::write_name(&mut out, rest_of_name)
+            }
+            NamingError::CannotProceed {
+                context,
+                rest_of_name,
+            } => {
+                out.write_object(context.as_ref().map(NamingContext::object))?;
+                name::write_name(&mut out, rest_of_name)
+            }
+            _ => Ok(()),
         }
     }
 

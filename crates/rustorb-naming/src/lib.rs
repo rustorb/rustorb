@@ -1,11 +1,17 @@
 //! CosNaming (Naming Service): NamingContext, NamingContextExt and
 //! BindingIterator, with persistence behind a storage trait.
 //!
-//! The client side is implemented so far: [`NamingContext`],
-//! [`NamingContextExt`] and [`BindingIterator`] are stubs for the
-//! interfaces of the CosNaming IDL (Naming Service 1.3), written by hand
-//! until the IDL compiler exists. The user exceptions of the operations
-//! are the variants of [`NamingError`].
+//! The client side: [`NamingContext`], [`NamingContextExt`] and
+//! [`BindingIterator`] are stubs for the interfaces of the CosNaming IDL
+//! (Naming Service 1.3), written by hand until the IDL compiler exists.
+//! The user exceptions of the operations are the variants of
+//! [`NamingError`].
+//!
+//! The server side: [`NamingService`] serves the naming contexts on an
+//! ORB, with the root context at `corbaloc::host:port/NameService` like
+//! omniNames, and keeps the bindings in a [`Store`]: [`LogStore`] (an
+//! append-only log and checkpoints) by default, or [`MemoryStore`]. The
+//! `rustorb-names` binary is the daemon.
 //!
 //! ```no_run
 //! use rustorb_core::Orb;
@@ -30,10 +36,14 @@
 
 mod client;
 mod error;
+mod server;
+pub mod store;
 
 pub use client::{Binding, BindingIterator, BindingType, NamingContext, NamingContextExt, to_url};
 pub use error::{NamingError, NotFoundReason};
 pub use rustorb_core::name::{InvalidName, Name, NameComponent, to_name, to_string};
+pub use server::{NamingService, ROOT_KEY, StartError};
+pub use store::{LogStore, MemoryStore, Store};
 
 /// Repository ids of the CosNaming interfaces and exceptions.
 pub mod repository_id {

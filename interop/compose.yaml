@@ -6,6 +6,7 @@
 #   SERVER_IMPL / CLIENT_IMPL   directory under impls/ (omniorbpy, omniorb-cpp, rustorb)
 #   *_IMAGE                     image that contains that implementation
 #   NAMING_CMD                  command that starts the naming service
+#                               (impls/rustorb/naming-service 2809 for rustorb)
 #   CLIENT_MAX_GIOP             highest GIOP version the client uses (omniORB)
 #
 # Use run-matrix.sh rather than calling docker compose directly.
@@ -17,6 +18,10 @@ services:
     command: ${NAMING_CMD:-run-omninames 2809}
     environment:
       NAMING_HOST: naming
+    volumes:
+      # The rustorb naming service is built on the host (run-matrix.sh,
+      # run-naming-check.sh).
+      - ./impls/rustorb:/opt/interop/impls/rustorb:ro
 
   server:
     image: ${SERVER_IMAGE:-rustorb-interop-omniorb:latest}

@@ -63,6 +63,9 @@ pub(crate) struct Server {
     max_message_size: usize,
     max_requests: usize,
     root: OnceLock<Arc<PoaInner>>,
+    /// Simple object keys registered with `Orb::register_object_key`, and
+    /// the POA keys they stand for.
+    simple_keys: Mutex<HashMap<Vec<u8>, Vec<u8>>>,
     pool: Mutex<Option<Pool>>,
     managers: Mutex<Vec<Weak<ManagerInner>>>,
     connections: Mutex<HashMap<u64, Arc<ServerConn>>>,
@@ -181,6 +184,7 @@ impl Server {
             max_message_size: options.max_message_size,
             max_requests: options.max_requests_per_connection.max(1),
             root: OnceLock::new(),
+            simple_keys: Mutex::new(HashMap::new()),
             pool: Mutex::new(Some(Pool::new(
                 options.min_server_threads,
                 options.max_server_threads,
@@ -212,6 +216,16 @@ impl Server {
         self.root
             .get()
             .expect("the RootPOA is created with the server")
+    }
+
+    /// Makes requests with the object key `simple` go to the object with
+    /// the POA key `target` (`None` removes the entry).
+    pub(crate) fn set_simple_key(&self, simple: &[u8], target: Option<Vec<u8>>) {
+        let mut keys = self.simple_keys.lock().unwrap();
+        match target {
+            Some(target) => keys.insert(simple.to_vec(), target),
+            None => keys.remove(simple),
+        };
     }
 
     /// Whether some endpoint listens on a port given in the options.
@@ -276,6 +290,20 @@ impl Server {
     /// an adapter activator could create is [`Lookup::NeedsActivator`];
     /// with it, the activators are called (user code).
     fn find(&self, key: &[u8], orb: Option<&Orb>) -> Result<(Arc<PoaInner>, Vec<u8>), Lookup> {
+        let alias;
+        let key = match parse_key(key) {
+            ParsedKey::Simple(simple) => {
+                alias = self
+                    .simple_keys
+                    .lock()
+                    .unwrap()
+                    .get(simple)
+                    .cloned()
+                    .ok_or(Lookup::Missing)?;
+                &alias[..]
+            }
+            _ => key,
+        };
         let ParsedKey::Poa { path, boot_id, id } = parse_key(key) else {
             return Err(Lookup::Missing);
         };

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs the interop test matrix with Docker Compose.
 #
-#   ./run-matrix.sh [--build] [--capture] [--giop VER] [--out DIR] [CLIENT:SERVER ...]
+#   ./run-matrix.sh [--build] [--capture] [--giop VER] [--naming IMPL] [--out DIR]
+#                   [CLIENT:SERVER ...]
 #
 # Without pairs, every client in $CLIENT_IMPLS is paired with every server in
 # $SERVER_IMPLS. Both default to $IMPLS plus rustorb, whose client and server
@@ -10,6 +11,8 @@
 # --capture  captures each client's traffic and splits it into GIOP messages
 # --giop VER limits the client to GIOP VER (e.g. 1.1); the results go to
 #            <client>-to-<server>-giop<VER>
+# --naming IMPL  the naming service: omninames (default) or rustorb; with
+#            rustorb the results go to <client>-to-<server>-naming-rustorb
 # --out DIR  where logs and captures go (default: interop/out)
 #
 # Implementations live in impls/<name>/ and provide `server` and `client`
@@ -26,6 +29,7 @@ IMAGE="rustorb-interop-omniorb:latest"
 build=0
 capture=0
 giop=
+naming=omninames
 out="$PWD/out"
 pairs=()
 
@@ -34,8 +38,9 @@ while [ $# -gt 0 ]; do
     --build) build=1 ;;
     --capture) capture=1 ;;
     --giop) giop="$2"; shift ;;
+    --naming) naming="$2"; shift ;;
     --out) out="$(realpath -m "$2")"; shift ;;
-    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
     *:*) pairs+=("$1") ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -57,6 +62,18 @@ fi
 # The rustorb client and server run in the omniORB image (Ubuntu 24.04), so
 # they are built on the host and mounted into the containers (see
 # compose.yaml).
+case "$naming" in
+  omninames) unset NAMING_CMD ;;
+  rustorb)
+    cargo build --release --locked -p rustorb-naming --bin rustorb-names \
+      --manifest-path ../Cargo.toml
+    mkdir -p impls/rustorb/bin
+    cp ../target/release/rustorb-names impls/rustorb/bin/
+    export NAMING_CMD="impls/rustorb/naming-service 2809"
+    ;;
+  *) echo "unknown naming service: $naming" >&2; exit 2 ;;
+esac
+
 for pair in "${pairs[@]}"; do
   if [ "${pair%%:*}" = rustorb ] || [ "${pair##*:}" = rustorb ]; then
     cargo build --release --locked -p rustorb-interop --manifest-path ../Cargo.toml
@@ -119,6 +136,9 @@ for pair in "${pairs[@]}"; do
   client="${pair%%:*}"
   server="${pair##*:}"
   name="${client}-to-${server}${giop:+-giop$giop}"
+  if [ "$naming" != omninames ]; then
+    name+="-naming-$naming"
+  fi
   dir="$out/$name"
   project="interop-$(echo "$name" | tr -c 'a-z0-9\n' '-')"
   rm -rf "$dir"
