@@ -2,5 +2,6 @@
 /impls/omniorb-cpp/gen/
 /impls/omniorb-cpp/server
 /impls/omniorb-cpp/client
+/impls/omniorb-cpp/poa_probe_server
 **/__pycache__/
 /impls/rustorb/bin/

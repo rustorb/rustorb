@@ -115,7 +115,7 @@ M0〜M3の約4〜7か月でMVPに到達し、その後C++とJavaを順に追加�
 - **アップコール層**：デコード済みのリクエストを、長寿命のOSスレッドからなるプールに渡してサーバントを呼ぶ。プールの上限は設定可能にする（omniORBの maxServerThreadPoolSize に相当）
 - **クライアント呼び出し**：同期APIは結果をチャネルで待つ実装にし、tokioのコンテキスト外からも、アップコール中のスレッドからも呼べるようにする。サーバント内からの入れ子呼び出しやコールバックで、プールが枯渇しないよう上限と待ち合わせを設計する
 - **言語バインディングとの協調**：プールのスレッドは入れ替わらないため、JNIの AttachCurrentThread はスレッドごとに1回で済み、Pythonはサーバント呼び出しの間だけGILを取得する
-- **omniORBとの差**：omniORBの既定は「接続ごとのスレッド＋上限を超えたらスレッドプール」で、サーバントが並行に呼ばれる点は同じ。同じ接続からの呼び出しが同じスレッドで処理される保証はない点が異なるため、M2着手前の設計書でomniORBの挙動と突き合わせ、必要なら接続ごとの順序を保つオプションを設ける
+- **omniORBとの突き合わせ**：実測では omniORB も同じ接続の要求（onewayを含む）を並行に処理し、順序を保証しない。そのため接続ごとの順序保持オプションはMVPでは設けず、順序が必要な場合は omniORB と同じく SINGLE\_THREAD\_MODEL を使う。POA・接続処理・言語バインディングからの呼び出し・`ORB::run` / `shutdown` の設計と実測結果は [poa-design.md](poa-design.md) にまとめた
 
 ## omniORBpyとの互換範囲
 
@@ -167,7 +167,7 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 
 **未決事項**
 
-- なし（M2着手前のPOA・スレッドモデル設計書は [#4](https://github.com/rustorb/rustorb/issues/4) で継続）
+- POA・スレッドモデル設計書（[poa-design.md](poa-design.md)）のレビュー（[#4](https://github.com/rustorb/rustorb/issues/4)）
 
 **次のアクション**
 
@@ -188,5 +188,7 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - 名前の文字列形式（`to_name` / `to_string`）と `NameComponent` は `rustorb-core` の `name` モジュールに置き、`Orb::string_to_object` が `corbaname:` を自分で解決する（`NamingContext::resolve` を呼ぶ）。名前を省略すると命名コンテキスト自体を返す
   - omniORBの実測に合わせた例外：名前が見つからなければ `BAD_PARAM`（minor 10、`STRING_TO_OBJECT_OTHER`）、名前の形式が不正なら `BAD_PARAM`（minor 9、`BAD_SCHEME_SPECIFIC_PART`）、命名サービスのシステム例外はそのまま
   - 相互接続：`interop/run-naming-check.sh` が omniORBpy と rustorb の両クライアントで同じ操作列（bind/rebind/resolve/list/unbind/destroy、NamingContextExt、`corbaname:`）を omniNames に対して実行し、同じ期待出力と一致することを確認した。Echoクライアントの名前解決も `rustorb-naming` に置き換えた
-- [ ] POA・スレッドモデルの設計書を作り、omniORBの挙動と突き合わせる（[#4](https://github.com/rustorb/rustorb/issues/4)）。その後サーバー側（POA）に着手し、相互接続のマトリクスに rustorb サーバーを加える
+- [x] POA・スレッドモデルの設計書を作り、omniORBの挙動と突き合わせる（[poa-design.md](poa-design.md)、[#4](https://github.com/rustorb/rustorb/issues/4)）
+  - `interop/run-poa-probe.sh` で omniORB C++ / omniORBpy の POA を手組みのGIOPで実測し、期待出力をCIで比べる。オブジェクトキーの形式、POAManager の各状態、servant manager、LocateRequest、スレッドへの割り当て、終了時の CloseConnection を記録した
+- [ ] 設計レビューを経て、サーバー側（POA）に着手し、相互接続のマトリクスに rustorb サーバーを加える（[poa-design.md の実装順](poa-design.md#m2-の実装順)）
 - [ ] idl\_parser のP0（#133〜#137）が直りしだい、Python生成器（M1）に着手する

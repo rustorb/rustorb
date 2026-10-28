@@ -17,6 +17,7 @@ omniORB server (see [The rustorb client](#the-rustorb-client)).
 | `run-matrix.sh` | runs every client / server combination |
 | `run-naming-check.sh` | runs a fixed CosNaming operation sequence (and `corbaname:` URLs) with the omniORBpy and rustorb clients and compares the output with `expected/naming-check.txt` |
 | `run-wire-probe.sh` | sends hand-built GIOP requests (`scripts/wire-probe`) to each server and compares the answers with `expected/wire-probe-*.txt` |
+| `run-poa-probe.sh` | starts the POA probe servers (`impls/omniorbpy/poa-probe-server`, `impls/omniorb-cpp/poa_probe_server`, IDL `idl/PoaProbe.idl`) and runs `scripts/poa-probe` against them, comparing the output with `expected/poa-probe-*.txt` |
 | `known-failures.txt` | failures caused by the existing ORBs, treated as expected |
 | `scripts/giop-extract` | splits a pcap file into GIOP messages |
 | `scripts/golden-compare` | compares captured GIOP messages with `golden/*.json` |
@@ -33,6 +34,7 @@ interop/run-matrix.sh --capture --giop 1.1     # all pairs, clients limited to G
 interop/run-matrix.sh omniorbpy:omniorb-cpp    # one pair: CLIENT:SERVER
 interop/run-naming-check.sh
 interop/run-wire-probe.sh
+interop/run-poa-probe.sh
 interop/scripts/golden-compare --all interop/out interop/golden
 ```
 
@@ -210,6 +212,31 @@ keep rustorb in line with them.
   joined alignment agree.
 - **wchar / wstring over GIOP 1.1** do not work between omniORB peers (see
   `known-failures.txt`).
+
+## POA and thread model probes
+
+`run-poa-probe.sh` records how omniORB's POA dispatches requests, which
+[`docs/poa-design.md`](../docs/poa-design.md) relies on. The probe servers
+(`impls/omniorbpy/poa_probe_server.py`, `impls/omniorb-cpp/poa_probe_server.cc`)
+publish `PoaProbe::Target` objects in POAs with different policies (lifespans,
+id assignment, thread models, servant managers, a default servant, an
+AdapterActivator, a POA under its own POAManager) and a `Control` object
+that changes their state. `scripts/poa-probe` talks to them with hand-built
+GIOP only, so it can pipeline requests on one connection and send object
+keys no stub would send. Each server is started three times: to record the
+object keys, after a restart to see which keys survive and to run the
+probe, and once more for `ORB::shutdown(false)` inside an upcall.
+
+```sh
+interop/run-poa-probe.sh                # both servers
+interop/run-poa-probe.sh omniorb-cpp
+interop/run-poa-probe.sh --update       # record expected/poa-probe-*.txt again
+```
+
+The output lists derived facts (whether calls overlapped, how many threads
+ran them, which exception or locate status came back) rather than timings,
+so it is the same on every run. omniORB C++ and omniORBpy give identical
+results; the design document summarises them.
 
 ## Known issues in omniORB found by these tests
 
