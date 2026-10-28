@@ -163,6 +163,7 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 - Pythonバインディングは、OMGのIDL to Python標準マッピングと omniidl -bpython の生成レイアウトを omniORBpy と互換にし、omniORBpy独自拡張は実アプリで必要なものだけを別パッケージの互換シムで提供する（[#5](https://github.com/rustorb/rustorb/issues/5)）
 - Naming Serviceの永続化は保存先をトレイトで抽象化し、既定実装はomniNamesと同じ追記ログ＋チェックポイント方式とする。組み込みKVSは必要になった時点で機能フラグ付きで追加する（[#6](https://github.com/rustorb/rustorb/issues/6)）
 - 最初に置き換える用途は2段階とし、MVPはNaming Service経由の汎用的なPython呼び出し（omniORBpy・omniNamesとの相互接続を最優先）、M5（Any / TypeCode）の完了後はOpenRTM-aist-Pythonの動作を完了条件にする（[#7](https://github.com/rustorb/rustorb/issues/7)）
+- 既存ORB（omniORB / omniORBpy / JacORB など）との互換は、仕様と実行結果（生成されたIOR、GIOPキャプチャ、相互接続テスト）だけを根拠に取る。コアは寛容ライセンスのため、既存ORBのソースコードは読まない。挙動を合わせる場合は、実際に動かした結果をテストのフィクスチャにする（[#17](https://github.com/rustorb/rustorb/pull/17)）
 
 **未決事項**
 
@@ -174,5 +175,5 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 - [x] Cargoワークスペースの雛形とクレート分割を作る
 - [x] omniORBとomniORBpyの相互接続テスト環境（Docker）と、第1段階のテスト用IDLを用意する（[interop/](../interop/README.md)）
 - [x] CDRエンコーダとGIOPメッセージ型の実装に着手する（`rustorb-cdr`、`rustorb-giop`、cargo-fuzzターゲット）
-- [ ] IOR（IIOPプロファイルとタグ付きコンポーネント）、corbaloc・corbanameのパースを実装する
+- [x] IOR（IIOPプロファイルとタグ付きコンポーネント）、corbaloc・corbanameのパースを実装する（`rustorb-giop`）
 - [ ] 相互接続環境のキャプチャで、GIOP 1.2のBOMなしwstringのバイト順（仕様はビッグエンディアン）と、GIOP 1.1のFragmentのアラインメントをomniORBと突き合わせる
