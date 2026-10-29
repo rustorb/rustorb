@@ -215,6 +215,7 @@ impl Reply {
             orb: Some(&self.orb),
             completed: CompletionStatus::Yes,
             wchar_needs_code_set: false,
+            values: Vec::new(),
         }
     }
 

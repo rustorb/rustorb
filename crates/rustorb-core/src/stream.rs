@@ -162,6 +162,9 @@ pub struct InStream<'a> {
     /// Whether `wchar` data needs a negotiated `wchar` code set, as for
     /// request arguments (`BAD_PARAM`, `WCHAR_TCS_NOT_KNOWN`).
     pub(crate) wchar_needs_code_set: bool,
+    /// The valuetypes read, by their slot in the stream, for
+    /// indirections.
+    pub(crate) values: Vec<Option<crate::ValueRef>>,
 }
 
 impl<'a> InStream<'a> {
@@ -176,6 +179,7 @@ impl<'a> InStream<'a> {
             orb,
             completed: CompletionStatus::No,
             wchar_needs_code_set: false,
+            values: Vec::new(),
         }
     }
 

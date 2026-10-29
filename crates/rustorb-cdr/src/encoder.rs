@@ -6,11 +6,14 @@ use crate::{ByteOrder, CdrVersion, Error, Result};
 /// `0` unless the encoder was created with [`Encoder::with_offset`].
 #[derive(Debug, Clone)]
 pub struct Encoder {
-    buf: Vec<u8>,
-    order: ByteOrder,
+    pub(crate) buf: Vec<u8>,
+    pub(crate) order: ByteOrder,
     version: CdrVersion,
     base: usize,
     wstring_bom: bool,
+    /// The valuetypes written so far (for indirections) and the chunk
+    /// being written; made with the first value.
+    pub(crate) values: Option<Box<crate::value::WriteState>>,
 }
 
 macro_rules! write_number {
@@ -42,6 +45,7 @@ impl Encoder {
             version,
             base,
             wstring_bom: true,
+            values: None,
         }
     }
 

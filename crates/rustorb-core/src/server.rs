@@ -475,6 +475,7 @@ impl Server {
             orb: Some(&orb),
             completed: CompletionStatus::No,
             wchar_needs_code_set: true,
+            values: Vec::new(),
         };
         let result = {
             let _upcall = UpcallGuard::enter();

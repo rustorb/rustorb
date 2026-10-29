@@ -1,0 +1,276 @@
+//! Valuetypes written and read back: sharing, cycles, truncation, boxes.
+
+use std::sync::Arc;
+
+use rustorb_core::cdr::{ByteOrder, CdrVersion, Decoder, Encoder};
+use rustorb_core::{
+    Any, CompletionStatus, EndpointAddr, InStream, Orb, OrbOptions, OutStream, Servant,
+    ServerReply, SystemException, SystemExceptionKind, TCKind, TypeCode, Value, ValueRef, minor,
+};
+
+fn long() -> TypeCode {
+    TypeCode::simple(TCKind::Long).unwrap()
+}
+
+fn string() -> TypeCode {
+    TypeCode::string(0)
+}
+
+/// `valuetype Base { public long a; };`
+fn base_tc(id: &str, modifier: i16) -> TypeCode {
+    TypeCode::value_tc(
+        TCKind::Value,
+        id,
+        "Base",
+        modifier,
+        None,
+        &[("a", long(), 1)],
+    )
+    .unwrap()
+}
+
+/// `valuetype Derived : truncatable Base { public string s; public Base other; };`
+fn derived_tc(base: &TypeCode, id: &str, modifier: i16) -> TypeCode {
+    TypeCode::value_tc(
+        TCKind::Value,
+        id,
+        "Derived",
+        modifier,
+        Some(base),
+        &[("s", string(), 1), ("other", base.clone(), 1)],
+    )
+    .unwrap()
+}
+
+/// `valuetype Node { public long n; public Node next; };`
+fn node_tc() -> TypeCode {
+    let id = "IDL:test/Node:1.0";
+    TypeCode::value_tc(
+        TCKind::Value,
+        id,
+        "Node",
+        0,
+        None,
+        &[("n", long(), 1), ("next", TypeCode::recursive(id), 1)],
+    )
+    .unwrap()
+}
+
+fn roundtrip(order: ByteOrder, tc: &TypeCode, v: &Value) -> Result<Value, SystemException> {
+    let mut enc = Encoder::new(order, CdrVersion::Giop1_2);
+    let mut out = OutStream::standalone(&mut enc);
+    // Something before, so that alignment and offsets are not trivial.
+    out.write_octet(1);
+    out.write_value(tc, v)?;
+    out.write_u16(0xbeef);
+    let bytes = enc.into_bytes();
+    let mut input = InStream::standalone(Decoder::new(&bytes, order, CdrVersion::Giop1_2), None);
+    assert_eq!(input.read_octet().unwrap(), 1);
+    let back = input.read_value(tc)?;
+    assert_eq!(input.read_u16().unwrap(), 0xbeef);
+    assert!(input.is_empty());
+    Ok(back)
+}
+
+fn get(v: &Value) -> ValueRef {
+    match v {
+        Value::Valuetype(Some(r)) => r.clone(),
+        other => panic!("not a value: {other:?}"),
+    }
+}
+
+#[test]
+fn shared_values_stay_shared() {
+    let base = base_tc("IDL:test/Shared/Base:1.0", 0);
+    let pair = TypeCode::struct_tc(
+        "IDL:test/Pair:1.0",
+        "Pair",
+        &[
+            ("x", base.clone()),
+            ("y", base.clone()),
+            ("z", base.clone()),
+        ],
+    )
+    .unwrap();
+    let shared = ValueRef::new(base.clone(), vec![Value::Long(5)]);
+    let v = Value::List(vec![
+        Value::Valuetype(Some(shared.clone())),
+        Value::Valuetype(Some(shared)),
+        Value::Valuetype(None),
+    ]);
+    for order in [ByteOrder::Big, ByteOrder::Little] {
+        let back = roundtrip(order, &pair, &v).unwrap();
+        assert_eq!(back, v);
+        let Value::List(items) = back else { panic!() };
+        assert!(get(&items[0]).ptr_eq(&get(&items[1])));
+        assert_eq!(get(&items[0]).members(), vec![Value::Long(5)]);
+        assert_eq!(items[2], Value::Valuetype(None));
+    }
+}
+
+#[test]
+fn cycles_come_back_as_cycles() {
+    let tc = node_tc();
+    let a = ValueRef::new(tc.clone(), Vec::new());
+    let b = ValueRef::new(
+        tc.clone(),
+        vec![Value::Long(2), Value::Valuetype(Some(a.clone()))],
+    );
+    a.set_members(vec![Value::Long(1), Value::Valuetype(Some(b))]);
+    let v = Value::Valuetype(Some(a));
+    let back = roundtrip(ByteOrder::Little, &tc, &v).unwrap();
+    assert_eq!(back, v);
+    let a2 = get(&back);
+    let b2 = get(&a2.members()[1]);
+    assert_eq!(b2.members()[0], Value::Long(2));
+    assert!(get(&b2.members()[1]).ptr_eq(&a2));
+    back.break_cycles();
+    v.break_cycles();
+}
+
+#[test]
+fn truncatable_values_are_read_as_a_known_base() {
+    let base = base_tc("IDL:test/Trunc/Base:1.0", 0);
+    let derived = derived_tc(&base, "IDL:test/Trunc/Derived:1.0", 3);
+    let inner = ValueRef::new(base.clone(), vec![Value::Long(7)]);
+    let v = Value::Valuetype(Some(ValueRef::new(
+        derived.clone(),
+        vec![
+            Value::Long(1),
+            Value::String("derived state".into()),
+            Value::Valuetype(Some(inner)),
+        ],
+    )));
+    // The derived type is not registered: the value is truncated.
+    let back = roundtrip(ByteOrder::Big, &base, &v).unwrap();
+    let r = get(&back);
+    assert_eq!(r.id(), "IDL:test/Trunc/Base:1.0");
+    assert_eq!(r.members(), vec![Value::Long(1)]);
+
+    // Registered, it is read whole.
+    rustorb_core::register_value_type(&derived);
+    let back = roundtrip(ByteOrder::Big, &base, &v).unwrap();
+    rustorb_core::unregister_value_type("IDL:test/Trunc/Derived:1.0");
+    assert_eq!(back, v);
+    assert_eq!(get(&back).id(), "IDL:test/Trunc/Derived:1.0");
+}
+
+#[test]
+fn unknown_types_that_cannot_be_truncated_are_marshal() {
+    let base = base_tc("IDL:test/Plain/Base:1.0", 0);
+    let derived = derived_tc(&base, "IDL:test/Plain/Derived:1.0", 0);
+    let v = Value::Valuetype(Some(ValueRef::new(
+        derived,
+        vec![
+            Value::Long(1),
+            Value::String("x".into()),
+            Value::Valuetype(None),
+        ],
+    )));
+    let e = roundtrip(ByteOrder::Big, &base, &v).unwrap_err();
+    assert_eq!(e.kind(), Some(SystemExceptionKind::MARSHAL));
+}
+
+#[test]
+fn values_that_do_not_fit_are_bad_param() {
+    let base = base_tc("IDL:test/Fit/Base:1.0", 0);
+    let other = base_tc("IDL:test/Fit/Other:1.0", 0);
+    let wrong_type = Value::Valuetype(Some(ValueRef::new(other, vec![Value::Long(1)])));
+    let wrong_state = Value::Valuetype(Some(ValueRef::new(base.clone(), vec![])));
+    for v in [wrong_type, wrong_state, Value::Long(1)] {
+        let e = roundtrip(ByteOrder::Big, &base, &v).unwrap_err();
+        assert_eq!(e.kind(), Some(SystemExceptionKind::BAD_PARAM));
+    }
+    let custom = base_tc("IDL:test/Fit/Custom:1.0", 1);
+    let v = Value::Valuetype(Some(ValueRef::new(custom.clone(), vec![Value::Long(1)])));
+    let e = roundtrip(ByteOrder::Big, &custom, &v).unwrap_err();
+    assert_eq!(e.kind(), Some(SystemExceptionKind::NO_IMPLEMENT));
+}
+
+#[test]
+fn value_boxes() {
+    let boxed = TypeCode::value_box("IDL:test/LongBox:1.0", "LongBox", &long()).unwrap();
+    let seq = TypeCode::sequence(&boxed, 0).unwrap();
+    let one = ValueRef::new(boxed.clone(), vec![Value::Long(42)]);
+    let v = Value::List(vec![
+        Value::Valuetype(Some(one.clone())),
+        Value::Valuetype(None),
+        Value::Valuetype(Some(one)),
+    ]);
+    let back = roundtrip(ByteOrder::Little, &seq, &v).unwrap();
+    assert_eq!(back, v);
+}
+
+const ID: &str = "IDL:test/ValueEcho:1.0";
+
+struct ValueEcho;
+
+impl Servant for ValueEcho {
+    fn repository_id(&self) -> &str {
+        ID
+    }
+
+    fn dispatch(
+        &self,
+        operation: &str,
+        input: &mut InStream<'_>,
+        reply: &mut ServerReply,
+    ) -> Result<(), SystemException> {
+        match operation {
+            "echo" => {
+                let a = input.read_any()?;
+                let b = input.read_any()?;
+                let mut out = reply.output();
+                out.write_any(&a)?;
+                out.write_any(&b)
+            }
+            _ => Err(SystemException::new(
+                SystemExceptionKind::BAD_OPERATION,
+                minor::UNKNOWN_OPERATION,
+                CompletionStatus::No,
+            )),
+        }
+    }
+}
+
+/// Two arguments are one message: a value in both is sent once.
+#[test]
+fn values_in_anys_between_orbs() {
+    let server = Orb::with_options(OrbOptions {
+        endpoints: vec![EndpointAddr {
+            host: "127.0.0.1".into(),
+            port: 0,
+        }],
+        ..OrbOptions::default()
+    })
+    .unwrap();
+    let root = server.root_poa().unwrap();
+    let id = root.activate_object(Arc::new(ValueEcho)).unwrap();
+    let local = root.id_to_reference(&id).unwrap();
+    root.the_poa_manager().activate().unwrap();
+    let client = Orb::with_options(OrbOptions::default()).unwrap();
+    let ior = local.ior().to_ior_string(ByteOrder::Big).unwrap();
+    let obj = client.string_to_object(&ior).unwrap().unwrap();
+
+    let tc = node_tc();
+    let a = ValueRef::new(tc.clone(), Vec::new());
+    a.set_members(vec![Value::Long(1), Value::Valuetype(Some(a.clone()))]);
+    let any = Any::new(tc.clone(), Value::Valuetype(Some(a.clone())));
+    let arg = any.clone();
+    let reply = obj
+        .request("echo")
+        .args(move |out| {
+            out.write_any(&arg)?;
+            out.write_any(&arg)
+        })
+        .invoke()
+        .unwrap();
+    let mut input = reply.input();
+    let (x, y) = (input.read_any().unwrap(), input.read_any().unwrap());
+    assert_eq!(x, any);
+    let (x, y) = (get(x.value()), get(y.value()));
+    assert!(x.ptr_eq(&y));
+    assert!(get(&x.members()[1]).ptr_eq(&x));
+    Value::Valuetype(Some(x)).break_cycles();
+    Value::Valuetype(Some(a)).break_cycles();
+}
