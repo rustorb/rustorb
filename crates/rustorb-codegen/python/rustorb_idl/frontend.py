@@ -351,17 +351,19 @@ def type_of(t, where=None):
         ),
     ):
         if is_interface(t) and is_forward(t):
-            full = _full_definition(t)
+            full = full_definition(t)
             if full is not None:
                 t = full
         return Type("named", node=t)
     raise GeneratorError("the type %s is not supported yet" % getattr(t, "name", t), where)
 
 
-def _full_definition(fwd):
-    """The full definition of a forward-declared interface, if there is one."""
+def full_definition(fwd):
+    """The full definition of a forward-declared interface or valuetype,
+    if there is one."""
+    kind = is_valuetype if is_valuetype(fwd) else is_interface
     for d in fwd.parent.definitions:
-        if is_interface(d) and d.name == fwd.name and not is_forward(d):
+        if kind(d) and d.name == fwd.name and not is_forward(d):
             return d
     return None
 

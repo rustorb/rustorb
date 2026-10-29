@@ -866,7 +866,7 @@ class CxxBackend(object):
         while todo:
             b = todo.pop(0)
             if fe.is_forward(b):
-                full = fe._full_definition(b)
+                full = fe.full_definition(b)
                 b = full if full is not None else b
             if any(a is b for a in out):
                 continue

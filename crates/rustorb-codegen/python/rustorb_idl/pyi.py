@@ -170,7 +170,8 @@ class StubWriter(object):
             self.interface(node)
         elif fe.is_valuetype(node):
             if fe.is_forward(node):
-                w("_tc_%s: CORBA.TypeCode" % node.name)
+                if fe.full_definition(node) is None:
+                    w("_tc_%s: CORBA.TypeCode" % node.name)
             elif node.is_boxed:
                 w("class %s:" % py_name(node.name))
                 w("    _NP_RepositoryId: str")

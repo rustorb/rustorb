@@ -1199,7 +1199,7 @@ class JavaBackend(object):
 
     def full_iface(self, b):
         if fe.is_forward(b):
-            full = fe._full_definition(b)
+            full = fe.full_definition(b)
             return full if full is not None else b
         return b
 
