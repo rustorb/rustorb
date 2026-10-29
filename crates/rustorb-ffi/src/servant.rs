@@ -190,6 +190,17 @@ pub(crate) fn caller_object(servant: &Arc<dyn Servant>) -> Option<*mut c_void> {
     Some(s.this)
 }
 
+/// The caller's object of a servant from the POA, without a reference
+/// added (valid while `servant` lives); NULL if it is not one of the
+/// caller's servants.
+pub(crate) fn caller_self(servant: &Arc<dyn Servant>) -> *mut c_void {
+    let addr = Arc::as_ptr(servant) as *const () as usize;
+    let reg = REGISTRY.lock().unwrap();
+    reg.as_ref()
+        .and_then(|r| r.by_addr.get(&addr))
+        .map_or(std::ptr::null_mut(), |&this| this as *mut c_void)
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rorb_servant_current_reference(
     servant: *mut Arc<FfiServant>,

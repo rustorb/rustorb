@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <cstring>
 #include <exception>
+#include <iostream>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -868,6 +869,59 @@ class ServantBase {
 
 using Servant = CORBA::servant_reference<ServantBase>;
 
+// PortableServer::ForwardRequest: raised by a servant manager to send the
+// client to another object.
+class ForwardRequest : public CORBA::UserException {
+ public:
+  ForwardRequest() = default;
+  explicit ForwardRequest(CORBA::object_reference<CORBA::Object> forward_reference)
+      : forward_reference_(std::move(forward_reference)) {}
+  const CORBA::object_reference<CORBA::Object>& forward_reference() const {
+    return forward_reference_;
+  }
+  void forward_reference(CORBA::object_reference<CORBA::Object> r) {
+    forward_reference_ = std::move(r);
+  }
+  RUSTORB_LOCAL_EXCEPTION_BODY(ForwardRequest, "IDL:omg.org/PortableServer/ForwardRequest:2.3")
+
+ private:
+  CORBA::object_reference<CORBA::Object> forward_reference_;
+};
+
+// Servant managers and adapter activators are local objects the
+// application implements, made with CORBA::make_reference<T>(). Their
+// operations are called on the ORB's upcall threads.
+class ServantManager : public virtual CORBA::LocalObject {
+ protected:
+  ServantManager() = default;
+};
+
+// For a POA with RETAIN and USE_SERVANT_MANAGER.
+class ServantActivator : public virtual ServantManager {
+ public:
+  virtual Servant incarnate(const ObjectId& oid, CORBA::object_reference<POA> adapter) = 0;
+  virtual void etherealize(const ObjectId& oid, CORBA::object_reference<POA> adapter,
+                           Servant serv, bool cleanup_in_progress,
+                           bool remaining_activations) = 0;
+};
+
+// For a POA with NON_RETAIN and USE_SERVANT_MANAGER.
+class ServantLocator : public virtual ServantManager {
+ public:
+  using Cookie = void*;
+  virtual Servant preinvoke(const ObjectId& oid, CORBA::object_reference<POA> adapter,
+                            const std::string& operation, Cookie& the_cookie) = 0;
+  virtual void postinvoke(const ObjectId& oid, CORBA::object_reference<POA> adapter,
+                          const std::string& operation, Cookie the_cookie,
+                          Servant the_servant) = 0;
+};
+
+class AdapterActivator : public virtual CORBA::LocalObject {
+ public:
+  // Creates the child name of parent and returns true, or returns false.
+  virtual bool unknown_adapter(CORBA::object_reference<POA> parent, const std::string& name) = 0;
+};
+
 class POAManager : public CORBA::LocalObject {
  public:
   POAManager(rustorb::detail::adopt_t, rorb_poa_manager* handle) noexcept : handle_(handle) {}
@@ -966,6 +1020,11 @@ class POA : public CORBA::LocalObject {
 
   Servant get_servant();
   void set_servant(const Servant& servant);
+
+  CORBA::object_reference<ServantManager> get_servant_manager();
+  void set_servant_manager(const CORBA::object_reference<ServantManager>& imgr);
+  CORBA::object_reference<AdapterActivator> the_activator();
+  void the_activator(const CORBA::object_reference<AdapterActivator>& activator);
 
   ObjectId activate_object(const Servant& servant);
   void activate_object_with_id(const ObjectId& id, const Servant& servant);
@@ -1921,6 +1980,217 @@ inline void POA::set_servant(const Servant& servant) {
   rustorb::detail::ServantHandle s(servant);
   rustorb::detail::Exc exc;
   rustorb::detail::check(rorb_poa_set_servant(handle_, s.h, &exc), exc);
+}
+
+namespace detail {
+
+// The holder the core keeps of a servant manager or adapter activator: a
+// counted box around the shared pointer.
+template <typename T> struct Held {
+  explicit Held(std::shared_ptr<T> p) : p(std::move(p)) {}
+  std::atomic<uint32_t> count{1};
+  std::shared_ptr<T> p;
+
+  static void add_ref(void* self) {
+    static_cast<Held*>(self)->count.fetch_add(1, std::memory_order_relaxed);
+  }
+  static void remove_ref(void* self) {
+    auto* h = static_cast<Held*>(self);
+    if (h->count.fetch_sub(1, std::memory_order_acq_rel) == 1) delete h;
+  }
+  // The object of a holder the core gave back with a reference added.
+  static std::shared_ptr<T> take(void* self) {
+    if (!self) return nullptr;
+    std::shared_ptr<T> p = static_cast<Held*>(self)->p;
+    remove_ref(self);
+    return p;
+  }
+};
+
+// The servant a servant manager returned, given to the core.
+inline rorb_status provide(const Servant& s, rorb_servant** servant) {
+  *servant = s ? s->_rorb_servant() : nullptr;
+  return RORB_OK;
+}
+
+// Reports what incarnate or preinvoke threw.
+template <typename F> rorb_status manager_call(rorb_manager_error* error, const F& body) noexcept {
+  try {
+    return body();
+  } catch (const ForwardRequest& f) {
+    try {
+      rorb_manager_error_forward(error, rustorb::detail::handle_of(f.forward_reference()));
+    } catch (const CORBA::SystemException& e) {
+      rorb_manager_error_system(error, e._rep_id(), std::strlen(e._rep_id()), e.minor(),
+                                static_cast<uint32_t>(e.completed()));
+    }
+    return RORB_SYSTEM_EXCEPTION;
+  } catch (const CORBA::SystemException& e) {
+    rorb_manager_error_system(error, e._rep_id(), std::strlen(e._rep_id()), e.minor(),
+                              static_cast<uint32_t>(e.completed()));
+    return RORB_SYSTEM_EXCEPTION;
+  } catch (const std::exception& e) {
+    std::cerr << "rustorb: exception in a servant manager: " << e.what() << std::endl;
+  } catch (...) {
+    std::cerr << "rustorb: unknown exception in a servant manager" << std::endl;
+  }
+  return RORB_CALLBACK_FAILED;
+}
+
+// Runs etherealize, postinvoke or unknown_adapter, which cannot report an
+// error.
+template <typename F> void notify(const char* what, const F& body) noexcept {
+  try {
+    body();
+  } catch (const std::exception& e) {
+    std::cerr << "rustorb: exception in " << what << ": " << e.what() << std::endl;
+  } catch (...) {
+    std::cerr << "rustorb: unknown exception in " << what << std::endl;
+  }
+}
+
+// A servant passed to etherealize or postinvoke (no reference added).
+inline Servant borrowed_servant(void* self) {
+  if (!self) return nullptr;
+  auto* s = static_cast<ServantBase*>(self);
+  s->_add_ref();
+  return Servant(s, rustorb::detail::adopt);
+}
+
+inline CORBA::object_reference<POA> borrowed_poa(rorb_poa* adapter) {
+  return rustorb::detail::poa(rorb_poa_clone(adapter));
+}
+
+inline ObjectId object_id(const uint8_t* id, size_t len) { return ObjectId(id, id + len); }
+
+inline const rorb_servant_activator_vtable* activator_vtable() {
+  using H = Held<ServantActivator>;
+  static const rorb_servant_activator_vtable vtable = {
+      [](void* self, const uint8_t* id, size_t len, rorb_poa* adapter, rorb_servant** servant,
+         rorb_manager_error* error) -> rorb_status {
+        return manager_call(error, [&] {
+          return provide(
+              static_cast<H*>(self)->p->incarnate(object_id(id, len), borrowed_poa(adapter)),
+              servant);
+        });
+      },
+      [](void* self, const uint8_t* id, size_t len, rorb_poa* adapter, void* servant,
+         int32_t cleanup_in_progress, int32_t remaining_activations) {
+        notify("etherealize", [&] {
+          static_cast<H*>(self)->p->etherealize(object_id(id, len), borrowed_poa(adapter),
+                                                borrowed_servant(servant),
+                                                cleanup_in_progress != 0,
+                                                remaining_activations != 0);
+        });
+      },
+      &H::add_ref,
+      &H::remove_ref,
+  };
+  return &vtable;
+}
+
+inline const rorb_servant_locator_vtable* locator_vtable() {
+  using H = Held<ServantLocator>;
+  static const rorb_servant_locator_vtable vtable = {
+      [](void* self, const uint8_t* id, size_t len, rorb_poa* adapter, const char* op,
+         size_t op_len, rorb_servant** servant, void** cookie,
+         rorb_manager_error* error) -> rorb_status {
+        return manager_call(error, [&] {
+          ServantLocator::Cookie c = nullptr;
+          Servant s = static_cast<H*>(self)->p->preinvoke(object_id(id, len), borrowed_poa(adapter),
+                                                          std::string(op, op_len), c);
+          *cookie = c;
+          return provide(s, servant);
+        });
+      },
+      [](void* self, const uint8_t* id, size_t len, rorb_poa* adapter, const char* op,
+         size_t op_len, void* cookie, void* servant) {
+        notify("postinvoke", [&] {
+          static_cast<H*>(self)->p->postinvoke(object_id(id, len), borrowed_poa(adapter),
+                                               std::string(op, op_len), cookie,
+                                               borrowed_servant(servant));
+        });
+      },
+      &H::add_ref,
+      &H::remove_ref,
+  };
+  return &vtable;
+}
+
+inline const rorb_adapter_activator_vtable* adapter_activator_vtable() {
+  using H = Held<AdapterActivator>;
+  static const rorb_adapter_activator_vtable vtable = {
+      [](void* self, rorb_poa* parent, const char* name, size_t len) -> int32_t {
+        bool created = false;
+        notify("unknown_adapter", [&] {
+          created = static_cast<H*>(self)->p->unknown_adapter(borrowed_poa(parent),
+                                                              std::string(name, len));
+        });
+        return created ? 1 : 0;
+      },
+      &H::add_ref,
+      &H::remove_ref,
+  };
+  return &vtable;
+}
+
+// Hands a new holder of p to set, which adds its own reference.
+template <typename T, typename F> void hand_over(const std::shared_ptr<T>& p, const F& set) {
+  auto* h = new Held<T>(p);
+  rustorb::detail::Exc exc;
+  rorb_status status = set(static_cast<void*>(h), exc);
+  Held<T>::remove_ref(h);
+  rustorb::detail::check(status, exc);
+}
+
+}  // namespace detail
+
+inline CORBA::object_reference<ServantManager> POA::get_servant_manager() {
+  int32_t kind = RORB_NO_SERVANT_MANAGER;
+  void* self = nullptr;
+  rustorb::detail::Exc exc;
+  rustorb::detail::check(rorb_poa_get_servant_manager(handle_, &kind, &self, &exc), exc);
+  switch (kind) {
+    case RORB_SERVANT_ACTIVATOR:
+      return CORBA::object_reference<ServantManager>(
+          detail::Held<ServantActivator>::take(self));
+    case RORB_SERVANT_LOCATOR:
+      return CORBA::object_reference<ServantManager>(detail::Held<ServantLocator>::take(self));
+    default:
+      return nullptr;
+  }
+}
+
+inline void POA::set_servant_manager(const CORBA::object_reference<ServantManager>& imgr) {
+  if (!imgr) throw CORBA::OBJ_ADAPTER(0x4f4d0004, CORBA::CompletionStatus::COMPLETED_NO);
+  const std::shared_ptr<ServantManager>& p = imgr._rorb_shared();
+  if (auto a = std::dynamic_pointer_cast<ServantActivator>(p)) {
+    detail::hand_over(a, [&](void* h, rorb_exception& exc) {
+      return rorb_poa_set_servant_activator(handle_, h, detail::activator_vtable(), &exc);
+    });
+  } else if (auto l = std::dynamic_pointer_cast<ServantLocator>(p)) {
+    detail::hand_over(l, [&](void* h, rorb_exception& exc) {
+      return rorb_poa_set_servant_locator(handle_, h, detail::locator_vtable(), &exc);
+    });
+  } else {
+    throw CORBA::OBJ_ADAPTER(0x4f4d0004, CORBA::CompletionStatus::COMPLETED_NO);
+  }
+}
+
+inline CORBA::object_reference<AdapterActivator> POA::the_activator() {
+  return CORBA::object_reference<AdapterActivator>(
+      detail::Held<AdapterActivator>::take(rorb_poa_the_activator(handle_)));
+}
+
+inline void POA::the_activator(const CORBA::object_reference<AdapterActivator>& activator) {
+  if (!activator) {
+    rustorb::detail::Exc exc;
+    rustorb::detail::check(rorb_poa_set_the_activator(handle_, nullptr, nullptr, &exc), exc);
+    return;
+  }
+  detail::hand_over(activator._rorb_shared(), [&](void* h, rorb_exception& exc) {
+    return rorb_poa_set_the_activator(handle_, h, detail::adapter_activator_vtable(), &exc);
+  });
 }
 
 inline ObjectId POA::activate_object(const Servant& servant) {

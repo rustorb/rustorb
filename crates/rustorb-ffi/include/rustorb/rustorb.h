@@ -517,6 +517,84 @@ rorb_status rorb_poa_create_reference_with_id(rorb_poa* poa, const uint8_t* id, 
 rorb_status rorb_poa_get_servant(rorb_poa* poa, void** self, rorb_exception* exc);
 rorb_status rorb_poa_set_servant(rorb_poa* poa, rorb_servant* servant, rorb_exception* exc);
 
+/* --- servant managers and adapter activators ------------------------------ */
+
+/* What incarnate or preinvoke raised instead of providing a servant; only
+   valid during the callback that receives it. */
+typedef struct rorb_manager_error rorb_manager_error;
+
+/* PortableServer::ForwardRequest: the client is sent to obj (cloned). */
+void rorb_manager_error_forward(rorb_manager_error* error, rorb_object* obj);
+/* A system exception, returned to the client. */
+void rorb_manager_error_system(rorb_manager_error* error, const char* id, size_t len,
+                               uint32_t minor, uint32_t completed);
+
+/* The callbacks of the objects below. self is the pointer given when
+   setting it; like a servant, the POA calls add_ref when it takes self
+   and remove_ref when it lets it go. They are called on upcall threads.
+
+   incarnate and preinvoke return RORB_OK with *servant set to a handle
+   from rorb_servant_get (whose reference the POA takes over), or another
+   status after rorb_manager_error_* (UNKNOWN when nothing was set). A
+   NULL servant is OBJ_ADAPTER. The adapter handles are only valid during
+   the callback (rorb_poa_clone keeps one). The servant given to
+   etherealize and postinvoke is the self of a servant made with
+   rorb_servant_get, valid during the callback without a reference added
+   (NULL for a servant of another kind). etherealize and postinvoke may be
+   NULL. */
+typedef struct rorb_servant_activator_vtable {
+  rorb_status (*incarnate)(void* self, const uint8_t* id, size_t id_len, rorb_poa* adapter,
+                           rorb_servant** servant, rorb_manager_error* error);
+  void (*etherealize)(void* self, const uint8_t* id, size_t id_len, rorb_poa* adapter,
+                      void* servant, int32_t cleanup_in_progress,
+                      int32_t remaining_activations);
+  void (*add_ref)(void* self);
+  void (*remove_ref)(void* self);
+} rorb_servant_activator_vtable;
+
+typedef struct rorb_servant_locator_vtable {
+  /* *cookie is passed to postinvoke as it is. */
+  rorb_status (*preinvoke)(void* self, const uint8_t* id, size_t id_len, rorb_poa* adapter,
+                           const char* op, size_t op_len, rorb_servant** servant, void** cookie,
+                           rorb_manager_error* error);
+  void (*postinvoke)(void* self, const uint8_t* id, size_t id_len, rorb_poa* adapter,
+                     const char* op, size_t op_len, void* cookie, void* servant);
+  void (*add_ref)(void* self);
+  void (*remove_ref)(void* self);
+} rorb_servant_locator_vtable;
+
+typedef struct rorb_adapter_activator_vtable {
+  /* Creates the child name of parent and returns 1, or returns 0. */
+  int32_t (*unknown_adapter)(void* self, rorb_poa* parent, const char* name, size_t len);
+  void (*add_ref)(void* self);
+  void (*remove_ref)(void* self);
+} rorb_adapter_activator_vtable;
+
+/* rorb_poa_get_servant_manager's *kind */
+#define RORB_NO_SERVANT_MANAGER 0
+#define RORB_SERVANT_ACTIVATOR 1
+#define RORB_SERVANT_LOCATOR 2
+
+/* set_servant_manager (USE_SERVANT_MANAGER): an activator with RETAIN, a
+   locator with NON_RETAIN. The vtables must outlive the POA. */
+rorb_status rorb_poa_set_servant_activator(rorb_poa* poa, void* self,
+                                           const rorb_servant_activator_vtable* vtable,
+                                           rorb_exception* exc);
+rorb_status rorb_poa_set_servant_locator(rorb_poa* poa, void* self,
+                                         const rorb_servant_locator_vtable* vtable,
+                                         rorb_exception* exc);
+/* *self is the manager given to set, with a reference added for the
+   caller (add_ref), or NULL. */
+rorb_status rorb_poa_get_servant_manager(rorb_poa* poa, int32_t* kind, void** self,
+                                         rorb_exception* exc);
+/* the_activator; self NULL removes it. */
+rorb_status rorb_poa_set_the_activator(rorb_poa* poa, void* self,
+                                       const rorb_adapter_activator_vtable* vtable,
+                                       rorb_exception* exc);
+/* The adapter activator given to set, with a reference added for the
+   caller, or NULL. */
+void* rorb_poa_the_activator(rorb_poa* poa);
+
 /* PortableServer::Current; outside a request RORB_NO_CONTEXT. */
 rorb_status rorb_current_get_poa(rorb_poa** poa, rorb_exception* exc);
 rorb_status rorb_current_get_object_id(rorb_bytes* id, rorb_exception* exc);
