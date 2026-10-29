@@ -215,6 +215,9 @@ version = "0.0.0"
 [[package]]
 name = "rustorb-codegen"
 version = "0.0.0"
+dependencies = [
+ "rustorb-core",
+]
 
 [[package]]
 name = "rustorb-core"
