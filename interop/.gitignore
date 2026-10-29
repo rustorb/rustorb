@@ -12,3 +12,4 @@
 /impls/rustorbjava/classes/
 /impls/rustorbjava/gen/
 /impls/rustorbjava/lib/
+/impls/omniorb-cpp/dynany_probe

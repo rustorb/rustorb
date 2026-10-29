@@ -8,7 +8,9 @@
 use std::sync::{Arc, OnceLock};
 
 use rustorb_core::idl::{self as rt, IdlType, Sys, bad_param};
-use rustorb_core::{Any, SystemExceptionKind, TypeCode};
+use rustorb_core::{
+    Any, DynAny, DynAnyError, DynAnyFactory, SystemExceptionKind, TCKind, TypeCode,
+};
 
 use crate::idl::any_test::{
     AnyEcho, AnyEchoServant, Choice, NameValue, Node, NvList, Oops, Point, Shade, alias,
@@ -270,6 +272,27 @@ pub fn cases(echo: &AnyEcho) -> Vec<Case<'_>> {
             check(got == description, || got.clone())
         });
     }
+    // The values taken apart and built again with DynAny, from their
+    // TypeCodes alone (docs/dynany.md).
+    for &n in NAMES {
+        add(&mut cases, format!("dyn_check[{n}]"), move || {
+            let rebuilt = dyn_rebuild(&v(n)).map_err(err)?;
+            let ok = echo.check(n, &rebuilt).map_err(err)?;
+            check(ok, || format!("server says no to {rebuilt:?}"))
+        });
+        add(&mut cases, format!("dyn_make[{n}]"), move || {
+            let got = echo.make(n).map_err(err)?;
+            let rebuilt = dyn_rebuild(&got).map_err(err)?;
+            check(same(&rebuilt, &v(n)), || format!("got {rebuilt:?}"))
+        });
+    }
+    for &(n, _) in HIDDEN {
+        add(&mut cases, format!("dyn_echo[{n}]"), move || {
+            let rebuilt = dyn_rebuild(&v(n)).map_err(err)?;
+            let got = echo.echo(&rebuilt).map_err(err)?;
+            check(same(&got, &v(n)), || format!("got {got:?}"))
+        });
+    }
     add(&mut cases, "describe[long]".into(), move || {
         let got = echo.describe(&v("long")).map_err(err)?;
         check(got == "long ", || got.clone())
@@ -300,4 +323,55 @@ pub fn cases(echo: &AnyEcho) -> Vec<Case<'_>> {
         }
     });
     cases
+}
+
+/// `value` taken apart with a DynAny and built again in a DynAny made from
+/// its TypeCode alone, component by component.
+pub fn dyn_rebuild(value: &Any) -> Result<Any, DynAnyError> {
+    let src = DynAnyFactory.create_dyn_any(value)?;
+    let dst = DynAnyFactory.create_dyn_any_from_type_code(value.typecode())?;
+    dyn_copy(&src, &dst)?;
+    let rebuilt = dst.to_any()?;
+    src.destroy()?;
+    dst.destroy()?;
+    Ok(rebuilt)
+}
+
+fn dyn_copy(src: &DynAny, dst: &DynAny) -> Result<(), DynAnyError> {
+    match src.kind() {
+        TCKind::Struct
+        | TCKind::Except
+        | TCKind::Sequence
+        | TCKind::Array
+        | TCKind::Value
+        | TCKind::ValueBox => {
+            match src.kind() {
+                TCKind::Sequence => dst.set_length(src.get_length()?)?,
+                TCKind::Value | TCKind::ValueBox if src.is_null()? => return dst.set_to_null(),
+                TCKind::Value | TCKind::ValueBox => dst.set_to_value()?,
+                _ => {}
+            }
+            for i in 0..src.component_count()? as i32 {
+                src.seek(i)?;
+                dst.seek(i)?;
+                let (Some(s), Some(d)) = (src.current_component()?, dst.current_component()?)
+                else {
+                    return Err(DynAnyError::InvalidValue);
+                };
+                dyn_copy(&s, &d)?;
+            }
+            Ok(())
+        }
+        TCKind::Union => {
+            dst.set_discriminator(&src.get_discriminator()?)?;
+            if src.has_no_active_member()? {
+                return Ok(());
+            }
+            dyn_copy(&src.member()?, &dst.member()?)
+        }
+        TCKind::Enum => dst.set_enum_as_ulong(src.get_enum_as_ulong()?),
+        TCKind::Fixed => dst.set_fixed_value(&src.get_fixed_value()?).map(|_| ()),
+        TCKind::Any => dst.insert_any(&dyn_rebuild(&src.get_any()?)?),
+        kind => dst.insert_basic(kind, src.get_basic(kind)?),
+    }
 }

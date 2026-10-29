@@ -1,0 +1,119 @@
+long.count: 0
+long.get: 0
+long.seek0: false
+long.next: false
+long.current_component: TypeMismatch
+long.get_short: TypeMismatch
+long.insert_short: TypeMismatch
+alias.insert_long: 7
+alias.type: tk_alias
+string.get: ""
+bstring.insert_long: InvalidValue
+bstring.insert_ok: true
+typecode.get: tk_null
+any.get: tk_null
+any.count: 0
+objref.get: true
+principal: InconsistentTypeCode
+longdouble: InconsistentTypeCode
+any.get_dyn_any_shared: 5
+struct.count: 3
+struct.position: 0
+struct.insert_long: "a"
+struct.insert_long_moves: true3
+struct.insert_string_at_0: TypeMismatch
+struct.member_kind_alias: tk_alias
+struct.member_name_end: InvalidValue
+struct.insert_at_end: InvalidValue
+struct.next_past_end: falsetrue
+struct.next_from_minus1: true0
+struct.seek_minus1: false
+struct.component_shared: 11
+struct.members_as_dyn_any_shared: 12
+struct.set_members_wrong_name: TypeMismatch
+struct.set_members_empty_names: true
+struct.set_members_short: InvalidValue
+struct.set_members_wrong_type: TypeMismatch
+struct.set_members_unaliased: true
+struct.set_members_position: 0
+struct.from_any_wrong: TypeMismatch
+struct.from_any_position: 0
+struct.assign_wrong: TypeMismatch
+struct.destroy_component: 2
+struct.destroyed: OBJECT_NOT_EXIST
+struct.destroyed_top: OBJECT_NOT_EXIST
+struct.copy_independent: 0
+struct.equal: truefalse
+except.count: 0
+except.current_component: TypeMismatch
+except.member_name: TypeMismatch
+enum.get: "RED"
+enum.set_as_string_bad: InvalidValue
+enum.set_as_ulong_bad: InvalidValue
+enum.set_as_ulong: "BLUE"
+enum.current_component: TypeMismatch
+enum.count: 0
+enum.insert_ulong: TypeMismatch
+fixed.get: "0"
+fixed.set: true"-12.5"
+fixed.set_d: true"1.25"
+fixed.set_blank: true"1.25"
+fixed.set_truncates: false"1.23"
+fixed.set_zero_tail: true
+fixed.set_too_big: InvalidValue
+fixed.set_bad: TypeMismatch
+fixed.set_int: true"7"
+union.initial: 1 false "x"
+union.count: 2
+union.position: 0
+union.default_first: 0 "x"
+union.no_default_initial: 5 "x"
+union.set_discriminator: "y" 1
+union.set_discriminator_keeps: "kept"
+union.set_discriminator_default: "z"
+union.set_discriminator_wrong: TypeMismatch
+union.disc_component: "y" 2
+union.disc_component_to_none: true 1
+union.set_to_default_member: "z" 0 0
+union.set_to_default_member_none: TypeMismatch
+union.set_to_no_active_member: true 0 1 0
+union.set_to_no_active_member_default: TypeMismatch
+union.set_to_no_active_member_full: TypeMismatch
+union.member_none: InvalidValue
+union.member_name_none: InvalidValue
+union.discriminator_kind: tk_short
+union.member_kind: tk_long
+union.insert_long: 0
+union.boolean_initial: true "t"
+seq.count: 0
+seq.current_component: true
+seq.insert_empty: InvalidValue
+seq.grow_position: 0
+seq.grow_keeps_position: 4
+seq.grow_from_minus1: false 8
+seq.shrink_position: true
+seq.shrink_keeps: 6
+seq.shrink_to_0: true
+seq.bound: InvalidValue
+seq.set_elements_bound: InvalidValue
+seq.set_elements_type: TypeMismatch
+seq.set_elements_position: 0
+seq.insert_long_seq: 2 0
+seq.get_long_seq: 2
+seq.insert_short_seq: InvalidValue
+seq.insert_long_seq_bound: InvalidValue
+struct.insert_long_seq: TypeMismatch
+arr.count: 3 0
+arr.set_elements_count: InvalidValue
+arr.insert_long_seq_count: InvalidValue
+value.null: true 0
+value.set_to_value: false 1 0
+value.get_members_null: InvalidValue
+value.member_name_null: TypeMismatch
+value.current_component_null: TypeMismatch
+value.set_members: false 3
+box.null: true 0
+box.get_null: InvalidValue
+box.set: false 1 0
+box.set_wrong: TypeMismatch
+box.set_to_value: 0

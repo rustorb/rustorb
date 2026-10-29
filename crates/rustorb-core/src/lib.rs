@@ -52,6 +52,7 @@
 
 mod codeset;
 mod connection;
+pub mod dynany;
 mod exception;
 mod fixed;
 pub mod idl;
@@ -69,6 +70,7 @@ pub mod typecode;
 mod value;
 
 pub use codeset::CodeSets;
+pub use dynany::{DynAny, DynAnyError, DynAnyFactory};
 pub use exception::{
     Exception, OMG_VMCID, SystemException, SystemExceptionKind, UserException, minor,
 };

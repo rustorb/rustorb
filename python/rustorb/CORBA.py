@@ -961,6 +961,10 @@ class ORB(object):
             return PolicyManager(self._native)
         if identifier == "PolicyCurrent":
             return PolicyCurrent()
+        if identifier == "DynAnyFactory":
+            from . import DynamicAny
+
+            return DynamicAny.DynAnyFactory()
         local = self._native.resolve_local_initial_reference(identifier)
         if local is not None:
             return local
@@ -971,7 +975,14 @@ class ORB(object):
         return _rt.make_objref(native, Object._NP_RepositoryId)
 
     #: The names resolve_initial_references answers without the core.
-    _LOCAL_SERVICES = ("RootPOA", "POACurrent", "omniINSPOA", "ORBPolicyManager", "PolicyCurrent")
+    _LOCAL_SERVICES = (
+        "RootPOA",
+        "POACurrent",
+        "omniINSPOA",
+        "ORBPolicyManager",
+        "PolicyCurrent",
+        "DynAnyFactory",
+    )
 
     def list_initial_services(self):
         return list(self._LOCAL_SERVICES) + list(self._native.list_initial_services())
