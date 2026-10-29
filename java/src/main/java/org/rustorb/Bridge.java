@@ -28,6 +28,18 @@ final class Bridge {
     private static final int USER_EXCEPTION = 2;
     private static final int CALLBACK_FAILED = 4;
 
+    // --- valuetypes --------------------------------------------------------
+
+    /** The core asks for a valuetype it does not know: a new TypeCode
+     * handle, or 0. */
+    static long resolveValueType(String id) {
+        try {
+            return Values.resolve(id);
+        } catch (RuntimeException e) {
+            return 0;
+        }
+    }
+
     // --- exceptions --------------------------------------------------------
 
     static RuntimeException systemException(String id, int minor, int completed) {

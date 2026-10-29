@@ -139,6 +139,9 @@ _NONE = object()
 
 
 class CxxBackend(object):
+    # The language in errors (the Java backend shares check_value).
+    LANGUAGE = "C++"
+
     def __init__(self, spec, options=None):
         self.spec = spec
         self.opt = options or Options()
@@ -941,19 +944,17 @@ class CxxBackend(object):
         return inherited + self.state_members(node)
 
     def check_value(self, node):
+        backend = "the %s backend" % self.LANGUAGE
         if node.is_custom:
-            raise fe.GeneratorError(
-                "custom valuetypes are not supported by the C++ backend yet", node
-            )
+            raise fe.GeneratorError("custom valuetypes are not supported by %s yet" % backend, node)
         if node.supports:
             raise fe.GeneratorError(
-                "valuetypes that support interfaces are not supported by the C++ backend yet",
-                node,
+                "valuetypes that support interfaces are not supported by %s yet" % backend, node
             )
         if fe.has_behaviour(node):
             raise fe.GeneratorError(
-                "valuetype operations, attributes and initializers are not supported by"
-                " the C++ backend yet",
+                "valuetype operations, attributes and initializers are not supported by %s yet"
+                % backend,
                 node,
             )
 

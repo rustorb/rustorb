@@ -164,6 +164,11 @@ public abstract class ORB {
         return TypeCodes.array(element_type, length);
     }
 
+    public TypeCode create_value_tc(String id, String name, short type_modifier,
+            TypeCode concrete_base, ValueMember[] members) {
+        return TypeCodes.value(id, name, type_modifier, concrete_base, members);
+    }
+
     public TypeCode create_recursive_tc(String id) {
         return TypeCodes.recursive(id);
     }

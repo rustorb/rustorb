@@ -98,7 +98,8 @@ RUN mkdir /src/openrtm/build && cd /src/openrtm/build \
 # Central, pinned by version and sha256, with stubs from JacORB's own IDL
 # compiler and the Java sources shared with rustorbjava (impls/java).
 # JacORB 3.9 uses javax.rmi.CORBA, which Java 11 dropped, so the javax.rmi
-# API jar comes too.
+# API jar comes too, with the javax.transaction API jar that it loads when
+# JacORB writes a value in an any.
 FROM ubuntu:${UBUNTU_VERSION} AS jacorb-build
 
 ARG JACORB_VERSION=3.9
@@ -120,6 +121,8 @@ ADD --checksum=sha256:2983d6db3a53ab1496b24703763b9fcfea53caf6550dd2200066ab552c
 ADD --checksum=sha256:07615653320a010a648d164e77751daddcfea5602148aa4da2f052bc6af0689e \
     ${MAVEN}/org/jboss/spec/javax/rmi/jboss-rmi-api_1.0_spec/1.0.6.Final/jboss-rmi-api_1.0_spec-1.0.6.Final.jar \
     /opt/jacorb/lib/
+ADD --checksum=sha256:603df5e4fc1eeae8f5e5d363a8be6c1fa47d0df1df8739a05cbcb9fafd6df2da \
+    ${MAVEN}/javax/transaction/javax.transaction-api/1.3/javax.transaction-api-1.3.jar /opt/jacorb/lib/
 ADD --checksum=sha256:cc2ff5b6751eb6767a5d3f4e05c330ff6791d04c12609e09cf25459bbba829d7 \
     ${MAVEN}/org/jacorb/jacorb-idl-compiler/${JACORB_VERSION}/jacorb-idl-compiler-${JACORB_VERSION}.jar /src/jacorb-idl/
 ADD --checksum=sha256:e58a2604a85ab985fb94037c889bef90b0c2a862030c03b0e830aa54a4931037 \
@@ -129,7 +132,7 @@ COPY idl /opt/interop/idl
 COPY impls/java /src/java
 COPY impls/jacorb/idl /src/jacorb-idl/idl
 RUN java -cp '/src/jacorb-idl/*' org.jacorb.idl.parser -d /src/jacorb-gen \
-      /opt/interop/idl/InteropTest.idl \
+      /opt/interop/idl/InteropTest.idl /opt/interop/idl/ValueTest.idl \
  && java -cp '/src/jacorb-idl/*' org.jacorb.idl.parser -all -I/opt/interop/idl \
       -I/src/jacorb-idl/idl -d /src/jacorb-gen /src/jacorb-idl/idl/AnyAll.idl \
  && find /src/jacorb-gen /src/java -name '*.java' > /src/sources.txt \

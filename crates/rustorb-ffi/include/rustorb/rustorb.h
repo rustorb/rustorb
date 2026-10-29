@@ -471,6 +471,13 @@ void* rorb_in_get_value(rorb_in* in, size_t slot);
 /* Makes the valuetype tc known to the core, so that values of it in anys
    are read as that type where a base type is expected. */
 void rorb_register_value_type(const rorb_typecode* tc);
+/* Asks resolve(context, id, len) for the valuetypes the core reads (in
+   anys) that are not registered: it returns a new TypeCode (which the core
+   takes and registers) or NULL. It may be called from any thread. NULL
+   removes the resolver. */
+void rorb_set_value_type_resolver(rorb_typecode* (*resolve)(void* context, const char* id,
+                                                            size_t len),
+                                  void* context);
 
 /* --- servants --------------------------------------------------------------- */
 

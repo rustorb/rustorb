@@ -3,7 +3,7 @@
 use std::ffi::c_char;
 
 use jni::JNIEnv;
-use jni::objects::{JClass, JLongArray, JObject, JObjectArray, JString};
+use jni::objects::{JClass, JLongArray, JObject, JObjectArray, JShortArray, JString};
 use jni::sys::{jboolean, jint, jlong, jshort, jstring};
 
 use crate::object::{CallContext, call_read, call_write};
@@ -281,6 +281,59 @@ pub extern "system" fn Java_org_rustorb_Native_tcEnum(
             )
         })
     })
+}
+
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub extern "system" fn Java_org_rustorb_Native_tcValue(
+    mut env: JNIEnv,
+    _: JClass,
+    id: JString,
+    name: JString,
+    modifier: jshort,
+    base: jlong,
+    names: JObjectArray,
+    types: JLongArray,
+    visibilities: JShortArray,
+) -> jlong {
+    run(&mut env, 0, |env| {
+        let id = rust_string(env, &id)?;
+        let name = rust_string(env, &name)?;
+        let names = strings(env, &names)?;
+        let types = longs(env, &types)?;
+        let n = env.get_array_length(&visibilities)? as usize;
+        let mut vis = vec![0i16; n];
+        env.get_short_array_region(&visibilities, 0, &mut vis)?;
+        let name_ptrs: Vec<*const c_char> =
+            names.iter().map(|s| s.as_ptr() as *const c_char).collect();
+        let name_lens: Vec<usize> = names.iter().map(|s| s.len()).collect();
+        let type_ptrs: Vec<*const rorb_typecode> =
+            types.iter().map(|t| ptr(*t) as *const _).collect();
+        let count = names.len().min(type_ptrs.len()).min(vis.len());
+        make(env, |o, e| unsafe {
+            rorb_tc_value(
+                29, // RORB_TK_VALUE
+                id.as_ptr() as *const c_char,
+                id.len(),
+                name.as_ptr() as *const c_char,
+                name.len(),
+                modifier,
+                ptr(base),
+                count,
+                name_ptrs.as_ptr(),
+                name_lens.as_ptr(),
+                type_ptrs.as_ptr(),
+                vis.as_ptr(),
+                o,
+                e,
+            )
+        })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_rustorb_Native_registerValueType(_: JNIEnv, _: JClass, tc: jlong) {
+    unsafe { rorb_register_value_type(ptr(tc)) };
 }
 
 #[unsafe(no_mangle)]

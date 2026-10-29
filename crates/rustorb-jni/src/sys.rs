@@ -483,6 +483,46 @@ unsafe extern "C" {
     pub fn rorb_in_read_length(r#in: *mut rorb_in, min_element_size: usize) -> u32;
     pub fn rorb_in_fail(r#in: *mut rorb_in);
     pub fn rorb_in_failed(r#in: *mut rorb_in) -> i32;
+    pub fn rorb_out_write_null_value(out: *mut rorb_out);
+    pub fn rorb_out_begin_value(
+        out: *mut rorb_out,
+        key: u64,
+        count: usize,
+        ids: *const *const c_char,
+        id_lens: *const usize,
+        chunked: i32,
+    ) -> i32;
+    pub fn rorb_out_end_value(out: *mut rorb_out);
+    pub fn rorb_in_read_value_header(
+        r#in: *mut rorb_in,
+        slot: *mut usize,
+        id_count: *mut usize,
+    ) -> i32;
+    pub fn rorb_in_value_id(r#in: *mut rorb_in, index: usize, len: *mut usize) -> *const c_char;
+    pub fn rorb_in_end_value(r#in: *mut rorb_in);
+    pub fn rorb_register_value_type(tc: *const rorb_typecode);
+    pub fn rorb_set_value_type_resolver(
+        resolve: Option<
+            unsafe extern "C" fn(*mut c_void, *const c_char, usize) -> *mut rorb_typecode,
+        >,
+        context: *mut c_void,
+    );
+    pub fn rorb_tc_value(
+        kind: u32,
+        id: *const c_char,
+        id_len: usize,
+        name: *const c_char,
+        name_len: usize,
+        modifier: i16,
+        base: *const rorb_typecode,
+        count: usize,
+        names: *const *const c_char,
+        name_lens: *const usize,
+        types: *const *const rorb_typecode,
+        visibilities: *const i16,
+        out: *mut *mut rorb_typecode,
+        exc: Exc,
+    ) -> rorb_status;
 
     // servants
     pub fn rorb_servant_get(

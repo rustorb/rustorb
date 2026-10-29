@@ -147,6 +147,34 @@ public final class TypeCodes {
         return TypeCodeImpl.of(Native.tcEnum(id, name, members));
     }
 
+    public static TypeCode value(String id, String name, short modifier, TypeCode base,
+            org.omg.CORBA.ValueMember[] members) {
+        if (members == null) {
+            throw badParam("null members");
+        }
+        TypeCodeImpl b = null;
+        if (base != null && base.kind().value() != TCKind._tk_null) {
+            b = TypeCodeImpl.cast(base);
+        }
+        String[] names = new String[members.length];
+        TypeCodeImpl[] types = new TypeCodeImpl[members.length];
+        long[] handles = new long[members.length];
+        short[] access = new short[members.length];
+        for (int i = 0; i < members.length; i++) {
+            names[i] = members[i].name;
+            types[i] = TypeCodeImpl.cast(members[i].type);
+            handles[i] = types[i].handle();
+            access[i] = members[i].access;
+        }
+        try {
+            return TypeCodeImpl.of(Native.tcValue(id, name, modifier, b == null ? 0 : b.handle(),
+                    names, handles, access));
+        } finally {
+            Reference.reachabilityFence(types);
+            Reference.reachabilityFence(b);
+        }
+    }
+
     public static TypeCode recursive(String id) {
         return TypeCodeImpl.of(Native.tcRecursive(id));
     }

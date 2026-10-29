@@ -311,6 +311,33 @@ pub fn lookup_value_type(id: &str) -> Option<TypeCode> {
         .cloned()
 }
 
+/// Finds the valuetype of a repository id that is not registered: a
+/// binding whose valuetypes are only known when asked for (Java, whose
+/// classes are loaded by name) sets one with [`set_value_type_resolver`].
+pub type ValueTypeResolver = dyn Fn(&str) -> Option<TypeCode> + Send + Sync;
+
+static RESOLVER: RwLock<Option<Arc<ValueTypeResolver>>> = RwLock::new(None);
+
+/// Sets (or, with `None`, removes) the resolver asked for repository ids
+/// that are not registered; what it finds is registered.
+pub fn set_value_type_resolver(resolver: Option<Arc<ValueTypeResolver>>) {
+    *RESOLVER.write().unwrap_or_else(|e| e.into_inner()) = resolver;
+}
+
+/// The registered valuetype of `id`, else the one the resolver finds.
+fn find_value_type(id: &str) -> Option<TypeCode> {
+    if let Some(tc) = lookup_value_type(id) {
+        return Some(tc);
+    }
+    let resolver = RESOLVER.read().unwrap_or_else(|e| e.into_inner()).clone()?;
+    let tc = resolver(id)?;
+    if tc.id().ok() != Some(id) {
+        return None;
+    }
+    register_value_type(&tc);
+    lookup_value_type(id)
+}
+
 /// Forgets the valuetype registered for `id`.
 pub fn unregister_value_type(id: &str) {
     VALUE_TYPES
@@ -909,7 +936,7 @@ fn known_type(expected: &TypeCode, ids: &[String]) -> Option<TypeCode> {
         if id == expected_id {
             Some(expected.clone())
         } else {
-            lookup_value_type(id).filter(|t| is_assignable(t, expected))
+            find_value_type(id).filter(|t| is_assignable(t, expected))
         }
     })
 }

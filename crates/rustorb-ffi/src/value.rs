@@ -180,3 +180,40 @@ pub unsafe extern "C" fn rorb_register_value_type(tc: *const TypeCode) {
         rustorb_core::register_value_type(tc);
     }
 }
+
+/// Finds the valuetype of a repository id: a new TypeCode handle (taken
+/// over) or NULL.
+pub type ResolveFn =
+    Option<unsafe extern "C" fn(*mut c_void, *const c_char, usize) -> *mut TypeCode>;
+
+struct Resolver {
+    resolve: unsafe extern "C" fn(*mut c_void, *const c_char, usize) -> *mut TypeCode,
+    context: *mut c_void,
+}
+
+// The caller makes `resolve` callable from any thread with `context`.
+unsafe impl Send for Resolver {}
+unsafe impl Sync for Resolver {}
+
+impl Resolver {
+    fn find(&self, id: &str) -> Option<TypeCode> {
+        let tc = unsafe { (self.resolve)(self.context, id.as_ptr().cast(), id.len()) };
+        if tc.is_null() {
+            None
+        } else {
+            Some(*unsafe { Box::from_raw(tc) })
+        }
+    }
+}
+
+/// Asks `resolve(context, id, len)` for the valuetypes the core reads
+/// that are not registered (NULL removes it).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_set_value_type_resolver(resolve: ResolveFn, context: *mut c_void) {
+    let resolver = resolve.map(|resolve| {
+        let r = Resolver { resolve, context };
+        std::sync::Arc::new(move |id: &str| r.find(id))
+            as std::sync::Arc<rustorb_core::ValueTypeResolver>
+    });
+    rustorb_core::set_value_type_resolver(resolver);
+}

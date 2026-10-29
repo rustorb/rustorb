@@ -36,6 +36,7 @@ IDLS = [
     os.path.join(INTEROP_IDL, "InteropTest.idl"),
     os.path.join(INTEROP_IDL, "AnyTest.idl"),
     os.path.join(INTEROP_IDL, "AnyTestHidden.idl"),
+    os.path.join(INTEROP_IDL, "ValueTest.idl"),
     os.path.join(INTEROP_IDL, "PoaProbe.idl"),
 ]
 
@@ -141,7 +142,10 @@ class JavaBackendTest(unittest.TestCase):
 
     def test_unsupported(self):
         cases = {
-            "valuetype": "module U { valuetype V { public long x; }; };",
+            "custom": "module U { custom valuetype V { public long x; }; };",
+            "value_ops": "module U { valuetype V { public long x; long f(); }; };",
+            "value_factory": "module U { valuetype V { public long x; factory make(in long x); }; };",
+            "supports": "module U { interface I {}; valuetype V supports I { public long x; }; };",
             "abstract": "module U { abstract interface A { void f(); }; };",
             "longdouble": "module U { struct S { long double d; }; };",
         }
@@ -149,6 +153,50 @@ class JavaBackendTest(unittest.TestCase):
             with self.subTest(name):
                 path = write_idl("Unsupported_%s.idl" % name, text)
                 self.assertEqual(cli.main(["-bjava", "-C", OUT, path]), 1)
+
+    def test_valuetypes(self):
+        path = write_idl(
+            "Values.idl",
+            """
+            module Values {
+              valuetype Later;
+              abstract valuetype Named {};
+              valuetype Base { public long a; private string from; };
+              valuetype Derived : truncatable Base, Named {
+                struct In { long q; };
+                public In inner;
+                public Later later;
+              };
+              valuetype Later { public Later next; };
+              valuetype Box sequence<long>;
+              valuetype Count long;
+              interface Store { Derived swap(in Base b, inout Box x, out Later l, in Count c); };
+            };
+        """,
+        )
+        outdir = os.path.join(OUT, "values")
+        self.assertEqual(cli.main(["-bjava", "-C", outdir, path]), 0)
+        values = os.path.join(outdir, "Values")
+        derived = read(os.path.join(values, "Derived.java"))
+        self.assertIn("public class Derived extends Values.Base implements", derived)
+        self.assertIn(
+            '_rorb_truncatable_ids = {"IDL:Values/Derived:1.0", "IDL:Values/Base:1.0"};', derived
+        )
+        self.assertIn("public Values.DerivedPackage.In inner;", derived)
+        self.assertIn("super._read($in);", derived)
+        # Private members are protected fields.
+        self.assertIn("protected String from;", read(os.path.join(values, "Base.java")))
+        self.assertTrue(os.path.exists(os.path.join(values, "DerivedDefaultFactory.java")))
+        self.assertTrue(os.path.exists(os.path.join(values, "DerivedPackage", "In.java")))
+        # A box of a basic type has a class of its own; others map to the type.
+        self.assertIn("public int value;", read(os.path.join(values, "Count.java")))
+        self.assertFalse(os.path.exists(os.path.join(values, "Box.java")))
+        box = read(os.path.join(values, "BoxHelper.java"))
+        self.assertIn("implements org.omg.CORBA.portable.BoxedValueHelper", box)
+        self.assertIn("public static int[] read(", box)
+        later = read(os.path.join(values, "LaterHelper.java"))
+        self.assertIn("create_recursive_tc(_id)", later)
+        self.assertIn("create_value_tc(_id, \"Later\"", later)
 
     @unittest.skipUnless(JAVAC, "no javac")
     def test_compiles(self):
