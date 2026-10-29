@@ -133,7 +133,9 @@ jobs:
           java-version: ${{ matrix.java }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: mvn -B -f java/pom.xml -Dpython=python -Didl.parser.dir=${{ github.workspace }}/idl_parser verify
+      # bash: PowerShell would split -Didl.parser.dir=... at the dot.
+      - run: mvn -B -f java/pom.xml -Dpython=python "-Didl.parser.dir=${{ github.workspace }}/idl_parser" verify
+        shell: bash
       - name: Check that the committed CosNaming stubs are up to date
         if: runner.os == 'Linux'
         run: java/generate-stubs.sh && git diff --exit-code -- java
