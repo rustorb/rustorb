@@ -225,3 +225,57 @@ pub extern "system" fn Java_org_rustorb_Native_orbDestroy(mut env: JNIEnv, _: JC
         exc.check(env, st)
     })
 }
+
+/// `orbSetCallTimeout(orb, us)` and the other timeout settings: the
+/// microseconds of the C ABI (`rorb_orb_set_call_timeout`).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_rustorb_Native_orbSetCallTimeout(
+    _: JNIEnv,
+    _: JClass,
+    orb: jlong,
+    us: jlong,
+) {
+    unsafe { rorb_orb_set_call_timeout(ptr(orb), us) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_rustorb_Native_orbCallTimeout(
+    _: JNIEnv,
+    _: JClass,
+    orb: jlong,
+) -> jlong {
+    unsafe { rorb_orb_call_timeout(ptr(orb)) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_rustorb_Native_orbSetConnectTimeout(
+    _: JNIEnv,
+    _: JClass,
+    orb: jlong,
+    us: jlong,
+) {
+    unsafe { rorb_orb_set_connect_timeout(ptr(orb), us) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_rustorb_Native_orbConnectTimeout(
+    _: JNIEnv,
+    _: JClass,
+    orb: jlong,
+) -> jlong {
+    unsafe { rorb_orb_connect_timeout(ptr(orb)) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_rustorb_Native_setThreadCallTimeout(
+    _: JNIEnv,
+    _: JClass,
+    us: jlong,
+) {
+    unsafe { rorb_set_thread_call_timeout(us) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_rustorb_Native_threadCallTimeout(_: JNIEnv, _: JClass) -> jlong {
+    unsafe { rorb_thread_call_timeout() }
+}

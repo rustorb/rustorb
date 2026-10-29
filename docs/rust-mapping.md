@@ -362,7 +362,8 @@ impl TryFrom<Point> for Point3 { /* 派生への変換。違えば元の Point �
 - `custom` などの valuetype（上記）
 - 操作の `context` 句
 - IDL4 の新しい構文（[#46](https://github.com/rustorb/rustorb/issues/46)）
-- 呼び出しごとのタイムアウト（[#38](https://github.com/rustorb/rustorb/issues/38) でコアの `Request::timeout` を生成コードから使えるようにする）
+
+生成したスタブの呼び出しのタイムアウトは、スタブの参照（`stub.object().set_call_timeout(...)`）、スレッド（`rustorb_core::set_thread_call_timeout`）、ORB（`Orb::set_call_timeout`）で設定する（[timeouts.md](timeouts.md)）。
 
 ## 生成器の構成
 

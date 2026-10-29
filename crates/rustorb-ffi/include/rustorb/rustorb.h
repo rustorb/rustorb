@@ -313,9 +313,23 @@ rorb_status rorb_orb_work_pending(rorb_orb* orb, int32_t* pending, rorb_exceptio
 rorb_status rorb_orb_perform_work(rorb_orb* orb, rorb_exception* exc);
 rorb_status rorb_orb_shutdown(rorb_orb* orb, int32_t wait_for_completion, rorb_exception* exc);
 rorb_status rorb_orb_destroy(rorb_orb* orb, rorb_exception* exc);
+/* Client timeouts in microseconds. For the ORB, 0 is no limit. For the
+   calling thread (every ORB) and for an object reference (and its
+   clones), negative unsets the timeout so that the next one applies, and
+   0 is no limit; a call uses the thread's, else the reference's, else the
+   ORB's. The getters return the same encoding. */
+void rorb_orb_set_call_timeout(rorb_orb* orb, int64_t us);
+int64_t rorb_orb_call_timeout(rorb_orb* orb);
+void rorb_orb_set_connect_timeout(rorb_orb* orb, int64_t us);
+int64_t rorb_orb_connect_timeout(rorb_orb* orb);
+void rorb_set_thread_call_timeout(int64_t us);
+int64_t rorb_thread_call_timeout(void);
 /* The RootPOA of the first ORB initialised and not yet destroyed (the
    default POA of servants). */
 rorb_status rorb_default_root_poa(rorb_poa** poa, rorb_exception* exc);
+/* A new handle of the first ORB initialised and not yet destroyed; NULL if
+   there is none. */
+rorb_orb* rorb_default_orb(void);
 
 /* --- object references -------------------------------------------------- */
 
@@ -330,6 +344,9 @@ rorb_status rorb_object_non_existent(rorb_object* obj, int32_t* result, rorb_exc
 int32_t rorb_object_is_equivalent(rorb_object* a, rorb_object* b);
 /* The same value for equivalent references, below maximum. */
 uint32_t rorb_object_hash(rorb_object* obj, uint32_t maximum);
+/* See rorb_orb_set_call_timeout. */
+void rorb_object_set_call_timeout(rorb_object* obj, int64_t us);
+int64_t rorb_object_call_timeout(rorb_object* obj);
 
 /* How to make one invocation.
 
@@ -345,7 +362,8 @@ typedef struct rorb_invocation {
   const char* operation;
   size_t operation_len;
   int32_t oneway;
-  /* Reply timeout in microseconds; negative uses the ORB's setting, and 0
+  /* Reply timeout in microseconds; negative uses the timeout of the
+     thread, the reference or the ORB (rorb_orb_set_call_timeout), and 0
      waits forever. */
   int64_t timeout_us;
   void* context;

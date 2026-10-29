@@ -127,4 +127,12 @@ target_include_directories(test_value PRIVATE
 target_link_libraries(test_value PRIVATE rustorb)
 target_compile_options(test_value PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME value COMMAND test_value)
+# Client call timeouts, against a server that never answers (POSIX sockets).
+if(UNIX)
+  add_executable(test_timeout tests/test_timeout.cc)
+  target_link_libraries(test_timeout PRIVATE rustorb)
+  target_compile_options(test_timeout PRIVATE ${RUSTORB_WARNINGS})
+  add_test(NAME timeout COMMAND test_timeout)
+  set_tests_properties(timeout PROPERTIES TIMEOUT 120)
+endif()
 set_tests_properties(mapping poa interop any value PROPERTIES TIMEOUT 120)

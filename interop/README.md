@@ -24,6 +24,7 @@ and [The rustorb C++ client and server](#the-rustorb-c-client-and-server).
 | `run-matrix.sh` | runs every client / server combination, with omniNames or (`--naming rustorb`) the rustorb naming service; `--suite any` runs the Any / TypeCode suite (`idl/AnyTest.idl`, `idl/AnyTestHidden.idl`, `anytest.*` in each implementation) instead of the Echo one, and `--suite value` the valuetype suite (`idl/ValueTest.idl`, `valuetest.*`, `ValueTests.java`; every implementation, see [`docs/valuetype.md`](../docs/valuetype.md)) |
 | `run-naming-check.sh` | runs a fixed CosNaming operation sequence (and `corbaname:` URLs) with the omniORBpy and rustorb clients against omniNames or (`--naming rustorb`) the rustorb naming service, and compares the output with `expected/naming-check.txt`; for rustorb, also restarts the service and compares with `expected/naming-restart.txt` |
 | `run-wire-probe.sh` | sends hand-built GIOP requests (`scripts/wire-probe`) to each server and compares the answers with `expected/wire-probe-*.txt` |
+| `run-timeout-probe.sh` | runs `scripts/timeout-probe` with omniORBpy and rustorbpy (through the omniORB compatibility package) and compares how the client call timeouts behave with `expected/timeout-probe-*.txt` |
 | `run-poa-probe.sh` | starts the POA probe servers (`impls/omniorbpy/poa-probe-server`, `impls/omniorb-cpp/poa_probe_server`, `impls/rustorb/poa-probe-server`, `impls/rustorbcpp/poa-probe-server`, `impls/rustorbjava/poa-probe-server`, IDL `idl/PoaProbe.idl`) and runs `scripts/poa-probe` against them, comparing the output with `expected/poa-probe-*.txt` (the C++ and Java servers with the Rust one's) |
 | `run-pymapping-check.sh` | generates Python code from `idl/InteropTest.idl`, `idl/PoaProbe.idl` and the IDL of `crates/rustorb-codegen/tests/idl/` with omniidl -bpython and with rustorb-idl, prints the public API of each (`scripts/pymapping-dump`) under omniORBpy and under the rustorb package, and compares the output with `expected/pymapping-*.txt` |
 | `run-openrtm.sh` | fetches OpenRTM-aist-Python, rtshell and rtctree at pinned commits, runs the examples of OpenRTM-aist-Python (`openrtm/scenarios.py`: data ports, a service port) with the RTCs on rustorb, through the omniORBpy compatibility package `python/omniorb-compat`, on omniORBpy and in C++ (OpenRTM-aist, built in the omniORB image), and rtshell on rustorb and omniORBpy against them (`openrtm/rtshell.py`); `--naming rustorb` uses rustorb-names; see [`docs/omniorb-compat.md`](../docs/omniorb-compat.md) |
@@ -48,6 +49,7 @@ interop/run-matrix.sh --suite any              # Any / TypeCode suite
 interop/run-matrix.sh --suite value            # valuetype suite
 interop/run-wire-probe.sh
 interop/run-poa-probe.sh
+interop/run-timeout-probe.sh
 IDL_PARSER_DIR=path/to/idl_parser interop/run-pymapping-check.sh
 IDL_PARSER_DIR=path/to/idl_parser interop/run-openrtm.sh
 interop/scripts/golden-compare --all interop/out interop/golden
@@ -319,6 +321,25 @@ keep rustorb in line with them.
   joined alignment agree.
 - **wchar / wstring over GIOP 1.1** do not work between omniORB peers (see
   `known-failures.txt`).
+
+## Client timeout probe
+
+`run-timeout-probe.sh` records how omniORBpy's client timeouts
+(`omniORB.setClientCallTimeout` globally and per reference,
+`setClientThreadCallTimeout`, `setClientConnectTimeout`) behave, and checks
+rustorb's through its omniORB compatibility package
+([`docs/timeouts.md`](../docs/timeouts.md)). `scripts/timeout-probe` runs a
+GIOP server that never replies and a listener whose accept queue is full in
+its own process, and prints for each combination of settings the exception,
+which of the configured times the call took, and the GIOP messages the
+server read. The two expected files differ only where rustorb chose to:
+the minor code, `CancelRequest` instead of closing the connection, and no
+`LocateRequest` before the first call through a `corbaloc` reference.
+
+```sh
+interop/run-timeout-probe.sh               # omniorbpy and rustorbpy
+interop/run-timeout-probe.sh --update      # record expected/timeout-probe-*.txt again
+```
 
 ## POA and thread model probes
 

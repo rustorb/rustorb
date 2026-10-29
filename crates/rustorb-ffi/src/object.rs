@@ -115,6 +115,16 @@ pub unsafe extern "C" fn rorb_object_hash(obj: *mut ObjectRef, maximum: u32) -> 
     u32::try_from(h.finish() % maximum).unwrap_or(0)
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_object_set_call_timeout(obj: *mut ObjectRef, us: i64) {
+    unsafe { &*obj }.set_call_timeout(crate::orb::setting_us(us));
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_object_call_timeout(obj: *mut ObjectRef) -> i64 {
+    crate::orb::us_of_setting(unsafe { &*obj }.call_timeout())
+}
+
 type WriteFn = extern "C" fn(*mut c_void, *mut RorbOut) -> Status;
 type ReadFn = extern "C" fn(*mut c_void, *mut RorbIn) -> Status;
 type UserExceptionFn = extern "C" fn(*mut c_void, *const c_char, usize, *mut RorbIn) -> Status;

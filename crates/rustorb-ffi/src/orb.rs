@@ -2,6 +2,7 @@
 
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::sync::Mutex;
+use std::time::Duration;
 
 use rustorb_core::{ObjectRef, Orb, Poa, ResolveError};
 
@@ -267,4 +268,60 @@ pub unsafe extern "C" fn rorb_orb_destroy(orb: *mut Orb, exc: *mut Exception) ->
             Err(e) => unsafe { set_system(exc, &e) },
         }
     })
+}
+
+/// Microseconds of the C ABI: 0 for no limit, negative clamped to 0.
+pub(crate) fn duration_us(us: i64) -> Option<Duration> {
+    (us > 0).then(|| Duration::from_micros(us.unsigned_abs()))
+}
+
+pub(crate) fn us_of(timeout: Option<Duration>) -> i64 {
+    timeout.map_or(0, |t| {
+        i64::try_from(t.as_micros()).unwrap_or(i64::MAX).max(1)
+    })
+}
+
+/// The three-state setting of a thread or a reference: negative unsets it.
+pub(crate) fn setting_us(us: i64) -> Option<Option<Duration>> {
+    (us >= 0).then(|| duration_us(us))
+}
+
+pub(crate) fn us_of_setting(setting: Option<Option<Duration>>) -> i64 {
+    setting.map_or(-1, us_of)
+}
+
+/// A new handle of the default ORB, or NULL before `rorb_orb_init`.
+#[unsafe(no_mangle)]
+pub extern "C" fn rorb_default_orb() -> *mut Orb {
+    default_orb().map_or(std::ptr::null_mut(), into_handle)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_orb_set_call_timeout(orb: *mut Orb, us: i64) {
+    unsafe { &*orb }.set_call_timeout(duration_us(us));
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_orb_call_timeout(orb: *mut Orb) -> i64 {
+    us_of(unsafe { &*orb }.call_timeout())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_orb_set_connect_timeout(orb: *mut Orb, us: i64) {
+    unsafe { &*orb }.set_connect_timeout(duration_us(us));
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_orb_connect_timeout(orb: *mut Orb) -> i64 {
+    us_of(unsafe { &*orb }.connect_timeout())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rorb_set_thread_call_timeout(us: i64) {
+    rustorb_core::set_thread_call_timeout(setting_us(us));
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rorb_thread_call_timeout() -> i64 {
+    us_of_setting(rustorb_core::thread_call_timeout())
 }

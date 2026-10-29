@@ -1,10 +1,10 @@
 use std::collections::{HashMap, VecDeque};
+use std::fmt;
 use std::future::Future;
 use std::panic::{self, AssertUnwindSafe};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
-use std::{fmt, io};
 
 use rustorb_cdr::ByteOrder;
 use rustorb_giop::{CorbaName, Corbaloc, Ior, ObjectUrl, Version};
@@ -16,6 +16,7 @@ use crate::pool::Job;
 use crate::server::Server;
 use crate::{
     CompletionStatus, Exception, ObjectRef, SystemException, SystemExceptionKind, minor, name,
+    timeout,
 };
 
 /// Settings of an [`Orb`].
@@ -26,11 +27,15 @@ pub struct OrbOptions {
     pub max_giop_version: Version,
     /// Byte order of the messages rustorb sends.
     pub byte_order: ByteOrder,
-    /// How long to wait for a TCP connection; `None` waits as long as the
-    /// operating system does. Expiry raises `TRANSIENT`.
+    /// How long to wait for a TCP connection; `None` waits until the call
+    /// timeout expires, or as long as the operating system does. Expiry
+    /// raises `TIMEOUT`, completed no. The initial value of
+    /// [`Orb::set_connect_timeout`].
     pub connect_timeout: Option<Duration>,
     /// How long to wait for a reply; `None` waits forever. Expiry raises
-    /// `TIMEOUT`, completed maybe.
+    /// `TIMEOUT`, completed maybe. The initial value of
+    /// [`Orb::set_call_timeout`]; see there for the timeouts that override
+    /// it.
     pub request_timeout: Option<Duration>,
     /// Largest message accepted from a server, fragments joined.
     pub max_message_size: usize,
@@ -132,6 +137,7 @@ impl OrbOptions {
     /// | `-ORBmaxGIOPVersion 1.1` | [`max_giop_version`](OrbOptions::max_giop_version) |
     /// | `-ORBclientConnectTimeOutPeriod MS` | [`connect_timeout`](OrbOptions::connect_timeout) (0 for none) |
     /// | `-ORBclientCallTimeOutPeriod MS` | [`request_timeout`](OrbOptions::request_timeout) (0 for none) |
+    /// | `-ORBsupportPerThreadTimeOut 0\|1` | accepted and ignored: per-thread timeouts always work |
     /// | `-ORBendPoint giop:tcp:HOST:PORT` | [`endpoints`](OrbOptions::endpoints) (repeatable) |
     /// | `-ORBendPointPublish giop:tcp:HOST:PORT` | [`endpoint_publish`](OrbOptions::endpoint_publish) (`all(addr)` for the default) |
     /// | `-ORBmaxServerThreadPoolSize N` | [`max_server_threads`](OrbOptions::max_server_threads) |
@@ -153,6 +159,7 @@ impl OrbOptions {
                         "maxGIOPVersion"
                             | "clientConnectTimeOutPeriod"
                             | "clientCallTimeOutPeriod"
+                            | "supportPerThreadTimeOut"
                             | "maxServerThreadPoolSize"
                     ) =>
                 {
@@ -167,6 +174,7 @@ impl OrbOptions {
                     | "maxGIOPVersion"
                     | "clientConnectTimeOutPeriod"
                     | "clientCallTimeOutPeriod"
+                    | "supportPerThreadTimeOut"
                     | "endPoint"
                     | "endPointPublish"
                     | "maxServerThreadPoolSize"
@@ -197,6 +205,12 @@ impl OrbOptions {
                 }
                 "clientConnectTimeOutPeriod" => self.connect_timeout = millis(&value)?,
                 "clientCallTimeOutPeriod" => self.request_timeout = millis(&value)?,
+                // rustorb always honours per-thread timeouts.
+                "supportPerThreadTimeOut" => {
+                    if !matches!(value.as_str(), "0" | "1") {
+                        return Err(bad_option());
+                    }
+                }
                 "endPoint" => self
                     .endpoints
                     .push(EndpointAddr::parse(&value).ok_or_else(bad_option)?),
@@ -281,6 +295,10 @@ pub(crate) struct OrbInner {
     runtime: Option<Runtime>,
     pub(crate) handle: Handle,
     pub(crate) options: OrbOptions,
+    /// [`Orb::set_call_timeout`] and [`Orb::set_connect_timeout`], as
+    /// [`timeout::encode`](crate::timeout::encode) stores them.
+    call_timeout: AtomicU64,
+    connect_timeout: AtomicU64,
     connections: Mutex<HashMap<(String, u16), Arc<Connection>>>,
     shut_down: AtomicBool,
     server: Mutex<Option<Arc<Server>>>,
@@ -371,6 +389,8 @@ impl Orb {
             inner: Arc::new(OrbInner {
                 runtime: Some(runtime),
                 handle,
+                call_timeout: AtomicU64::new(timeout::encode(options.request_timeout)),
+                connect_timeout: AtomicU64::new(timeout::encode(options.connect_timeout)),
                 options,
                 connections: Mutex::new(HashMap::new()),
                 shut_down: AtomicBool::new(false),
@@ -384,6 +404,49 @@ impl Orb {
     /// The options the ORB was created with.
     pub fn options(&self) -> &OrbOptions {
         &self.inner.options
+    }
+
+    /// Sets how long calls through this ORB may take (`None`: no limit),
+    /// like omniORB's `setClientCallTimeout(millisecs)`. The time covers
+    /// connecting (unless a [connect timeout](Orb::set_connect_timeout)
+    /// is set), following forwards and waiting for the reply. When it
+    /// expires the call raises `TIMEOUT`: completed maybe once the request
+    /// was sent, and then a `CancelRequest` goes to the server; completed
+    /// no before.
+    ///
+    /// A timeout of the calling thread
+    /// ([`set_thread_call_timeout`](crate::set_thread_call_timeout))
+    /// overrides it, one of the object reference
+    /// ([`ObjectRef::set_call_timeout`]) overrides both, and one given for
+    /// the request ([`Request::timeout`](crate::Request::timeout)) all of
+    /// them.
+    pub fn set_call_timeout(&self, timeout: Option<Duration>) {
+        self.inner
+            .call_timeout
+            .store(timeout::encode(timeout), Ordering::Relaxed);
+    }
+
+    /// The timeout [`set_call_timeout`](Orb::set_call_timeout) set, or
+    /// [`OrbOptions::request_timeout`].
+    pub fn call_timeout(&self) -> Option<Duration> {
+        timeout::decode(self.inner.call_timeout.load(Ordering::Relaxed))
+    }
+
+    /// Sets how long to wait for a new TCP connection, like omniORB's
+    /// `setClientConnectTimeout`: while connecting it replaces the call
+    /// timeout. `None` connects until the call timeout expires, or as long
+    /// as the operating system waits. Expiry raises `TIMEOUT`, completed
+    /// no.
+    pub fn set_connect_timeout(&self, timeout: Option<Duration>) {
+        self.inner
+            .connect_timeout
+            .store(timeout::encode(timeout), Ordering::Relaxed);
+    }
+
+    /// The timeout [`set_connect_timeout`](Orb::set_connect_timeout) set,
+    /// or [`OrbOptions::connect_timeout`].
+    pub fn connect_timeout(&self) -> Option<Duration> {
+        timeout::decode(self.inner.connect_timeout.load(Ordering::Relaxed))
     }
 
     /// Turns a stringified IOR, a `corbaloc:` or a `corbaname:` URL into a
@@ -774,10 +837,14 @@ impl Orb {
     }
 
     /// A usable connection to `host:port`, opened if needed.
+    ///
+    /// Connecting stops at the connect timeout, else at `deadline` (the
+    /// end of the call), with `TIMEOUT`, completed no, like omniORB.
     pub(crate) async fn connection(
         &self,
         host: &str,
         port: u16,
+        deadline: Option<Instant>,
     ) -> Result<Arc<Connection>, SystemException> {
         self.check_running()?;
         let key = (host.to_owned(), port);
@@ -788,10 +855,21 @@ impl Orb {
         }
         let max = self.inner.options.max_message_size;
         let connect = Connection::connect(host, port, max);
-        let result = match self.inner.options.connect_timeout {
-            Some(limit) => tokio::time::timeout(limit, connect)
-                .await
-                .unwrap_or_else(|_| Err(io::ErrorKind::TimedOut.into())),
+        let limit = match self.connect_timeout() {
+            Some(t) => Some(Instant::now() + t),
+            None => deadline,
+        };
+        let result = match limit {
+            Some(at) => match tokio::time::timeout_at(at.into(), connect).await {
+                Ok(result) => result,
+                Err(_) => {
+                    return Err(SystemException::new(
+                        SystemExceptionKind::TIMEOUT,
+                        0,
+                        CompletionStatus::No,
+                    ));
+                }
+            },
             None => connect.await,
         };
         let conn = result.map_err(|_| {

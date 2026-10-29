@@ -96,6 +96,25 @@ pub extern "system" fn Java_org_rustorb_Native_objectIsEquivalent(
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_org_rustorb_Native_objectSetCallTimeout(
+    _: JNIEnv,
+    _: JClass,
+    obj: jlong,
+    us: jlong,
+) {
+    unsafe { rorb_object_set_call_timeout(ptr(obj), us) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_rustorb_Native_objectCallTimeout(
+    _: JNIEnv,
+    _: JClass,
+    obj: jlong,
+) -> jlong {
+    unsafe { rorb_object_call_timeout(ptr(obj)) }
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_org_rustorb_Native_objectHash(
     _: JNIEnv,
     _: JClass,

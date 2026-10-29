@@ -58,7 +58,7 @@ rtshell（[OpenRTM/rtshell](https://github.com/OpenRTM/rtshell) の d35459c）�
 | `from rtctree.rtc import RTC` | rtctree のスタブ（omniidl の `-Wbpackage=rtctree.rtc` の生成物） | `rustorb-idl -Wbpackage` を追加 |
 
 `sslTP` / `httpTP` は SSL・HTTP の設定があるときだけ読むので入れていない。
-入れなかったもの：`omniORB.URI`（`examples/AutoTest` だけ）、`sslTP` / `httpTP`（SSL・HTTP トランスポートの拡張）、`setClientCallTimeout` などのタイムアウト関数・例外ハンドラ登録（OpenRTM-aist-Python は使わず、タイムアウトは `-ORBclientCallTimeOutPeriod` で渡す）。
+入れなかったもの：`omniORB.URI`（`examples/AutoTest` だけ）、`sslTP` / `httpTP`（SSL・HTTP トランスポートの拡張）、`TIMEOUT` の例外ハンドラ登録（OpenRTM-aist-Python は使わない）。`setClientCallTimeout` などのタイムアウト関数は #38 で入れた（[timeouts.md](timeouts.md)）。
 
 ## 実装
 
@@ -154,4 +154,4 @@ OMNIORBPY_DIR=... OPENRTM_CXX_EXAMPLES=... interop/run-openrtm.sh --local
 
 ## 残り
 
-- `omniORB.URI`、タイムアウト関数など、使うアプリケーションが出てきたものの追加
+- `omniORB.URI`、`setClientThreadCallDeadline` など、使うアプリケーションが出てきたものの追加

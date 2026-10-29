@@ -40,6 +40,13 @@ final class Native {
     static native void orbShutdown(long orb, boolean wait);
     static native void orbDestroy(long orb);
     static native long defaultRootPoa();
+    /** Timeouts in microseconds, as the C ABI (rorb_orb_set_call_timeout) has them. */
+    static native void orbSetCallTimeout(long orb, long us);
+    static native long orbCallTimeout(long orb);
+    static native void orbSetConnectTimeout(long orb, long us);
+    static native long orbConnectTimeout(long orb);
+    static native void setThreadCallTimeout(long us);
+    static native long threadCallTimeout();
 
     // --- object references -----------------------------------------------
     static native long objectClone(long obj);
@@ -50,6 +57,8 @@ final class Native {
     static native boolean objectNonExistent(long obj);
     static native boolean objectIsEquivalent(long a, long b);
     static native int objectHash(long obj, int maximum);
+    static native void objectSetCallTimeout(long obj, long us);
+    static native long objectCallTimeout(long obj);
     /** 0 (done), 2 (a user exception, taken by call) or 4 (call.error). */
     static native int objectInvoke(long obj, String op, boolean oneway, long timeoutUs, Call call);
 

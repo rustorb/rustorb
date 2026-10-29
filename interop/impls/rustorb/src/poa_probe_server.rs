@@ -22,7 +22,7 @@ use idl::poa_probe::{
     CallInfo, ControlPoa, ControlServant, Failed, StringSeq, Target, TargetPoa, TargetServant,
     control,
 };
-use rustorb_core::idl::{IdlType, Sys, bad_param, system_exception};
+use rustorb_core::idl::{Sys, bad_param};
 use rustorb_core::{
     AdapterActivator, CompletionStatus, Cookie, IdAssignment, IdUniqueness, Lifespan, ObjectRef,
     Orb, Poa, PoaCurrent, PoaError, PoaManager, Policy, RequestProcessing, Servant,
@@ -123,16 +123,12 @@ impl TargetServant for Probe {
     fn relay(&self, other: Option<&Target>, ms: i32) -> Sys<(CallInfo, String)> {
         let other = other.ok_or_else(bad_param)?;
         let outer = thread_label();
-        // By hand rather than with other.work(ms), for the timeout.
-        let inner = other
-            .object()
-            .request("work")
-            .args(|out| rustorb_core::idl::Long::write(&ms, out))
-            .timeout(Some(Duration::from_secs(3)))
-            .invoke()
-            .map_err(system_exception)?;
-        let info = CallInfo::read(&mut inner.input())?;
-        Ok((info, outer))
+        // A timeout for this thread's calls, which the upcall threads
+        // reuse: set for the call, then unset.
+        let previous = rustorb_core::set_thread_call_timeout(Some(Some(Duration::from_secs(3))));
+        let info = other.work(ms);
+        rustorb_core::set_thread_call_timeout(previous);
+        Ok((info?, outer))
     }
 
     fn post(&self, seq: i32, ms: i32) -> Sys<()> {

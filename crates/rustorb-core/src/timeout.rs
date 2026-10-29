@@ -1,0 +1,44 @@
+//! Client call timeouts: the defaults of the ORB, of the calling thread and
+//! of an object reference, and which one a call uses.
+
+use std::cell::Cell;
+use std::time::Duration;
+
+/// A stored timeout that is not set, so the next default applies.
+pub(crate) const UNSET: u64 = u64::MAX;
+
+/// Stores a timeout in an atomic: 0 for no limit, else microseconds (at
+/// least 1).
+pub(crate) fn encode(timeout: Option<Duration>) -> u64 {
+    match timeout {
+        None => 0,
+        Some(t) => u64::try_from(t.as_micros())
+            .unwrap_or(UNSET - 1)
+            .clamp(1, UNSET - 1),
+    }
+}
+
+/// The timeout `encode` stored (not [`UNSET`]).
+pub(crate) fn decode(v: u64) -> Option<Duration> {
+    (v != 0).then(|| Duration::from_micros(v))
+}
+
+thread_local! {
+    static THREAD_CALL_TIMEOUT: Cell<Option<Option<Duration>>> = const { Cell::new(None) };
+}
+
+/// Sets the call timeout of the calling thread, for every ORB: `Some(t)`
+/// (where `t` is `None` for no limit) overrides the ORB's
+/// [`call_timeout`](crate::Orb::call_timeout), but not the object
+/// reference's ([`ObjectRef::set_call_timeout`](crate::ObjectRef::set_call_timeout));
+/// `None` unsets it. Like omniORB's `setClientThreadCallTimeout`, which
+/// omniORB honours only with `-ORBsupportPerThreadTimeOut 1`; rustorb
+/// always does. Returns the previous setting.
+pub fn set_thread_call_timeout(timeout: Option<Option<Duration>>) -> Option<Option<Duration>> {
+    THREAD_CALL_TIMEOUT.with(|c| c.replace(timeout))
+}
+
+/// The setting of [`set_thread_call_timeout`] on the calling thread.
+pub fn thread_call_timeout() -> Option<Option<Duration>> {
+    THREAD_CALL_TIMEOUT.with(Cell::get)
+}

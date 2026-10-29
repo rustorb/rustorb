@@ -97,6 +97,9 @@ jobs:
       - name: Probe the POA and thread model of each server
         run: interop/run-poa-probe.sh
 
+      - name: Probe the client call timeouts of omniORBpy and rustorbpy
+        run: interop/run-timeout-probe.sh
+
       - name: Compare the generated Python code with omniidl -bpython
         run: interop/run-pymapping-check.sh
 
