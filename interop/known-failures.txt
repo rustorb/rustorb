@@ -2,10 +2,12 @@
 # run-matrix.sh treats these as expected, and reports a listed case that
 # starts passing so that the entry can be removed.
 #
-# Format: [giop=VER] CLIENT SERVER CASE REASON...   (CLIENT / SERVER may be *)
+# Format: [suite=SUITE] [giop=VER] CLIENT SERVER CASE REASON...
+# (CLIENT / SERVER are glob patterns)
 #
-# A line with giop=VER applies only to `run-matrix.sh --giop VER` runs.
-# The list is for the basic suite; `--suite any` has no known failures.
+# A line applies to the basic suite, or with suite=SUITE to
+# `run-matrix.sh --suite SUITE` runs; a line with giop=VER applies only to
+# `run-matrix.sh --giop VER` runs.
 
 # omniORBpy 4.3.4 (and 4.3.2) unmarshals a GIOP 1.2 wchar with unmarshalChar()
 # instead of unmarshalWChar() on Python >= 3.3 (modules/pyMarshal.cc,
@@ -41,3 +43,18 @@ giop=1.1 omniorb* * echo_wstring[2] omniORB has no GIOP 1.1 wchar code set
 giop=1.1 rustorb* omniorb* echo_wstring[2] omniORB has no GIOP 1.1 wchar code set
 giop=1.1 omniorb* * echo_wstring[3] omniORB has no GIOP 1.1 wchar code set
 giop=1.1 rustorb* omniorb* echo_wstring[3] omniORB has no GIOP 1.1 wchar code set
+
+# JacORB 3.9's IDL to Java mapping keeps only one discriminator value for
+# the default member of a union: InteropTest::Value.flag(int, boolean)
+# raises BAD_OPERATION for any discriminator but 0, so the JacORB client
+# cannot make Value { 99: flag }, and the JacORB server reads it as
+# Value { 0: flag } and echoes that. (Found by calling the generated
+# classes, not from the JacORB source.)
+jacorb * echo_value[5] JacORB unions keep one default discriminator
+* jacorb echo_value[5] JacORB unions keep one default discriminator
+
+# JacORB 3.9 does not accept GIOP 1.1 Fragment messages ("Received a
+# fragmented GIOP 1.1 message", then NO_IMPLEMENT). The omniORB clients
+# fragment large GIOP 1.1 requests; rustorb never fragments what it sends.
+giop=1.1 omniorb* jacorb echo_string[2] JacORB rejects GIOP 1.1 fragments
+giop=1.1 omniorb* jacorb echo_records[large] JacORB rejects GIOP 1.1 fragments

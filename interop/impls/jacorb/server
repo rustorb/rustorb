@@ -1,0 +1,8 @@
+#!/bin/sh
+# JacORB interop server: the Java server of impls/java with stubs from
+# JacORB's IDL compiler, built in the interop image (docker/omniorb).
+here="$(dirname "$0")"
+# JacORB writes strings in the UTF-8 code set (negotiated with rustorb) with
+# the JVM's default charset, which is ASCII in the image's Java 17 (C
+# locale); Java 18 and later default to UTF-8.
+exec java -Dfile.encoding=UTF-8 -Dinterop.orb=jacorb -cp "$here/classes:/opt/jacorb/lib/*" interop.Server "$@"

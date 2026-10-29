@@ -1,0 +1,14 @@
+// The part of orb.idl that the test IDLs use, for JacORB's IDL compiler
+// (which needs #include <orb.idl> for CORBA::TypeCode). Declared native, it
+// maps to org.omg.CORBA.TypeCode and generates no classes.
+
+#ifndef INTEROP_ORB_IDL
+#define INTEROP_ORB_IDL
+
+#pragma prefix "omg.org"
+
+module CORBA {
+  native TypeCode;
+};
+
+#endif

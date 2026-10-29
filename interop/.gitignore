@@ -9,3 +9,6 @@
 /impls/rustorbpy/stubs/
 /impls/rustorbcpp/bin/
 /impls/rustorbcpp/gen/
+/impls/rustorbjava/classes/
+/impls/rustorbjava/gen/
+/impls/rustorbjava/lib/

@@ -106,6 +106,40 @@ jobs:
       - run: cmake --build build/cpp
       - run: ctest --test-dir build/cpp --output-on-failure
 
+  java:
+    name: Java (rustorb-jni, the Java mapping and rustorb-idl -bjava)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, java: "11" }
+          - { os: ubuntu-latest, java: "21" }
+          - { os: macos-latest, java: "21" }
+          - { os: windows-latest, java: "21" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: sugarsweetrobotics/idl_parser
+          ref: 5eef768bb61e0ee7c5cd08c42c45789a45585f60
+          path: idl_parser
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: mvn -B -f java/pom.xml -Dpython=python -Didl.parser.dir=${{ github.workspace }}/idl_parser verify
+      - name: Check that the committed CosNaming stubs are up to date
+        if: runner.os == 'Linux'
+        run: java/generate-stubs.sh && git diff --exit-code -- java
+        env:
+          IDL_PARSER_DIR: ${{ github.workspace }}/idl_parser
+
   msrv:
     runs-on: ubuntu-latest
     steps:

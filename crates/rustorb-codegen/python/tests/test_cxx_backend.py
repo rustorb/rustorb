@@ -121,7 +121,7 @@ class CxxBackendTest(unittest.TestCase):
         path = os.path.join(INTEROP_IDL, "InteropTest.idl")
         self.assertEqual(cli.main(["-bc++11", "-Wbglobal=x", "-C", OUT, path]), 2)
         self.assertEqual(cli.main(["-bpython", "-Wbh=.h", "-C", OUT, path]), 2)
-        self.assertEqual(cli.main(["-bjava", "-C", OUT, path]), 2)
+        self.assertEqual(cli.main(["-bada", "-C", OUT, path]), 2)
 
     def test_unsupported(self):
         cases = {

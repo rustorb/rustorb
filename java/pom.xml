@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The rustorb Java binding: the IDL to Java mapping runtime (org.omg.CORBA,
+  org.omg.PortableServer, org.omg.CosNaming and org.rustorb) on
+  librustorb_jni (crates/rustorb-jni), and its tests.
+
+    mvn -f java/pom.xml -Didl.parser.dir=path/to/idl_parser verify
+
+  The build runs cargo for librustorb_jni (-Dcargo.skip to use one built
+  elsewhere, found through -Drustorb.jni.library or java.library.path) and
+  rustorb-idl -bjava for the test IDLs; rustorb-idl needs idl_parser,
+  importable or in idl.parser.dir.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>org.rustorb</groupId>
+  <artifactId>rustorb</artifactId>
+  <version>0.0.0-SNAPSHOT</version>
+  <packaging>jar</packaging>
+
+  <name>rustorb</name>
+  <description>The IDL to Java mapping on rustorb, a CORBA ORB in Rust</description>
+  <url>https://github.com/rustorb/rustorb</url>
+  <licenses>
+    <license>
+      <name>MIT OR Apache-2.0</name>
+    </license>
+  </licenses>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.release>11</maven.compiler.release>
+    <rustorb.root>${project.basedir}/..</rustorb.root>
+    <idl.parser.dir></idl.parser.dir>
+    <idl.pythonpath>${idl.parser.dir}${path.separator}${rustorb.root}/crates/rustorb-codegen/python</idl.pythonpath>
+    <idl.out>${project.build.directory}/generated-test-sources/idl</idl.out>
+    <python>python3</python>
+    <cargo.skip>false</cargo.skip>
+    <rustorb.jni.library></rustorb.jni.library>
+    <junit.version>5.10.2</junit.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+        <configuration>
+          <compilerArgs>
+            <arg>-Xlint:all,-serial</arg>
+          </compilerArgs>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.2.0</version>
+        <executions>
+          <!-- librustorb_jni, for the tests. -->
+          <execution>
+            <id>cargo</id>
+            <phase>generate-test-resources</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <skip>${cargo.skip}</skip>
+              <executable>cargo</executable>
+              <arguments>
+                <argument>build</argument>
+                <argument>--locked</argument>
+                <argument>-p</argument>
+                <argument>rustorb-jni</argument>
+                <argument>--manifest-path</argument>
+                <argument>${rustorb.root}/Cargo.toml</argument>
+              </arguments>
+            </configuration>
+          </execution>
+          <!-- The stubs and skeletons of the test IDLs. -->
+          <execution>
+            <id>rustorb-idl</id>
+            <phase>generate-test-sources</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>${python}</executable>
+              <environmentVariables>
+                <PYTHONPATH>${idl.pythonpath}</PYTHONPATH>
+              </environmentVariables>
+              <arguments>
+                <argument>-m</argument>
+                <argument>rustorb_idl</argument>
+                <argument>-bjava</argument>
+                <argument>-I</argument>
+                <argument>${rustorb.root}/interop/idl</argument>
+                <argument>-C</argument>
+                <argument>${idl.out}</argument>
+                <argument>${rustorb.root}/interop/idl/InteropTest.idl</argument>
+                <argument>${rustorb.root}/interop/idl/AnyTest.idl</argument>
+                <argument>${rustorb.root}/interop/idl/AnyTestHidden.idl</argument>
+              </arguments>
+            </configuration>
+          </execution>
+          <!-- Definitions outside modules need a package prefix. -->
+          <execution>
+            <id>rustorb-idl-mapping</id>
+            <phase>generate-test-sources</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>${python}</executable>
+              <environmentVariables>
+                <PYTHONPATH>${idl.pythonpath}</PYTHONPATH>
+              </environmentVariables>
+              <arguments>
+                <argument>-m</argument>
+                <argument>rustorb_idl</argument>
+                <argument>-bjava</argument>
+                <argument>-Wbpackage=mapping</argument>
+                <argument>-C</argument>
+                <argument>${idl.out}</argument>
+                <argument>${rustorb.root}/cpp/tests/idl/CxxMapping.idl</argument>
+              </arguments>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>build-helper-maven-plugin</artifactId>
+        <version>3.6.0</version>
+        <executions>
+          <execution>
+            <id>test-sources</id>
+            <phase>generate-test-sources</phase>
+            <goals><goal>add-test-source</goal></goals>
+            <configuration>
+              <sources>
+                <source>${idl.out}</source>
+                <!-- The interop cases, shared with the jacorb implementation. -->
+                <source>${rustorb.root}/interop/impls/java</source>
+              </sources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.2.5</version>
+        <configuration>
+          <argLine>-Djava.library.path=${rustorb.root}/target/debug</argLine>
+          <systemPropertyVariables>
+            <rustorb.jni.library>${rustorb.jni.library}</rustorb.jni.library>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

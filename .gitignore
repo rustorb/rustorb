@@ -8,3 +8,5 @@ __pycache__/
 # setuptools output of pip wheel ./python/omniorb-compat
 /python/omniorb-compat/build
 /python/omniorb-compat/*.egg-info
+# Maven output of java/
+/java/target

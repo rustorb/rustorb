@@ -95,7 +95,7 @@ M0〜M3の約4〜7か月でMVPに到達し、その後C++とJavaを順に追加�
 | 1 | omniORBpy・rustorb（Python） | 両方 | rustorbのNaming Service |
 | 2 | rustorb（Python・Rust） | omniORB（C++） | omniNames |
 | 2 | omniORB（C++） | rustorb（Python・Rust） | omniNames |
-| 3 | rustorb ⇔ JacORB（両方向） | | Javaバインディングの着手時に追加 |
+| 3 | rustorb ⇔ JacORB（両方向） | | Javaバインディング（M6）で追加。Java・C++・Python・Rust の rustorb と JacORB のすべての組み合わせ |
 
 - **題材のIDL**：自作の小さなテスト用IDLと CosNaming.idl を使う。テスト用IDLは基本型、string / wstring、struct、enum、union、sequence、配列、typedef、ユーザー例外、属性、oneway、オブジェクト参照の受け渡し、コールバック（サーバーからクライアントへの呼び返し）を含め、Anyは含めない
 - **ゴールデンテスト**：同じテスト用IDLで omniORBpy・omniORB が送受信するGIOPメッセージをキャプチャし、比較の基準にする
@@ -228,9 +228,15 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - C++ 側：`IDL::traits<T>::ref_type`、`CORBA::servant_traits<T>::base_type`、`CORBA::make_reference`、40種のシステム例外、`PortableServer` の POA 操作。struct・union・例外は取得・設定関数のクラス、enum は `enum class`、上限付きの型は `IDL::bounded_*`
   - 相互接続：`interop/impls/rustorbcpp`（他のクライアントと同じ78ケース）が omniORB C++・omniORBpy・rustorb（Rust・Python）とのすべての組み合わせで、omniNames・rustorb-names、GIOP 1.1 でも通る（失敗は既存の `known-failures.txt` の範囲だけ）
   - C++ のテスト（`cpp/tests`、CMake）：マッピング用の IDL を2つの ORB の間と同一 ORB 内で往復させ、相互接続の78ケースを1プロセスで回す。CI は g++ と clang++
-  - 残り：C++ の servant manager・AdapterActivator、`fixed`、IDL4-CPP の構文。Java は同じ C ABI の上に載せる
+  - 残り：C++ の servant manager・AdapterActivator、`fixed`、IDL4-CPP の構文。Java は同じ C ABI の上に載せた（M6）
 - [x] Any / TypeCode（M5）：コアの `TypeCode`・`Any`・`Value` と CDR、Python と C++ のバインディング、omniORB C++・omniORBpy との相互接続（[any-typecode.md](any-typecode.md)）
   - [x] コア：TypeCode はアリーナと添字で表し、再帰型は後ろ向きの添字（`Arc` の循環なし）。CDR の間接参照は再帰のときだけ書き、読み込みはすべて受け付ける。`equal` / `equivalent` / `compact`、構築時の検査
   - [x] Python：`CORBA.Any` / `CORBA.TypeCode` の送受信、`ORB.create_*_tc`。生成コードにない型は TypeCode とクラスをその場で作る
   - [x] 相互接続：`run-matrix.sh --suite any`（`AnyTest.idl`、178ケース）。rustorb（Rust・Python・C++）・omniORBpy・omniORB C++ の25組すべてが GIOP 1.2 / 1.1 で通る
   - [x] C++ バインディング：C ABI の `rorb_typecode` / `rorb_any`、`CORBA::Any` / `CORBA::TypeCode`、`-bc++11` の `_tc_<名前>`、`rustorbcpp` の `--suite any`（25組すべてが GIOP 1.2 / 1.1 で通る）
+- [x] Java バインディング（M6）：`rustorb-ffi` の C ABI の上の JNI ライブラリ（`crates/rustorb-jni`）、IDL to Java のランタイム（`java/`、Java 11 以降、`org.omg.CORBA`・`PortableServer`・`CosNaming` を同梱）、`rustorb-idl -bjava` の生成器を作り、Java の rustorb と JacORB を相互接続マトリクスに入れる（[java-binding.md](java-binding.md)）
+  - JNI：ハンドルは `long` で、Java 側は `Cleaner` で解放する。スタブは操作ごとのコールバック（`org.rustorb.Call`）で `rorb_object_invoke` を呼ぶ。スケルトンは標準の `InvokeHandler` / `ResponseHandler`。アップコールのスレッドはデーモンとして JVM にアタッチする
+  - 生成器：標準マッピングのクラス群（Helper・Holder・Operations・Stub・POA・POATie、`<Name>Package`、予約語の `_`）と、モジュールの外の定義のための `-Wbpackage`
+  - 相互接続：`interop/impls/java` のクライアント・サーバーを、`rustorbjava`（rustorb-idl のスタブ）と `jacorb`（JacORB 3.9 のリリース jar と IDL コンパイラ）で共有する。`rustorbjava` は basic（omniNames・rustorb-names、GIOP 1.2 / 1.1）と any（GIOP 1.2 / 1.1）ですべての相手と通る。JacORB との失敗は JacORB の生成コードと GIOP 1.1 の Fragment の扱いによるもので、`known-failures.txt` に載せた。JacORB はソースを読まず、生成されたクラスを呼んだ結果だけを使った
+  - Java のテスト（`java/`、Maven と JUnit）：CxxMapping.idl の往復（2つの ORB の間と同一 ORB 内）、相互接続の78ケースと any の178ケース。CI は Linux（Java 11 / 21）・macOS・Windows
+  - 残り：servant manager・AdapterActivator（C++ と共通）、ストリームによる Any の操作、DII / DSI、`fixed`・valuetype
