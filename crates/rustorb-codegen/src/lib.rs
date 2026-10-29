@@ -7,13 +7,11 @@
 //! script (`docs/rust-mapping.md`):
 //!
 //! ```no_run
-//! // build.rs
-//! fn main() {
-//!     rustorb_codegen::Config::new()
-//!         .include("idl")
-//!         .compile(&["idl/Example.idl"]) // $OUT_DIR/example.rs
-//!         .unwrap();
-//! }
+//! // in main() of build.rs
+//! rustorb_codegen::Config::new()
+//!     .include("idl")
+//!     .compile(&["idl/Example.idl"]) // $OUT_DIR/example.rs
+//!     .unwrap();
 //! ```
 //!
 //! and in the crate, `include!(concat!(env!("OUT_DIR"), "/example.rs"));`.
