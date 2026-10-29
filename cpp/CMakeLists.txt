@@ -127,6 +127,13 @@ target_include_directories(test_value PRIVATE
 target_link_libraries(test_value PRIVATE rustorb)
 target_compile_options(test_value PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME value COMMAND test_value)
+# DynamicAny, on the types of AnyTest.idl and ValueTest.idl.
+add_executable(test_dynany tests/test_dynany.cc ${ANY_SOURCES} ${VALUE_SOURCES})
+target_include_directories(test_dynany PRIVATE
+  "${CMAKE_CURRENT_BINARY_DIR}/idl" "${RUSTORB_ROOT}/interop/impls/rustorbcpp")
+target_link_libraries(test_dynany PRIVATE rustorb)
+target_compile_options(test_dynany PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME dynany COMMAND test_dynany)
 # Client call timeouts, against a server that never answers (POSIX sockets).
 if(UNIX)
   add_executable(test_timeout tests/test_timeout.cc)
@@ -140,4 +147,4 @@ add_executable(test_orb_ops tests/test_orb_ops.cc)
 target_link_libraries(test_orb_ops PRIVATE rustorb)
 target_compile_options(test_orb_ops PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME orb_ops COMMAND test_orb_ops)
-set_tests_properties(mapping poa interop any value orb_ops PROPERTIES TIMEOUT 120)
+set_tests_properties(mapping poa interop any value dynany orb_ops PROPERTIES TIMEOUT 120)

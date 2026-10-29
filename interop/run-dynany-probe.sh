@@ -7,9 +7,10 @@
 # --update   rewrites the expected files with the current output
 #
 # IMPL is omniorb-cpp (impls/omniorb-cpp/dynany_probe.cc, in the image),
-# rustorb (impls/rustorb/src/dynany_probe.rs) or rustorbpy
-# (impls/rustorbpy/dynany-probe, the Python binding on the same core, compared
-# with the rustorb file) (default: all of them). omniORBpy has no DynAny.
+# rustorb (impls/rustorb/src/dynany_probe.rs), or a binding on the same core
+# compared with the rustorb file: rustorbpy (impls/rustorbpy/dynany-probe),
+# rustorbcpp (impls/rustorbcpp/dynany_probe.cc) or rustorbjava
+# (impls/rustorbjava/probe/DynAnyProbe.java) (default: all of them). omniORBpy has no DynAny.
 # The probe records how DynAny behaves where the specification leaves room
 # or where rustorb had to choose; the two expected files differ where
 # rustorb chose otherwise (see docs/dynany.md). The rustorb probes run on
@@ -23,12 +24,12 @@ if [ "${1:-}" = "--update" ]; then
   shift
 fi
 impls=("$@")
-[ ${#impls[@]} -eq 0 ] && impls=(omniorb-cpp rustorb rustorbpy)
+[ ${#impls[@]} -eq 0 ] && impls=(omniorb-cpp rustorb rustorbpy rustorbcpp rustorbjava)
 image=${CLIENT_IMAGE:-rustorb-interop-omniorb:latest}
 
 expected_name() {
   case "$1" in
-    rustorbpy) echo rustorb ;;
+    rustorbpy | rustorbcpp | rustorbjava) echo rustorb ;;
     *) echo "$1" ;;
   esac
 }
@@ -48,6 +49,12 @@ for impl in "${impls[@]}"; do
     rustorbpy)
       impls/rustorbpy/build.sh
       python3 impls/rustorbpy/dynany-probe > "$actual" ;;
+    rustorbcpp)
+      impls/rustorbcpp/build.sh > /dev/null
+      impls/rustorbcpp/bin/dynany_probe > "$actual" ;;
+    rustorbjava)
+      impls/rustorbjava/build.sh > /dev/null
+      impls/rustorbjava/dynany-probe > "$actual" ;;
     *) echo "unknown implementation: $impl" >&2; exit 2 ;;
   esac
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the rustorb C++ client, server and POA probe server on the host,
+# Builds the rustorb C++ client, server, POA probe server and DynAny probe on the host,
 # into bin/: the stubs and skeletons of InteropTest.idl, AnyTest.idl,
 # AnyTestHidden.idl (the client only), ValueTest.idl, CosNaming.idl and PoaProbe.idl (the
 # probe server only) from rustorb-idl -bc++11 (in gen/), linked with
@@ -41,3 +41,4 @@ link() {
 link server "$here/server.cc" "${objs[@]}"
 link client "$here/client.cc" "${objs[@]}" "$here/gen/AnyTestHidden.o"
 link poa_probe_server "$here/poa_probe_server.cc" "$here/gen/PoaProbe.o"
+link dynany_probe "$here/dynany_probe.cc"

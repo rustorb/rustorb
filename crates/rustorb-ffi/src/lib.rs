@@ -18,6 +18,7 @@
 //!   the caller through tables of callbacks.
 //! - [`any`]: TypeCodes, and anys whose values the caller puts in and
 //!   takes out through the same streams.
+//! - [`dynany`]: `DynamicAny`, its values going in and out as anys.
 //! - [`value`]: valuetypes on the streams (sharing, chunks, truncation),
 //!   their TypeCodes and the registry of valuetypes the core reads.
 
@@ -26,6 +27,7 @@
 #![allow(clippy::missing_safety_doc)]
 
 pub mod any;
+pub mod dynany;
 pub mod manager;
 pub mod object;
 pub mod orb;
@@ -75,6 +77,10 @@ pub mod local {
     pub const TC_BAD_KIND: u32 = 14;
     pub const TC_BOUNDS: u32 = 15;
     pub const POLICY_ERROR: u32 = 16;
+    pub const DYN_INVALID_VALUE: u32 = 17;
+    pub const DYN_TYPE_MISMATCH: u32 = 18;
+    pub const DYN_INCONSISTENT_TYPECODE: u32 = 19;
+    pub const DYN_MUST_TRUNCATE: u32 = 20;
 }
 
 /// `rorb_exception`.

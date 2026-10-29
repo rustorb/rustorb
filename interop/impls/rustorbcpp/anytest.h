@@ -260,6 +260,91 @@ class AnyEchoImpl : public CORBA::servant_traits<AnyEcho>::base_type {
 };
 
 #ifdef ANYTEST_HIDDEN
+// The DynAny of src copied into dst, a DynAny of the same type made from
+// its TypeCode alone, component by component.
+inline void dyn_copy(const DynamicAny::DynAny_ref& src, const DynamicAny::DynAny_ref& dst);
+
+// `value` taken apart with a DynAny and built again in a DynAny made from
+// its TypeCode alone (docs/dynany.md).
+inline CORBA::Any dyn_rebuild(const CORBA::Any& value) {
+  static const auto factory = IDL::traits<DynamicAny::DynAnyFactory>::ref_type(
+      std::make_shared<DynamicAny::DynAnyFactory>());
+  auto src = factory->create_dyn_any(value);
+  auto dst = factory->create_dyn_any_from_type_code(value.type());
+  dyn_copy(src, dst);
+  CORBA::Any rebuilt = dst->to_any();
+  src->destroy();
+  dst->destroy();
+  return rebuilt;
+}
+
+inline void dyn_copy(const DynamicAny::DynAny_ref& src, const DynamicAny::DynAny_ref& dst) {
+  using namespace DynamicAny;
+  using K = CORBA::TCKind;
+  auto narrow = [](const DynAny_ref& d, auto* tag) {
+    using T = std::remove_pointer_t<decltype(tag)>;
+    return IDL::traits<T>::narrow(d);
+  };
+  TypeCodeRef tc = src->type();
+  while (tc->kind() == K::tk_alias) tc = tc->content_type();
+  switch (tc->kind()) {
+    case K::tk_sequence:
+    case K::tk_value:
+    case K::tk_value_box:
+    case K::tk_struct:
+    case K::tk_except:
+    case K::tk_array: {
+      if (tc->kind() == K::tk_sequence) {
+        narrow(dst, static_cast<DynSequence*>(nullptr))
+            ->set_length(narrow(src, static_cast<DynSequence*>(nullptr))->get_length());
+      } else if (tc->kind() == K::tk_value || tc->kind() == K::tk_value_box) {
+        auto s = narrow(src, static_cast<DynValueCommon*>(nullptr));
+        auto d = narrow(dst, static_cast<DynValueCommon*>(nullptr));
+        if (s->is_null()) return d->set_to_null();
+        d->set_to_value();
+      }
+      for (uint32_t i = 0; i < src->component_count(); ++i) {
+        src->seek(static_cast<int32_t>(i));
+        dst->seek(static_cast<int32_t>(i));
+        dyn_copy(src->current_component(), dst->current_component());
+      }
+      return;
+    }
+    case K::tk_union: {
+      auto s = narrow(src, static_cast<DynUnion*>(nullptr));
+      auto d = narrow(dst, static_cast<DynUnion*>(nullptr));
+      d->set_discriminator(s->get_discriminator());
+      if (!s->has_no_active_member()) dyn_copy(s->member(), d->member());
+      return;
+    }
+    case K::tk_enum:
+      return narrow(dst, static_cast<DynEnum*>(nullptr))
+          ->set_as_ulong(narrow(src, static_cast<DynEnum*>(nullptr))->get_as_ulong());
+    case K::tk_fixed:
+      narrow(dst, static_cast<DynFixed*>(nullptr))
+          ->set_value(narrow(src, static_cast<DynFixed*>(nullptr))->get_value());
+      return;
+    case K::tk_any: return dst->insert_any(dyn_rebuild(src->get_any()));
+    case K::tk_long: return dst->insert_long(src->get_long());
+    case K::tk_short: return dst->insert_short(src->get_short());
+    case K::tk_ulong: return dst->insert_ulong(src->get_ulong());
+    case K::tk_ushort: return dst->insert_ushort(src->get_ushort());
+    case K::tk_longlong: return dst->insert_longlong(src->get_longlong());
+    case K::tk_ulonglong: return dst->insert_ulonglong(src->get_ulonglong());
+    case K::tk_float: return dst->insert_float(src->get_float());
+    case K::tk_double: return dst->insert_double(src->get_double());
+    case K::tk_boolean: return dst->insert_boolean(src->get_boolean());
+    case K::tk_char: return dst->insert_char(src->get_char());
+    case K::tk_wchar: return dst->insert_wchar(src->get_wchar());
+    case K::tk_octet: return dst->insert_octet(src->get_octet());
+    case K::tk_string: return dst->insert_string(src->get_string());
+    case K::tk_wstring: return dst->insert_wstring(src->get_wstring());
+    case K::tk_TypeCode: return dst->insert_typecode(src->get_typecode());
+    case K::tk_objref: return dst->insert_reference(src->get_reference());
+    default: return dst->from_any(src->to_any());  // tk_null and tk_void
+  }
+}
+
 // Runs the stage 2 cases; `r.run(name, fn)` reports a case, `check(cond,
 // what)` fails one.
 template <typename Runner>
@@ -309,6 +394,19 @@ void run_cases(Runner& r, const EchoRef& echo,
     r.run("describe[" + h.first + "]", [&]() {
       std::string d = echo->describe(make(h.first, echo));
       check(d == h.second, d);
+    });
+  }
+  // The values taken apart and built again with DynAny, from their
+  // TypeCodes alone.
+  for (const std::string& n : names()) {
+    r.run("dyn_check[" + n + "]",
+          [&]() { check(echo->check(n, dyn_rebuild(make(n, echo))), "server says no"); });
+    r.run("dyn_make[" + n + "]",
+          [&]() { check(same(n, dyn_rebuild(echo->make(n)), echo), "wrong value"); });
+  }
+  for (const auto& h : hidden) {
+    r.run("dyn_echo[" + h.first + "]", [&]() {
+      check(same(h.first, echo->echo(dyn_rebuild(make(h.first, echo))), echo), "wrong value");
     });
   }
   r.run("describe[long]", [&]() {
