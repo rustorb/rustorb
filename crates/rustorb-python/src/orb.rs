@@ -3,7 +3,9 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use pyo3::exceptions::PyLookupError;
+use std::time::Duration;
+
+use pyo3::exceptions::{PyLookupError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyTuple};
 use rustorb_core::cdr::{ByteOrder, CdrVersion, Decoder, Encoder};
@@ -35,6 +37,26 @@ impl Orb {
             .detach(|| CoreOrb::init(&mut args))
             .map_err(|e| sys_err(py, &e))?;
         Ok((Orb { orb }, args))
+    }
+
+    /// The reply timeout of calls, in seconds; None for no limit.
+    fn set_call_timeout(&self, seconds: Option<f64>) -> PyResult<()> {
+        self.orb.set_call_timeout(limit(seconds)?);
+        Ok(())
+    }
+
+    fn call_timeout(&self) -> Option<f64> {
+        self.orb.call_timeout().map(|t| t.as_secs_f64())
+    }
+
+    /// The timeout of new connections, in seconds; None for no limit.
+    fn set_connect_timeout(&self, seconds: Option<f64>) -> PyResult<()> {
+        self.orb.set_connect_timeout(limit(seconds)?);
+        Ok(())
+    }
+
+    fn connect_timeout(&self) -> Option<f64> {
+        self.orb.connect_timeout().map(|t| t.as_secs_f64())
     }
 
     fn string_to_object(&self, py: Python<'_>, s: &str) -> PyResult<Option<ObjRef>> {
@@ -301,6 +323,54 @@ impl ObjRef {
     fn ior_string(&self) -> String {
         self.obj.ior().to_string()
     }
+
+    /// The reply timeout of calls on this reference (shared by the
+    /// references made from it), in seconds: None unsets it, inf is no
+    /// limit.
+    fn set_call_timeout(&self, seconds: Option<f64>) -> PyResult<()> {
+        self.obj.set_call_timeout(setting(seconds)?);
+        Ok(())
+    }
+
+    fn call_timeout(&self) -> Option<f64> {
+        seconds_of_setting(self.obj.call_timeout())
+    }
+}
+
+/// The reply timeout of calls from the calling thread, in seconds: None
+/// unsets it, inf is no limit.
+#[pyfunction]
+pub(crate) fn set_thread_call_timeout(seconds: Option<f64>) -> PyResult<()> {
+    rustorb_core::set_thread_call_timeout(setting(seconds)?);
+    Ok(())
+}
+
+#[pyfunction]
+pub(crate) fn thread_call_timeout() -> Option<f64> {
+    seconds_of_setting(rustorb_core::thread_call_timeout())
+}
+
+/// Seconds to a timeout: None, 0 or inf is no limit.
+fn limit(seconds: Option<f64>) -> PyResult<Option<Duration>> {
+    match seconds {
+        None => Ok(None),
+        Some(s) if s.is_nan() || s < 0.0 => {
+            Err(PyValueError::new_err("timeout must not be negative"))
+        }
+        Some(s) if s == 0.0 || s.is_infinite() => Ok(None),
+        Some(s) => Ok(Some(
+            Duration::try_from_secs_f64(s).unwrap_or(Duration::MAX),
+        )),
+    }
+}
+
+/// Seconds to the setting of a thread or a reference: None unsets it.
+fn setting(seconds: Option<f64>) -> PyResult<Option<Option<Duration>>> {
+    seconds.map(|s| limit(Some(s))).transpose()
+}
+
+fn seconds_of_setting(setting: Option<Option<Duration>>) -> Option<f64> {
+    setting.map(|t| t.map_or(f64::INFINITY, |t| t.as_secs_f64()))
 }
 
 /// Sends the request and decodes the reply, detached from Python.

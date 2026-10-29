@@ -119,5 +119,5 @@ POA の操作の例外は `PortableServer.POA.ObjectNotActive` など標準の�
 ## 残り
 
 - omniORBpy 互換シム（`from omniORB import ...`、別パッケージ）。対象 API は OpenRTM-aist-Python の利用箇所から決める（M5 の後）
-- 呼び出しごとのタイムアウト（omniORB の `setClientCallTimeout` 相当）、`CORBA.ORB.create_policy` などの残りの ORB 操作
+- `CORBA.ORB.create_policy` などの残りの ORB 操作（呼び出しのタイムアウトは `rustorb.timeouts`、[timeouts.md](timeouts.md)）
 - `run-poa-probe.sh` と `run-naming-check.sh` への Python の rustorb の追加

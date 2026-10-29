@@ -134,5 +134,5 @@ JacORB は、UTF-8 に決まった `char` のデータ（rustorb とはどちら
 
 - `Any.create_output_stream` / `read_value` などのストリームによる Any の操作、DII / DSI、`ObjectImpl._request` の形のスタブ（他の IDL コンパイラが生成したスタブを rustorb の上で使う場合に要る）
 - `custom` の valuetype、`supports`、valuetype の操作と初期化子、abstract interface（#42、#43）、DynAny
-- 呼び出しごとのタイムアウトの Java API（C ABI の `rorb_invocation` にはある）、`ORB.create_policy` などの残りの ORB 操作
+- `ORB.create_policy` などの残りの ORB 操作（呼び出しのタイムアウトは `org.rustorb.Timeouts`、[timeouts.md](timeouts.md)）
 - Java 22 以降の FFM API への置き換えの検討

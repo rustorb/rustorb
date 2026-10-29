@@ -63,6 +63,7 @@ mod pool;
 mod servant;
 mod server;
 mod stream;
+mod timeout;
 pub mod typecode;
 mod value;
 
@@ -86,6 +87,7 @@ pub use servant::{
     ServantManagerError, ServerReply,
 };
 pub use stream::{InStream, OutStream};
+pub use timeout::{set_thread_call_timeout, thread_call_timeout};
 pub use typecode::{TCKind, TypeCode, TypeCodeError};
 pub use value::{
     Any, Value, ValueRef, ValueTypeResolver, lookup_value_type, register_value_type,

@@ -1,0 +1,254 @@
+#!/usr/bin/env python3
+"""Records how an ORB's client call timeouts behave, through the omniORBpy
+API (``omniORB.setClientCallTimeout`` and friends), which rustorb's
+omniORB compatibility package also has.
+
+    timeout-probe --impl omniorbpy|rustorbpy
+
+The probe starts two servers of its own in the process: a GIOP sink that
+reads requests and never answers them, and a listener whose accept queue
+is full, so that connecting to it hangs. Each case sets timeouts, calls
+``echo_long`` on an Echo reference to the sink (or the listener), and
+prints what the call raised, which of the configured times it took, and
+which GIOP messages the sink read meanwhile. The output does not depend
+on the machine's speed: run-timeout-probe.sh compares it with
+expected/timeout-probe-<impl>.txt.
+"""
+
+import argparse
+import os
+import socket
+import struct
+import sys
+import threading
+import time
+
+parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+parser.add_argument("--impl", required=True, choices=["omniorbpy", "rustorbpy"])
+args = parser.parse_args()
+
+impls = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "impls")
+if args.impl == "rustorbpy":
+    sys.path[:0] = [os.path.join(impls, "rustorbpy", "lib"),
+                    os.path.join(impls, "rustorbpy", "stubs")]
+else:
+    sys.path.insert(0, os.path.join(impls, "omniorbpy", "stubs"))
+
+import omniORB  # noqa: E402
+from omniORB import CORBA  # noqa: E402
+import InteropTest  # noqa: E402
+
+MESSAGE_TYPES = ["Request", "Reply", "CancelRequest", "LocateRequest", "LocateReply",
+                 "CloseConnection", "MessageError", "Fragment"]
+
+
+class Sink:
+    """Accepts connections and records the GIOP messages read, without
+    ever replying."""
+
+    def __init__(self):
+        self.sock = socket.socket()
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.bind(("127.0.0.1", 0))
+        self.sock.listen(16)
+        self.port = self.sock.getsockname()[1]
+        self.lock = threading.Lock()
+        self.events = []
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    def _accept(self):
+        while True:
+            conn, _ = self.sock.accept()
+            threading.Thread(target=self._read, args=(conn,), daemon=True).start()
+
+    def _read(self, conn):
+        buf = b""
+        while True:
+            data = conn.recv(65536)
+            if not data:
+                self._record("connection closed")
+                return
+            buf += data
+            while len(buf) >= 12:
+                little = buf[6] & 1
+                size = struct.unpack("<I" if little else ">I", buf[8:12])[0]
+                if len(buf) < 12 + size:
+                    break
+                kind = buf[7]
+                self._record(MESSAGE_TYPES[kind] if kind < len(MESSAGE_TYPES) else str(kind))
+                if kind == 3:
+                    conn.sendall(self._locate_reply(buf[:12 + size]))
+                buf = buf[12 + size:]
+
+    @staticmethod
+    def _locate_reply(msg):
+        """OBJECT_HERE, so that the client sends its request."""
+        little = msg[6] & 1
+        fmt = "<" if little else ">"
+        request_id = struct.unpack(fmt + "I", msg[12:16])[0]
+        body = struct.pack(fmt + "II", request_id, 1)
+        return msg[:6] + bytes([msg[6] & 1, 4]) + struct.pack(fmt + "I", len(body)) + body
+
+    def _record(self, event):
+        with self.lock:
+            self.events.append(event)
+
+    def take(self):
+        with self.lock:
+            events, self.events = self.events, []
+        return events
+
+
+class Stuck:
+    """A listener whose accept queue is full: new connections hang in the
+    SYN handshake."""
+
+    def __init__(self):
+        self.sock = socket.socket()
+        self.sock.bind(("127.0.0.1", 0))
+        self.sock.listen(0)
+        self.port = self.sock.getsockname()[1]
+        self.fillers = []
+        for _ in range(4):
+            s = socket.socket()
+            s.setblocking(False)
+            try:
+                s.connect(("127.0.0.1", self.port))
+            except BlockingIOError:
+                pass
+            self.fillers.append(s)
+        time.sleep(0.2)
+
+
+def corbaloc(port):
+    return "corbaloc::127.0.0.1:%d/InteropTest/Echo" % port
+
+
+# omniORB honours per-thread timeouts only with this option; rustorb
+# always does, and accepts the option.
+orb = CORBA.ORB_init([sys.argv[0], "-ORBsupportPerThreadTimeOut", "1"], CORBA.ORB_ID)
+sink = Sink()
+stuck = Stuck()
+
+
+def ref(port):
+    return orb.string_to_object(corbaloc(port))._unchecked_narrow(InteropTest.Echo)
+
+
+# The configured times, in milliseconds; a call is reported as taking the
+# nearest of them, or as still blocked after the longest one.
+TIMES = (300, 1000)
+WAIT = 2.0
+
+
+def nearest(elapsed_ms):
+    return min(TIMES, key=lambda t: abs(t - elapsed_ms))
+
+
+def call(obj, in_thread=None):
+    """Calls obj.echo_long in a thread (after in_thread()) and waits at
+    most WAIT seconds."""
+    outcome = {}
+
+    def run():
+        if in_thread is not None:
+            in_thread()
+        start = time.monotonic()
+        try:
+            obj.echo_long(1)
+            outcome["result"] = "returned"
+        except CORBA.SystemException as e:
+            name = type(e).__name__
+            completed = {CORBA.COMPLETED_YES: "YES", CORBA.COMPLETED_NO: "NO",
+                         CORBA.COMPLETED_MAYBE: "MAYBE"}.get(e.completed, e.completed)
+            minor = ("TIMEOUT_CallTimedOutOnClient"
+                     if e.minor == omniORB.TIMEOUT_CallTimedOutOnClient else "0x%08x" % e.minor)
+            outcome["result"] = "%s minor=%s completed=%s" % (name, minor, completed)
+        outcome["ms"] = (time.monotonic() - start) * 1000
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(WAIT)
+    if t.is_alive():
+        return "no exception within %dms" % (WAIT * 1000)
+    return "%s after ~%dms" % (outcome["result"], nearest(outcome["ms"]))
+
+
+def reset():
+    omniORB.setClientCallTimeout(0)
+    omniORB.setClientThreadCallTimeout(0)
+    omniORB.setClientConnectTimeout(0)
+
+
+def case(name, setup, port=None, in_thread=None):
+    """setup(obj) runs on the main thread, in_thread() on the thread that
+    makes the call."""
+    port = sink.port if port is None else port
+    reset()
+    obj = ref(port)
+    setup(obj)
+    result = call(obj, in_thread)
+    time.sleep(0.3)
+    events = sink.take()
+    print("%s: %s; sink read: %s" % (name, result, ", ".join(events) or "nothing"))
+    sys.stdout.flush()
+
+
+def in_other_thread(f):
+    t = threading.Thread(target=f)
+    t.start()
+    t.join()
+
+
+# A first call opens the connection to the sink, so that the cases below
+# measure the wait for the reply only.
+case("no timeout", lambda o: None)
+case("global 300", lambda o: omniORB.setClientCallTimeout(300))
+case("object 300", lambda o: omniORB.setClientCallTimeout(o, 300))
+case("thread 300", lambda o: None, in_thread=lambda: omniORB.setClientThreadCallTimeout(300))
+case("thread 300 set by another thread",
+     lambda o: in_other_thread(lambda: omniORB.setClientThreadCallTimeout(300)))
+
+
+def object_then_new_reference():
+    reset()
+    first = ref(sink.port)
+    omniORB.setClientCallTimeout(first, 300)
+    second = ref(sink.port)
+    result = call(second)
+    time.sleep(0.3)
+    print("object 300 on another reference to the same IOR: %s; sink read: %s"
+          % (result, ", ".join(sink.take()) or "nothing"))
+
+
+object_then_new_reference()
+case("global 300, object 1000", lambda o: (omniORB.setClientCallTimeout(300),
+                                           omniORB.setClientCallTimeout(o, 1000)))
+case("global 1000, object 300", lambda o: (omniORB.setClientCallTimeout(1000),
+                                           omniORB.setClientCallTimeout(o, 300)))
+case("global 300, thread 1000", lambda o: omniORB.setClientCallTimeout(300),
+     in_thread=lambda: omniORB.setClientThreadCallTimeout(1000))
+case("global 1000, thread 300", lambda o: omniORB.setClientCallTimeout(1000),
+     in_thread=lambda: omniORB.setClientThreadCallTimeout(300))
+case("object 300, thread 1000", lambda o: omniORB.setClientCallTimeout(o, 300),
+     in_thread=lambda: omniORB.setClientThreadCallTimeout(1000))
+case("object 1000, thread 300", lambda o: omniORB.setClientCallTimeout(o, 1000),
+     in_thread=lambda: omniORB.setClientThreadCallTimeout(300))
+case("global 300, object 0", lambda o: (omniORB.setClientCallTimeout(300),
+                                        omniORB.setClientCallTimeout(o, 0)))
+case("global 300, thread 0", lambda o: omniORB.setClientCallTimeout(300),
+     in_thread=lambda: omniORB.setClientThreadCallTimeout(0))
+case("object 300, thread 0", lambda o: omniORB.setClientCallTimeout(o, 300),
+     in_thread=lambda: omniORB.setClientThreadCallTimeout(0))
+case("connect 300 to a full listener",
+     lambda o: omniORB.setClientConnectTimeout(300), stuck.port)
+case("global 300 to a full listener",
+     lambda o: omniORB.setClientCallTimeout(300), stuck.port)
+case("connect 1000, global 300 to a full listener",
+     lambda o: (omniORB.setClientConnectTimeout(1000),
+                omniORB.setClientCallTimeout(300)), stuck.port)
+case("connect 300, global 1000 to a full listener",
+     lambda o: (omniORB.setClientConnectTimeout(300),
+                omniORB.setClientCallTimeout(1000)), stuck.port)
+reset()
+os._exit(0)

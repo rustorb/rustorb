@@ -1,6 +1,7 @@
 use std::fmt;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use rustorb_cdr::CdrDecode;
 use rustorb_giop::{
@@ -15,7 +16,7 @@ use crate::server::Server;
 use crate::stream::{InStream, OutStream, marshal};
 use crate::{
     CodeSets, CompletionStatus, Exception, Orb, SystemException, SystemExceptionKind,
-    UserException, minor,
+    UserException, minor, timeout,
 };
 
 /// A reference to a CORBA object, from an IOR.
@@ -32,6 +33,8 @@ pub struct ObjectRef {
     orb: Orb,
     ior: Arc<Ior>,
     forward: Arc<Mutex<Option<Arc<Ior>>>>,
+    /// [`ObjectRef::set_call_timeout`], shared by clones.
+    call_timeout: Arc<AtomicU64>,
 }
 
 impl fmt::Debug for ObjectRef {
@@ -58,6 +61,7 @@ impl ObjectRef {
             orb,
             ior: Arc::new(ior),
             forward: Arc::new(Mutex::new(None)),
+            call_timeout: Arc::new(AtomicU64::new(timeout::UNSET)),
         }
     }
 
@@ -95,8 +99,37 @@ impl ObjectRef {
             obj: self,
             operation: operation.to_owned(),
             args: None,
-            timeout: self.orb.inner.options.request_timeout,
+            timeout: None,
         }
+    }
+
+    /// Sets how long calls on this reference and its clones wait for a
+    /// reply: `Some(t)` (where `t` is `None` for no limit) overrides the
+    /// ORB's [`call_timeout`](Orb::call_timeout) and the calling thread's
+    /// ([`set_thread_call_timeout`](crate::set_thread_call_timeout)), and
+    /// `None` unsets it. Like omniORB's `setClientCallTimeout(obj,
+    /// millisecs)`. References made from the same IOR by
+    /// [`Orb::string_to_object`] do not share it.
+    pub fn set_call_timeout(&self, timeout: Option<Option<Duration>>) {
+        let v = timeout.map_or(timeout::UNSET, timeout::encode);
+        self.call_timeout.store(v, Ordering::Relaxed);
+    }
+
+    /// The setting of [`set_call_timeout`](ObjectRef::set_call_timeout).
+    pub fn call_timeout(&self) -> Option<Option<Duration>> {
+        match self.call_timeout.load(Ordering::Relaxed) {
+            timeout::UNSET => None,
+            v => Some(timeout::decode(v)),
+        }
+    }
+
+    /// The timeout of a call on this reference from the calling thread:
+    /// the reference's, else the thread's, else the ORB's (the order
+    /// omniORB uses).
+    fn effective_timeout(&self) -> Option<Duration> {
+        self.call_timeout()
+            .or_else(timeout::thread_call_timeout)
+            .unwrap_or_else(|| self.orb.call_timeout())
     }
 
     /// `CORBA::Object::_is_a`.
@@ -121,8 +154,7 @@ impl ObjectRef {
     /// Sends a `LocateRequest`, following forwards. Returns whether the
     /// server has the object (`OBJECT_HERE`) or not (`UNKNOWN_OBJECT`).
     pub fn locate(&self) -> Result<bool, Exception> {
-        let timeout = self.orb.inner.options.request_timeout;
-        let outcome = invoke(self, Kind::Locate, timeout)?;
+        let outcome = invoke(self, Kind::Locate, self.effective_timeout())?;
         match outcome {
             Outcome::Located(here) => Ok(here),
             Outcome::Reply(_) => unreachable!("a locate request gives a locate outcome"),
@@ -146,7 +178,8 @@ pub struct Request<'a> {
     obj: &'a ObjectRef,
     operation: String,
     args: Option<Box<ArgsFn<'a>>>,
-    timeout: Option<Duration>,
+    /// Set by [`Request::timeout`].
+    timeout: Option<Option<Duration>>,
 }
 
 impl fmt::Debug for Request<'_> {
@@ -169,11 +202,16 @@ impl<'a> Request<'a> {
         self
     }
 
-    /// Overrides [`OrbOptions::request_timeout`](crate::OrbOptions::request_timeout)
-    /// for this request.
+    /// Sets how long this request waits for a reply (`None`: no limit),
+    /// overriding the timeouts of the thread, the reference and the ORB
+    /// (see [`Orb::set_call_timeout`]).
     pub fn timeout(mut self, timeout: Option<Duration>) -> Request<'a> {
-        self.timeout = timeout;
+        self.timeout = Some(timeout);
         self
+    }
+
+    fn effective_timeout(&self) -> Option<Duration> {
+        self.timeout.unwrap_or_else(|| self.obj.effective_timeout())
     }
 
     /// Sends the request and waits for the reply.
@@ -183,7 +221,7 @@ impl<'a> Request<'a> {
             args: self.args.as_deref(),
             response: true,
         };
-        match invoke(self.obj, kind, self.timeout)? {
+        match invoke(self.obj, kind, self.effective_timeout())? {
             Outcome::Reply(Some(reply)) => Ok(reply),
             _ => unreachable!("a two-way request gives a reply"),
         }
@@ -197,7 +235,7 @@ impl<'a> Request<'a> {
             args: self.args.as_deref(),
             response: false,
         };
-        match invoke(self.obj, kind, self.timeout) {
+        match invoke(self.obj, kind, self.effective_timeout()) {
             Ok(_) => Ok(()),
             Err(Exception::System(e)) => Err(e),
             Err(Exception::User(_)) => unreachable!("a oneway request has no reply"),
@@ -328,6 +366,9 @@ fn invoke(
 ) -> Result<Outcome, Exception> {
     let orb = &obj.orb;
     orb.check_running()?;
+    // The timeout covers the whole call: connecting, forwards and the
+    // wait for the reply.
+    let deadline = timeout.map(|t| Instant::now() + t);
     let max_hops = orb.inner.options.max_forwards;
     let mut hops = 0;
     let mut ior = obj.current_target();
@@ -343,8 +384,10 @@ fn invoke(
         );
         for ep in endpoints(&ior) {
             let result = match orb.local_server(&ep.host, ep.port) {
-                Some(server) => attempt_local(orb, &server, &ior, &ep, &kind, timeout, disposition),
-                None => orb.block_on(attempt(orb, &ior, &ep, &kind, timeout, disposition))?,
+                Some(server) => {
+                    attempt_local(orb, &server, &ior, &ep, &kind, deadline, disposition)
+                }
+                None => orb.block_on(attempt(orb, &ior, &ep, &kind, deadline, disposition))?,
             };
             match result {
                 Attempt::Done(result) => return result,
@@ -397,16 +440,18 @@ async fn attempt(
     ior: &Ior,
     ep: &Endpoint,
     kind: &Kind<'_>,
-    timeout: Option<Duration>,
+    deadline: Option<Instant>,
     disposition: AddressingDisposition,
 ) -> Attempt {
     let mut result = Attempt::NotSent(sys(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No));
     for _ in 0..2 {
-        let conn = match orb.connection(&ep.host, ep.port).await {
+        let conn = match orb.connection(&ep.host, ep.port, deadline).await {
             Ok(conn) => conn,
+            // Out of time: the other addresses are not tried.
+            Err(e) if e.is(SystemExceptionKind::TIMEOUT) => return Attempt::Done(Err(e.into())),
             Err(e) => return Attempt::NotSent(e),
         };
-        match attempt_on(orb, &conn, ior, ep, kind, timeout, disposition).await {
+        match attempt_on(orb, &conn, ior, ep, kind, deadline, disposition).await {
             Ok(done) => return done,
             Err(Closed::Orderly) => {
                 orb.discard(&conn);
@@ -435,7 +480,7 @@ async fn attempt_on(
     ior: &Ior,
     ep: &Endpoint,
     kind: &Kind<'_>,
-    timeout: Option<Duration>,
+    deadline: Option<Instant>,
     disposition: AddressingDisposition,
 ) -> Result<Attempt, Closed> {
     let options = &orb.inner.options;
@@ -524,8 +569,8 @@ async fn attempt_on(
         return Ok(Attempt::Done(Ok(Outcome::Reply(None))));
     };
 
-    let delivered = match timeout {
-        Some(limit) => match tokio::time::timeout(limit, rx).await {
+    let delivered = match deadline {
+        Some(at) => match tokio::time::timeout_at(at.into(), rx).await {
             Ok(delivered) => delivered,
             Err(_) => {
                 conn.forget(request_id);
@@ -646,7 +691,7 @@ fn attempt_local(
     ior: &Ior,
     ep: &Endpoint,
     kind: &Kind<'_>,
-    timeout: Option<Duration>,
+    deadline: Option<Instant>,
     disposition: AddressingDisposition,
 ) -> Attempt {
     let options = &orb.inner.options;
@@ -684,6 +729,7 @@ fn attempt_local(
     let Ok((_, Message::Request { header, body })) = decode_message(&msg) else {
         return Attempt::Done(Err(internal()));
     };
+    let timeout = deadline.map(|at| at.saturating_duration_since(Instant::now()));
     match server.call_local(version, header, body, code_sets, timeout) {
         Ok(None) => Attempt::Done(Ok(Outcome::Reply(None))),
         Ok(Some(reply)) => match decode_message(&reply) {

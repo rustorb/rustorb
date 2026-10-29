@@ -5,7 +5,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use rustorb_core::cdr::{ByteOrder, CdrEncode, Encoder};
 use rustorb_core::giop::{
@@ -695,6 +695,8 @@ fn initial_references() {
         "-ORBmaxGIOPVersion=1.1",
         "-ORBclientCallTimeOutPeriod",
         "1500",
+        "-ORBsupportPerThreadTimeOut",
+        "1",
         "-ORBunknown",
         "x",
     ]
@@ -747,4 +749,120 @@ fn shutdown_refuses_new_calls() {
             .iter()
             .any(|r| matches!(r.message, Message::CloseConnection))
     );
+}
+
+/// How long `call_long` on `obj` takes to fail with `TIMEOUT`, and its
+/// completion status.
+fn time_out(obj: &rustorb_core::ObjectRef) -> (Duration, CompletionStatus) {
+    let start = Instant::now();
+    let e = call_long(obj, 1).unwrap_err();
+    let e = e.as_system().unwrap().clone();
+    assert!(e.is(SystemExceptionKind::TIMEOUT), "{e:?}");
+    (start.elapsed(), e.completed)
+}
+
+/// Whether `d` is about `ms` milliseconds (well below the next setting
+/// the tests use).
+fn about(d: Duration, ms: u64) -> bool {
+    d >= Duration::from_millis(ms) && d < Duration::from_millis(ms + 400)
+}
+
+#[test]
+fn call_timeouts_of_the_orb_the_thread_and_the_reference() {
+    let server = Server::start(|_, _| Vec::new());
+    let orb = orb();
+    let ior = server.ior(Version::V1_2);
+    assert_eq!(orb.call_timeout(), None);
+
+    orb.set_call_timeout(Some(Duration::from_millis(200)));
+    let obj = object(&orb, &ior);
+    let (d, completed) = time_out(&obj);
+    assert!(about(d, 200), "{d:?}");
+    assert_eq!(completed, CompletionStatus::Maybe);
+
+    // The thread's timeout overrides the ORB's, on this thread only.
+    orb.set_call_timeout(Some(Duration::from_secs(30)));
+    assert_eq!(
+        rustorb_core::set_thread_call_timeout(Some(Some(Duration::from_millis(300)))),
+        None
+    );
+    assert!(about(time_out(&obj).0, 300));
+    let other = obj.clone();
+    let t = thread::spawn(move || {
+        rustorb_core::set_thread_call_timeout(Some(Some(Duration::from_millis(100))));
+        time_out(&other).0
+    });
+    assert!(about(t.join().unwrap(), 100));
+
+    // The reference's overrides the thread's, and is shared by clones but
+    // not by other references to the IOR.
+    obj.set_call_timeout(Some(Some(Duration::from_millis(100))));
+    assert!(about(time_out(&obj.clone()).0, 100));
+    let fresh = object(&orb, &ior);
+    assert_eq!(fresh.call_timeout(), None);
+    assert!(about(time_out(&fresh).0, 300));
+
+    // The request's overrides everything.
+    let start = Instant::now();
+    let e = obj
+        .request("echo_long")
+        .args(|out| {
+            out.write_i32(1);
+            Ok(())
+        })
+        .timeout(Some(Duration::from_millis(500)))
+        .invoke()
+        .unwrap_err();
+    assert!(e.as_system().unwrap().is(SystemExceptionKind::TIMEOUT));
+    assert!(about(start.elapsed(), 500));
+
+    // Unsetting falls back to the next one.
+    obj.set_call_timeout(None);
+    assert!(about(time_out(&obj).0, 300));
+    rustorb_core::set_thread_call_timeout(None);
+    orb.set_call_timeout(Some(Duration::from_millis(200)));
+    assert!(about(time_out(&obj).0, 200));
+}
+
+/// A listener whose accept queue is full, so that connecting to it hangs.
+fn stuck_listener() -> (TcpListener, Vec<TcpStream>, u16) {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .build()
+        .unwrap();
+    let listener = rt.block_on(async {
+        let socket = tokio::net::TcpSocket::new_v4().unwrap();
+        socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        socket.listen(0).unwrap().into_std().unwrap()
+    });
+    let addr = listener.local_addr().unwrap();
+    // Fill the queue until a connection hangs; how many fit depends on
+    // the operating system (one on Linux, more on macOS).
+    let mut fillers = Vec::new();
+    while let Ok(c) = TcpStream::connect_timeout(&addr, Duration::from_millis(100)) {
+        fillers.push(c);
+        assert!(fillers.len() < 4096, "the accept queue does not fill");
+    }
+    (listener, fillers, addr.port())
+}
+
+#[test]
+fn timeouts_while_connecting() {
+    let (_listener, _fillers, port) = stuck_listener();
+    let ior = profile_ior(port, Version::V1_2, true, Vec::new());
+    let orb = orb();
+    let obj = object(&orb, &ior);
+
+    // The call timeout covers connecting.
+    orb.set_call_timeout(Some(Duration::from_millis(200)));
+    let (d, completed) = time_out(&obj);
+    assert!(about(d, 200), "{d:?}");
+    assert_eq!(completed, CompletionStatus::No);
+
+    // A connect timeout replaces it while connecting.
+    orb.set_connect_timeout(Some(Duration::from_millis(500)));
+    assert_eq!(orb.connect_timeout(), Some(Duration::from_millis(500)));
+    let (d, completed) = time_out(&obj);
+    assert!(about(d, 500), "{d:?}");
+    assert_eq!(completed, CompletionStatus::No);
 }

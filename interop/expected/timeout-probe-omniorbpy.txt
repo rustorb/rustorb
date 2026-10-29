@@ -1,0 +1,19 @@
+no timeout: no exception within 2000ms; sink read: LocateRequest, Request
+global 300: TIMEOUT minor=TIMEOUT_CallTimedOutOnClient completed=MAYBE after ~300ms; sink read: LocateRequest, Request, connection closed
+object 300: TIMEOUT minor=TIMEOUT_CallTimedOutOnClient completed=MAYBE after ~300ms; sink read: LocateRequest, Request, connection closed
+thread 300: TIMEOUT minor=TIMEOUT_CallTimedOutOnClient completed=MAYBE after ~300ms; sink read: LocateRequest, Request, connection closed
+thread 300 set by another thread: no exception within 2000ms; sink read: LocateRequest, Request
+object 300 on another reference to the same IOR: no exception within 2000ms; sink read: LocateRequest, Request
+global 300, object 1000: TIMEOUT minor=TIMEOUT_CallTimedOutOnClient completed=MAYBE after ~1000ms; sink read: LocateRequest, Request, connection closed
+global 1000, object 300: TIMEOUT minor=TIMEOUT_CallTimedOutOnClient completed=MAYBE after ~300ms; sink read: LocateRequest, Request, connection closed
+global 300, thread 1000: TIMEOUT minor=TIMEOUT_CallTimedOutOnClient completed=MAYBE after ~1000ms; sink read: LocateRequest, Request, connection closed
+global 1000, thread 300: TIMEOUT minor=TIMEOUT_CallTimedOutOnClient completed=MAYBE after ~300ms; sink read: LocateRequest, Request, connection closed
+object 300, thread 1000: TIMEOUT minor=TIMEOUT_CallTimedOutOnClient completed=MAYBE after ~300ms; sink read: LocateRequest, Request, connection closed
+object 1000, thread 300: TIMEOUT minor=TIMEOUT_CallTimedOutOnClient completed=MAYBE after ~1000ms; sink read: LocateRequest, Request, connection closed
+global 300, object 0: TIMEOUT minor=TIMEOUT_CallTimedOutOnClient completed=MAYBE after ~300ms; sink read: LocateRequest, Request, connection closed
+global 300, thread 0: TIMEOUT minor=TIMEOUT_CallTimedOutOnClient completed=MAYBE after ~300ms; sink read: LocateRequest, Request, connection closed
+object 300, thread 0: TIMEOUT minor=TIMEOUT_CallTimedOutOnClient completed=MAYBE after ~300ms; sink read: LocateRequest, Request, connection closed
+connect 300 to a full listener: TIMEOUT minor=TIMEOUT_CallTimedOutOnClient completed=NO after ~300ms; sink read: nothing
+global 300 to a full listener: TIMEOUT minor=TIMEOUT_CallTimedOutOnClient completed=NO after ~300ms; sink read: nothing
+connect 1000, global 300 to a full listener: TIMEOUT minor=TIMEOUT_CallTimedOutOnClient completed=NO after ~1000ms; sink read: nothing
+connect 300, global 1000 to a full listener: TIMEOUT minor=TIMEOUT_CallTimedOutOnClient completed=NO after ~300ms; sink read: nothing

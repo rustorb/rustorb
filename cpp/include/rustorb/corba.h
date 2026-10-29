@@ -1684,6 +1684,74 @@ inline void ORB::destroy() {
 
 }  // namespace CORBA
 
+// --- client timeouts ------------------------------------------------------------
+
+// A rustorb extension with omniORB's names. A call waits as long as the
+// timeout of the object reference says, else that of the calling thread,
+// else that of the ORB, in milliseconds; the ORB's covers connecting too
+// unless a connect timeout is set. When it expires the call throws
+// CORBA::TIMEOUT: COMPLETED_MAYBE once the request was sent (and a
+// CancelRequest goes to the server), COMPLETED_NO before. 0 means no
+// limit for the ORB, and unsets the timeout of a reference or a thread.
+namespace rustorb {
+namespace detail {
+
+inline int64_t timeout_us(uint32_t millisecs) { return int64_t{millisecs} * 1000; }
+
+// The default ORB (the first initialised); BAD_INV_ORDER before ORB_init.
+struct DefaultOrb {
+  rorb_orb* handle = rorb_default_orb();
+  DefaultOrb() {
+    if (!handle) throw CORBA::BAD_INV_ORDER(0, CORBA::CompletionStatus::COMPLETED_NO);
+  }
+  ~DefaultOrb() { rorb_orb_release(handle); }
+  DefaultOrb(const DefaultOrb&) = delete;
+  DefaultOrb& operator=(const DefaultOrb&) = delete;
+};
+
+}  // namespace detail
+
+// The call timeout of orb, or of the default ORB.
+inline void setClientCallTimeout(const CORBA::object_reference<CORBA::ORB>& orb,
+                                 uint32_t millisecs) {
+  if (!orb) throw CORBA::BAD_PARAM(0, CORBA::CompletionStatus::COMPLETED_NO);
+  rorb_orb_set_call_timeout(orb->_rorb_handle(), detail::timeout_us(millisecs));
+}
+
+inline void setClientCallTimeout(uint32_t millisecs) {
+  detail::DefaultOrb orb;
+  rorb_orb_set_call_timeout(orb.handle, detail::timeout_us(millisecs));
+}
+
+// The call timeout of the reference obj, shared by the references narrowed
+// from it; 0 unsets it. BAD_PARAM for nil or a local object.
+inline void setClientCallTimeout(const CORBA::object_reference<CORBA::Object>& obj,
+                                 uint32_t millisecs) {
+  rorb_object* h = obj ? obj->_rorb_handle() : nullptr;
+  if (!h) throw CORBA::BAD_PARAM(0, CORBA::CompletionStatus::COMPLETED_NO);
+  rorb_object_set_call_timeout(h, millisecs ? detail::timeout_us(millisecs) : -1);
+}
+
+// The call timeout of the calling thread, for every ORB; 0 unsets it.
+// (omniORB honours it only with -ORBsupportPerThreadTimeOut 1.)
+inline void setClientThreadCallTimeout(uint32_t millisecs) {
+  rorb_set_thread_call_timeout(millisecs ? detail::timeout_us(millisecs) : -1);
+}
+
+// The connect timeout of orb, or of the default ORB.
+inline void setClientConnectTimeout(const CORBA::object_reference<CORBA::ORB>& orb,
+                                    uint32_t millisecs) {
+  if (!orb) throw CORBA::BAD_PARAM(0, CORBA::CompletionStatus::COMPLETED_NO);
+  rorb_orb_set_connect_timeout(orb->_rorb_handle(), detail::timeout_us(millisecs));
+}
+
+inline void setClientConnectTimeout(uint32_t millisecs) {
+  detail::DefaultOrb orb;
+  rorb_orb_set_connect_timeout(orb.handle, detail::timeout_us(millisecs));
+}
+
+}  // namespace rustorb
+
 // --- TypeCodes and anys ------------------------------------------------------
 
 namespace rustorb {

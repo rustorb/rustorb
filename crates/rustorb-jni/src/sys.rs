@@ -415,6 +415,13 @@ unsafe extern "C" {
     pub fn rorb_orb_shutdown(orb: *mut rorb_orb, wait: i32, exc: Exc) -> rorb_status;
     pub fn rorb_orb_destroy(orb: *mut rorb_orb, exc: Exc) -> rorb_status;
     pub fn rorb_default_root_poa(poa: *mut *mut rorb_poa, exc: Exc) -> rorb_status;
+    pub fn rorb_default_orb() -> *mut rorb_orb;
+    pub fn rorb_orb_set_call_timeout(orb: *mut rorb_orb, us: i64);
+    pub fn rorb_orb_call_timeout(orb: *mut rorb_orb) -> i64;
+    pub fn rorb_orb_set_connect_timeout(orb: *mut rorb_orb, us: i64);
+    pub fn rorb_orb_connect_timeout(orb: *mut rorb_orb) -> i64;
+    pub fn rorb_set_thread_call_timeout(us: i64);
+    pub fn rorb_thread_call_timeout() -> i64;
 
     // object references
     pub fn rorb_object_clone(obj: *mut rorb_object) -> *mut rorb_object;
@@ -435,6 +442,8 @@ unsafe extern "C" {
     ) -> rorb_status;
     pub fn rorb_object_is_equivalent(a: *mut rorb_object, b: *mut rorb_object) -> i32;
     pub fn rorb_object_hash(obj: *mut rorb_object, maximum: u32) -> u32;
+    pub fn rorb_object_set_call_timeout(obj: *mut rorb_object, us: i64);
+    pub fn rorb_object_call_timeout(obj: *mut rorb_object) -> i64;
     pub fn rorb_object_invoke(
         obj: *mut rorb_object,
         inv: *const rorb_invocation,

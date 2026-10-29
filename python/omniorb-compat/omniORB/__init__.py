@@ -13,6 +13,8 @@ docs/omniorb-compat.md):
 - :mod:`omniORB.any`: ``to_any`` / ``from_any``
 - :func:`findType` and :mod:`omniORB.tcInternal`: type descriptors
 - the ``omniINSPOA`` initial reference (in rustorb itself)
+- :func:`setClientCallTimeout`, :func:`setClientThreadCallTimeout`,
+  :func:`setClientConnectTimeout`: client timeouts
 - minor code constants that applications compare
 """
 
@@ -37,6 +39,10 @@ COMM_FAILURE_WaitingForReply = 0x41540007
 #: such an object as a zombie) see the failure.
 TRANSIENT_ConnectFailed = 0
 
+#: The minor code of the ``TIMEOUT`` raised when a client timeout expires.
+#: omniORB has its own code (0x41540008); rustorb raises minor 0.
+TIMEOUT_CallTimedOutOnClient = 0
+
 #: ``UNKNOWN``: the target raised a user exception the operation does not
 #: declare (the standard minor code, which rustorb also raises).
 UNKNOWN_UserException = 0x4F4D0001
@@ -52,6 +58,47 @@ def _endian(endian):
     if endian == -1 or endian is None:
         return None
     return bool(endian)
+
+
+def _seconds(millisecs):
+    if millisecs < 0:
+        raise TypeError("timeout must be an unsigned long")
+    return millisecs / 1000.0
+
+
+def setClientCallTimeout(*args):
+    """setClientCallTimeout(millisecs)
+    setClientCallTimeout(objref, millisecs)
+
+    Set the global client call timeout, or set the timeout for a specific
+    object reference. 0 means no global timeout, and unsets the timeout
+    of a reference. A reference's timeout overrides the thread's, which
+    overrides the global one. A call that times out raises
+    ``CORBA.TIMEOUT`` (minor :data:`TIMEOUT_CallTimedOutOnClient`)."""
+    if len(args) == 1:
+        _orb().set_call_timeout(_seconds(args[0]) or None)
+    elif len(args) == 2:
+        obj, millisecs = args
+        if not isinstance(obj, CORBA.Object) or getattr(obj, "_obj", None) is None:
+            raise CORBA.BAD_PARAM(0, CORBA.COMPLETED_NO)
+        obj._obj.set_call_timeout(_seconds(millisecs) or None)
+    else:
+        raise TypeError("setClientCallTimeout takes 1 or 2 arguments (%d given)" % len(args))
+
+
+def setClientThreadCallTimeout(millisecs):
+    """Set the client call timeout for the calling thread; 0 unsets it.
+    rustorb honours it without ``-ORBsupportPerThreadTimeOut 1``, which
+    omniORB needs."""
+    from rustorb import _native
+
+    _native.set_thread_call_timeout(_seconds(millisecs) or None)
+
+
+def setClientConnectTimeout(millisecs):
+    """Set the client connection timeout; 0 means none (connecting is then
+    bounded by the call timeout)."""
+    _orb().set_connect_timeout(_seconds(millisecs) or None)
 
 
 def cdrMarshal(tc, data, endian=-1):
