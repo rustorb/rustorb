@@ -1,6 +1,6 @@
 [package]
 name = "rustorb-interop"
-description = "rustorb client and server for the interop tests, with hand-written InteropTest stubs and skeletons"
+description = "rustorb client and server for the interop tests, with the stubs and skeletons rustorb-idl -brust generates"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

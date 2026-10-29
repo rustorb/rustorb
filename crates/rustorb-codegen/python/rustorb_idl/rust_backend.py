@@ -420,6 +420,17 @@ class RustBackend(object):
 
     # properties of types, for derives
 
+    def state_props(self, node):
+        """``props`` of the state struct of the valuetype ``node``, which
+        holds the state of its concrete base."""
+        types = [t for _, t, _ in self.state_members(node)]
+        p = self.combine(types, (node,), True)
+        base = fe.concrete_base(node)
+        if base is not None:
+            b = self.state_props(self.full(base))
+            p = tuple(x and y for x, y in zip(p, b))
+        return (False, p[1], p[2], p[3])
+
     def props(self, t, seen=()):
         """``(copy, partial_eq, eq, default)`` of the Rust type of ``t``."""
         k = t.kind
@@ -1228,11 +1239,7 @@ class RustBackend(object):
         self.nested(w, node, cur)
 
         # The state.
-        types = [t for _, t, _ in members]
-        if base is not None:
-            types.append(fe.Type("named", node=base))
-        p = self.combine(types, (node,), True)
-        p = (False, p[1], p[2], p[3])
+        p = self.state_props(node)
         w("/// The state of the IDL valuetype `%s`." % "::".join(fe.scope_path(node)))
         w(self.derives(p))
         w("pub struct %s {" % state)
@@ -1660,6 +1667,19 @@ class RustBackend(object):
         w("let id = poa.activate_object(servant)?;")
         w("let obj = poa.id_to_reference(&id)?;")
         w("Ok((id, %s(obj)))" % name)
+        w.dedent()
+        w("}")
+        w()
+        w("/// Activates the servant in `poa` with the id `id` (a USER_ID POA)")
+        w("/// and returns its reference.")
+        w(
+            "pub fn activate_with_id(self, poa: &%s::Poa, id: &[u8]) -> Result<%s, %s::PoaError> {"
+            % (R, name, R)
+        )
+        w.indent()
+        w("let servant: ::std::sync::Arc<dyn %s::Servant> = ::std::sync::Arc::new(self);" % R)
+        w("poa.activate_object_with_id(id, servant)?;")
+        w("Ok(%s(poa.id_to_reference(id)?))" % name)
         w.dedent()
         w("}")
         w.dedent()

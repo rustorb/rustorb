@@ -16,6 +16,8 @@ idl() {
 
 idl -C "$here/tests/generated" "$here/tests/idl/RustMapping.idl"
 idl -C "$root/crates/rustorb-naming/src/idl" "$here/tests/idl/CosNaming.idl"
-for f in InteropTest AnyTest ValueTest; do
+for f in InteropTest AnyTest ValueTest PoaProbe; do
   idl -I "$root/interop/idl" -C "$root/interop/impls/rustorb/src/idl" "$root/interop/idl/$f.idl"
 done
+idl -I "$root/interop/idl" -C "$root/interop/impls/rustorb/src/idl" \
+  -Wbextern=AnyTest=crate::idl::any_test "$root/interop/idl/AnyTestHidden.idl"

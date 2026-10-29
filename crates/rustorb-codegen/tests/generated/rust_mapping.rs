@@ -201,6 +201,18 @@ impl<T: GlobalIfaceServant + 'static> GlobalIfacePoa<T> {
         let obj = poa.id_to_reference(&id)?;
         Ok((id, GlobalIface(obj)))
     }
+
+    /// Activates the servant in `poa` with the id `id` (a USER_ID POA)
+    /// and returns its reference.
+    pub fn activate_with_id(
+        self,
+        poa: &::rustorb_core::Poa,
+        id: &[u8],
+    ) -> Result<GlobalIface, ::rustorb_core::PoaError> {
+        let servant: ::std::sync::Arc<dyn ::rustorb_core::Servant> = ::std::sync::Arc::new(self);
+        poa.activate_object_with_id(id, servant)?;
+        Ok(GlobalIface(poa.id_to_reference(id)?))
+    }
 }
 
 impl<T: GlobalIfaceServant> ::rustorb_core::Servant for GlobalIfacePoa<T> {
@@ -1960,6 +1972,19 @@ pub mod rust_mapping {
             let obj = poa.id_to_reference(&id)?;
             Ok((id, Base(obj)))
         }
+
+        /// Activates the servant in `poa` with the id `id` (a USER_ID POA)
+        /// and returns its reference.
+        pub fn activate_with_id(
+            self,
+            poa: &::rustorb_core::Poa,
+            id: &[u8],
+        ) -> Result<Base, ::rustorb_core::PoaError> {
+            let servant: ::std::sync::Arc<dyn ::rustorb_core::Servant> =
+                ::std::sync::Arc::new(self);
+            poa.activate_object_with_id(id, servant)?;
+            Ok(Base(poa.id_to_reference(id)?))
+        }
     }
 
     impl<T: BaseServant> ::rustorb_core::Servant for BasePoa<T> {
@@ -2422,6 +2447,19 @@ pub mod rust_mapping {
             let obj = poa.id_to_reference(&id)?;
             Ok((id, Derived(obj)))
         }
+
+        /// Activates the servant in `poa` with the id `id` (a USER_ID POA)
+        /// and returns its reference.
+        pub fn activate_with_id(
+            self,
+            poa: &::rustorb_core::Poa,
+            id: &[u8],
+        ) -> Result<Derived, ::rustorb_core::PoaError> {
+            let servant: ::std::sync::Arc<dyn ::rustorb_core::Servant> =
+                ::std::sync::Arc::new(self);
+            poa.activate_object_with_id(id, servant)?;
+            Ok(Derived(poa.id_to_reference(id)?))
+        }
     }
 
     impl<T: DerivedServant> ::rustorb_core::Servant for DerivedPoa<T> {
@@ -2663,6 +2701,19 @@ pub mod rust_mapping {
             let id = poa.activate_object(servant)?;
             let obj = poa.id_to_reference(&id)?;
             Ok((id, Other(obj)))
+        }
+
+        /// Activates the servant in `poa` with the id `id` (a USER_ID POA)
+        /// and returns its reference.
+        pub fn activate_with_id(
+            self,
+            poa: &::rustorb_core::Poa,
+            id: &[u8],
+        ) -> Result<Other, ::rustorb_core::PoaError> {
+            let servant: ::std::sync::Arc<dyn ::rustorb_core::Servant> =
+                ::std::sync::Arc::new(self);
+            poa.activate_object_with_id(id, servant)?;
+            Ok(Other(poa.id_to_reference(id)?))
         }
     }
 
@@ -3007,6 +3058,19 @@ pub mod rust_mapping {
             let obj = poa.id_to_reference(&id)?;
             Ok((id, Multi(obj)))
         }
+
+        /// Activates the servant in `poa` with the id `id` (a USER_ID POA)
+        /// and returns its reference.
+        pub fn activate_with_id(
+            self,
+            poa: &::rustorb_core::Poa,
+            id: &[u8],
+        ) -> Result<Multi, ::rustorb_core::PoaError> {
+            let servant: ::std::sync::Arc<dyn ::rustorb_core::Servant> =
+                ::std::sync::Arc::new(self);
+            poa.activate_object_with_id(id, servant)?;
+            Ok(Multi(poa.id_to_reference(id)?))
+        }
     }
 
     impl<T: MultiServant> ::rustorb_core::Servant for MultiPoa<T> {
@@ -3263,6 +3327,19 @@ pub mod rust_mapping {
             let obj = poa.id_to_reference(&id)?;
             Ok((id, Later(obj)))
         }
+
+        /// Activates the servant in `poa` with the id `id` (a USER_ID POA)
+        /// and returns its reference.
+        pub fn activate_with_id(
+            self,
+            poa: &::rustorb_core::Poa,
+            id: &[u8],
+        ) -> Result<Later, ::rustorb_core::PoaError> {
+            let servant: ::std::sync::Arc<dyn ::rustorb_core::Servant> =
+                ::std::sync::Arc::new(self);
+            poa.activate_object_with_id(id, servant)?;
+            Ok(Later(poa.id_to_reference(id)?))
+        }
     }
 
     impl<T: LaterServant> ::rustorb_core::Servant for LaterPoa<T> {
@@ -3455,7 +3532,7 @@ pub mod rust_mapping {
     }
 
     /// The state of the IDL valuetype `RustMapping::Circle`.
-    #[derive(Debug, Clone, Default)]
+    #[derive(Debug, Clone, PartialEq, Default)]
     pub struct CircleState {
         /// The state of the base type `Shape`.
         pub base: ShapeState,
@@ -4222,6 +4299,19 @@ pub mod rust_mapping {
             let obj = poa.id_to_reference(&id)?;
             Ok((id, Canvas(obj)))
         }
+
+        /// Activates the servant in `poa` with the id `id` (a USER_ID POA)
+        /// and returns its reference.
+        pub fn activate_with_id(
+            self,
+            poa: &::rustorb_core::Poa,
+            id: &[u8],
+        ) -> Result<Canvas, ::rustorb_core::PoaError> {
+            let servant: ::std::sync::Arc<dyn ::rustorb_core::Servant> =
+                ::std::sync::Arc::new(self);
+            poa.activate_object_with_id(id, servant)?;
+            Ok(Canvas(poa.id_to_reference(id)?))
+        }
     }
 
     impl<T: CanvasServant> ::rustorb_core::Servant for CanvasPoa<T> {
@@ -4519,6 +4609,19 @@ pub mod rust_mapping {
                 let id = poa.activate_object(servant)?;
                 let obj = poa.id_to_reference(&id)?;
                 Ok((id, InnerIface(obj)))
+            }
+
+            /// Activates the servant in `poa` with the id `id` (a USER_ID POA)
+            /// and returns its reference.
+            pub fn activate_with_id(
+                self,
+                poa: &::rustorb_core::Poa,
+                id: &[u8],
+            ) -> Result<InnerIface, ::rustorb_core::PoaError> {
+                let servant: ::std::sync::Arc<dyn ::rustorb_core::Servant> =
+                    ::std::sync::Arc::new(self);
+                poa.activate_object_with_id(id, servant)?;
+                Ok(InnerIface(poa.id_to_reference(id)?))
             }
         }
 

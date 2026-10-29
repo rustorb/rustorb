@@ -1,7 +1,7 @@
 //! rustorb server for the interop tests.
 //!
-//! Serves `InteropTest::Echo` with a hand-written skeleton (until the code
-//! generator exists) from a PERSISTENT / USER_ID POA named `InteropTest`,
+//! Serves `InteropTest::Echo` with the skeleton `rustorb-idl -brust`
+//! generates (`src/idl/`) from a PERSISTENT / USER_ID POA named `InteropTest`,
 //! with the ObjectId `Echo`, and binds it in the naming service, like the
 //! omniORB servers (see `interop/README.md`).
 //!
@@ -16,195 +16,222 @@ use std::process::ExitCode;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use idl::{
-    Char, Color, DIVIDE_BY_ZERO_ID, ECHO_ID, Get, OOPS_ID, Point, Put, Record, Shade, Sys, Value,
-    WChar, WString,
+use idl::interop_test::{
+    Callback, Color, Echo, EchoPoa, EchoServant, LongArray, LongSeq, Matrix, OctetSeq, Oops, Point,
+    Record, RecordSeq, Shade, StringSeq, Value, echo,
 };
+use rustorb_core::idl::bad_param;
 use rustorb_core::{
-    CompletionStatus, Exception, IdAssignment, InStream, Lifespan, ObjectRef, Orb, Policy, Servant,
-    ServerReply, SystemException, SystemExceptionKind, minor,
+    CompletionStatus, IdAssignment, Lifespan, ObjectRef, Orb, Policy, SystemException,
+    SystemExceptionKind,
 };
 use rustorb_naming::{NamingContext, NamingError, to_name};
+
+type Sys<T> = Result<T, SystemException>;
 
 #[derive(Default)]
 struct State {
     posted: Vec<String>,
     counter: i32,
-    callback: Option<ObjectRef>,
+    callback: Option<Callback>,
 }
 
-struct Echo {
+/// `InteropTest::Echo`.
+#[derive(Clone)]
+struct EchoImpl {
     orb: Orb,
-    this: OnceLock<ObjectRef>,
-    state: Mutex<State>,
+    this: Arc<OnceLock<Echo>>,
+    state: Arc<Mutex<State>>,
 }
 
-/// Reads the arguments, runs `f` and writes its result.
-fn op<A: Get, R: Put>(
-    input: &mut InStream<'_>,
-    reply: &mut ServerReply,
-    f: impl FnOnce(A) -> Sys<R>,
-) -> Sys<()> {
-    let args = A::get(input)?;
-    let result = f(args)?;
-    result.put(&mut reply.output())
-}
-
-fn bad_param() -> SystemException {
-    SystemException::new(SystemExceptionKind::BAD_PARAM, 0, CompletionStatus::No)
-}
-
-/// Calls `Callback::notify` on `cb`; a failure is passed on to the client
-/// as the system exception, or `UNKNOWN` for a user exception.
-fn notify(cb: &ObjectRef, message: &str) -> Sys<String> {
-    let reply = cb
-        .request("notify")
-        .args(|out| out.write_string(message))
-        .invoke()
-        .map_err(|e| match e {
-            Exception::System(e) => e,
-            Exception::User(_) => SystemException::new(
-                SystemExceptionKind::UNKNOWN,
-                minor::UNLISTED_USER_EXCEPTION,
-                CompletionStatus::Maybe,
-            ),
-        })?;
-    reply.input().read_string()
-}
-
-impl Echo {
-    fn this(&self) -> Option<ObjectRef> {
+impl EchoImpl {
+    fn this(&self) -> Option<Echo> {
         self.this.get().cloned()
     }
 }
 
-impl Servant for Echo {
-    fn repository_id(&self) -> &str {
-        ECHO_ID
+impl EchoServant for EchoImpl {
+    fn echo_boolean(&self, v: bool) -> Sys<bool> {
+        Ok(v)
+    }
+    fn echo_octet(&self, v: u8) -> Sys<u8> {
+        Ok(v)
+    }
+    fn echo_char(&self, v: char) -> Sys<char> {
+        Ok(v)
+    }
+    fn echo_wchar(&self, v: char) -> Sys<char> {
+        Ok(v)
+    }
+    fn echo_short(&self, v: i16) -> Sys<i16> {
+        Ok(v)
+    }
+    fn echo_ushort(&self, v: u16) -> Sys<u16> {
+        Ok(v)
+    }
+    fn echo_long(&self, v: i32) -> Sys<i32> {
+        Ok(v)
+    }
+    fn echo_ulong(&self, v: u32) -> Sys<u32> {
+        Ok(v)
+    }
+    fn echo_longlong(&self, v: i64) -> Sys<i64> {
+        Ok(v)
+    }
+    fn echo_ulonglong(&self, v: u64) -> Sys<u64> {
+        Ok(v)
+    }
+    fn echo_float(&self, v: f32) -> Sys<f32> {
+        Ok(v)
+    }
+    fn echo_double(&self, v: f64) -> Sys<f64> {
+        Ok(v)
+    }
+    fn echo_string(&self, v: &str) -> Sys<String> {
+        Ok(v.to_owned())
+    }
+    fn echo_wstring(&self, v: &str) -> Sys<String> {
+        Ok(v.to_owned())
+    }
+    fn echo_color(&self, v: Color) -> Sys<Color> {
+        Ok(v)
+    }
+    fn echo_point(&self, v: &Point) -> Sys<Point> {
+        Ok(*v)
+    }
+    fn echo_record(&self, v: &Record) -> Sys<Record> {
+        Ok(v.clone())
+    }
+    fn echo_records(&self, v: &[Record]) -> Sys<RecordSeq> {
+        Ok(v.to_vec())
+    }
+    fn echo_value(&self, v: &Value) -> Sys<Value> {
+        Ok(v.clone())
+    }
+    fn echo_shade(&self, v: &Shade) -> Sys<Shade> {
+        Ok(v.clone())
+    }
+    fn echo_long_array(&self, v: &LongArray) -> Sys<LongArray> {
+        Ok(*v)
+    }
+    fn echo_matrix(&self, v: &Matrix) -> Sys<Matrix> {
+        Ok(*v)
+    }
+    fn echo_long_seq(&self, v: &[i32]) -> Sys<LongSeq> {
+        Ok(v.to_vec())
+    }
+    fn echo_string_seq(&self, v: &[String]) -> Sys<StringSeq> {
+        Ok(v.to_vec())
+    }
+    fn echo_octets(&self, v: &[u8]) -> Sys<OctetSeq> {
+        Ok(v.to_vec())
     }
 
-    fn dispatch(
-        &self,
-        operation: &str,
-        input: &mut InStream<'_>,
-        reply: &mut ServerReply,
-    ) -> Result<(), SystemException> {
-        match operation {
-            "echo_boolean" => op(input, reply, |(v,): (bool,)| Ok(v)),
-            "echo_octet" => op(input, reply, |(v,): (u8,)| Ok(v)),
-            "echo_char" => op(input, reply, |(v,): (Char,)| Ok(v)),
-            "echo_wchar" => op(input, reply, |(v,): (WChar,)| Ok(v)),
-            "echo_short" => op(input, reply, |(v,): (i16,)| Ok(v)),
-            "echo_ushort" => op(input, reply, |(v,): (u16,)| Ok(v)),
-            "echo_long" => op(input, reply, |(v,): (i32,)| Ok(v)),
-            "echo_ulong" => op(input, reply, |(v,): (u32,)| Ok(v)),
-            "echo_longlong" => op(input, reply, |(v,): (i64,)| Ok(v)),
-            "echo_ulonglong" => op(input, reply, |(v,): (u64,)| Ok(v)),
-            "echo_float" => op(input, reply, |(v,): (f32,)| Ok(v)),
-            "echo_double" => op(input, reply, |(v,): (f64,)| Ok(v)),
-            "echo_string" => op(input, reply, |(v,): (String,)| Ok(v)),
-            "echo_wstring" => op(input, reply, |(v,): (WString,)| Ok(v)),
-            "echo_color" => op(input, reply, |(v,): (Color,)| Ok(v)),
-            "echo_point" => op(input, reply, |(v,): (Point,)| Ok(v)),
-            "echo_record" => op(input, reply, |(v,): (Record,)| Ok(v)),
-            "echo_records" => op(input, reply, |(v,): (Vec<Record>,)| Ok(v)),
-            "echo_value" => op(input, reply, |(v,): (Value,)| Ok(v)),
-            "echo_shade" => op(input, reply, |(v,): (Shade,)| Ok(v)),
-            "echo_long_array" => op(input, reply, |(v,): ([i32; 4],)| Ok(v)),
-            "echo_matrix" => op(input, reply, |(v,): ([[f64; 3]; 2],)| Ok(v)),
-            "echo_long_seq" => op(input, reply, |(v,): (Vec<i32>,)| Ok(v)),
-            "echo_string_seq" => op(input, reply, |(v,): (Vec<String>,)| Ok(v)),
-            "echo_octets" => op(input, reply, |(v,): (Vec<u8>,)| Ok(v)),
-            "swap" => op(input, reply, |(a, b): (i32, i32)| {
-                Ok((a.wrapping_add(b), b, a))
-            }),
-            "divide" => {
-                let (a, b): (i32, i32) = Get::get(input)?;
-                if b == 0 {
-                    reply.user_exception(DIVIDE_BY_ZERO_ID)?;
-                    return Ok(());
-                }
-                (a.wrapping_div(b), a.wrapping_rem(b)).put(&mut reply.output())
-            }
-            "make" => op(input, reply, |(x,): (i32,)| {
-                let p = Point {
-                    x: f64::from(x),
-                    y: -f64::from(x),
-                };
-                let r = Record {
-                    id: x,
-                    name: format!("r{x}"),
-                    hue: Color::Blue,
-                    pos: p,
-                    values: vec![x, x.wrapping_add(1)],
-                    active: true,
-                };
-                Ok((p, r))
-            }),
-            "fail" => {
-                let (code, reason): (i32, String) = Get::get(input)?;
-                let mut out = reply.user_exception(OOPS_ID)?;
-                (code, reason).put(&mut out)
-            }
-            "fail_system" => Err(SystemException::new(
-                SystemExceptionKind::BAD_PARAM,
-                42,
-                CompletionStatus::No,
-            )),
-            "_get_counter" => op(input, reply, |(): ()| {
-                Ok(self.state.lock().unwrap().counter)
-            }),
-            "_set_counter" => op(input, reply, |(v,): (i32,)| {
-                self.state.lock().unwrap().counter = v;
-                Ok(())
-            }),
-            "_get_name" => op(input, reply, |(): ()| Ok("rustorb-interop-echo")),
-            "post" => op(input, reply, |(m,): (String,)| {
-                self.state.lock().unwrap().posted.push(m);
-                Ok(())
-            }),
-            "posted" => op(input, reply, |(): ()| {
-                Ok(std::mem::take(&mut self.state.lock().unwrap().posted))
-            }),
-            "self_ref" => op(input, reply, |(): ()| Ok(self.this())),
-            "echo_ref" => op(input, reply, |(other,): (Option<ObjectRef>,)| {
-                Ok(other.or_else(|| self.this()))
-            }),
-            "is_nil" => op(input, reply, |(other,): (Option<ObjectRef>,)| {
-                Ok(other.is_none())
-            }),
-            "call_back" => op(
-                input,
-                reply,
-                |(cb, message): (Option<ObjectRef>, String)| {
-                    notify(&cb.ok_or_else(bad_param)?, &message)
-                },
-            ),
-            "register_callback" => op(input, reply, |(cb,): (Option<ObjectRef>,)| {
-                self.state.lock().unwrap().callback = cb;
-                Ok(())
-            }),
-            "trigger" => {
-                let (message,): (String,) = Get::get(input)?;
-                let cb = self.state.lock().unwrap().callback.clone();
-                match cb {
-                    Some(cb) => notify(&cb, &message)?.put(&mut reply.output()),
-                    None => {
-                        let mut out = reply.user_exception(OOPS_ID)?;
-                        (1i32, "no callback").put(&mut out)
-                    }
-                }
-            }
-            "shutdown" => {
-                // Without waiting, so the reply (if any) still goes out.
-                self.orb.shutdown(false)
-            }
-            _ => Err(SystemException::new(
-                SystemExceptionKind::BAD_OPERATION,
-                minor::UNKNOWN_OPERATION,
-                CompletionStatus::No,
-            )),
+    fn swap(&self, a: &mut i32, b: &mut i32) -> Sys<i32> {
+        let sum = a.wrapping_add(*b);
+        std::mem::swap(a, b);
+        Ok(sum)
+    }
+
+    fn divide(&self, a: i32, b: i32) -> Result<(i32, i32), echo::DivideError> {
+        if b == 0 {
+            return Err(idl::interop_test::DivideByZero {}.into());
         }
+        Ok((a.wrapping_div(b), a.wrapping_rem(b)))
+    }
+
+    fn make(&self, x: i32) -> Sys<(Point, Record)> {
+        let p = Point {
+            x: f64::from(x),
+            y: -f64::from(x),
+        };
+        let r = Record {
+            id: x,
+            name: format!("r{x}"),
+            hue: Color::Blue,
+            pos: p,
+            values: vec![x, x.wrapping_add(1)],
+            active: true,
+        };
+        Ok((p, r))
+    }
+
+    fn fail(&self, code: i32, reason: &str) -> Result<(), echo::FailError> {
+        Err(Oops {
+            code,
+            reason: reason.to_owned(),
+        }
+        .into())
+    }
+
+    fn fail_system(&self) -> Sys<()> {
+        Err(SystemException::new(
+            SystemExceptionKind::BAD_PARAM,
+            42,
+            CompletionStatus::No,
+        ))
+    }
+
+    fn counter(&self) -> Sys<i32> {
+        Ok(self.state.lock().unwrap().counter)
+    }
+
+    fn set_counter(&self, value: i32) -> Sys<()> {
+        self.state.lock().unwrap().counter = value;
+        Ok(())
+    }
+
+    fn name(&self) -> Sys<String> {
+        Ok("rustorb-interop-echo".to_owned())
+    }
+
+    fn post(&self, message: &str) -> Sys<()> {
+        self.state.lock().unwrap().posted.push(message.to_owned());
+        Ok(())
+    }
+
+    fn posted(&self) -> Sys<StringSeq> {
+        Ok(std::mem::take(&mut self.state.lock().unwrap().posted))
+    }
+
+    fn self_ref(&self) -> Sys<Option<Echo>> {
+        Ok(self.this())
+    }
+
+    fn echo_ref(&self, other: Option<&Echo>) -> Sys<Option<Echo>> {
+        Ok(other.cloned().or_else(|| self.this()))
+    }
+
+    fn is_nil(&self, other: Option<&Echo>) -> Sys<bool> {
+        Ok(other.is_none())
+    }
+
+    // A failure of notify is passed on to the client as the system
+    // exception it is.
+    fn call_back(&self, cb: Option<&Callback>, message: &str) -> Sys<String> {
+        cb.ok_or_else(bad_param)?.notify(message)
+    }
+
+    fn register_callback(&self, cb: Option<&Callback>) -> Sys<()> {
+        self.state.lock().unwrap().callback = cb.cloned();
+        Ok(())
+    }
+
+    fn trigger(&self, message: &str) -> Result<String, echo::TriggerError> {
+        let cb = self.state.lock().unwrap().callback.clone();
+        match cb {
+            Some(cb) => Ok(cb.notify(message)?),
+            None => Err(Oops {
+                code: 1,
+                reason: "no callback".to_owned(),
+            }
+            .into()),
+        }
+    }
+
+    fn shutdown(&self) -> Sys<()> {
+        // Without waiting, so the reply (if any) still goes out.
+        self.orb.shutdown(false)
     }
 }
 
@@ -309,42 +336,37 @@ fn run() -> Result<(), String> {
             ],
         )
         .map_err(|e| format!("create_POA: {e}"))?;
-    let servant = Arc::new(Echo {
+    let this = Arc::new(OnceLock::new());
+    let echo = EchoPoa(EchoImpl {
         orb: orb.clone(),
-        this: OnceLock::new(),
-        state: Mutex::default(),
-    });
-    poa.activate_object_with_id(b"Echo", servant.clone())
-        .map_err(|e| format!("activate_object_with_id: {e}"))?;
-    let obj = poa
-        .id_to_reference(b"Echo")
-        .map_err(|e| format!("id_to_reference: {e}"))?;
-    let _ = servant.this.set(obj.clone());
+        this: this.clone(),
+        state: Arc::default(),
+    })
+    .activate_with_id(&poa, b"Echo")
+    .map_err(|e| format!("activate_object_with_id: {e}"))?;
+    let _ = this.set(echo.clone());
+    let obj = echo.into_object();
     // The AnyTest suite serves AnyEcho at --name, and Echo next to it (at
     // NAME-Echo) for the client to shut the server down.
     let mut bindings = vec![(args.name.clone(), obj.clone())];
     if args.suite == "value" {
+        // Point3 arrives where Point is declared.
+        idl::register_value_types();
         // ValueEcho stops the server itself.
-        poa.activate_object_with_id(
-            b"ValueEcho",
-            Arc::new(valuetest::ValueEcho { orb: orb.clone() }),
-        )
-        .map_err(|e| format!("activate_object_with_id: {e}"))?;
-        let value_obj = poa
-            .id_to_reference(b"ValueEcho")
-            .map_err(|e| format!("id_to_reference: {e}"))?;
-        bindings = vec![(args.name.clone(), value_obj)];
+        let value_echo =
+            idl::value_test::ValueEchoPoa(valuetest::ValueEchoImpl { orb: orb.clone() })
+                .activate_with_id(&poa, b"ValueEcho")
+                .map_err(|e| format!("activate_object_with_id: {e}"))?;
+        bindings = vec![(args.name.clone(), value_echo.into_object())];
     }
     if args.suite == "any" {
-        let any_echo = Arc::new(anytest::AnyEcho::default());
-        poa.activate_object_with_id(b"AnyEcho", any_echo.clone())
+        let this = Arc::new(OnceLock::new());
+        let any_echo = idl::any_test::AnyEchoPoa(anytest::AnyEchoImpl { this: this.clone() })
+            .activate_with_id(&poa, b"AnyEcho")
             .map_err(|e| format!("activate_object_with_id: {e}"))?;
-        let any_obj = poa
-            .id_to_reference(b"AnyEcho")
-            .map_err(|e| format!("id_to_reference: {e}"))?;
-        let _ = any_echo.this.set(any_obj.clone());
+        let _ = this.set(any_echo.clone());
         bindings = vec![
-            (args.name.clone(), any_obj),
+            (args.name.clone(), any_echo.into_object()),
             (format!("{}-Echo", args.name), obj.clone()),
         ];
     }
