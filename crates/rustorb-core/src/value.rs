@@ -314,20 +314,10 @@ pub(crate) fn write(
             v.encode(out)?;
         }
         (TCKind::Fixed, Value::Fixed { digits, negative }) => {
-            let n = tc.fixed_digits().unwrap_or(0) as usize;
-            if digits.len() != n || digits.iter().any(|&d| d > 9) {
+            if digits.len() != tc.fixed_digits().unwrap_or(0) as usize {
                 return Err(bad_param());
             }
-            // Packed decimal: two digits per octet, a leading zero digit
-            // when the count is even, and the sign in the last half octet.
-            let mut nibbles = Vec::with_capacity(n + 2);
-            if n % 2 == 0 {
-                nibbles.push(0);
-            }
-            nibbles.extend_from_slice(digits);
-            nibbles.push(if *negative { 0xd } else { 0xc });
-            let bytes: Vec<u8> = nibbles.chunks(2).map(|p| (p[0] << 4) | p[1]).collect();
-            out.write_octets(&bytes);
+            out.write_fixed(digits, *negative)?;
         }
         (TCKind::Objref | TCKind::Component | TCKind::Home, Value::Objref(obj)) => {
             out.write_object(obj.as_ref())?
@@ -530,22 +520,9 @@ impl Reader {
                 Value::Enum(v)
             }
             TCKind::Fixed => {
-                let n = tc.fixed_digits().unwrap_or(0) as usize;
-                let bytes = input
-                    .read_octets(n / 2 + 1)
-                    .map_err(|_| input.marshal_error())?;
-                let mut nibbles: Vec<u8> = bytes.iter().flat_map(|b| [b >> 4, b & 0xf]).collect();
-                let sign = nibbles.pop().unwrap_or(0xc);
-                if n % 2 == 0 {
-                    nibbles.remove(0);
-                }
-                if nibbles.iter().any(|&d| d > 9) || !matches!(sign, 0xc | 0xd | 0xf) {
-                    return Err(input.marshal_error());
-                }
-                Value::Fixed {
-                    digits: nibbles,
-                    negative: sign == 0xd,
-                }
+                let (digits, negative) =
+                    input.read_fixed(tc.fixed_digits().unwrap_or(0) as usize)?;
+                Value::Fixed { digits, negative }
             }
             TCKind::Objref | TCKind::Component | TCKind::Home => {
                 Value::Objref(input.read_object()?)

@@ -82,7 +82,7 @@ a.type(AnyTest::_tc_Count);   // 同じ型の別名に付け替える（違え�
 
 ## 相互接続
 
-`interop/idl/AnyTest.idl` の `AnyTest::AnyEcho` を、すべての実装がクライアントとサーバーの両方で持つ。名前つきの27種の値（基本型、上限つき文字列、別名、struct、enum、union の各分岐、sequence、配列、再帰型、`NVList` 形の struct の sequence、入れ子の any、TypeCode、オブジェクト参照、nil、例外、空の any）について次を確かめる（178ケース）。
+`interop/idl/AnyTest.idl` の `AnyTest::AnyEcho` を、すべての実装がクライアントとサーバーの両方で持つ。名前つきの29種の値（基本型、上限つき文字列、別名、`fixed`（別名と31桁）、struct、enum、union の各分岐、sequence、配列、再帰型、`NVList` 形の struct の sequence、入れ子の any、TypeCode、オブジェクト参照、nil、例外、空の any）について次を確かめる（190ケース）。
 
 - `make(name)`：サーバーが作った any をクライアントの期待値と比べる
 - `check(name, a)`：クライアントが作った any をサーバーが比べる
@@ -97,7 +97,7 @@ interop/run-matrix.sh --suite any               # 5×5 の組み合わせ、GIOP
 interop/run-matrix.sh --suite any --giop 1.1
 ```
 
-ローカルで omniORB 4.3.4 / omniORBpy をビルドして、rustorb（Rust・Python・C++）・omniORBpy・omniORB C++ の25組すべてで、GIOP 1.2 と 1.1 の両方で178ケースが通ることを確かめた。`cpp/tests/test_any.cc` は同じケースを1プロセスの2つの ORB の間で回し、TypeCode の操作と `create_*_tc`、`<<=` / `>>=` の規則も確かめる。
+ローカルで omniORB 4.3.4 / omniORBpy をビルドして、rustorb（Rust・Python・C++）・omniORBpy・omniORB C++ の25組すべてで、GIOP 1.2 と 1.1 の両方で178ケースが通ることを確かめた（その後 `fixed` の2種を加えた190ケースを、rustorb の Java も含む36組で GIOP 1.2 / 1.1 とも確かめた）。`cpp/tests/test_any.cc` は同じケースを1プロセスの2つの ORB の間で回し、TypeCode の操作と `create_*_tc`、`<<=` / `>>=` の規則も確かめる。
 
 omniORB C++ の相互接続用プログラムは Any に omniidl の `-Wba`（と `-Wbd=DynSK.cc`）と `-lomniDynamic4` が要る。
 
@@ -108,5 +108,5 @@ omniORB C++ の相互接続用プログラムは Any に omniidl の `-Wba`（�
 
 ## 残り
 
-- DynAny、valuetype の値、`long double`、`fixed`（C++）
+- DynAny、valuetype の値、`long double`
 - omniORBpy 互換シム（`omniORB.any` など）と OpenRTM-aist-Python の動作確認

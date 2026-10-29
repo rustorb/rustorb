@@ -382,6 +382,9 @@ void rorb_out_write_object(rorb_out* out, rorb_object* obj);
 /* A TypeCode with an unresolved recursive placeholder is BAD_TYPECODE. */
 void rorb_out_write_typecode(rorb_out* out, const rorb_typecode* tc);
 void rorb_out_write_any(rorb_out* out, const rorb_any* any);
+/* A fixed of count digits (0 to 9, most significant first) as packed
+   decimal; the scale is not on the wire. More than 31 digits is BAD_PARAM. */
+void rorb_out_write_fixed(rorb_out* out, const uint8_t* digits, size_t count, int32_t negative);
 /* count elements of kind, in the host's representation. */
 void rorb_out_write_array(rorb_out* out, int32_t kind, const void* data, size_t count);
 /* Whether an error happened on the stream. */
@@ -409,6 +412,8 @@ rorb_object* rorb_in_read_object(rorb_in* in);
 rorb_typecode* rorb_in_read_typecode(rorb_in* in);
 rorb_any* rorb_in_read_any(rorb_in* in);
 void rorb_in_read_array(rorb_in* in, int32_t kind, void* data, size_t count);
+/* A fixed of count digits into digits[count]; returns 1 if it is negative. */
+int32_t rorb_in_read_fixed(rorb_in* in, uint8_t* digits, size_t count);
 /* A sequence length, checked against the bytes left for elements of at
    least min_element_size bytes. */
 uint32_t rorb_in_read_length(rorb_in* in, size_t min_element_size);

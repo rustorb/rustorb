@@ -25,7 +25,7 @@ using TypeCodeRef = IDL::traits<CORBA::TypeCode>::ref_type;
 inline const std::vector<std::string>& names() {
   static const std::vector<std::string> n = {
       "long", "short", "ulonglong", "float", "double", "boolean", "char", "octet",
-      "string", "bounded", "count", "point", "shade", "choice_l", "choice_s",
+      "string", "bounded", "count", "money", "fixed", "point", "shade", "choice_l", "choice_s",
       "choice_default", "longseq", "octets", "shortarray", "node", "nvlist", "any",
       "typecode", "objref", "nil", "oops", "empty"};
   return n;
@@ -66,6 +66,11 @@ inline CORBA::Any make(const std::string& name, const EchoRef& self) {
   } else if (name == "count") {
     a <<= Count{7};
     a.type(_tc_Count);
+  } else if (name == "money") {
+    a <<= Money("-123.45");
+    a.type(_tc_Money);
+  } else if (name == "fixed") {
+    a <<= IDL::Fixed<31, 4>("123456789012345678901234567.8901");
   } else if (name == "point") a <<= Point(1, 2.5);
   else if (name == "shade") a <<= Shade::DIM;
   else if (name.rfind("choice_", 0) == 0) a <<= choice(name);
@@ -147,6 +152,8 @@ inline bool same(const std::string& name, const CORBA::Any& got, const EchoRef& 
   if (name == "octet") return holds(got, uint8_t{255});
   if (name == "string") return holds(got, std::string("hello any"));
   if (name == "bounded") return holds(got, Short5("abc"));
+  if (name == "money") return holds(got, Money("-123.45"));
+  if (name == "fixed") return holds(got, IDL::Fixed<31, 4>("123456789012345678901234567.8901"));
   if (name == "point") return holds(got, Point(1, 2.5));
   if (name == "shade") return holds(got, Shade::DIM);
   if (name.rfind("choice_", 0) == 0) return holds(got, choice(name));

@@ -66,11 +66,14 @@ orb.run();
 | union | `discriminator()`、メンバーの取得・設定（複数のラベルを持つメンバーと default は判別子付きの設定も）、`__default()`。選ばれていないメンバーの取得は `BAD_OPERATION` |
 | enum | `value()`、`from_int()`、`_NAME` 定数、`NAME` のインスタンスを持つクラス |
 | `any`、`TypeCode` | `org.omg.CORBA.Any`、`org.omg.CORBA.TypeCode` |
+| `fixed<D, S>` | `java.math.BigDecimal`。`out` / `inout` は `org.omg.CORBA.FixedHolder` |
 | インターフェース | シグネチャ（`Foo`）と操作（`FooOperations`）のインターフェース、`_FooStub`、`FooHelper`（`narrow`、`unchecked_narrow`）、`FooHolder`、`FooPOA`、`FooPOATie`。nil は `null` |
 | 定数 | モジュールの定数は `value` を持つインターフェース、インターフェースの定数はそのフィールド |
 | 型の中の型 | `<Name>Package` パッケージ |
 
-`Helper` は `insert`・`extract`・`type`・`id`・`read`・`write` を持つ。`type()` は再帰型を `create_recursive_tc` で作り、別名の `insert` は別名の TypeCode を付ける。Java の予約語と `java.lang.Object` のメソッド名（`notify`、`wait` など）と同じ識別子には `_` が付く（GIOP 上の操作名は IDL のまま）。`fixed`、`long double`、valuetype、abstract interface はまだ生成できず、rustorb-idl がエラーにする。
+`Helper` は `insert`・`extract`・`type`・`id`・`read`・`write` を持つ。`type()` は再帰型を `create_recursive_tc` で作り、別名の `insert` は別名の TypeCode を付ける。Java の予約語と `java.lang.Object` のメソッド名（`notify`、`wait` など）と同じ識別子には `_` が付く（GIOP 上の操作名は IDL のまま）。`long double`、valuetype、abstract interface はまだ生成できず、rustorb-idl がエラーにする。
+
+`fixed<D, S>` の値は `BigDecimal` で、生成コードは `write_fixed(v, D, S)` / `read_fixed(D, S)` で読み書きする。読んだ値の scale はいつも S。小数が S 桁を超える（0 でない桁がある）値や整数部が D − S 桁を超える値は送信時に `BAD_PARAM`（Python と同じ。丸めない）。パック10進の読み書きは `org.omg.CORBA.portable.OutputStream` / `InputStream` 自身が `write_octet_array` / `read_octet_array` の上で行う。桁数を取らない `write_fixed(v)` は v の桁数と scale で書き、`read_fixed()` は符号の半オクテットまで読んで整数（scale 0）を返す。`Any.insert_fixed(v)` は v 自身の桁数と scale の `tk_fixed` を、`insert_fixed(v, tc)` は tc（別名も可。`tk_fixed` でなければ `BAD_INV_ORDER`）を付け、`extract_fixed()` は TypeCode の scale の値を返す。`fixed` の定数は `BigDecimal` で、scale は型のもの（`const fixed C = 12.50d;` は `new BigDecimal("12.50")`）。
 
 ## 例外
 
@@ -101,12 +104,12 @@ servant manager と adapter activator は `org.omg.CORBA.LocalObject` を継承�
 - `java/src/test`（`mvn -f java/pom.xml -Didl.parser.dir=... verify`。cargo で `librustorb_jni` を、`rustorb-idl -bjava` でテスト用 IDL のコードを作る）
   - `MappingTest`：C++ と同じ `cpp/tests/idl/CxxMapping.idl`（`-Wbpackage=mapping`）の定数、union の規則、すべての型を、同じプロセスの2つの ORB の間と同一 ORB 内で往復させる
   - `PoaTest`：C++ の `test_poa.cc` と同じ内容（ServantActivator・ServantLocator・AdapterActivator、転送と例外、ポリシーの検査）を、2つの ORB の間と同一 ORB 内で確かめる
-  - `InteropCasesTest`：相互接続の78ケース（`interop/impls/java/interop/Cases.java`）と Any / TypeCode の178ケース（`AnyTests.java`）を、2つの ORB の間で回す
+  - `InteropCasesTest`：相互接続の78ケース（`interop/impls/java/interop/Cases.java`）と Any / TypeCode の190ケース（`AnyTests.java`）を、2つの ORB の間で回す
 - `crates/rustorb-codegen/python/tests/test_java_backend.py`：コマンドライン、生成物の形、対応しない構文のエラー、生成コードとランタイムの `javac -Werror` でのコンパイル
 - CI（`ci.yml` の `java`）：Linux（Java 11 と 21）、macOS、Windows で `mvn verify`。Linux では同梱の CosNaming のスタブが生成器の出力と一致することも確かめる
 - 相互接続：`interop/run-matrix.sh` に `rustorbjava`（ホストでビルドし、イメージの Java 17 で動かす）と `jacorb`（イメージの中で JacORB の IDL コンパイラで同じソースをビルドする）を加えた。Java が関わる24組（omniORBpy・omniORB C++・JacORB・rustorb の Rust・Python・C++・Java）の結果は次のとおり（ローカルで確認。失敗はすべて `known-failures.txt` の範囲）
   - basic（78ケース）：omniNames と rustorb-names、GIOP 1.2 と 1.1 で、`rustorbjava` はすべての相手と通る（omniORB 側の wchar の既知の失敗を除く）。`jacorb` との組は、下の union の判別子の1ケース（`echo_value[5]`）と、GIOP 1.1 で omniORB のクライアントが分割したメッセージ（JacORB が GIOP 1.1 の Fragment を受け付けない）だけが失敗する
-  - any（178ケース）：`rustorbjava` は omniORBpy・omniORB C++・rustorb（Rust・Python・C++）・自身とのすべての組で GIOP 1.2 / 1.1 とも通る。`jacorb` は下の Helper の違いで大半の `make` / `check` が失敗するため、既定では any のマトリクスに入れない（組を指定すれば回せる）
+  - any（190ケース）：`rustorbjava` は omniORBpy・omniORB C++・rustorb（Rust・Python・C++）・自身とのすべての組で GIOP 1.2 / 1.1 とも通る。`jacorb` は下の Helper の違いで大半の `make` / `check` が失敗するため、既定では any のマトリクスに入れない（組を指定すれば回せる）
 
 - POA プローブ：`interop/impls/rustorbjava/probe/interop/PoaProbeServer.java` で `run-poa-probe.sh` を回し、Rust のプローブサーバーと同じ期待出力（`expected/poa-probe-rustorb.txt`）と一致する
 
@@ -127,6 +130,6 @@ JacORB は、UTF-8 に決まった `char` のデータ（rustorb とはどちら
 ## 残り
 
 - `Any.create_output_stream` / `read_value` などのストリームによる Any の操作、DII / DSI、`ObjectImpl._request` の形のスタブ（他の IDL コンパイラが生成したスタブを rustorb の上で使う場合に要る）
-- `fixed`、valuetype、DynAny
+- valuetype、DynAny
 - 呼び出しごとのタイムアウトの Java API（C ABI の `rorb_invocation` にはある）、`ORB.create_policy` などの残りの ORB 操作
 - Java 22 以降の FFM API への置き換えの検討

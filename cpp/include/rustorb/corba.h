@@ -12,8 +12,11 @@
 
 #include <rustorb/rustorb.h>
 
+#include <array>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <exception>
 #include <iostream>
@@ -326,6 +329,171 @@ template <typename T> void object_reference<T>::throw_nil() {
 }
 
 }  // namespace CORBA
+
+// ---------------------------------------------------------------------------
+// IDL::Fixed
+
+namespace IDL {
+
+// fixed<Digits, Scale>: a decimal number of Digits digits, Scale of them
+// after the point. A value that does not fit (more integer digits, or
+// more nonzero fraction digits than the type has) is DATA_CONVERSION, so
+// a value of the type always fits its TypeCode. There is no arithmetic:
+// convert to and from text, integers and double.
+template <uint16_t Digits, uint16_t Scale> class Fixed {
+  static_assert(Digits >= 1 && Digits <= 31, "a fixed has 1 to 31 digits");
+  static_assert(Scale <= Digits, "the scale of a fixed is at most its digits");
+
+ public:
+  using digits_type = std::array<uint8_t, Digits>;
+
+  // Zero.
+  Fixed() : digits_{}, negative_(false) {}
+
+  template <typename I, typename = std::enable_if_t<std::is_integral<I>::value>>
+  Fixed(I v) : Fixed() {
+    unsigned long long u = static_cast<unsigned long long>(v);
+    bool negative = false;
+    if constexpr (std::is_signed<I>::value) {
+      if (v < 0) {
+        negative = true;
+        u = 0ULL - u;
+      }
+    }
+    std::string text = std::to_string(u);
+    assign(negative, text, std::string_view());
+  }
+
+  // Decimal text: an optional sign, digits with an optional point, and an
+  // optional d or D ("-12.50", "3d").
+  explicit Fixed(std::string_view text) : Fixed() { parse(text); }
+  explicit Fixed(const char* text) : Fixed(std::string_view(text)) {}
+  explicit Fixed(const std::string& text) : Fixed(std::string_view(text)) {}
+
+  // The double rounded to Scale fraction digits; NaN and infinities are
+  // DATA_CONVERSION.
+  explicit Fixed(double v) : Fixed() {
+    if (!std::isfinite(v)) throw CORBA::DATA_CONVERSION(0, CORBA::CompletionStatus::COMPLETED_NO);
+    char buf[512];
+    int n = std::snprintf(buf, sizeof buf, "%.*f", static_cast<int>(Scale), v);
+    if (n <= 0 || static_cast<size_t>(n) >= sizeof buf) {
+      throw CORBA::DATA_CONVERSION(0, CORBA::CompletionStatus::COMPLETED_NO);
+    }
+    for (int i = 0; i < n; ++i) {
+      if (buf[i] != '-' && (buf[i] < '0' || buf[i] > '9')) buf[i] = '.';  // the locale's point
+    }
+    parse(std::string_view(buf, static_cast<size_t>(n)));
+  }
+
+  // The value of another fixed type, if it fits.
+  template <uint16_t D, uint16_t S>
+  explicit Fixed(const Fixed<D, S>& other) : Fixed(std::string_view(other.to_string())) {}
+
+  static constexpr uint16_t fixed_digits() { return Digits; }
+  static constexpr uint16_t fixed_scale() { return Scale; }
+
+  // The value with Scale fraction digits and at least one integer digit:
+  // "-12.50", "0.05", "7".
+  std::string to_string() const {
+    std::string s;
+    if (negative_) s += '-';
+    size_t first = 0;
+    while (first + Scale + 1 < Digits && digits_[first] == 0) ++first;
+    if (first + Scale == Digits) s += '0';
+    for (size_t i = first; i < Digits; ++i) {
+      if (i + Scale == Digits) s += '.';
+      s += static_cast<char>('0' + digits_[i]);
+    }
+    return s;
+  }
+
+  explicit operator double() const {
+    double v = 0;
+    for (uint8_t d : digits_) v = v * 10 + d;
+    for (uint16_t i = 0; i < Scale; ++i) v /= 10;
+    return negative_ ? -v : v;
+  }
+
+  Fixed operator-() const {
+    Fixed r = *this;
+    r.negative_ = !negative_ && !r.is_zero();
+    return r;
+  }
+
+  friend bool operator==(const Fixed& a, const Fixed& b) {
+    return a.negative_ == b.negative_ && a.digits_ == b.digits_;
+  }
+  friend bool operator!=(const Fixed& a, const Fixed& b) { return !(a == b); }
+  friend bool operator<(const Fixed& a, const Fixed& b) {
+    if (a.negative_ != b.negative_) return a.negative_;
+    return a.negative_ ? b.digits_ < a.digits_ : a.digits_ < b.digits_;
+  }
+  friend bool operator>(const Fixed& a, const Fixed& b) { return b < a; }
+  friend bool operator<=(const Fixed& a, const Fixed& b) { return !(b < a); }
+  friend bool operator>=(const Fixed& a, const Fixed& b) { return !(a < b); }
+
+  friend std::ostream& operator<<(std::ostream& os, const Fixed& v) { return os << v.to_string(); }
+
+  // rustorb: the Digits digits (most significant first) and the sign, as
+  // on the wire. A negative zero is zero.
+  const digits_type& _rorb_digits() const { return digits_; }
+  bool _rorb_negative() const { return negative_; }
+  void _rorb_set(const digits_type& digits, bool negative) {
+    for (uint8_t d : digits) {
+      if (d > 9) throw CORBA::DATA_CONVERSION(0, CORBA::CompletionStatus::COMPLETED_NO);
+    }
+    digits_ = digits;
+    negative_ = negative && !is_zero();
+  }
+
+ private:
+  bool is_zero() const {
+    for (uint8_t d : digits_) {
+      if (d != 0) return false;
+    }
+    return true;
+  }
+
+  [[noreturn]] static void bad() {
+    throw CORBA::DATA_CONVERSION(0, CORBA::CompletionStatus::COMPLETED_NO);
+  }
+
+  void parse(std::string_view text) {
+    bool negative = false;
+    if (!text.empty() && (text.front() == '-' || text.front() == '+')) {
+      negative = text.front() == '-';
+      text.remove_prefix(1);
+    }
+    if (!text.empty() && (text.back() == 'd' || text.back() == 'D')) text.remove_suffix(1);
+    size_t point = text.find('.');
+    std::string_view whole = text.substr(0, point);
+    std::string_view frac = point == std::string_view::npos ? std::string_view() : text.substr(point + 1);
+    if (whole.empty() && frac.empty()) bad();
+    for (std::string_view part : {whole, frac}) {
+      for (char c : part) {
+        if (c < '0' || c > '9') bad();
+      }
+    }
+    assign(negative, whole, frac);
+  }
+
+  void assign(bool negative, std::string_view whole, std::string_view frac) {
+    while (!whole.empty() && whole.front() == '0') whole.remove_prefix(1);
+    while (!frac.empty() && frac.back() == '0') frac.remove_suffix(1);
+    if (whole.size() > static_cast<size_t>(Digits - Scale) || frac.size() > Scale) bad();
+    digits_type digits{};
+    size_t at = Digits - Scale - whole.size();
+    for (char c : whole) digits[at++] = static_cast<uint8_t>(c - '0');
+    for (char c : frac) digits[at++] = static_cast<uint8_t>(c - '0');
+    digits_ = digits;
+    negative_ = negative && !is_zero();
+  }
+
+  digits_type digits_;
+  bool negative_;
+};
+
+}  // namespace IDL
 
 namespace rustorb {
 
@@ -1413,6 +1581,12 @@ inline TypeCodeRef tc_simple(CORBA::TCKind kind) {
 inline TypeCodeRef tc_string(bool wide, uint32_t bound) {
   return make_tc([&](rorb_typecode** out, rorb_exception* exc) {
     return rorb_tc_string(wide ? 1 : 0, bound, out, exc);
+  });
+}
+
+inline TypeCodeRef tc_fixed(uint16_t digits, int16_t scale) {
+  return make_tc([&](rorb_typecode** out, rorb_exception* exc) {
+    return rorb_tc_fixed(digits, scale, out, exc);
   });
 }
 

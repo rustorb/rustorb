@@ -4,6 +4,8 @@
 
 #include <cstdint>
 #include <iostream>
+#include <limits>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <type_traits>
@@ -66,6 +68,14 @@ class TypesImpl : public CORBA::servant_traits<Types>::base_type {
     if (s == "grow") return ShortString("much too long");
     return s;
   }
+  Money echo_money(const Money& m, Money& total, IDL::Fixed<3, 0>& whole) override {
+    if (total != Money(1)) throw CORBA::BAD_PARAM(0, CORBA::CompletionStatus::COMPLETED_NO);
+    total = m;
+    std::string text = m.to_string();
+    whole = IDL::Fixed<3, 0>(text.substr(0, text.find('.')));
+    return m;
+  }
+  Price echo_price(const Price& p) override { return p; }
   void fail(int32_t code) override {
     if (code == 0) throw Empty();
     if (code < 0) throw CORBA::NO_PERMISSION(42, CORBA::CompletionStatus::COMPLETED_YES);
@@ -124,6 +134,62 @@ static void check_constants() {
   static_assert(std::is_same<Count, int32_t>::value, "typedef");
   static_assert(ShortString::bound() == 8, "bounded string");
   static_assert(std::tuple_size<Grid>::value == 2, "array");
+}
+
+static void check_fixed() {
+  CHECK(C_FIXED.to_string() == "12.50");
+  static_assert(decltype(C_FIXED)::fixed_digits() == 4 && decltype(C_FIXED)::fixed_scale() == 2,
+                "fixed constant");
+  CHECK(C_MONEY.to_string() == "-1.50");
+  static_assert(std::is_same<Money, IDL::Fixed<5, 2>>::value, "fixed typedef");
+  CHECK(Money().to_string() == "0.00");
+  CHECK(Money(7).to_string() == "7.00");
+  CHECK(Money(-999).to_string() == "-999.00");
+  CHECK(Money("0.05").to_string() == "0.05");
+  CHECK(Money("+.5").to_string() == "0.50");
+  CHECK(Money("12d").to_string() == "12.00");
+  CHECK(Money("-0.00").to_string() == "0.00");
+  CHECK(Money("-0") == Money(0));
+  CHECK(Money("001.230").to_string() == "1.23");
+  CHECK(Money(2.675).to_string() == "2.67" || Money(2.675).to_string() == "2.68");
+  CHECK(Money(-3.5).to_string() == "-3.50");
+  CHECK(static_cast<double>(Money("-12.25")) == -12.25);
+  CHECK((IDL::Fixed<3, 3>("0.125").to_string() == "0.125"));
+  CHECK((IDL::Fixed<2, 0>(99).to_string() == "99"));
+  CHECK((IDL::Fixed<6, 3>(Money("1.5")).to_string() == "1.500"));
+  for (const char* bad : {"1000", "1.234", "", ".", "-", "1.2.3", "1e3", "12x"}) {
+    CHECK(raises<CORBA::DATA_CONVERSION>([&] { Money m(bad); (void)m; }));
+  }
+  CHECK(raises<CORBA::DATA_CONVERSION>([] { Money m(1000); (void)m; }));
+  CHECK(raises<CORBA::DATA_CONVERSION>([] { Money m(1e300); (void)m; }));
+  CHECK(raises<CORBA::DATA_CONVERSION>([] { Money m(std::numeric_limits<double>::infinity()); (void)m; }));
+  CHECK(raises<CORBA::DATA_CONVERSION>([] { IDL::Fixed<2, 1> f(Money("12.5")); (void)f; }));
+  CHECK(Money("-1") < Money("0.01"));
+  CHECK(Money("-2") < Money("-1"));
+  CHECK(Money("1.5") > Money("1.49"));
+  CHECK(Money("1.5") >= Money("1.50") && Money("1.5") <= Money("1.50"));
+  CHECK(-Money("1.5") == Money("-1.5"));
+  CHECK(-Money(0) == Money(0));
+  std::ostringstream os;
+  os << Money("-4.2");
+  CHECK(os.str() == "-4.20");
+
+  CORBA::Any a;
+  a <<= Money("123.45");
+  CHECK(a.type()->kind() == CORBA::TCKind::tk_fixed);
+  CHECK(a.type()->fixed_digits() == 5 && a.type()->fixed_scale() == 2);
+  CHECK(a.type()->equal(_tc_Money->content_type()));
+  Money back;
+  CHECK(a >>= back);
+  CHECK(back == Money("123.45"));
+  IDL::Fixed<5, 1> other;
+  CHECK(!(a >>= other));
+  Price p(Money("-0.99"), IDL::Fixed<31, 31>("0.0000000000000000000000000000001"), {Money(1), Money("-2.5")});
+  CORBA::Any pa;
+  pa <<= p;
+  Price p2;
+  CHECK(pa >>= p2);
+  CHECK(p2 == p);
 }
 
 static void check_unions() {
@@ -230,6 +296,18 @@ static void check_calls(IDL::traits<CORBA::ORB>::ref_type orb, const std::string
   too_many.bounded().push_back(6);
   CHECK(raises<CORBA::BAD_PARAM>([&] { types->echo_holder(too_many); }));
   CHECK(types->echo_short_string("short") == "short");
+
+  for (const char* text : {"123.45", "-0.5", "0", "999.99", "-999.99", "0.01"}) {
+    Money total(1);
+    IDL::Fixed<3, 0> whole(5);
+    CHECK(types->echo_money(Money(text), total, whole) == Money(text));
+    CHECK(total == Money(text));
+    std::string s = Money(text).to_string();
+    CHECK((whole == IDL::Fixed<3, 0>(s.substr(0, s.find('.')))));
+  }
+  Price price(Money("-12.34"), IDL::Fixed<31, 31>("0.9999999999999999999999999999999"),
+              {Money(1), Money("2.5"), Money("-0.01")});
+  CHECK(types->echo_price(price) == price);
   try {
     types->echo_short_string("grow");
     CHECK(false);
@@ -301,6 +379,7 @@ static void check_calls(IDL::traits<CORBA::ORB>::ref_type orb, const std::string
 int main() {
   try {
     check_constants();
+    check_fixed();
     check_unions();
 
     int sargc = 3;

@@ -7,6 +7,7 @@ package org.rustorb;
 import java.lang.ref.Reference;
 
 import org.omg.CORBA.Any;
+import org.omg.CORBA.BAD_INV_ORDER;
 import org.omg.CORBA.BAD_OPERATION;
 import org.omg.CORBA.BAD_PARAM;
 import org.omg.CORBA.CompletionStatus;
@@ -392,6 +393,63 @@ final class AnyImpl extends Any {
     public void insert_TypeCode(TypeCode t) {
         TypeCodeImpl.cast(t);
         insertKind(TCKind._tk_TypeCode, out -> out.write_TypeCode(t));
+    }
+
+    @Override
+    public java.math.BigDecimal extract_fixed() {
+        checkKind(TCKind._tk_fixed);
+        TypeCode t = unaliased(type());
+        try {
+            short digits = t.fixed_digits();
+            short scale = t.fixed_scale();
+            return extractKind(TCKind._tk_fixed, in -> in.read_fixed(digits, scale));
+        } catch (org.omg.CORBA.TypeCodePackage.BadKind e) {
+            throw Anys.badOperation();
+        }
+    }
+
+    /** Inserts value as a fixed of its own digits and scale. */
+    @Override
+    public void insert_fixed(java.math.BigDecimal value) {
+        if (value.scale() < 0) {
+            value = value.setScale(0);
+        }
+        int digits = Math.max(1, Math.max(value.precision(), value.scale()));
+        if (digits > 31) {
+            throw new BAD_PARAM("fixed value with more than 31 digits", 0,
+                    CompletionStatus.COMPLETED_NO);
+        }
+        insert_fixed(value, TypeCodes.fixed((short) digits, (short) value.scale()));
+    }
+
+    /** Inserts value as a fixed of type (BAD_INV_ORDER if it is not a
+     * fixed type, BAD_PARAM if the value does not fit). */
+    @Override
+    public void insert_fixed(java.math.BigDecimal value, TypeCode type) {
+        TypeCode t = unaliased(TypeCodeImpl.cast(type));
+        short digits;
+        short scale;
+        try {
+            if (t.kind().value() != TCKind._tk_fixed) {
+                throw new BAD_INV_ORDER("not a fixed TypeCode", 0, CompletionStatus.COMPLETED_NO);
+            }
+            digits = t.fixed_digits();
+            scale = t.fixed_scale();
+        } catch (org.omg.CORBA.TypeCodePackage.BadKind e) {
+            throw new BAD_INV_ORDER("not a fixed TypeCode", 0, CompletionStatus.COMPLETED_NO);
+        }
+        insert(type, out -> out.write_fixed(value, digits, scale), false);
+    }
+
+    private static TypeCode unaliased(TypeCode t) {
+        try {
+            while (t.kind().value() == TCKind._tk_alias) {
+                t = t.content_type();
+            }
+        } catch (org.omg.CORBA.TypeCodePackage.BadKind e) {
+            throw Anys.badOperation();
+        }
+        return t;
     }
 
     @Override

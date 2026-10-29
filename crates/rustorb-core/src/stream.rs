@@ -87,6 +87,31 @@ impl<'a> OutStream<'a> {
         value::write(self, tc, v)
     }
 
+    /// Writes a `fixed` of `digits.len()` digits (each 0 to 9, most
+    /// significant first) as packed decimal. A digit over 9 or more than
+    /// 31 digits is `BAD_PARAM`.
+    pub fn write_fixed(&mut self, digits: &[u8], negative: bool) -> Result<(), SystemException> {
+        let n = digits.len();
+        if n > 31 || digits.iter().any(|&d| d > 9) {
+            return Err(SystemException::new(
+                SystemExceptionKind::BAD_PARAM,
+                0,
+                CompletionStatus::No,
+            ));
+        }
+        // Two digits per octet, a leading zero digit when the count is
+        // even, and the sign in the last half octet.
+        let mut nibbles = Vec::with_capacity(n + 2);
+        if n % 2 == 0 {
+            nibbles.push(0);
+        }
+        nibbles.extend_from_slice(digits);
+        nibbles.push(if negative { 0xd } else { 0xc });
+        let bytes: Vec<u8> = nibbles.chunks(2).map(|p| (p[0] << 4) | p[1]).collect();
+        self.enc.write_octets(&bytes);
+        Ok(())
+    }
+
     /// Writes an `any`: its TypeCode, then its value.
     pub fn write_any(&mut self, any: &Any) -> Result<(), SystemException> {
         self.write_typecode(any.typecode())?;
@@ -243,6 +268,22 @@ impl<'a> InStream<'a> {
     /// Reads a value of type `tc`.
     pub fn read_value(&mut self, tc: &TypeCode) -> Result<Value, SystemException> {
         value::read(self, tc)
+    }
+
+    /// Reads a `fixed` of `n` digits: the digits, most significant first,
+    /// and whether it is negative. A malformed digit or sign is `MARSHAL`.
+    pub fn read_fixed(&mut self, n: usize) -> Result<(Vec<u8>, bool), SystemException> {
+        let e = self.marshal_error();
+        let bytes = self.dec.read_octets(n / 2 + 1).map_err(|_| e.clone())?;
+        let mut nibbles: Vec<u8> = bytes.iter().flat_map(|b| [b >> 4, b & 0xf]).collect();
+        let sign = nibbles.pop().unwrap_or(0xc);
+        if n % 2 == 0 {
+            nibbles.remove(0);
+        }
+        if nibbles.iter().any(|&d| d > 9) || !matches!(sign, 0xc | 0xd | 0xf) {
+            return Err(e);
+        }
+        Ok((nibbles, sign == 0xd))
     }
 
     /// Reads an `any`.

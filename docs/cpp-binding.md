@@ -68,6 +68,7 @@ int main(int argc, char* argv[]) {
 | `string`、`wstring` | `std::string`（UTF-8）、`std::wstring` |
 | `string<N>`、`wstring<N>`、`sequence<T, N>` | `IDL::bounded_string<N>` など（標準型の派生）。上限超えは送信時 `BAD_PARAM`、受信時 `MARSHAL` |
 | `sequence<T>`、配列 | `std::vector<T>`、`std::array<T, N>`（多次元は入れ子） |
+| `fixed<D, S>` | `IDL::Fixed<D, S>`（下記） |
 | struct・例外 | 生成クラス。メンバーごとに取得・設定の関数、全メンバーのコンストラクタ、`==` |
 | union | 生成クラス。`_d()`、メンバーの関数（設定すると判別子も変わる）、`_default()`。選ばれていないメンバーを読むと `BAD_PARAM` |
 | enum | `enum class : uint32_t` |
@@ -76,7 +77,9 @@ int main(int argc, char* argv[]) {
 | インターフェース | `IDL::traits<I>::ref_type`（`CORBA::object_reference<I>`、`shared_ptr` 相当）。nil は `nullptr` |
 | サーバント | `CORBA::servant_reference<T>`（侵入型の参照カウント）、`CORBA::make_reference<T>(...)` で作る |
 
-C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP 上の綴りは IDL のまま）。`fixed`、`long double`、valuetype、abstract interface はまだ生成できず、rustorb-idl がエラーにする。
+C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP 上の綴りは IDL のまま）。`long double`、valuetype、abstract interface はまだ生成できず、rustorb-idl がエラーにする。
+
+`IDL::Fixed<D, S>` は D 桁（うち小数 S 桁）の10進数で、桁を配列で持つ。型に収まらない値（整数部の桁が多い、0 でない小数の桁が多い）は作るときに `DATA_CONVERSION` になるので、値はいつも TypeCode に収まる。文字列（`"-12.50"`、`d` の接尾辞も可）・整数から作り、`double` からは小数 S 桁に丸めて作る。`to_string()`（小数はいつも S 桁）、`explicit operator double`、比較演算子、単項の `-`、`<<` を持ち、四則演算はない。別の桁数の `Fixed` からは `explicit` に変換できる（収まらなければ `DATA_CONVERSION`）。`fixed` の定数はリテラルの桁数と小数の桁数の型（`const fixed C = 12.50d;` は `IDL::Fixed<4, 2>`）で、型付きの定数が型に収まらなければ rustorb-idl がエラーにする。Any には `<<=` / `>>=` で入り、TypeCode は `tk_fixed`。C ABI では `rorb_out_write_fixed` / `rorb_in_read_fixed` が桁の配列と符号を受け渡す（パック10進は Rust のコアが書く）。
 
 `narrow` は、同じプロセスのスタブなら C++ の型で、そうでなければ生成コードが登録した継承関係（リポジトリID）で判定し、どちらでも決まらなければ相手に `_is_a` を問い合わせる。
 
@@ -110,10 +113,10 @@ C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP �
 
 ## テスト
 
-- `cpp/tests/test_mapping.cc`：`cpp/tests/idl/CxxMapping.idl`（定数、typedef、上限付きの型、多次元配列、再帰的な struct と union、すべての種類の判別子、入れ子の型、予約語の名前、多重継承、oneway、inout / out、ユーザー例外とシステム例外、オブジェクト参照の列）を、同じプロセスの2つの ORB の間と、同一 ORB 内で往復させる
+- `cpp/tests/test_mapping.cc`：`cpp/tests/idl/CxxMapping.idl`（定数、typedef、`fixed`（typedef・struct のメンバー・列・inout / out・定数・Any）、上限付きの型、多次元配列、再帰的な struct と union、すべての種類の判別子、入れ子の型、予約語の名前、多重継承、oneway、inout / out、ユーザー例外とシステム例外、オブジェクト参照の列）を、同じプロセスの2つの ORB の間と、同一 ORB 内で往復させる
 - `cpp/tests/test_interop.cc`：相互接続の78ケース（`interop/impls/rustorbcpp/cases.h`）を同じプロセスの2つの ORB の間で回す
 - `cpp/tests/test_poa.cc`：`ServantActivator`（初回の `incarnate`、転送、システム例外、nil、C++ 例外、`deactivate_object` と `destroy` での `etherealize`）、`ServantLocator`（cookie の受け渡し、失敗時に `postinvoke` を呼ばないこと）、`AdapterActivator`（`find_POA` と、存在しない POA への要求での作成）、ポリシーの検査（`WrongPolicy`、種類の違う manager の `OBJ_ADAPTER`、2回目の `BAD_INV_ORDER`）を、2つの ORB の間と同一 ORB 内で確かめる。POA が破棄されると manager が解放されることも見る
-- `cpp/tests/test_any.cc`：Any / TypeCode の相互接続の178ケース（`interop/impls/rustorbcpp/anytest.h`）を同じプロセスの2つの ORB の間で回し、TypeCode の操作、`ORB::create_*_tc`、`<<=` / `>>=` の規則を確かめる
+- `cpp/tests/test_any.cc`：Any / TypeCode の相互接続の190ケース（`interop/impls/rustorbcpp/anytest.h`）を同じプロセスの2つの ORB の間で回し、TypeCode の操作、`ORB::create_*_tc`、`<<=` / `>>=` の規則を確かめる
 - CI（`ci.yml` の `cpp`）は g++ と clang++ の両方で `-Wall -Wextra -Werror` でビルドして ctest を回す。ローカルでは ASan・UBSan・LeakSanitizer でも警告なし
 - `crates/rustorb-codegen/python/tests/test_cxx_backend.py`：コマンドライン、生成物の形、対応しない構文のエラー、生成コードのコンパイル
 - 相互接続：`interop/impls/rustorbcpp` を omniORB C++・omniORBpy・rustorb（Rust・Python）とすべての組み合わせで、omniNames と rustorb-names の両方、GIOP 1.1 でも回す。失敗は既存の `known-failures.txt`（omniORB 側の wchar）の範囲だけ
@@ -121,7 +124,7 @@ C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP �
 
 ## 残り
 
-- `fixed`、valuetype、DynAny
+- valuetype、DynAny、`IDL::Fixed` の四則演算
 - 呼び出しごとのタイムアウトの C++ API（C ABI の `rorb_invocation` にはある）、`ORB::create_policy` などの残りの ORB 操作
 - IDL4-CPP の構文（アノテーションなど）
 - `run-wire-probe.sh` への C++ の rustorb の追加

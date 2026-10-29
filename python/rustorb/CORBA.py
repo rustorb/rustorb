@@ -518,10 +518,13 @@ class fixed(object):
 
     def __init__(self, value):
         d = _decimal.Decimal(str(value) if not isinstance(value, _decimal.Decimal) else value)
-        if d == d.to_integral_value():
-            d = d.quantize(_decimal.Decimal(1))
-        else:
-            d = d.normalize()
+        # The default context rounds to 28 digits; a fixed has up to 31.
+        with _decimal.localcontext() as ctx:
+            ctx.prec = 64
+            if d == d.to_integral_value():
+                d = d.quantize(_decimal.Decimal(1))
+            else:
+                d = d.normalize()
         self._d = d
 
     def precision(self):
@@ -532,7 +535,9 @@ class fixed(object):
         return max(0, -self._d.as_tuple().exponent)
 
     def value(self):
-        return int(self._d.scaleb(self.decimals()))
+        with _decimal.localcontext() as ctx:
+            ctx.prec = 64
+            return int(self._d.scaleb(self.decimals()))
 
     def __repr__(self):
         return 'fixed("%s")' % self

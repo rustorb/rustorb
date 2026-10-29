@@ -29,6 +29,8 @@ pub const NAMES: &[&str] = &[
     "string",
     "bounded",
     "count",
+    "money",
+    "fixed",
     "point",
     "shade",
     "choice_l",
@@ -62,6 +64,8 @@ pub struct Types {
     pub choice: TypeCode,
     pub count: TypeCode,
     pub short5: TypeCode,
+    pub money: TypeCode,
+    pub fixed: TypeCode,
     pub longseq: TypeCode,
     pub octets: TypeCode,
     pub shortarray: TypeCode,
@@ -140,6 +144,8 @@ pub static TYPES: LazyLock<Types> = LazyLock::new(|| {
     Types {
         count: alias("Count", &long),
         short5: alias("Short5", &TypeCode::string(5)),
+        money: alias("Money", &TypeCode::fixed(5, 2).unwrap()),
+        fixed: TypeCode::fixed(31, 4).unwrap(),
         longseq: alias("LongSeq", &TypeCode::sequence(&long, 0).unwrap()),
         octets: alias(
             "Octets",
@@ -185,6 +191,18 @@ fn s(v: &str) -> Value {
     Value::String(v.to_owned())
 }
 
+/// A fixed of the digits of `text` (all of them, without the point).
+fn fixed(text: &str) -> Value {
+    Value::Fixed {
+        digits: text
+            .bytes()
+            .filter(u8::is_ascii_digit)
+            .map(|b| b - b'0')
+            .collect(),
+        negative: text.starts_with('-'),
+    }
+}
+
 fn point(x: i32, y: f64) -> Value {
     Value::List(vec![Value::Long(x), Value::Double(y)])
 }
@@ -220,6 +238,8 @@ pub fn value(name: &str, echo: &ObjectRef) -> Option<Any> {
         "string" => Any::from("hello any"),
         "bounded" => Any::new(t.short5.clone(), s("abc")),
         "count" => Any::new(t.count.clone(), Value::Long(7)),
+        "money" => Any::new(t.money.clone(), fixed("-123.45")),
+        "fixed" => Any::new(t.fixed.clone(), fixed("123456789012345678901234567.8901")),
         "point" => Any::new(t.point.clone(), point(1, 2.5)),
         "shade" => Any::new(t.shade.clone(), Value::Enum(2)),
         "choice_l" => Any::new(t.choice.clone(), union(Value::Long(1), 0, Value::Long(10))),

@@ -181,6 +181,17 @@ pub unsafe extern "C" fn rorb_out_write_object(out: *mut RorbOut, obj: *mut Obje
     out.with(|s| s.write_object(obj));
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_out_write_fixed(
+    out: *mut RorbOut,
+    digits: *const u8,
+    count: usize,
+    negative: i32,
+) {
+    unsafe { &mut *out }
+        .with(|s| s.write_fixed(unsafe { slice::<u8>(digits.cast(), count) }, negative != 0));
+}
+
 /// Element kinds of the array functions (`RORB_PRIM_*`).
 mod prim {
     pub const OCTET: i32 = 0;
@@ -405,6 +416,23 @@ pub unsafe extern "C" fn rorb_in_read_array(
         }
         Ok(())
     });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_in_read_fixed(
+    input: *mut RorbIn,
+    digits: *mut u8,
+    count: usize,
+) -> i32 {
+    let input = unsafe { &mut *input };
+    let (read, negative) = input.read(|s| s.read_fixed(count));
+    let out = unsafe { slice_mut::<u8>(digits.cast(), count) };
+    if read.len() == count {
+        out.copy_from_slice(&read);
+    } else {
+        out.fill(0);
+    }
+    i32::from(negative)
 }
 
 #[unsafe(no_mangle)]

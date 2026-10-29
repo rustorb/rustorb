@@ -228,7 +228,7 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - C++ 側：`IDL::traits<T>::ref_type`、`CORBA::servant_traits<T>::base_type`、`CORBA::make_reference`、40種のシステム例外、`PortableServer` の POA 操作。struct・union・例外は取得・設定関数のクラス、enum は `enum class`、上限付きの型は `IDL::bounded_*`
   - 相互接続：`interop/impls/rustorbcpp`（他のクライアントと同じ78ケース）が omniORB C++・omniORBpy・rustorb（Rust・Python）とのすべての組み合わせで、omniNames・rustorb-names、GIOP 1.1 でも通る（失敗は既存の `known-failures.txt` の範囲だけ）
   - C++ のテスト（`cpp/tests`、CMake）：マッピング用の IDL を2つの ORB の間と同一 ORB 内で往復させ、相互接続の78ケースを1プロセスで回す。CI は g++ と clang++
-  - 残り：`fixed`、IDL4-CPP の構文。Java は同じ C ABI の上に載せた（M6）。servant manager・AdapterActivator は M6 の後に加えた（下記）
+  - 残り：IDL4-CPP の構文（`fixed` は後で加えた。下記）。Java は同じ C ABI の上に載せた（M6）。servant manager・AdapterActivator は M6 の後に加えた（下記）
 - [x] Any / TypeCode（M5）：コアの `TypeCode`・`Any`・`Value` と CDR、Python と C++ のバインディング、omniORB C++・omniORBpy との相互接続（[any-typecode.md](any-typecode.md)）
   - [x] コア：TypeCode はアリーナと添字で表し、再帰型は後ろ向きの添字（`Arc` の循環なし）。CDR の間接参照は再帰のときだけ書き、読み込みはすべて受け付ける。`equal` / `equivalent` / `compact`、構築時の検査
   - [x] Python：`CORBA.Any` / `CORBA.TypeCode` の送受信、`ORB.create_*_tc`。生成コードにない型は TypeCode とクラスをその場で作る
@@ -239,8 +239,13 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - 生成器：標準マッピングのクラス群（Helper・Holder・Operations・Stub・POA・POATie、`<Name>Package`、予約語の `_`）と、モジュールの外の定義のための `-Wbpackage`
   - 相互接続：`interop/impls/java` のクライアント・サーバーを、`rustorbjava`（rustorb-idl のスタブ）と `jacorb`（JacORB 3.9 のリリース jar と IDL コンパイラ）で共有する。`rustorbjava` は basic（omniNames・rustorb-names、GIOP 1.2 / 1.1）と any（GIOP 1.2 / 1.1）ですべての相手と通る。JacORB との失敗は JacORB の生成コードと GIOP 1.1 の Fragment の扱いによるもので、`known-failures.txt` に載せた。JacORB はソースを読まず、生成されたクラスを呼んだ結果だけを使った
   - Java のテスト（`java/`、Maven と JUnit）：CxxMapping.idl の往復（2つの ORB の間と同一 ORB 内）、相互接続の78ケースと any の178ケース。CI は Linux（Java 11 / 21）・macOS・Windows
-  - 残り：ストリームによる Any の操作、DII / DSI、`fixed`・valuetype
+  - 残り：ストリームによる Any の操作、DII / DSI、valuetype
 - [x] C++ と Java の servant manager（`ServantActivator`・`ServantLocator`）と `AdapterActivator`（[cpp-binding.md](cpp-binding.md#poa-の範囲)、[java-binding.md](java-binding.md#poa-の範囲)）
   - C ABI：`rorb_poa_set_servant_activator` / `_locator`・`rorb_poa_get_servant_manager`・`rorb_poa_set_the_activator` / `rorb_poa_the_activator` と関数表。`incarnate` / `preinvoke` の `ForwardRequest` とシステム例外は `rorb_manager_error_*` で伝える
   - C++ は `PortableServer::ServantActivator` などのローカルインターフェースと `ForwardRequest`、Java は `org.omg.PortableServer` の同名のインターフェースと `CookieHolder`（`rustorb-jni` 経由）
   - テスト：`cpp/tests/test_poa.cc` と `java` の `PoaTest`。相互接続：C++（`interop/impls/rustorbcpp/poa_probe_server.cc`）と Java（`interop/impls/rustorbjava/probe`）の POA プローブサーバーで `run-poa-probe.sh` が Rust と同じ期待出力になる
+- [x] `fixed` をすべてのバインディングに（[cpp-binding.md](cpp-binding.md#値の表現)、[java-binding.md](java-binding.md#値の表現)）
+  - コア：`OutStream::write_fixed` / `InStream::read_fixed`（パック10進。`Value::Fixed` もこれを使う）、C ABI の `rorb_out_write_fixed` / `rorb_in_read_fixed`
+  - C++：`IDL::Fixed<D, S>`（収まらない値は `DATA_CONVERSION`、文字列・整数・`double` との変換と比較）、`-bc++11` の型・定数・TypeCode・Any
+  - Java：`java.math.BigDecimal`、`read_fixed(D, S)` / `write_fixed(v, D, S)`、`FixedHolder`、`Any.insert_fixed` / `extract_fixed`、`-bjava` の Helper・定数
+  - 相互接続：`AnyTest.idl` に `money`（別名 `Money`、`fixed<5, 2>`）と `fixed`（`fixed<31, 4>`）を加え、`--suite any` で omniORB C++・omniORBpy と rustorb（Rust・Python・C++・Java）のすべての組で確かめる

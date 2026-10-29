@@ -21,7 +21,8 @@ Each type gets its TypeCode, ``_tc_<name>`` (built on first use by
 does not matter), and the C++ types that are only theirs (structs,
 unions, enums, exceptions, interfaces) a ``rustorb::cdr::type_code``
 specialisation, which ``any <<= value`` and ``any >>= value`` use.
-``fixed``, valuetypes and abstract interfaces are not mapped yet.
+``fixed<d, s>`` is ``IDL::Fixed<d, s>``. Valuetypes and abstract
+interfaces are not mapped yet.
 """
 
 import os
@@ -194,7 +195,7 @@ class CxxBackend(object):
         if k == "array":
             return "std::array<%s, %d>" % (self.ctype(t.content, where), t.length)
         if k == "fixed":
-            raise fe.GeneratorError("fixed is not supported by the C++ backend yet", where)
+            return "::IDL::Fixed<%d, %d>" % (t.digits, t.scale)
         if k == "named":
             n = t.node
             if fe.is_native(n):
@@ -257,6 +258,8 @@ class CxxBackend(object):
         if k in ("char", "wchar"):
             c = value if isinstance(value, str) else chr(value)
             return ("L" if k == "wchar" else "") + "'" + _escape_char(c, k == "wchar") + "'"
+        if k == "fixed":
+            return '%s("%s")' % (self.ctype(r), fixed_text(value, r.digits, r.scale))
         if k in ("string", "wstring"):
             text = '"%s"' % _escape_string(str(value), k == "wstring")
             return ("L" + text) if k == "wstring" else text
@@ -408,7 +411,7 @@ class CxxBackend(object):
         r = t.resolved()
         value = self.literal(node.value, t)
         ctype = self.ctype(t, node)
-        if r.kind in ("string", "wstring"):
+        if r.kind in ("string", "wstring", "fixed"):
             decl = "inline const %s %s = %s;" % (ctype, cxx_name(node.name), value)
         else:
             decl = "inline constexpr %s %s = %s;" % (ctype, cxx_name(node.name), value)
@@ -496,6 +499,8 @@ class CxxBackend(object):
                 "true" if k == "wstring" else "false",
                 t.bound,
             )
+        if k == "fixed":
+            return "::rustorb::cdr::type_code<%s>::get()" % self.ctype(t, where)
         if k == "sequence":
             return "::rustorb::detail::tc_sequence(%s, %d)" % (
                 self.tc_expr(t.content, where, open_),
@@ -1251,6 +1256,19 @@ class CxxBackend(object):
         w.dedent()
         w("}")
         w()
+
+
+def fixed_text(value, digits, scale):
+    """The decimal text of the constant ``value`` (a ``Decimal``) for a
+    ``fixed<digits, scale>``; a value that does not fit is an error."""
+    text = format(value, "f")
+    negative = text.startswith("-")
+    whole, _, frac = text.lstrip("-").partition(".")
+    whole = whole.lstrip("0")
+    frac = frac.rstrip("0")
+    if len(whole) > digits - scale or len(frac) > scale:
+        raise fe.GeneratorError("constant %s does not fit fixed<%d, %d>" % (text, digits, scale))
+    return ("-" if negative and (whole or frac) else "") + (whole or "0") + ("." + frac if frac else "")
 
 
 def _escape_char(c, wide):
