@@ -53,6 +53,8 @@
 mod codeset;
 mod connection;
 mod exception;
+mod fixed;
+pub mod idl;
 pub mod name;
 mod object;
 mod orb;
@@ -68,6 +70,7 @@ pub use codeset::CodeSets;
 pub use exception::{
     Exception, OMG_VMCID, SystemException, SystemExceptionKind, UserException, minor,
 };
+pub use fixed::{Fixed, ParseFixedError};
 pub use object::{ObjectRef, Reply, Request};
 pub use orb::{EndpointAddr, Orb, OrbOptions, ResolveError};
 pub use poa::{

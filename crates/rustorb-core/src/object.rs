@@ -43,6 +43,13 @@ impl fmt::Debug for ObjectRef {
     }
 }
 
+/// `==` is [`ObjectRef::is_equivalent`].
+impl PartialEq for ObjectRef {
+    fn eq(&self, other: &ObjectRef) -> bool {
+        self.is_equivalent(other)
+    }
+}
+
 type ArgsFn<'a> = dyn Fn(&mut OutStream<'_>) -> Result<(), SystemException> + 'a;
 
 impl ObjectRef {
@@ -216,6 +223,7 @@ impl Reply {
             completed: CompletionStatus::Yes,
             wchar_needs_code_set: false,
             values: Vec::new(),
+            typed_values: Vec::new(),
         }
     }
 
@@ -621,6 +629,7 @@ fn encode_request(
         let mut out = OutStream {
             enc: m.body(),
             code_sets,
+            orb: None,
         };
         args(&mut out)?;
     }

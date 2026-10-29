@@ -18,6 +18,9 @@ use crate::{
 pub struct OutStream<'a> {
     pub(crate) enc: &'a mut Encoder,
     pub(crate) code_sets: CodeSets,
+    /// The ORB of the first object reference written, so that a standalone
+    /// stream can be read back with it (`Any::insert`).
+    pub(crate) orb: Option<Orb>,
 }
 
 impl<'a> OutStream<'a> {
@@ -28,6 +31,7 @@ impl<'a> OutStream<'a> {
         OutStream {
             enc,
             code_sets: CodeSets::NATIVE,
+            orb: None,
         }
     }
 
@@ -64,7 +68,12 @@ impl<'a> OutStream<'a> {
     /// Writes an object reference; `None` is a nil reference.
     pub fn write_object(&mut self, obj: Option<&ObjectRef>) -> Result<(), SystemException> {
         match obj {
-            Some(obj) => obj.ior().encode(self.enc)?,
+            Some(obj) => {
+                if self.orb.is_none() {
+                    self.orb = Some(obj.orb().clone());
+                }
+                obj.ior().encode(self.enc)?
+            }
             None => Ior::nil().encode(self.enc)?,
         }
         Ok(())
@@ -165,6 +174,9 @@ pub struct InStream<'a> {
     /// The valuetypes read, by their slot in the stream, for
     /// indirections.
     pub(crate) values: Vec<Option<crate::ValueRef>>,
+    /// The valuetypes and value boxes of generated code read, by their
+    /// slot in the stream (see `idl::ValueHandle`).
+    pub(crate) typed_values: Vec<Option<Box<dyn std::any::Any>>>,
 }
 
 impl<'a> InStream<'a> {
@@ -180,6 +192,7 @@ impl<'a> InStream<'a> {
             completed: CompletionStatus::No,
             wchar_needs_code_set: false,
             values: Vec::new(),
+            typed_values: Vec::new(),
         }
     }
 

@@ -2,8 +2,8 @@
 //!
 //! Resolves the Echo object from the naming service (with the
 //! `rustorb-naming` client) and runs the same cases
-//! as the omniORB clients (see `interop/README.md`), with hand-written stubs
-//! until the code generator exists. For the callback cases it serves an
+//! as the omniORB clients (see `interop/README.md`), with the stubs
+//! `rustorb-idl -brust` generates (`src/idl/`). For the callback cases it serves an
 //! `InteropTest::Callback` object from a PERSISTENT / USER_ID POA named
 //! `InteropTestClient` (ObjectId `Callback`), as the omniORB clients do.
 //!
@@ -19,51 +19,28 @@ mod valuetest;
 
 use std::fmt;
 use std::process::ExitCode;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use idl::{
-    Char, Color, DIVIDE_BY_ZERO_ID, ECHO_ID, Get, MAGIC, OOPS_ID, Point, Put, Record, Shade, Value,
-    WChar, WString,
+use idl::interop_test::{
+    Callback, CallbackPoa, CallbackServant, Color, Echo, MAGIC, Point, Record, Shade, Value, echo,
 };
 use rustorb_core::{
-    CompletionStatus, Exception, IdAssignment, InStream, Lifespan, ObjectRef, Orb, Policy, Servant,
-    ServerReply, SystemException, SystemExceptionKind, minor,
+    CompletionStatus, Exception, IdAssignment, Lifespan, Orb, Policy, SystemException,
+    SystemExceptionKind,
 };
 use rustorb_naming::{NamingContext, NamingError, to_name};
 
-const CALLBACK_ID: &str = "IDL:rustorb.org/InteropTest/Callback:1.0";
-
 /// `InteropTest::Callback`: `notify` returns `"ack:" + message`.
-struct Callback;
+struct Acknowledger;
 
-impl Servant for Callback {
-    fn repository_id(&self) -> &str {
-        CALLBACK_ID
-    }
-
-    fn dispatch(
-        &self,
-        operation: &str,
-        input: &mut InStream<'_>,
-        reply: &mut ServerReply,
-    ) -> Result<(), SystemException> {
-        match operation {
-            "notify" => {
-                let message = input.read_string()?;
-                reply.output().write_string(&format!("ack:{message}"))
-            }
-            _ => Err(SystemException::new(
-                SystemExceptionKind::BAD_OPERATION,
-                minor::UNKNOWN_OPERATION,
-                CompletionStatus::No,
-            )),
-        }
+impl CallbackServant for Acknowledger {
+    fn notify(&self, message: &str) -> Result<String, SystemException> {
+        Ok(format!("ack:{message}"))
     }
 }
 
 /// Activates the Callback object and returns its reference.
-fn serve_callback(orb: &Orb) -> Result<ObjectRef, String> {
+fn serve_callback(orb: &Orb) -> Result<Callback, String> {
     let root = orb.root_poa().map_err(|e| format!("RootPOA: {e}"))?;
     let manager = root.the_poa_manager();
     let poa = root
@@ -76,20 +53,11 @@ fn serve_callback(orb: &Orb) -> Result<ObjectRef, String> {
             ],
         )
         .map_err(|e| format!("create_POA: {e}"))?;
-    poa.activate_object_with_id(b"Callback", Arc::new(Callback))
+    let cb = CallbackPoa(Acknowledger)
+        .activate_with_id(&poa, b"Callback")
         .map_err(|e| format!("activate_object_with_id: {e}"))?;
     manager.activate().map_err(|e| format!("activate: {e}"))?;
-    poa.id_to_reference(b"Callback")
-        .map_err(|e| format!("id_to_reference: {e}"))
-}
-
-// --- invocation helpers ----------------------------------------------------
-
-fn call<A: Put, T: Get>(obj: &ObjectRef, op: &str, args: A) -> Result<T, Exception> {
-    let reply = obj.request(op).args(|out| args.put(out)).invoke()?;
-    let mut input = reply.input();
-    let value = T::get(&mut input)?;
-    Ok(value)
+    Ok(cb)
 }
 
 /// Whether `e` is worth retrying while a server starts: TRANSIENT or
@@ -145,67 +113,69 @@ fn check(cond: bool, msg: impl FnOnce() -> String) -> Result<(), String> {
     if cond { Ok(()) } else { Err(msg()) }
 }
 
-fn echo<T>(obj: &ObjectRef, op: &str, v: T) -> Result<(), String>
+/// Checks that an echo operation returned what was sent.
+fn same<T, E>(sent: &T, got: Result<T, E>) -> Result<(), String>
 where
-    T: Put + Get + PartialEq + std::fmt::Debug,
+    T: PartialEq + fmt::Debug,
+    E: fmt::Display,
 {
-    let got: T = call(obj, op, (&v,)).map_err(|e| e.to_string())?;
-    check(got == v, || format!("sent {v:?}, got {got:?}"))
+    let got = got.map_err(|e| e.to_string())?;
+    check(&got == sent, || format!("sent {sent:?}, got {got:?}"))
 }
 
-fn s(e: Exception) -> String {
+fn s(e: impl fmt::Display) -> String {
     e.to_string()
 }
 
-fn run_cases(r: &mut Runner, e: &ObjectRef, cb: &ObjectRef) {
+fn run_cases(r: &mut Runner, e: &Echo, cb: &Callback) {
     for (i, v) in [true, false].into_iter().enumerate() {
-        r.case(&format!("echo_boolean[{i}]"), || echo(e, "echo_boolean", v));
-    }
-    for (i, v) in [0u8, 0x7f, 0xff].into_iter().enumerate() {
-        r.case(&format!("echo_octet[{i}]"), || echo(e, "echo_octet", v));
-    }
-    for (i, v) in [b'a', 0, b'~'].into_iter().enumerate() {
-        r.case(&format!("echo_char[{i}]"), || echo(e, "echo_char", Char(v)));
-    }
-    for (i, v) in ['a', 'あ', 'é'].into_iter().enumerate() {
-        r.case(&format!("echo_wchar[{i}]"), || {
-            echo(e, "echo_wchar", WChar(v as u16))
+        r.case(&format!("echo_boolean[{i}]"), || {
+            same(&v, e.echo_boolean(v))
         });
     }
+    for (i, v) in [0u8, 0x7f, 0xff].into_iter().enumerate() {
+        r.case(&format!("echo_octet[{i}]"), || same(&v, e.echo_octet(v)));
+    }
+    for (i, v) in ['a', '\0', '~'].into_iter().enumerate() {
+        r.case(&format!("echo_char[{i}]"), || same(&v, e.echo_char(v)));
+    }
+    for (i, v) in ['a', 'あ', 'é'].into_iter().enumerate() {
+        r.case(&format!("echo_wchar[{i}]"), || same(&v, e.echo_wchar(v)));
+    }
     for (i, v) in [0i16, i16::MIN, i16::MAX].into_iter().enumerate() {
-        r.case(&format!("echo_short[{i}]"), || echo(e, "echo_short", v));
+        r.case(&format!("echo_short[{i}]"), || same(&v, e.echo_short(v)));
     }
     for (i, v) in [0u16, u16::MAX].into_iter().enumerate() {
-        r.case(&format!("echo_ushort[{i}]"), || echo(e, "echo_ushort", v));
+        r.case(&format!("echo_ushort[{i}]"), || same(&v, e.echo_ushort(v)));
     }
     for (i, v) in [0i32, i32::MIN, i32::MAX, MAGIC].into_iter().enumerate() {
-        r.case(&format!("echo_long[{i}]"), || echo(e, "echo_long", v));
+        r.case(&format!("echo_long[{i}]"), || same(&v, e.echo_long(v)));
     }
     for (i, v) in [0u32, u32::MAX].into_iter().enumerate() {
-        r.case(&format!("echo_ulong[{i}]"), || echo(e, "echo_ulong", v));
+        r.case(&format!("echo_ulong[{i}]"), || same(&v, e.echo_ulong(v)));
     }
     for (i, v) in [0i64, i64::MIN, i64::MAX].into_iter().enumerate() {
         r.case(&format!("echo_longlong[{i}]"), || {
-            echo(e, "echo_longlong", v)
+            same(&v, e.echo_longlong(v))
         });
     }
     for (i, v) in [0u64, u64::MAX].into_iter().enumerate() {
         r.case(&format!("echo_ulonglong[{i}]"), || {
-            echo(e, "echo_ulonglong", v)
+            same(&v, e.echo_ulonglong(v))
         });
     }
     for (i, v) in [0.0f64, -1.5, 1e300, f64::from_bits(1)]
         .into_iter()
         .enumerate()
     {
-        r.case(&format!("echo_double[{i}]"), || echo(e, "echo_double", v));
+        r.case(&format!("echo_double[{i}]"), || same(&v, e.echo_double(v)));
     }
     for (i, v) in ["", "hello", &"x".repeat(10000), "caf\u{e9}"]
         .into_iter()
         .enumerate()
     {
         r.case(&format!("echo_string[{i}]"), || {
-            echo(e, "echo_string", v.to_owned())
+            same(&v.to_owned(), e.echo_string(v))
         });
     }
     for (i, v) in ["", "hello", "こんにちは", "\u{1F980}"]
@@ -213,7 +183,7 @@ fn run_cases(r: &mut Runner, e: &ObjectRef, cb: &ObjectRef) {
         .enumerate()
     {
         r.case(&format!("echo_wstring[{i}]"), || {
-            echo(e, "echo_wstring", WString(v.to_owned()))
+            same(&v.to_owned(), e.echo_wstring(v))
         });
     }
     for (i, v) in [0.0f32, -1.5, f32::MAX, f32::MIN_POSITIVE]
@@ -221,7 +191,7 @@ fn run_cases(r: &mut Runner, e: &ObjectRef, cb: &ObjectRef) {
         .enumerate()
     {
         r.case(&format!("echo_float[{i}]"), || {
-            let got: f32 = call(e, "echo_float", (v,)).map_err(s)?;
+            let got = e.echo_float(v).map_err(s)?;
             check(got.to_bits() == v.to_bits(), || {
                 format!("sent {v:?}, got {got:?}")
             })
@@ -246,27 +216,22 @@ fn run_cases(r: &mut Runner, e: &ObjectRef, cb: &ObjectRef) {
         active: false,
     };
     r.case("echo_color", || {
-        [Color::Red, Color::Green, Color::Blue]
+        Color::VALUES
             .into_iter()
-            .try_for_each(|c| echo(e, "echo_color", c))
+            .try_for_each(|c| same(&c, e.echo_color(c)))
     });
-    r.case("echo_point", || echo(e, "echo_point", p));
-    r.case("echo_record", || echo(e, "echo_record", rec.clone()));
+    r.case("echo_point", || same(&p, e.echo_point(&p)));
+    r.case("echo_record", || same(&rec, e.echo_record(&rec)));
     r.case("echo_records", || {
-        echo(
-            e,
-            "echo_records",
-            vec![rec.clone(), rec2.clone(), rec.clone()],
-        )
+        let v = vec![rec.clone(), rec2.clone(), rec.clone()];
+        same(&v, e.echo_records(&v))
     });
-    r.case("echo_records[empty]", || {
-        echo(e, "echo_records", Vec::<Record>::new())
-    });
+    r.case("echo_records[empty]", || same(&vec![], e.echo_records(&[])));
     let large: Vec<Record> = (0..400)
         .map(|i| Record {
             id: i,
             name: format!("r{i}"),
-            hue: [Color::Red, Color::Green, Color::Blue][(i % 3) as usize],
+            hue: Color::VALUES[(i % 3) as usize],
             pos: Point {
                 x: f64::from(i) + 0.5,
                 y: -0.25 * f64::from(i),
@@ -276,7 +241,7 @@ fn run_cases(r: &mut Runner, e: &ObjectRef, cb: &ObjectRef) {
         })
         .collect();
     r.case("echo_records[large]", || {
-        echo(e, "echo_records", large.clone())
+        same(&large, e.echo_records(&large))
     });
     let values = [
         Value::L(-5),
@@ -288,53 +253,59 @@ fn run_cases(r: &mut Runner, e: &ObjectRef, cb: &ObjectRef) {
         Value::Flag(0, false),
     ];
     for (i, v) in values.into_iter().enumerate() {
-        r.case(&format!("echo_value[{i}]"), || echo(e, "echo_value", v));
+        r.case(&format!("echo_value[{i}]"), || same(&v, e.echo_value(&v)));
     }
-    for (i, v) in [Shade::Level(200), Shade::Label("leaf".into()), Shade::Blue]
-        .into_iter()
-        .enumerate()
+    for (i, v) in [
+        Shade::Level(200),
+        Shade::Label("leaf".into()),
+        Shade::Default(Color::Blue),
+    ]
+    .into_iter()
+    .enumerate()
     {
-        r.case(&format!("echo_shade[{i}]"), || echo(e, "echo_shade", v));
+        r.case(&format!("echo_shade[{i}]"), || same(&v, e.echo_shade(&v)));
     }
     r.case("echo_long_array", || {
-        echo(e, "echo_long_array", [1i32, -1, i32::MAX, 0])
+        let v = [1, -1, i32::MAX, 0];
+        same(&v, e.echo_long_array(&v))
     });
     r.case("echo_matrix", || {
-        echo(e, "echo_matrix", [[1.0f64, 2.0, 3.0], [-4.0, 0.5, 1e-9]])
+        let v = [[1.0, 2.0, 3.0], [-4.0, 0.5, 1e-9]];
+        same(&v, e.echo_matrix(&v))
     });
     r.case("echo_long_seq", || {
-        echo(e, "echo_long_seq", (-500..500).collect::<Vec<i32>>())
+        let v: Vec<i32> = (-500..500).collect();
+        same(&v, e.echo_long_seq(&v))
     });
     r.case("echo_long_seq[empty]", || {
-        echo(e, "echo_long_seq", Vec::<i32>::new())
+        same(&vec![], e.echo_long_seq(&[]))
     });
     r.case("echo_string_seq", || {
-        echo(
-            e,
-            "echo_string_seq",
-            vec!["a".to_owned(), String::new(), "ccc".to_owned()],
-        )
+        let v = vec!["a".to_owned(), String::new(), "ccc".to_owned()];
+        same(&v, e.echo_string_seq(&v))
     });
     r.case("echo_octets", || {
-        echo(e, "echo_octets", (0..=255u8).collect::<Vec<u8>>())
+        let v: Vec<u8> = (0..=255).collect();
+        same(&v, e.echo_octets(&v))
     });
 
     r.case("swap", || {
-        let got: (i32, i32, i32) = call(e, "swap", (3i32, -10i32)).map_err(s)?;
-        check(got == (-7, -10, 3), || format!("got {got:?}"))
+        let (mut a, mut b) = (3, -10);
+        let ret = e.swap(&mut a, &mut b).map_err(s)?;
+        check((ret, a, b) == (-7, -10, 3), || format!("got {ret} {a} {b}"))
     });
     r.case("divide", || {
-        let got: (i32, i32) = call(e, "divide", (17i32, 5i32)).map_err(s)?;
+        let got = e.divide(17, 5).map_err(s)?;
         check(got == (3, 2), || format!("got {got:?}"))?;
-        let got: (i32, i32) = call(e, "divide", (-17i32, 5i32)).map_err(s)?;
+        let got = e.divide(-17, 5).map_err(s)?;
         check(got == (-3, -2), || format!("got {got:?}"))?;
-        match call::<_, (i32, i32)>(e, "divide", (1i32, 0i32)) {
-            Err(Exception::User(u)) if u.repository_id() == DIVIDE_BY_ZERO_ID => Ok(()),
+        match e.divide(1, 0) {
+            Err(echo::DivideError::DivideByZero(_)) => Ok(()),
             other => Err(format!("expected DivideByZero, got {other:?}")),
         }
     });
     r.case("make", || {
-        let (pt, rc): (Point, Record) = call(e, "make", (12i32,)).map_err(s)?;
+        let (pt, rc) = e.make(12).map_err(s)?;
         let want_p = Point { x: 12.0, y: -12.0 };
         let want_r = Record {
             id: 12,
@@ -349,86 +320,79 @@ fn run_cases(r: &mut Runner, e: &ObjectRef, cb: &ObjectRef) {
         })
     });
 
-    r.case("fail", || match call::<_, ()>(e, "fail", (7i32, "boom")) {
-        Err(Exception::User(u)) if u.repository_id() == OOPS_ID => {
-            let mut input = u.input().map_err(|e| e.to_string())?;
-            let (code, reason): (i32, String) = Get::get(&mut input).map_err(|e| e.to_string())?;
-            check(code == 7 && reason == "boom", || {
-                format!("got {code} {reason:?}")
-            })
-        }
+    r.case("fail", || match e.fail(7, "boom") {
+        Err(echo::FailError::Oops(o)) => check(o.code == 7 && o.reason == "boom", || {
+            format!("got {} {:?}", o.code, o.reason)
+        }),
         other => Err(format!("expected Oops, got {other:?}")),
     });
-    r.case("fail_system", || {
-        match call::<_, ()>(e, "fail_system", ()) {
-            Err(Exception::System(x))
-                if x.is(SystemExceptionKind::BAD_PARAM)
-                    && x.minor == 42
-                    && x.completed == CompletionStatus::No =>
-            {
-                Ok(())
-            }
-            other => Err(format!("expected BAD_PARAM 42, got {other:?}")),
+    r.case("fail_system", || match e.fail_system() {
+        Err(x)
+            if x.is(SystemExceptionKind::BAD_PARAM)
+                && x.minor == 42
+                && x.completed == CompletionStatus::No =>
+        {
+            Ok(())
         }
+        other => Err(format!("expected BAD_PARAM 42, got {other:?}")),
     });
 
     r.case("attribute counter", || {
-        for v in [41i32, -1] {
-            call::<_, ()>(e, "_set_counter", (v,)).map_err(s)?;
-            let got: i32 = call(e, "_get_counter", ()).map_err(s)?;
+        for v in [41, -1] {
+            e.set_counter(v).map_err(s)?;
+            let got = e.counter().map_err(s)?;
             check(got == v, || format!("set {v}, got {got}"))?;
         }
         Ok(())
     });
     r.case("attribute name", || {
-        let got: String = call(e, "_get_name", ()).map_err(s)?;
+        let got = e.name().map_err(s)?;
         check(got == "rustorb-interop-echo", || format!("got {got:?}"))
     });
 
     r.case("self_ref", || {
-        let got: Option<ObjectRef> = call(e, "self_ref", ()).map_err(s)?;
-        let got = got.ok_or("nil reference")?;
-        check(got.is_equivalent(e), || "not equivalent".into())?;
-        let v: i32 = call(&got, "echo_long", (5i32,)).map_err(s)?;
+        let got = e.self_ref().map_err(s)?.ok_or("nil reference")?;
+        check(got.object().is_equivalent(e.object()), || {
+            "not equivalent".into()
+        })?;
+        let v = got.echo_long(5).map_err(s)?;
         check(v == 5, || format!("got {v}"))
     });
     r.case("echo_ref", || {
-        for arg in [Some(e.clone()), None] {
-            let got: Option<ObjectRef> = call(e, "echo_ref", (arg,)).map_err(s)?;
-            let got = got.ok_or("nil reference")?;
-            check(got.is_equivalent(e), || "not equivalent".into())?;
+        for arg in [Some(e), None] {
+            let got = e.echo_ref(arg).map_err(s)?.ok_or("nil reference")?;
+            check(got.object().is_equivalent(e.object()), || {
+                "not equivalent".into()
+            })?;
         }
         Ok(())
     });
     r.case("is_nil", || {
-        let nil: bool = call(e, "is_nil", (None::<ObjectRef>,)).map_err(s)?;
-        let not_nil: bool = call(e, "is_nil", (Some(e.clone()),)).map_err(s)?;
+        let nil = e.is_nil(None).map_err(s)?;
+        let not_nil = e.is_nil(Some(e)).map_err(s)?;
         check(nil && !not_nil, || format!("got {nil} {not_nil}"))
     });
 
     r.case("call_back", || {
-        let got: String = call(e, "call_back", (Some(cb.clone()), "hi")).map_err(s)?;
+        let got = e.call_back(Some(cb), "hi").map_err(s)?;
         check(got == "ack:hi", || format!("got {got:?}"))
     });
     r.case("register_callback/trigger", || {
-        call::<_, ()>(e, "register_callback", (Some(cb.clone()),)).map_err(s)?;
-        let got: String = call(e, "trigger", ("later",)).map_err(s)?;
+        e.register_callback(Some(cb)).map_err(s)?;
+        let got = e.trigger("later").map_err(s)?;
         check(got == "ack:later", || format!("got {got:?}"))
     });
 
     r.case("oneway post", || {
-        let _: Vec<String> = call(e, "posted", ()).map_err(s)?;
+        e.posted().map_err(s)?;
         let sent = ["one", "two", "three"];
         for m in sent {
-            e.request("post")
-                .args(move |out| out.write_string(m))
-                .send_oneway()
-                .map_err(|e| e.to_string())?;
+            e.post(m).map_err(s)?;
         }
         let mut got: Vec<String> = Vec::new();
         let deadline = Instant::now() + Duration::from_secs(5);
         while got.len() < sent.len() && Instant::now() < deadline {
-            got.extend(call::<_, Vec<String>>(e, "posted", ()).map_err(s)?);
+            got.extend(e.posted().map_err(s)?);
             std::thread::sleep(Duration::from_millis(50));
         }
         got.sort();
@@ -519,6 +483,8 @@ fn run() -> Result<bool, String> {
     if !orb_args.is_empty() {
         return Err(format!("unknown arguments: {orb_args:?}"));
     }
+    // Point3 arrives where Point is declared.
+    idl::register_value_types();
     let root = orb
         .string_to_object(&args.naming)
         .map_err(|e| format!("{}: {e}", args.naming))?
@@ -542,7 +508,9 @@ fn run() -> Result<bool, String> {
             SystemException::new(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No).into()
         })
     })?;
-    let is_echo = echo.is_a(ECHO_ID).map_err(|e| format!("_is_a: {e}"))?;
+    let is_echo = echo
+        .is_a(Echo::REPOSITORY_ID)
+        .map_err(|e| format!("_is_a: {e}"))?;
     if !is_echo {
         return Err(format!("{} is not an InteropTest::Echo", args.name));
     }
@@ -550,6 +518,8 @@ fn run() -> Result<bool, String> {
     retry("the Echo server", args.timeout, reachable, || {
         echo.non_existent()
     })?;
+
+    let echo = Echo::unchecked_narrow(echo);
 
     let cb = serve_callback(&orb)?;
     let mut r = Runner {
@@ -559,9 +529,7 @@ fn run() -> Result<bool, String> {
     run_cases(&mut r, &echo, &cb);
 
     if args.shutdown_server {
-        echo.request("shutdown")
-            .send_oneway()
-            .map_err(|e| format!("shutdown: {e}"))?;
+        echo.shutdown().map_err(|e| format!("shutdown: {e}"))?;
     }
     println!("\n{} passed, {} failed", r.passed, r.failed.len());
     if !r.failed.is_empty() {
@@ -586,7 +554,7 @@ fn run_any(
         })
     })?;
     let is_echo = echo
-        .is_a(anytest::ANY_ECHO_ID)
+        .is_a(idl::any_test::AnyEcho::REPOSITORY_ID)
         .map_err(|e| format!("_is_a: {e}"))?;
     if !is_echo {
         return Err(format!("{} is not an AnyTest::AnyEcho", args.name));
@@ -600,6 +568,7 @@ fn run_any(
         passed: 0,
         failed: Vec::new(),
     };
+    let echo = idl::any_test::AnyEcho::unchecked_narrow(echo);
     for (case, f) in anytest::cases(&echo) {
         r.case(&case, f);
     }
@@ -610,9 +579,8 @@ fn run_any(
             .map_err(|e| e.to_string())
             .and_then(|n| root.resolve(&n).map_err(|e| e.to_string()))?
             .ok_or("nil Echo")?;
-        server
-            .request("shutdown")
-            .send_oneway()
+        Echo::unchecked_narrow(server)
+            .shutdown()
             .map_err(|e| format!("shutdown: {e}"))?;
     }
     println!("\n{} passed, {} failed", r.passed, r.failed.len());
@@ -637,7 +605,7 @@ fn run_value(
         })
     })?;
     let is_echo = echo
-        .is_a(valuetest::VALUE_ECHO_ID)
+        .is_a(idl::value_test::ValueEcho::REPOSITORY_ID)
         .map_err(|e| format!("_is_a: {e}"))?;
     if !is_echo {
         return Err(format!("{} is not a ValueTest::ValueEcho", args.name));
@@ -651,14 +619,13 @@ fn run_value(
         passed: 0,
         failed: Vec::new(),
     };
+    let echo = idl::value_test::ValueEcho::unchecked_narrow(echo);
     for (case, f) in valuetest::cases(&echo) {
         r.case(&case, f);
     }
 
     if args.shutdown_server {
-        echo.request("shutdown")
-            .send_oneway()
-            .map_err(|e| format!("shutdown: {e}"))?;
+        echo.shutdown().map_err(|e| format!("shutdown: {e}"))?;
     }
     println!("\n{} passed, {} failed", r.passed, r.failed.len());
     if !r.failed.is_empty() {

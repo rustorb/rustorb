@@ -3,9 +3,11 @@
 //!
 //! The client side: [`NamingContext`], [`NamingContextExt`] and
 //! [`BindingIterator`] are stubs for the interfaces of the CosNaming IDL
-//! (Naming Service 1.3), written by hand until the IDL compiler exists.
-//! The user exceptions of the operations are the variants of
-//! [`NamingError`].
+//! (Naming Service 1.3), over the ones `rustorb-idl -brust` generates in
+//! [`idl::cos_naming`], with the names of [`rustorb_core::name`]. The user
+//! exceptions of the operations are the variants of [`NamingError`].
+//! Code generated from IDL that uses CosNaming refers to [`idl::cos_naming`]
+//! (`-Wbextern=CosNaming=rustorb_naming::idl::cos_naming`).
 //!
 //! The server side: [`NamingService`] serves the naming contexts on an
 //! ORB, with the root context at `corbaloc::host:port/NameService` like
@@ -38,6 +40,12 @@ mod client;
 mod error;
 mod server;
 pub mod store;
+
+/// The code `rustorb-idl -brust` generates from the CosNaming IDL
+/// (`crates/rustorb-codegen/generate-rust.sh` writes `src/idl/`).
+pub mod idl {
+    include!("idl/cos_naming.rs");
+}
 
 pub use client::{Binding, BindingIterator, BindingType, NamingContext, NamingContextExt, to_url};
 pub use error::{NamingError, NotFoundReason};

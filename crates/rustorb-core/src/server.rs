@@ -476,6 +476,7 @@ impl Server {
             completed: CompletionStatus::No,
             wchar_needs_code_set: true,
             values: Vec::new(),
+            typed_values: Vec::new(),
         };
         let result = {
             let _upcall = UpcallGuard::enter();

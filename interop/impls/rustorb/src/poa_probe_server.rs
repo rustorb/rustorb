@@ -7,8 +7,8 @@
 //! Publishes Target objects in POAs with different policies, like the
 //! omniORB probe servers (`impls/omniorbpy/poa_probe_server.py`), and
 //! writes the IOR of the Control object to FILE. `scripts/poa-probe`
-//! drives it; see `run-poa-probe.sh`. The skeletons are hand-written until
-//! the code generator exists.
+//! drives it; see `run-poa-probe.sh`. The skeletons are those
+//! `rustorb-idl -brust` generates (`src/idl/`).
 
 mod idl;
 
@@ -18,18 +18,17 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, ThreadId};
 use std::time::{Duration, Instant};
 
-use idl::{Get, Put, Sys};
-use rustorb_core::{
-    AdapterActivator, CompletionStatus, Cookie, Exception, IdAssignment, IdUniqueness, InStream,
-    Lifespan, ObjectRef, Orb, OutStream, Poa, PoaCurrent, PoaError, PoaManager, Policy,
-    RequestProcessing, Servant, ServantActivator, ServantLocator, ServantManager,
-    ServantManagerError, ServantRetention, ServerReply, SystemException, SystemExceptionKind,
-    ThreadPolicy, minor,
+use idl::poa_probe::{
+    CallInfo, ControlPoa, ControlServant, Failed, StringSeq, Target, TargetPoa, TargetServant,
+    control,
 };
-
-const TARGET_ID: &str = "IDL:rustorb.org/PoaProbe/Target:1.0";
-const CONTROL_ID: &str = "IDL:rustorb.org/PoaProbe/Control:1.0";
-const FAILED_ID: &str = "IDL:rustorb.org/PoaProbe/Failed:1.0";
+use rustorb_core::idl::{IdlType, Sys, bad_param, system_exception};
+use rustorb_core::{
+    AdapterActivator, CompletionStatus, Cookie, IdAssignment, IdUniqueness, Lifespan, ObjectRef,
+    Orb, Poa, PoaCurrent, PoaError, PoaManager, Policy, RequestProcessing, Servant,
+    ServantActivator, ServantLocator, ServantManager, ServantManagerError, ServantRetention,
+    SystemException, SystemExceptionKind, ThreadPolicy,
+};
 
 static START: OnceLock<Instant> = OnceLock::new();
 static MAIN_THREAD: OnceLock<ThreadId> = OnceLock::new();
@@ -87,40 +86,6 @@ fn sys(kind: SystemExceptionKind, minor: u32) -> SystemException {
     SystemException::new(kind, minor, CompletionStatus::No)
 }
 
-fn bad_operation() -> SystemException {
-    sys(SystemExceptionKind::BAD_OPERATION, minor::UNKNOWN_OPERATION)
-}
-
-/// `PoaProbe::CallInfo`.
-struct CallInfo {
-    thread: String,
-    object_id: String,
-    poa: String,
-    start: f64,
-    end: f64,
-}
-
-impl Put for CallInfo {
-    fn put(&self, out: &mut OutStream<'_>) -> Sys<()> {
-        (&self.thread, &self.object_id, &self.poa).put(out)?;
-        (self.start, self.end).put(out)
-    }
-}
-
-impl Get for CallInfo {
-    fn get(input: &mut InStream<'_>) -> Sys<Self> {
-        let (thread, object_id, poa) = Get::get(input)?;
-        let (start, end) = Get::get(input)?;
-        Ok(CallInfo {
-            thread,
-            object_id,
-            poa,
-            start,
-            end,
-        })
-    }
-}
-
 fn sleep_ms(ms: i32) {
     if ms > 0 {
         thread::sleep(Duration::from_millis(ms.unsigned_abs().into()));
@@ -128,10 +93,15 @@ fn sleep_ms(ms: i32) {
 }
 
 /// `PoaProbe::Target`.
-struct Target;
+struct Probe;
 
-impl Target {
-    fn work(ms: i32) -> CallInfo {
+/// A new Target servant.
+fn target() -> Arc<dyn Servant> {
+    Arc::new(TargetPoa(Probe))
+}
+
+impl TargetServant for Probe {
+    fn work(&self, ms: i32) -> Sys<CallInfo> {
         let start = now();
         let thread = thread_label();
         let object_id = PoaCurrent::get_object_id()
@@ -141,60 +111,34 @@ impl Target {
             .map(|p| poa_path(&p))
             .unwrap_or_default();
         sleep_ms(ms);
-        CallInfo {
+        Ok(CallInfo {
             thread,
             object_id,
             poa,
             start,
             end: now(),
-        }
-    }
-}
-
-impl Servant for Target {
-    fn repository_id(&self) -> &str {
-        TARGET_ID
+        })
     }
 
-    fn dispatch(
-        &self,
-        operation: &str,
-        input: &mut InStream<'_>,
-        reply: &mut ServerReply,
-    ) -> Result<(), SystemException> {
-        match operation {
-            "work" => {
-                let (ms,): (i32,) = Get::get(input)?;
-                Target::work(ms).put(&mut reply.output())
-            }
-            "relay" => {
-                let (other, ms): (Option<ObjectRef>, i32) = Get::get(input)?;
-                let other = other.ok_or_else(|| sys(SystemExceptionKind::BAD_PARAM, 0))?;
-                let outer = thread_label();
-                let inner = other
-                    .request("work")
-                    .args(|out| ms.put(out))
-                    .timeout(Some(Duration::from_secs(3)))
-                    .invoke()
-                    .map_err(|e| match e {
-                        Exception::System(e) => e,
-                        Exception::User(_) => SystemException::new(
-                            SystemExceptionKind::UNKNOWN,
-                            minor::UNLISTED_USER_EXCEPTION,
-                            CompletionStatus::Maybe,
-                        ),
-                    })?;
-                let info = CallInfo::get(&mut inner.input())?;
-                (info, outer).put(&mut reply.output())
-            }
-            "post" => {
-                let (seq, ms): (i32, i32) = Get::get(input)?;
-                sleep_ms(ms);
-                event(format!("post {seq}"));
-                Ok(())
-            }
-            _ => Err(bad_operation()),
-        }
+    fn relay(&self, other: Option<&Target>, ms: i32) -> Sys<(CallInfo, String)> {
+        let other = other.ok_or_else(bad_param)?;
+        let outer = thread_label();
+        // By hand rather than with other.work(ms), for the timeout.
+        let inner = other
+            .object()
+            .request("work")
+            .args(|out| rustorb_core::idl::Long::write(&ms, out))
+            .timeout(Some(Duration::from_secs(3)))
+            .invoke()
+            .map_err(system_exception)?;
+        let info = CallInfo::read(&mut inner.input())?;
+        Ok((info, outer))
+    }
+
+    fn post(&self, seq: i32, ms: i32) -> Sys<()> {
+        sleep_ms(ms);
+        event(format!("post {seq}"));
+        Ok(())
     }
 }
 
@@ -304,55 +248,22 @@ struct Control {
 }
 
 /// `PoaProbe::Failed`.
-fn failed(reply: &mut ServerReply, reason: &str) -> Sys<()> {
-    let mut out = reply.user_exception(FAILED_ID)?;
-    out.write_string(reason)
+fn failed<E: From<Failed>>(reason: impl Into<String>) -> E {
+    Failed {
+        reason: reason.into(),
+    }
+    .into()
 }
 
 impl Control {
-    fn poa(&self, path: &str) -> Result<Poa, String> {
+    fn poa<E: From<Failed>>(&self, path: &str) -> Result<Poa, E> {
         let mut poa = self.root.clone();
         for name in path.split('/').filter(|p| !p.is_empty() && *p != "RootPOA") {
             poa = poa
                 .find_poa(name, true)
-                .map_err(|_| format!("no POA {path}"))?;
+                .map_err(|_| failed(format!("no POA {path}")))?;
         }
         Ok(poa)
-    }
-
-    fn reference(&self, poa: &str, oid: &str) -> Result<String, String> {
-        let obj = match self.system_refs.get(poa) {
-            Some(obj) => obj.clone(),
-            None => self
-                .poa(poa)?
-                .create_reference_with_id(&oid_bytes(oid), TARGET_ID)
-                .map_err(|e| e.to_string())?,
-        };
-        self.orb
-            .object_to_string(Some(&obj))
-            .map_err(|e| e.to_string())
-    }
-
-    fn set_state(&self, state: &str) -> Result<(), String> {
-        let result = match state {
-            "active" => self.managed.activate(),
-            "holding" => self.managed.hold_requests(false),
-            "discarding" => self.managed.discard_requests(false),
-            "inactive" => self.managed.deactivate(false, false),
-            _ => return Err(format!("unknown state {state}")),
-        };
-        result.map_err(|e| match e {
-            PoaError::AdapterInactive => "AdapterInactive".to_owned(),
-            e => e.to_string(),
-        })
-    }
-
-    fn shutdown_later(&self, delay_ms: i32) {
-        let orb = self.orb.clone();
-        thread::spawn(move || {
-            sleep_ms(delay_ms);
-            let _ = orb.shutdown(false);
-        });
     }
 }
 
@@ -362,82 +273,81 @@ fn oid_bytes(oid: &str) -> Vec<u8> {
         .collect()
 }
 
-/// Writes the result of an operation that raises `Failed`.
-fn or_failed<T: Put>(reply: &mut ServerReply, result: Result<T, String>) -> Sys<()> {
-    match result {
-        Ok(v) => v.put(&mut reply.output()),
-        Err(reason) => failed(reply, &reason),
+impl ControlServant for Control {
+    fn reference(&self, poa: &str, oid: &str) -> Result<String, control::ReferenceError> {
+        let obj = match self.system_refs.get(poa) {
+            Some(obj) => obj.clone(),
+            None => self
+                .poa::<control::ReferenceError>(poa)?
+                .create_reference_with_id(&oid_bytes(oid), Target::REPOSITORY_ID)
+                .map_err(|e| failed::<control::ReferenceError>(e.to_string()))?,
+        };
+        self.orb
+            .object_to_string(Some(&obj))
+            .map_err(|e| failed(e.to_string()))
     }
-}
 
-impl Servant for Control {
-    fn repository_id(&self) -> &str {
-        CONTROL_ID
+    fn set_state(&self, state: &str) -> Result<(), control::SetStateError> {
+        let result = match state {
+            "active" => self.managed.activate(),
+            "holding" => self.managed.hold_requests(false),
+            "discarding" => self.managed.discard_requests(false),
+            "inactive" => self.managed.deactivate(false, false),
+            _ => return Err(failed(format!("unknown state {state}"))),
+        };
+        result.map_err(|e| match e {
+            PoaError::AdapterInactive => failed("AdapterInactive"),
+            e => failed(e.to_string()),
+        })
     }
 
-    fn dispatch(
+    fn deactivate_object(
         &self,
-        operation: &str,
-        input: &mut InStream<'_>,
-        reply: &mut ServerReply,
-    ) -> Result<(), SystemException> {
-        match operation {
-            "reference" => {
-                let (poa, oid): (String, String) = Get::get(input)?;
-                or_failed(reply, self.reference(&poa, &oid))
-            }
-            "set_state" => {
-                let (state,): (String,) = Get::get(input)?;
-                or_failed(reply, self.set_state(&state))
-            }
-            "deactivate_object" => {
-                let (poa, oid): (String, String) = Get::get(input)?;
-                let result = self.poa(&poa).and_then(|p| {
-                    p.deactivate_object(&oid_bytes(&oid)).map_err(|e| match e {
-                        PoaError::ObjectNotActive => "ObjectNotActive".to_owned(),
-                        e => e.to_string(),
-                    })
-                });
-                or_failed(reply, result)
-            }
-            "activate_object" => {
-                let (poa, oid): (String, String) = Get::get(input)?;
-                let result = self.poa(&poa).and_then(|p| {
-                    p.activate_object_with_id(&oid_bytes(&oid), Arc::new(Target))
-                        .map_err(|e| match e {
-                            PoaError::ObjectAlreadyActive => "ObjectAlreadyActive".to_owned(),
-                            PoaError::ServantAlreadyActive => "ServantAlreadyActive".to_owned(),
-                            e => e.to_string(),
-                        })
-                });
-                or_failed(reply, result)
-            }
-            "destroy_poa" => {
-                let (poa,): (String,) = Get::get(input)?;
-                let result = self
-                    .poa(&poa)
-                    .and_then(|p| p.destroy(true, false).map_err(|e| e.to_string()));
-                or_failed(reply, result)
-            }
-            "events" => {
-                let events = std::mem::take(&mut *EVENTS.lock().unwrap());
-                events.put(&mut reply.output())
-            }
-            "shutdown_inside" => {
-                let (wait,): (bool,) = Get::get(input)?;
-                let result = match self.orb.shutdown(wait) {
-                    Ok(()) => String::new(),
-                    Err(e) => format!("{} minor 0x{:08x}", e.repository_id, e.minor),
-                };
-                result.put(&mut reply.output())
-            }
-            "shutdown_later" => {
-                let (delay,): (i32,) = Get::get(input)?;
-                self.shutdown_later(delay);
-                Ok(())
-            }
-            _ => Err(bad_operation()),
-        }
+        poa: &str,
+        oid: &str,
+    ) -> Result<(), control::DeactivateObjectError> {
+        self.poa::<control::DeactivateObjectError>(poa)?
+            .deactivate_object(&oid_bytes(oid))
+            .map_err(|e| match e {
+                PoaError::ObjectNotActive => failed("ObjectNotActive"),
+                e => failed(e.to_string()),
+            })
+    }
+
+    fn activate_object(&self, poa: &str, oid: &str) -> Result<(), control::ActivateObjectError> {
+        self.poa::<control::ActivateObjectError>(poa)?
+            .activate_object_with_id(&oid_bytes(oid), target())
+            .map_err(|e| match e {
+                PoaError::ObjectAlreadyActive => failed("ObjectAlreadyActive"),
+                PoaError::ServantAlreadyActive => failed("ServantAlreadyActive"),
+                e => failed(e.to_string()),
+            })
+    }
+
+    fn destroy_poa(&self, poa: &str) -> Result<(), control::DestroyPoaError> {
+        self.poa::<control::DestroyPoaError>(poa)?
+            .destroy(true, false)
+            .map_err(|e| failed(e.to_string()))
+    }
+
+    fn events(&self) -> Sys<StringSeq> {
+        Ok(std::mem::take(&mut *EVENTS.lock().unwrap()))
+    }
+
+    fn shutdown_inside(&self, wait_for_completion: bool) -> Sys<String> {
+        Ok(match self.orb.shutdown(wait_for_completion) {
+            Ok(()) => String::new(),
+            Err(e) => format!("{} minor 0x{:08x}", e.repository_id, e.minor),
+        })
+    }
+
+    fn shutdown_later(&self, delay_ms: i32) -> Sys<()> {
+        let orb = self.orb.clone();
+        thread::spawn(move || {
+            sleep_ms(delay_ms);
+            let _ = orb.shutdown(false);
+        });
+        Ok(())
     }
 }
 
@@ -493,7 +403,7 @@ fn run() -> Result<(), String> {
     };
     let root = orb.root_poa().map_err(|e| format!("RootPOA: {e}"))?;
     let root_manager = root.the_poa_manager();
-    let servant: Arc<dyn Servant> = Arc::new(Target);
+    let servant: Arc<dyn Servant> = target();
 
     let persistent = |more: &[Policy]| {
         let mut p = vec![
@@ -522,7 +432,7 @@ fn run() -> Result<(), String> {
         .activate_object_with_id(b"obj", Arc::clone(&servant))
         .map_err(e("activate"))?;
     persistent_user
-        .activate_object_with_id(b"victim", Arc::new(Target))
+        .activate_object_with_id(b"victim", target())
         .map_err(e("activate"))?;
     let nested = create(&persistent_user, "nested", &persistent(&[]))?;
     nested
@@ -535,7 +445,7 @@ fn run() -> Result<(), String> {
         &[Policy::Lifespan(Lifespan::Persistent)],
     )?;
     let oid = persistent_system
-        .activate_object(Arc::new(Target))
+        .activate_object(target())
         .map_err(e("activate"))?;
     system_refs.insert(
         "persistent_system".to_owned(),
@@ -555,7 +465,7 @@ fn run() -> Result<(), String> {
 
     let transient_system = create(&root, "transient_system", &[])?;
     let oid = transient_system
-        .activate_object(Arc::new(Target))
+        .activate_object(target())
         .map_err(e("activate"))?;
     system_refs.insert(
         "transient_system".to_owned(),
@@ -572,7 +482,7 @@ fn run() -> Result<(), String> {
         )?;
         poa.activate_object_with_id(b"a", Arc::clone(&servant))
             .map_err(e("activate"))?;
-        poa.activate_object_with_id(b"b", Arc::new(Target))
+        poa.activate_object_with_id(b"b", target())
             .map_err(e("activate"))?;
     }
 
@@ -585,7 +495,7 @@ fn run() -> Result<(), String> {
         .activate_object_with_id(b"a", Arc::clone(&servant))
         .map_err(e("activate"))?;
     main_poa
-        .activate_object_with_id(b"b", Arc::new(Target))
+        .activate_object_with_id(b"b", target())
         .map_err(e("activate"))?;
 
     let managed = root
@@ -655,12 +565,12 @@ fn run() -> Result<(), String> {
     let control_poa = root
         .create_poa("control", None, &persistent(&[]))
         .map_err(e("create_POA control"))?;
-    let control = Arc::new(Control {
+    let control = Arc::new(ControlPoa(Control {
         orb: orb.clone(),
         root: root.clone(),
         managed: managed_manager.clone(),
         system_refs,
-    });
+    }));
     control_poa
         .activate_object_with_id(b"Control", control)
         .map_err(e("activate"))?;

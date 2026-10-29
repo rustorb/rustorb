@@ -11,14 +11,14 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use rustorb_core::name::{self, Name, NameComponent};
 use rustorb_core::{
-    CompletionStatus, Cookie, IdAssignment, InStream, Lifespan, ObjectRef, Orb, OutStream, Poa,
-    PoaCurrent, PoaError, Policy, RequestProcessing, Servant, ServantLocator, ServantManager,
-    ServantManagerError, ServantRetention, ServerReply, SystemException, SystemExceptionKind,
-    minor,
+    CompletionStatus, Cookie, IdAssignment, Lifespan, ObjectRef, Orb, Poa, PoaCurrent, PoaError,
+    Policy, RequestProcessing, Servant, ServantLocator, ServantManager, ServantManagerError,
+    ServantRetention, SystemException, SystemExceptionKind, minor,
 };
 
-use crate::client::{Binding, BindingType, NamingContext};
-use crate::repository_id::{BINDING_ITERATOR, NAMING_CONTEXT, NAMING_CONTEXT_EXT};
+use crate::client::{Binding, BindingType, NamingContext, from_idl_name, to_idl_name};
+use crate::idl::cos_naming::{self as idl, naming_context as nc, naming_context_ext as nce};
+use crate::repository_id::NAMING_CONTEXT_EXT;
 use crate::store::{Change, Snapshot, Store, StoredBinding};
 use crate::{NamingError, NotFoundReason};
 
@@ -345,13 +345,15 @@ impl Service {
             Target::Local(context) => context,
             Target::Remote(ctx, rest) => {
                 drop(st);
-                let operation = match (binding_type, rebind) {
-                    (BindingType::Object, false) => "bind",
-                    (BindingType::Object, true) => "rebind",
-                    (BindingType::Context, false) => "bind_context",
-                    (BindingType::Context, true) => "rebind_context",
-                };
-                return ctx.bind_op(operation, &rest, obj, !rebind);
+                let (stub, rest) = (ctx.stub(), to_idl_name(&rest));
+                let nc = || obj.map(|o| idl::NamingContext::unchecked_narrow(o.clone()));
+                match (binding_type, rebind) {
+                    (BindingType::Object, false) => stub.bind(&rest, obj)?,
+                    (BindingType::Object, true) => stub.rebind(&rest, obj)?,
+                    (BindingType::Context, false) => stub.bind_context(&rest, nc().as_ref())?,
+                    (BindingType::Context, true) => stub.rebind_context(&rest, nc().as_ref())?,
+                }
+                return Ok(());
             }
         };
         let component = n.last().expect("checked by target").clone();
@@ -471,10 +473,10 @@ impl Service {
     /// An iterator over `rest`, destroying the oldest one if there are too
     /// many.
     fn new_iterator(self: &Arc<Self>, rest: Vec<Binding>) -> Result<ObjectRef, SystemException> {
-        let servant: Arc<dyn Servant> = Arc::new(IteratorServant {
+        let servant: Arc<dyn Servant> = Arc::new(idl::BindingIteratorPoa(IteratorServant {
             rest: Mutex::new(rest.into()),
             service: Arc::downgrade(self),
-        });
+        }));
         let poa_error = |e: PoaError| match e {
             PoaError::System(e) => e,
             _ => invalid_ior(),
@@ -516,10 +518,10 @@ impl ServantLocator for Locator {
         if !service.lock().snapshot.contexts.contains_key(id) {
             return Err(no_such_object().into());
         }
-        let servant = ContextServant {
+        let servant = idl::NamingContextExtPoa(ContextServant {
             service,
             id: id.to_owned(),
-        };
+        });
         Ok((Arc::new(servant), Box::new(())))
     }
 }
@@ -530,141 +532,127 @@ struct ContextServant {
     id: String,
 }
 
-/// Writes `result` to the reply: `ok` writes the result, a CosNaming user
-/// exception is written as one, and a system exception is returned.
-fn answer<T>(
-    reply: &mut ServerReply,
-    result: Result<T, NamingError>,
-    ok: impl FnOnce(&mut OutStream<'_>, T) -> Result<(), SystemException>,
-) -> Result<(), SystemException> {
-    match result {
-        Ok(value) => ok(&mut reply.output(), value),
-        Err(NamingError::System(e)) => Err(e),
-        Err(e) => e.write(reply),
-    }
+/// A context reference of the generated code.
+fn idl_context(obj: ObjectRef) -> Option<idl::NamingContext> {
+    Some(idl::NamingContext::unchecked_narrow(obj))
 }
 
-fn read_name(input: &mut InStream<'_>) -> Result<Name, SystemException> {
-    name::read_name(input)
-}
-
-impl Servant for ContextServant {
-    fn repository_id(&self) -> &str {
-        NAMING_CONTEXT_EXT
+impl idl::NamingContextServant for ContextServant {
+    fn bind(&self, n: &[idl::NameComponent], obj: Option<&ObjectRef>) -> Result<(), nc::BindError> {
+        let n = from_idl_name(n.to_vec());
+        Ok(self
+            .service
+            .bind(&self.id, &n, obj, BindingType::Object, false)?)
     }
 
-    fn is_a(&self, repository_id: &str) -> bool {
-        repository_id == NAMING_CONTEXT_EXT || repository_id == NAMING_CONTEXT
-    }
-
-    fn dispatch(
+    fn rebind(
         &self,
-        operation: &str,
-        input: &mut InStream<'_>,
-        reply: &mut ServerReply,
-    ) -> Result<(), SystemException> {
-        let s = &self.service;
-        let id = self.id.as_str();
-        let unit = |_: &mut OutStream<'_>, ()| Ok(());
-        let object =
-            |out: &mut OutStream<'_>, obj: Option<ObjectRef>| out.write_object(obj.as_ref());
-        match operation {
-            "bind" | "rebind" | "bind_context" | "rebind_context" => {
-                let n = read_name(input)?;
-                let obj = input.read_object()?;
-                let binding_type = if operation.ends_with("context") {
-                    BindingType::Context
-                } else {
-                    BindingType::Object
-                };
-                let rebind = operation.starts_with("rebind");
-                answer(
-                    reply,
-                    s.bind(id, &n, obj.as_ref(), binding_type, rebind),
-                    unit,
-                )
-            }
-            "resolve" => {
-                let n = read_name(input)?;
-                answer(reply, s.resolve(id, &n), object)
-            }
-            "unbind" => {
-                let n = read_name(input)?;
-                answer(reply, s.unbind(id, &n), unit)
-            }
-            "new_context" => answer(reply, s.new_context().map(Some), object),
-            "bind_new_context" => {
-                let n = read_name(input)?;
-                answer(reply, s.bind_new_context(id, &n).map(Some), object)
-            }
-            "destroy" => answer(reply, s.destroy(id), unit),
-            "list" => {
-                let how_many = input.read::<u32>()?;
-                let mut bindings = s.bindings(id)?;
-                let rest = bindings.split_off(bindings.len().min(how_many as usize));
-                let iterator = if rest.is_empty() {
-                    None
-                } else {
-                    Some(s.new_iterator(rest)?)
-                };
-                let mut out = reply.output();
-                write_bindings(&mut out, &bindings)?;
-                out.write_object(iterator.as_ref())
-            }
-            "to_string" => {
-                let n = read_name(input)?;
-                answer(
-                    reply,
-                    name::to_string(&n).map_err(NamingError::from),
-                    |out, s| out.write_string(&s),
-                )
-            }
-            "to_name" => {
-                let sn = input.read_string()?;
-                answer(
-                    reply,
-                    name::to_name(&sn).map_err(NamingError::from),
-                    |out, n| name::write_name(out, &n),
-                )
-            }
-            "to_url" => {
-                let addr = input.read_string()?;
-                let sn = input.read_string()?;
-                answer(reply, crate::to_url(&addr, &sn), |out, url| {
-                    out.write_string(&url)
-                })
-            }
-            "resolve_str" => {
-                let sn = input.read_string()?;
-                let result = name::to_name(&sn)
-                    .map_err(NamingError::from)
-                    .and_then(|n| s.resolve(id, &n));
-                answer(reply, result, object)
-            }
-            _ => Err(SystemException::new(
-                SystemExceptionKind::BAD_OPERATION,
-                minor::UNKNOWN_OPERATION,
-                CompletionStatus::No,
-            )),
+        n: &[idl::NameComponent],
+        obj: Option<&ObjectRef>,
+    ) -> Result<(), nc::RebindError> {
+        let n = from_idl_name(n.to_vec());
+        Ok(self
+            .service
+            .bind(&self.id, &n, obj, BindingType::Object, true)?)
+    }
+
+    fn bind_context(
+        &self,
+        n: &[idl::NameComponent],
+        ctx: Option<&idl::NamingContext>,
+    ) -> Result<(), nc::BindContextError> {
+        let n = from_idl_name(n.to_vec());
+        let obj = ctx.map(idl::NamingContext::object);
+        Ok(self
+            .service
+            .bind(&self.id, &n, obj, BindingType::Context, false)?)
+    }
+
+    fn rebind_context(
+        &self,
+        n: &[idl::NameComponent],
+        ctx: Option<&idl::NamingContext>,
+    ) -> Result<(), nc::RebindContextError> {
+        let n = from_idl_name(n.to_vec());
+        let obj = ctx.map(idl::NamingContext::object);
+        Ok(self
+            .service
+            .bind(&self.id, &n, obj, BindingType::Context, true)?)
+    }
+
+    fn resolve(&self, n: &[idl::NameComponent]) -> Result<Option<ObjectRef>, nc::ResolveError> {
+        Ok(self.service.resolve(&self.id, &from_idl_name(n.to_vec()))?)
+    }
+
+    fn unbind(&self, n: &[idl::NameComponent]) -> Result<(), nc::UnbindError> {
+        Ok(self.service.unbind(&self.id, &from_idl_name(n.to_vec()))?)
+    }
+
+    fn new_context(&self) -> Result<Option<idl::NamingContext>, SystemException> {
+        match self.service.new_context() {
+            Ok(obj) => Ok(idl_context(obj)),
+            Err(NamingError::System(e)) => Err(e),
+            Err(_) => Err(unlisted()),
         }
     }
-}
 
-fn write_binding(out: &mut OutStream<'_>, binding: &Binding) -> Result<(), SystemException> {
-    name::write_name(out, &binding.binding_name)?;
-    out.write_u32(match binding.binding_type {
-        BindingType::Object => 0,
-        BindingType::Context => 1,
-    });
-    Ok(())
-}
-
-fn write_bindings(out: &mut OutStream<'_>, bindings: &[Binding]) -> Result<(), SystemException> {
-    out.write_len(bindings.len())?;
-    for binding in bindings {
-        write_binding(out, binding)?;
+    fn bind_new_context(
+        &self,
+        n: &[idl::NameComponent],
+    ) -> Result<Option<idl::NamingContext>, nc::BindNewContextError> {
+        let n = from_idl_name(n.to_vec());
+        Ok(idl_context(self.service.bind_new_context(&self.id, &n)?))
     }
-    Ok(())
+
+    fn destroy(&self) -> Result<(), nc::DestroyError> {
+        Ok(self.service.destroy(&self.id)?)
+    }
+
+    fn list(
+        &self,
+        how_many: u32,
+    ) -> Result<(idl::BindingList, Option<idl::BindingIterator>), SystemException> {
+        let s = &self.service;
+        let mut bindings = s.bindings(&self.id)?;
+        let rest = bindings.split_off(bindings.len().min(how_many as usize));
+        let iterator = if rest.is_empty() {
+            None
+        } else {
+            Some(idl::BindingIterator::unchecked_narrow(
+                s.new_iterator(rest)?,
+            ))
+        };
+        Ok((bindings.iter().map(idl::Binding::from).collect(), iterator))
+    }
+}
+
+impl idl::NamingContextExtServant for ContextServant {
+    fn to_string(&self, n: &[idl::NameComponent]) -> Result<String, nce::ToStringError> {
+        Ok(name::to_string(&from_idl_name(n.to_vec())).map_err(NamingError::from)?)
+    }
+
+    fn to_name(&self, sn: &str) -> Result<idl::Name, nce::ToNameError> {
+        let n = name::to_name(sn).map_err(NamingError::from)?;
+        Ok(to_idl_name(&n))
+    }
+
+    fn to_url(&self, addr: &str, sn: &str) -> Result<String, nce::ToUrlError> {
+        Ok(crate::to_url(addr, sn)?)
+    }
+
+    fn resolve_str(&self, sn: &str) -> Result<Option<ObjectRef>, nce::ResolveStrError> {
+        let n = name::to_name(sn).map_err(NamingError::from)?;
+        Ok(self.service.resolve(&self.id, &n)?)
+    }
+}
+
+/// `UNKNOWN`, for a user exception the operation does not declare.
+fn unlisted() -> SystemException {
+    SystemException::new(
+        SystemExceptionKind::UNKNOWN,
+        minor::UNLISTED_USER_EXCEPTION,
+        CompletionStatus::Maybe,
+    )
 }
 
 /// The servant of one binding iterator: the bindings not returned yet.
@@ -673,57 +661,35 @@ struct IteratorServant {
     service: std::sync::Weak<Service>,
 }
 
-impl Servant for IteratorServant {
-    fn repository_id(&self) -> &str {
-        BINDING_ITERATOR
+impl idl::BindingIteratorServant for IteratorServant {
+    fn next_one(&self) -> Result<(bool, idl::Binding), SystemException> {
+        let next = self.rest.lock().unwrap().pop_front();
+        // At the end, an empty name bound to an object, as omniNames
+        // returns.
+        Ok(match next {
+            Some(b) => (true, idl::Binding::from(&b)),
+            None => (false, idl::Binding::default()),
+        })
     }
 
-    fn dispatch(
-        &self,
-        operation: &str,
-        input: &mut InStream<'_>,
-        reply: &mut ServerReply,
-    ) -> Result<(), SystemException> {
-        match operation {
-            "next_one" => {
-                let next = self.rest.lock().unwrap().pop_front();
-                let mut out = reply.output();
-                out.write_bool(next.is_some());
-                // At the end, an empty name bound to an object, as
-                // omniNames returns.
-                let binding = next.unwrap_or(Binding {
-                    binding_name: Vec::new(),
-                    binding_type: BindingType::Object,
-                });
-                write_binding(&mut out, &binding)
-            }
-            "next_n" => {
-                let how_many = input.read::<u32>()? as usize;
-                let chunk: Vec<Binding> = {
-                    let mut rest = self.rest.lock().unwrap();
-                    let n = how_many.min(rest.len());
-                    rest.drain(..n).collect()
-                };
-                let mut out = reply.output();
-                out.write_bool(!chunk.is_empty());
-                write_bindings(&mut out, &chunk)
-            }
-            "destroy" => {
-                let oid = PoaCurrent::get_object_id().map_err(|_| no_such_object())?;
-                if let Some(service) = self.service.upgrade() {
-                    service.lock().iterators.retain(|o| *o != oid);
-                    service
-                        .iterators
-                        .deactivate_object(&oid)
-                        .map_err(|_| no_such_object())?;
-                }
-                Ok(())
-            }
-            _ => Err(SystemException::new(
-                SystemExceptionKind::BAD_OPERATION,
-                minor::UNKNOWN_OPERATION,
-                CompletionStatus::No,
-            )),
+    fn next_n(&self, how_many: u32) -> Result<(bool, idl::BindingList), SystemException> {
+        let chunk: Vec<idl::Binding> = {
+            let mut rest = self.rest.lock().unwrap();
+            let n = (how_many as usize).min(rest.len());
+            rest.drain(..n).map(|b| idl::Binding::from(&b)).collect()
+        };
+        Ok((!chunk.is_empty(), chunk))
+    }
+
+    fn destroy(&self) -> Result<(), SystemException> {
+        let oid = PoaCurrent::get_object_id().map_err(|_| no_such_object())?;
+        if let Some(service) = self.service.upgrade() {
+            service.lock().iterators.retain(|o| *o != oid);
+            service
+                .iterators
+                .deactivate_object(&oid)
+                .map_err(|_| no_such_object())?;
         }
+        Ok(())
     }
 }
