@@ -107,6 +107,18 @@ final class Native {
     static native void inFail(long in);
     static native boolean inFailed(long in);
 
+    // valuetypes (RORB_VALUE_NULL, RORB_VALUE_INDIRECTION, RORB_VALUE_NEW)
+    static final int VALUE_NULL = 0;
+    static final int VALUE_INDIRECTION = 1;
+    static final int VALUE_NEW = 2;
+    static native void outNullValue(long out);
+    static native boolean outBeginValue(long out, long key, String[] ids, boolean chunked);
+    static native void outEndValue(long out);
+    /** Fills slotCount with the slot and the number of repository ids. */
+    static native int inValueHeader(long in, long[] slotCount);
+    static native String inValueId(long in, int index);
+    static native void inEndValue(long in);
+
     // Element kinds of the array methods (RORB_PRIM_*).
     static final int PRIM_OCTET = 0;
     static final int PRIM_SHORT = 1;
@@ -200,6 +212,9 @@ final class Native {
             int defaultIndex, String[] names, long[] types);
     static native long tcEnum(String id, String name, String[] names);
     static native long tcRecursive(String id);
+    static native long tcValue(String id, String name, short modifier, long base,
+            String[] names, long[] types, short[] visibilities);
+    static native void registerValueType(long tc);
     static native int tcKind(long tc);
     static native String tcId(long tc)
             throws org.omg.CORBA.TypeCodePackage.BadKind;

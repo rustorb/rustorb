@@ -296,6 +296,41 @@ pub unsafe extern "C" fn rorb_tc_enum(
     }
 }
 
+/// A valuetype (`RORB_TK_VALUE`) or eventtype (`RORB_TK_EVENT`):
+/// `base` is the concrete base type or NULL, and each member has a
+/// visibility (`PRIVATE_MEMBER` 0, `PUBLIC_MEMBER` 1).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_tc_value(
+    kind: u32,
+    id: *const c_char,
+    id_len: usize,
+    name: *const c_char,
+    name_len: usize,
+    modifier: i16,
+    base: *const TypeCode,
+    count: usize,
+    names: *const *const c_char,
+    name_lens: *const usize,
+    types: *const *const TypeCode,
+    visibilities: *const i16,
+    out: *mut *mut TypeCode,
+    exc: *mut Exception,
+) -> Status {
+    unsafe {
+        put_tc(exc, out, || {
+            let kind = TCKind::from_u32(kind).ok_or(TypeCodeError::BadParam)?;
+            let id = name_arg(id, id_len)?;
+            let name = name_arg(name, name_len)?;
+            let members: Vec<(&str, TypeCode, i16)> = members(count, names, name_lens, types)?
+                .into_iter()
+                .enumerate()
+                .map(|(i, (n, t))| (n, t, *visibilities.add(i)))
+                .collect();
+            TypeCode::value_tc(kind, id, name, modifier, base.as_ref(), &members)
+        })
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rorb_tc_recursive(
     id: *const c_char,

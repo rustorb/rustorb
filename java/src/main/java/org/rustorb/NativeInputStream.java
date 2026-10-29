@@ -9,7 +9,7 @@ import org.omg.CORBA.BAD_INV_ORDER;
 import org.omg.CORBA.CompletionStatus;
 import org.omg.CORBA.TCKind;
 
-final class NativeInputStream extends org.omg.CORBA.portable.InputStream {
+final class NativeInputStream extends org.omg.CORBA_2_3.portable.InputStream {
     private long in;
     private final OrbImpl orb;
     /** The result of the first read_string (see Call.injectId). */
@@ -216,4 +216,102 @@ final class NativeInputStream extends org.omg.CORBA.portable.InputStream {
         return Native.inLength(in(), minElementSize);
     }
 
+    // --- valuetypes ---------------------------------------------------------
+
+    /** The instances read, by slot, for indirections. */
+    private java.util.Map<Long, java.io.Serializable> values;
+    /** The slot of the value a factory is making, until it calls
+     * read_value(Serializable). */
+    private long pendingSlot = -1;
+
+    @Override
+    public java.io.Serializable read_value() {
+        return readValue(null, null);
+    }
+
+    @Override
+    public java.io.Serializable read_value(String rep_id) {
+        return readValue(rep_id, null);
+    }
+
+    @Override
+    public java.io.Serializable read_value(Class<?> clz) {
+        return readValue(null, null);
+    }
+
+    @Override
+    public java.io.Serializable read_value(org.omg.CORBA.portable.BoxedValueHelper factory) {
+        return readValue(factory.get_id(), factory);
+    }
+
+    @Override
+    public java.io.Serializable read_value(java.io.Serializable value) {
+        keep(value);
+        if (!(value instanceof org.omg.CORBA.portable.StreamableValue)) {
+            throw new org.omg.CORBA.MARSHAL("not a StreamableValue: " + value, 0,
+                    CompletionStatus.COMPLETED_MAYBE);
+        }
+        ((org.omg.CORBA.portable.StreamableValue) value)._read(this);
+        return value;
+    }
+
+    /** Keeps value for the slot being read. */
+    private void keep(java.io.Serializable value) {
+        if (pendingSlot >= 0) {
+            if (values == null) {
+                values = new java.util.HashMap<>();
+            }
+            values.put(pendingSlot, value);
+            pendingSlot = -1;
+        }
+    }
+
+    /** Reads null, an indirection or a new value: a value box with helper,
+     * else an instance made by the factory of the first repository id
+     * received that has one (expected when none is sent). Without a
+     * factory, the stream fails (MARSHAL). */
+    private java.io.Serializable readValue(String expected,
+            org.omg.CORBA.portable.BoxedValueHelper helper) {
+        long[] slotCount = new long[2];
+        int kind = Native.inValueHeader(in(), slotCount);
+        long slot = slotCount[0];
+        if (kind == Native.VALUE_INDIRECTION) {
+            java.io.Serializable v = values == null ? null : values.get(slot);
+            if (v == null) {
+                Native.inFail(in());
+            }
+            return v;
+        }
+        if (kind != Native.VALUE_NEW) {
+            return null;
+        }
+        java.io.Serializable v;
+        if (helper != null) {
+            v = helper.read_value(this);
+            pendingSlot = slot;
+            keep(v);
+        } else {
+            int count = (int) slotCount[1];
+            org.omg.CORBA.portable.ValueFactory factory = null;
+            if (count == 0) {
+                factory = Values.lookup(expected);
+            }
+            for (int i = 0; i < count && factory == null; i++) {
+                factory = Values.lookup(Native.inValueId(in(), i));
+            }
+            if (factory == null) {
+                Native.inFail(in());
+                return null;
+            }
+            long outer = pendingSlot;
+            pendingSlot = slot;
+            v = factory.read_value(this);
+            if (pendingSlot == slot) {
+                keep(v);
+            }
+            pendingSlot = outer;
+        }
+        Native.inEndValue(in());
+        return v;
+    }
 }

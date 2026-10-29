@@ -17,7 +17,7 @@
 namespace rustorb {
 
 // Version of the contract between the generated code and this header.
-inline constexpr int generated_code_version = 2;
+inline constexpr int generated_code_version = 3;
 
 namespace cdr {
 
@@ -236,12 +236,93 @@ template <typename T, size_t N> struct codec<std::array<T, N>> {
 
 // Object references are read as stubs of the declared interface, without
 // asking the server (the IDL type says what they are).
-template <typename T> struct codec<CORBA::object_reference<T>> {
+template <typename T>
+struct codec<CORBA::object_reference<T>,
+             std::enable_if_t<!std::is_base_of<CORBA::ValueBase, T>::value>> {
   static void write(rorb_out* out, const CORBA::object_reference<T>& v) {
     rorb_out_write_object(out, detail::handle_of(v));
   }
   static void read(rorb_in* in, CORBA::object_reference<T>& v) {
     v = detail::make_stub<T>(rorb_in_read_object(in));
+  }
+};
+
+// Valuetypes and value boxes.
+inline void write_value(rorb_out* out, const CORBA::ValueBase* v) {
+  if (!v) {
+    rorb_out_write_null_value(out);
+    return;
+  }
+  const std::vector<const char*>& ids = v->_rorb_ids();
+  std::vector<size_t> lens;
+  lens.reserve(ids.size());
+  for (const char* id : ids) lens.push_back(std::strlen(id));
+  // The address of the whole instance names it, whichever base v is.
+  auto key = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(dynamic_cast<const void*>(v)));
+  if (rorb_out_begin_value(out, key, ids.size(), ids.data(), lens.data(), ids.size() > 1 ? 1 : 0)) {
+    v->_rorb_write_state(out);
+    rorb_out_end_value(out);
+  }
+}
+
+// Reads a value whose declared type has the repository id expected:
+// nullptr for null (or after an error). The instance is made by the
+// factory of the first repository id received that has one; with none,
+// the stream fails (MARSHAL).
+inline CORBA::object_reference<CORBA::ValueBase> read_value(rorb_in* in, const char* expected) {
+  using Ref = CORBA::object_reference<CORBA::ValueBase>;
+  size_t slot = 0, count = 0;
+  switch (rorb_in_read_value_header(in, &slot, &count)) {
+    case RORB_VALUE_NEW:
+      break;
+    case RORB_VALUE_INDIRECTION: {
+      void* p = rorb_in_get_value(in, slot);
+      if (!p) {
+        rorb_in_fail(in);
+        return nullptr;
+      }
+      return *static_cast<Ref*>(p);
+    }
+    default:
+      return nullptr;
+  }
+  CORBA::ValueFactory factory;
+  if (count == 0) {
+    factory = detail::lookup_value_factory(expected);
+  }
+  for (size_t i = 0; i < count && !factory; ++i) {
+    size_t len = 0;
+    const char* id = rorb_in_value_id(in, i, &len);
+    factory = detail::lookup_value_factory(std::string(id, len));
+  }
+  Ref v = factory ? factory->create_for_unmarshal() : nullptr;
+  if (!v) {
+    rorb_in_fail(in);
+    return nullptr;
+  }
+  // Kept before the state is read, for the indirections inside it.
+  rorb_in_set_value(in, slot, new Ref(v), [](void* p) { delete static_cast<Ref*>(p); });
+  v->_rorb_read_state(in);
+  rorb_in_end_value(in);
+  return v;
+}
+
+template <typename T>
+struct codec<CORBA::object_reference<T>,
+             std::enable_if_t<std::is_base_of<CORBA::ValueBase, T>::value>> {
+  static void write(rorb_out* out, const CORBA::object_reference<T>& v) {
+    write_value(out, detail::get_pointer(v));
+  }
+  static void read(rorb_in* in, CORBA::object_reference<T>& v) {
+    v = nullptr;
+    CORBA::object_reference<CORBA::ValueBase> got = read_value(in, T::_rorb_repository_id);
+    if (!got) return;
+    auto p = std::dynamic_pointer_cast<T>(got._rorb_shared());
+    if (!p) {
+      rorb_in_fail(in);
+      return;
+    }
+    v = CORBA::object_reference<T>(std::move(p));
   }
 };
 
@@ -515,6 +596,16 @@ template <typename F> rorb_status upcall(rorb_server_reply* reply, const F& body
   return reply_system_exception(reply,
                                 CORBA::UNKNOWN(0, CORBA::CompletionStatus::COMPLETED_MAYBE));
 }
+
+// Registers a valuetype while static objects are made: its TypeCode with
+// the core (for anys) and, unless it is nullptr, its default factory.
+struct ValueRegistration {
+  ValueRegistration(const char* id, const CORBA::ValueFactory& factory,
+                    const CORBA::object_reference<CORBA::TypeCode>& tc) {
+    if (factory) register_value_factory(id, factory);
+    rorb_register_value_type(tc->_rorb_tc());
+  }
+};
 
 // Registers an interface's repository ids while static objects are made.
 struct InterfaceRegistration {

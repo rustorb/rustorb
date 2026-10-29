@@ -16,7 +16,16 @@ public final class Server {
         Common.Options opt = Common.parseArgs("server", argv);
         ORB orb = Common.orbInit(opt, "InteropTest");
         byte[] oid = "Echo".getBytes(StandardCharsets.US_ASCII);
-        if (opt.suite.equals("any")) {
+        if (opt.suite.equals("value")) {
+            // The valuetype suite: ValueTest::ValueEcho, which also stops the
+            // server.
+            ValueTests.registerFactories(orb);
+            POA poa = Common.persistentPoa(orb, "ValueTest");
+            byte[] valueOid = "ValueEcho".getBytes(StandardCharsets.US_ASCII);
+            poa.activate_object_with_id(valueOid, new ValueTests.ValueEchoImpl(orb));
+            Common.bindName(Common.rootContext(orb, opt.timeout), opt.name,
+                    poa.id_to_reference(valueOid));
+        } else if (opt.suite.equals("any")) {
             // The stage 2 suite: AnyTest::AnyEcho, with an Echo object next
             // to it for the client to shut the server down.
             POA poa = Common.persistentPoa(orb, "AnyTest");

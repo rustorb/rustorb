@@ -119,4 +119,12 @@ target_include_directories(test_any PRIVATE
 target_link_libraries(test_any PRIVATE rustorb)
 target_compile_options(test_any PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME any COMMAND test_any)
-set_tests_properties(mapping poa interop any PROPERTIES TIMEOUT 120)
+# Valuetypes: the value interop cases, in one process.
+rustorb_idl_generate(VALUE_SOURCES "${RUSTORB_ROOT}/interop/idl/ValueTest.idl")
+add_executable(test_value tests/test_value.cc ${VALUE_SOURCES})
+target_include_directories(test_value PRIVATE
+  "${CMAKE_CURRENT_BINARY_DIR}/idl" "${RUSTORB_ROOT}/interop/impls/rustorbcpp")
+target_link_libraries(test_value PRIVATE rustorb)
+target_compile_options(test_value PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME value COMMAND test_value)
+set_tests_properties(mapping poa interop any value PROPERTIES TIMEOUT 120)

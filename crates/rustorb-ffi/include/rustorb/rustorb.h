@@ -203,6 +203,15 @@ rorb_status rorb_tc_union(const char* id, size_t id_len, const char* name, size_
 rorb_status rorb_tc_enum(const char* id, size_t id_len, const char* name, size_t name_len,
                          size_t count, const char* const* names, const size_t* name_lens,
                          rorb_typecode** out, rorb_exception* exc);
+/* A valuetype (kind RORB_TK_VALUE) or eventtype (RORB_TK_EVENT).
+   modifier is CORBA::ValueModifier (VM_NONE 0, VM_CUSTOM 1, VM_ABSTRACT 2,
+   VM_TRUNCATABLE 3), base the concrete base type or NULL, and each member
+   has a visibility (PRIVATE_MEMBER 0, PUBLIC_MEMBER 1). */
+rorb_status rorb_tc_value(uint32_t kind, const char* id, size_t id_len, const char* name,
+                          size_t name_len, int16_t modifier, const rorb_typecode* base,
+                          size_t count, const char* const* names, const size_t* name_lens,
+                          const rorb_typecode* const* types, const int16_t* visibilities,
+                          rorb_typecode** out, rorb_exception* exc);
 /* ORB::create_recursive_tc: a placeholder for the struct, union or
    valuetype with this repository id, replaced when a TypeCode of that
    type is made with it in its members. */
@@ -420,6 +429,55 @@ uint32_t rorb_in_read_length(rorb_in* in, size_t min_element_size);
 /* Marks the stream as failed (MARSHAL), for a value the caller rejects. */
 void rorb_in_fail(rorb_in* in);
 int32_t rorb_in_failed(rorb_in* in);
+
+/* --- valuetypes ------------------------------------------------------------
+
+   The caller writes and reads the state of its instances; these functions
+   do the rest (CORBA 3.4 part 2, 9.3.4). On output, key names the
+   instance: an instance written again in the same message (the same key)
+   is sent as an indirection. The repository ids are the type's own, then
+   those of the bases it is truncatable to; chunked says to chunk the state
+   (for truncatable types; a value inside a chunked one is chunked too). */
+
+void rorb_out_write_null_value(rorb_out* out);
+/* Returns 1 if the caller now writes the state, then calls
+   rorb_out_end_value; 0 if an indirection was written (or the stream
+   failed). */
+int32_t rorb_out_begin_value(rorb_out* out, uint64_t key, size_t count, const char* const* ids,
+                             const size_t* id_lens, int32_t chunked);
+void rorb_out_end_value(rorb_out* out);
+
+/* Results of rorb_in_read_value_header. */
+#define RORB_VALUE_NULL 0
+#define RORB_VALUE_INDIRECTION 1
+#define RORB_VALUE_NEW 2
+
+/* What stands where a value is expected: null (also after an error), an
+   indirection to the value in *slot, or a new value with slot *slot and
+   *id_count repository ids (most derived first; none leaves the type to
+   the receiver). After RORB_VALUE_NEW the caller makes its instance, keeps
+   it with rorb_in_set_value (before reading the state, for cycles), reads
+   the state it knows and calls rorb_in_end_value, which skips the rest. */
+int32_t rorb_in_read_value_header(rorb_in* in, size_t* slot, size_t* id_count);
+/* Repository id index of the last header, valid until the next one. */
+const char* rorb_in_value_id(rorb_in* in, size_t index, size_t* len);
+void rorb_in_end_value(rorb_in* in);
+/* Keeps ptr for slot until the stream ends, then calls release(ptr)
+   (unless release is NULL). */
+void rorb_in_set_value(rorb_in* in, size_t slot, void* ptr, void (*release)(void* ptr));
+/* The pointer kept for slot, or NULL. */
+void* rorb_in_get_value(rorb_in* in, size_t slot);
+
+/* Makes the valuetype tc known to the core, so that values of it in anys
+   are read as that type where a base type is expected. */
+void rorb_register_value_type(const rorb_typecode* tc);
+/* Asks resolve(context, id, len) for the valuetypes the core reads (in
+   anys) that are not registered: it returns a new TypeCode (which the core
+   takes and registers) or NULL. It may be called from any thread. NULL
+   removes the resolver. */
+void rorb_set_value_type_resolver(rorb_typecode* (*resolve)(void* context, const char* id,
+                                                            size_t len),
+                                  void* context);
 
 /* --- servants --------------------------------------------------------------- */
 

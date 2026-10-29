@@ -61,17 +61,12 @@ esac
 export SUITE="$suite"
 # JacORB's generated Helpers do not follow AnyTest.idl (see
 # docs/java-binding.md), so the any suite leaves it out unless asked for.
-# The value suite runs on the ORBs whose bindings have valuetypes.
-if [ "$suite" = any ] || [ "$suite" = value ]; then
+if [ "$suite" = any ]; then
   IMPLS="${IMPLS:-omniorbpy omniorb-cpp}"
 else
   IMPLS="${IMPLS:-omniorbpy omniorb-cpp jacorb}"
 fi
-if [ "$suite" = value ]; then
-  rustorb_impls="rustorb rustorbpy"
-else
-  rustorb_impls="rustorb rustorbpy rustorbcpp rustorbjava"
-fi
+rustorb_impls="rustorb rustorbpy rustorbcpp rustorbjava"
 CLIENT_IMPLS="${CLIENT_IMPLS:-$IMPLS $rustorb_impls}"
 SERVER_IMPLS="${SERVER_IMPLS:-$IMPLS $rustorb_impls}"
 

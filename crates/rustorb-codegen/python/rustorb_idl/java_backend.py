@@ -19,7 +19,14 @@ and what the Helpers call to put values in anys (``org.rustorb.Stubs``,
 ``org.rustorb.Call``, ``org.rustorb.Anys``), all in the rustorb runtime
 (``java/``, MIT OR Apache-2.0). ``fixed<d, s>`` is ``java.math.BigDecimal``,
 read and written with ``read_fixed(d, s)`` / ``write_fixed(v, d, s)``.
-Valuetypes and abstract interfaces are not mapped yet.
+
+A valuetype ``V`` is the class ``V`` (a ``StreamableValue``, abstract for
+an abstract valuetype, which is an interface), ``VHelper``, ``VHolder`` and
+``VDefaultFactory``, which the ORB finds by name. A value box of a basic
+type is a class with a public ``value``; a box of another type is that
+type itself, and its Helper is a ``BoxedValueHelper``. Custom valuetypes,
+``supports``, valuetype operations and abstract interfaces are not mapped
+yet.
 
 ``-Wbpackage=PKG`` puts every package under ``PKG`` (and the definitions
 outside modules in ``PKG``).
@@ -172,6 +179,8 @@ class Options(object):
 
 
 class JavaBackend(object):
+    LANGUAGE = "Java"
+
     def __init__(self, spec, options=None):
         self.spec = spec
         self.opt = options or Options()
@@ -206,6 +215,11 @@ class JavaBackend(object):
     def full(self, node):
         return cxx_backend.CxxBackend.full(self, node)
 
+    def box_class(self, node):
+        """Whether a value box has a class of its own (a box of a basic
+        type), rather than being the boxed Java type."""
+        return fe.type_of(node.boxed_type, node).resolved().kind in BASIC
+
     def jtype(self, t, where=None):
         """The Java type of a :class:`frontend.Type`."""
         k = t.kind
@@ -235,6 +249,8 @@ class JavaBackend(object):
                 raise fe.GeneratorError("native %s cannot be used in Java" % n.name, where)
             if fe.is_typedef(n):
                 return self.jtype(fe.type_of(n.type, n), where)
+            if fe.is_valuetype(n) and n.is_boxed and not self.box_class(n):
+                return self.jtype(fe.type_of(n.boxed_type, n), where)
             if fe.is_interface(n):
                 self.check_interface(n)
             return self.scoped(n)
@@ -526,7 +542,12 @@ class JavaBackend(object):
         elif fe.is_native(node):
             pass
         elif fe.is_valuetype(node):
-            raise fe.GeneratorError("valuetypes are not supported by the Java backend yet", node)
+            if fe.is_forward(node):
+                pass
+            elif node.is_boxed:
+                self.value_box(node)
+            else:
+                self.valuetype(node)
         else:
             raise fe.GeneratorError(
                 "%s definitions are not supported yet" % fe.kind_name(node), node
@@ -537,6 +558,8 @@ class JavaBackend(object):
         interface (in the package ``<name>Package``)."""
         for d in fe.members_of(scope):
             if fe.is_operation(d) or fe.is_attribute(d) or fe.is_const(d):
+                continue
+            if hasattr(d, "is_public"):  # a state member of a valuetype
                 continue
             self.definition(d)
 
@@ -812,6 +835,247 @@ class JavaBackend(object):
         self.helper(node, scoped, tc, write_body, read_body, exception=exception)
         self.holder_class(node, scoped)
         self.nested(node)
+
+    # valuetypes
+
+    def prefix_registration(self, w):
+        """A static initialiser that makes the package prefix known to the
+        ORB, which finds generated classes by repository id."""
+        if self.opt.package:
+            w("static {")
+            w('    org.rustorb.Values.addPackage("%s.");' % self.opt.package)
+            w("}")
+            w()
+
+    def valuetype(self, node):
+        cxx_backend.CxxBackend.check_value(self, node)
+        name = java_name(node.name)
+        scoped = self.scoped(node)
+        base = fe.concrete_base(node)
+        abstract_bases = [self.full(b) for b in fe.value_bases(node) if b.is_abstract]
+        members = cxx_backend.CxxBackend.state_members(self, node)
+        w = Writer()
+        if node.is_abstract:
+            ext = [self.scoped(b) for b in abstract_bases] or ["org.omg.CORBA.portable.ValueBase"]
+            w("public interface %s extends %s {" % (name, ", ".join(ext)))
+            w("}")
+            self.add(node, name, w.text())
+        else:
+            impl = ["org.omg.CORBA.portable.StreamableValue"] + [
+                self.scoped(b) for b in abstract_bases
+            ]
+            head = "public class %s" % name
+            if base is not None:
+                head += " extends %s" % self.scoped(self.full(base))
+            w("%s implements %s {" % (head, ", ".join(impl)))
+            w.indent()
+            w("private static final long serialVersionUID = 1L;")
+            w(
+                "private static final String[] _rorb_truncatable_ids = {%s};"
+                % ", ".join('"%s"' % i for i in cxx_backend.CxxBackend.sent_ids(self, node))
+            )
+            w()
+            for m, t, public in members:
+                w("%s %s %s;" % ("public" if public else "protected", self.jtype(t, node), java_name(m)))
+            if members:
+                w()
+            w("public %s() {}" % name)
+            w()
+            w("@Override")
+            w("public String[] _truncatable_ids() {")
+            w("    return _rorb_truncatable_ids;")
+            w("}")
+            w()
+            w("@Override")
+            w("public void _read(%s $in) {" % IN)
+            w.indent()
+            if base is not None:
+                w("super._read($in);")
+            for m, t, _ in members:
+                self.read(w, t, "this.%s" % java_name(m), 0, node)
+            w.dedent()
+            w("}")
+            w()
+            w("@Override")
+            w("public void _write(%s $out) {" % OUT)
+            w.indent()
+            if base is not None:
+                w("super._write($out);")
+            for m, t, _ in members:
+                self.write(w, t, "this.%s" % java_name(m), 0, node)
+            w.dedent()
+            w("}")
+            w()
+            w("@Override")
+            w("public org.omg.CORBA.TypeCode _type() {")
+            w("    return %sHelper.type();" % name)
+            w("}")
+            w.dedent()
+            w("}")
+            self.add(node, name, w.text())
+
+            # the default factory, found by the ORB by its name
+            w = Writer()
+            w(
+                "public class %sDefaultFactory implements org.omg.CORBA.portable.ValueFactory {"
+                % name
+            )
+            w.indent()
+            w("@Override")
+            w(
+                "public java.io.Serializable read_value("
+                "org.omg.CORBA_2_3.portable.InputStream is) {"
+            )
+            w("    return is.read_value(new %s());" % scoped)
+            w("}")
+            w.dedent()
+            w("}")
+            self.add(node, name + "DefaultFactory", w.text())
+
+        def tc(w):
+            w("org.omg.CORBA.ValueMember[] $members = {")
+            for m, t, public in members:
+                w(
+                    '    new org.omg.CORBA.ValueMember("%s", "", "", "", %s, null, '
+                    "org.omg.CORBA.%s.value),"
+                    % (m, self.tc_expr(t, node), "PUBLIC_MEMBER" if public else "PRIVATE_MEMBER")
+                )
+            w("};")
+            w(
+                '__typeCode = %s.create_value_tc(_id, "%s", org.omg.CORBA.%s.value, %s, $members);'
+                % (
+                    ORB,
+                    node.name,
+                    cxx_backend.CxxBackend.value_modifier(self, node),
+                    self.tc_expr(fe.Type("named", node=base), node) if base is not None else "null",
+                )
+            )
+
+        def write_body(w):
+            w(
+                "((org.omg.CORBA_2_3.portable.OutputStream) $out).write_value(value, _id);"
+            )
+
+        def read_body(w):
+            w(
+                "java.io.Serializable $v = "
+                "((org.omg.CORBA_2_3.portable.InputStream) $in).read_value(_id);"
+            )
+            w("if ($v != null && !($v instanceof %s)) {" % scoped)
+            w("    throw new org.omg.CORBA.MARSHAL(\"not a %s: \" + $v, 0," % node.name)
+            w("            org.omg.CORBA.CompletionStatus.COMPLETED_MAYBE);")
+            w("}")
+            w("return (%s) $v;" % scoped)
+
+        self.helper(node, scoped, tc, write_body, read_body, extra=self.prefix_registration)
+        self.holder_class(node, scoped)
+        self.nested(node)
+
+    def value_box(self, node):
+        name = java_name(node.name)
+        t = fe.type_of(node.boxed_type, node)
+        own = self.box_class(node)
+        jtype = self.scoped(node) if own else self.jtype(t, node)
+        if own:
+            w = Writer()
+            w("public class %s implements org.omg.CORBA.portable.ValueBase {" % name)
+            w.indent()
+            w("private static final long serialVersionUID = 1L;")
+            w('private static final String[] _rorb_truncatable_ids = {"%s"};' % fe.repository_id(node))
+            w()
+            w("public %s value;" % self.jtype(t, node))
+            w()
+            w("public %s(%s initial) {" % (name, self.jtype(t, node)))
+            w("    value = initial;")
+            w("}")
+            w()
+            w("@Override")
+            w("public String[] _truncatable_ids() {")
+            w("    return _rorb_truncatable_ids;")
+            w("}")
+            w.dedent()
+            w("}")
+            self.add(node, name, w.text())
+
+        w = Writer()
+        w("public final class %sHelper implements org.omg.CORBA.portable.BoxedValueHelper {" % name)
+        w.indent()
+        w('private static final String _id = "%s";' % fe.repository_id(node))
+        w("private static volatile org.omg.CORBA.TypeCode __typeCode;")
+        w()
+        self.prefix_registration(w)
+        w("public static void insert(org.omg.CORBA.Any a, %s that) {" % jtype)
+        w("    org.rustorb.Anys.insert(a, type(), $out -> write($out, that));")
+        w("}")
+        w()
+        w("public static %s extract(org.omg.CORBA.Any a) {" % jtype)
+        w("    return org.rustorb.Anys.extract(a, type(), %sHelper::read);" % name)
+        w("}")
+        w()
+        w("public static org.omg.CORBA.TypeCode type() {")
+        w("    if (__typeCode == null) {")
+        w("        synchronized (org.omg.CORBA.TypeCode.class) {")
+        w("            if (__typeCode == null) {")
+        w(
+            '                __typeCode = %s.create_value_box_tc(_id, "%s", %s);'
+            % (ORB, node.name, self.tc_expr(t, node))
+        )
+        w("            }")
+        w("        }")
+        w("    }")
+        w("    return __typeCode;")
+        w("}")
+        w()
+        w("public static String id() {")
+        w("    return _id;")
+        w("}")
+        w()
+        w("public static %s read(%s $in) {" % (jtype, IN))
+        w(
+            "    return (%s) ((org.omg.CORBA_2_3.portable.InputStream) $in)"
+            ".read_value(new %sHelper());" % (self.boxed_ref(jtype), name)
+        )
+        w("}")
+        w()
+        w("public static void write(%s $out, %s value) {" % (OUT, jtype))
+        w(
+            "    ((org.omg.CORBA_2_3.portable.OutputStream) $out).write_value(%s, new %sHelper());"
+            % ("value", name)
+        )
+        w("}")
+        w()
+        w("@Override")
+        w("public java.io.Serializable read_value(%s $in) {" % IN)
+        w.indent()
+        w("%s $result;" % self.jtype(t, node))
+        self.read(w, t, "$result", 0, node)
+        w("return %s;" % ("new %s($result)" % self.scoped(node) if own else "$result"))
+        w.dedent()
+        w("}")
+        w()
+        w("@Override")
+        w("public void write_value(%s $out, java.io.Serializable $value) {" % OUT)
+        w.indent()
+        if own:
+            w("%s value = ((%s) $value).value;" % (self.jtype(t, node), self.scoped(node)))
+        else:
+            w("%s value = (%s) $value;" % (jtype, self.boxed_ref(jtype)))
+        self.write(w, t, "value", 0, node)
+        w.dedent()
+        w("}")
+        w()
+        w("@Override")
+        w("public String get_id() {")
+        w("    return _id;")
+        w("}")
+        w.dedent()
+        w("}")
+        self.add(node, name + "Helper", w.text())
+        self.holder_class(node, jtype)
+
+    def boxed_ref(self, jtype):
+        """The reference type a box value of Java type ``jtype`` is cast to."""
+        return jtype
 
     # unions
 

@@ -30,6 +30,7 @@ mod poa;
 mod servant;
 mod stream;
 mod sys;
+mod value;
 
 use std::ffi::{c_char, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -72,6 +73,7 @@ struct Cache {
     preinvoke: JStaticMethodID,
     postinvoke: JStaticMethodID,
     unknown_adapter: JStaticMethodID,
+    resolve_value_type: JStaticMethodID,
 }
 
 static VM: OnceLock<JavaVM> = OnceLock::new();
@@ -138,9 +140,11 @@ pub extern "system" fn Java_org_rustorb_Native_init(
                 "unknownAdapter",
                 "(Ljava/lang/Object;JLjava/lang/String;)Z",
             )?,
+            resolve_value_type: id(env, "resolveValueType", "(Ljava/lang/String;)J")?,
             bridge: env.new_global_ref(&bridge)?,
         };
         let _ = CACHE.set(c);
+        value::install_resolver();
         Ok(unsafe { rorb_abi_version() } as jint)
     })
 }

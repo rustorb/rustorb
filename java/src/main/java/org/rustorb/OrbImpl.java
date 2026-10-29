@@ -12,7 +12,7 @@ import java.util.Properties;
 import org.omg.CORBA.CompletionStatus;
 import org.omg.CORBA.ORBPackage.InvalidName;
 
-public final class OrbImpl extends org.omg.CORBA.ORB {
+public final class OrbImpl extends org.omg.CORBA_2_3.ORB {
     private final Owned handle;
     private volatile boolean destroyed;
 

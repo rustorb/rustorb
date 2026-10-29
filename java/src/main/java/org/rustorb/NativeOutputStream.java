@@ -15,7 +15,7 @@ import org.omg.CORBA.MARSHAL;
 import org.omg.CORBA.NO_IMPLEMENT;
 import org.omg.CORBA.portable.InputStream;
 
-final class NativeOutputStream extends org.omg.CORBA.portable.OutputStream {
+final class NativeOutputStream extends org.omg.CORBA_2_3.portable.OutputStream {
     private long out;
     private final OrbImpl orb;
     /** An exception reply whose repository id is not written yet: the
@@ -261,4 +261,67 @@ final class NativeOutputStream extends org.omg.CORBA.portable.OutputStream {
         }
     }
 
+    // --- valuetypes ---------------------------------------------------------
+
+    /** Keys of the instances written; keys are unique in the process (and
+     * apart from the addresses the core and C++ use), so streams that
+     * write the same message never mix them up. */
+    private static final java.util.concurrent.atomic.AtomicLong NEXT_KEY =
+            new java.util.concurrent.atomic.AtomicLong();
+    private java.util.IdentityHashMap<Object, Long> keys;
+
+    private long key(Object v) {
+        if (keys == null) {
+            keys = new java.util.IdentityHashMap<>();
+        }
+        return keys.computeIfAbsent(v, k -> (1L << 62) | NEXT_KEY.incrementAndGet());
+    }
+
+    @Override
+    public void write_value(java.io.Serializable value) {
+        writeValue(value, null);
+    }
+
+    @Override
+    public void write_value(java.io.Serializable value, String repository_id) {
+        writeValue(value, null);
+    }
+
+    @Override
+    public void write_value(java.io.Serializable value, Class<?> clz) {
+        writeValue(value, null);
+    }
+
+    @Override
+    public void write_value(java.io.Serializable value,
+            org.omg.CORBA.portable.BoxedValueHelper factory) {
+        writeValue(value, factory);
+    }
+
+    /** Writes null, an indirection to an instance written before, or the
+     * value with its repository ids (chunked when it is truncatable). */
+    private void writeValue(java.io.Serializable value,
+            org.omg.CORBA.portable.BoxedValueHelper helper) {
+        if (value == null) {
+            Native.outNullValue(out());
+            return;
+        }
+        String[] ids;
+        if (helper != null) {
+            ids = new String[] {helper.get_id()};
+        } else if (value instanceof org.omg.CORBA.portable.StreamableValue) {
+            ids = ((org.omg.CORBA.portable.StreamableValue) value)._truncatable_ids();
+        } else {
+            throw new BAD_PARAM("not a value this ORB can write: " + value.getClass().getName(), 0,
+                    CompletionStatus.COMPLETED_MAYBE);
+        }
+        if (Native.outBeginValue(out(), key(value), ids, ids.length > 1)) {
+            if (helper != null) {
+                helper.write_value(this, value);
+            } else {
+                ((org.omg.CORBA.portable.StreamableValue) value)._write(this);
+            }
+            Native.outEndValue(out());
+        }
+    }
 }

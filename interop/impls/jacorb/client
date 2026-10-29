@@ -4,5 +4,7 @@
 here="$(dirname "$0")"
 # JacORB writes strings in the UTF-8 code set (negotiated with rustorb) with
 # the JVM's default charset, which is ASCII in the image's Java 17 (C
-# locale); Java 18 and later default to UTF-8.
-exec java -Dfile.encoding=UTF-8 -Dinterop.orb=jacorb -cp "$here/classes:/opt/jacorb/lib/*" interop.Client "$@"
+# locale); Java 18 and later default to UTF-8. For the values in anys,
+# JacORB's javax.rmi.CORBA implementation reflects on java.io, which Java 17
+# opens only when asked to.
+exec java --add-opens java.base/java.io=ALL-UNNAMED -Dfile.encoding=UTF-8 -Dinterop.orb=jacorb -cp "$here/classes:/opt/jacorb/lib/*" interop.Client "$@"

@@ -18,6 +18,8 @@
 //!   the caller through tables of callbacks.
 //! - [`any`]: TypeCodes, and anys whose values the caller puts in and
 //!   takes out through the same streams.
+//! - [`value`]: valuetypes on the streams (sharing, chunks, truncation),
+//!   their TypeCodes and the registry of valuetypes the core reads.
 
 // Every function takes raw pointers from C; what they must point to is
 // documented once, in the header.
@@ -30,6 +32,7 @@ pub mod orb;
 pub mod poa;
 pub mod servant;
 pub mod stream;
+pub mod value;
 
 use std::ffi::c_char;
 use std::panic::{AssertUnwindSafe, catch_unwind};

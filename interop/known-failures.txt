@@ -66,3 +66,15 @@ giop=1.1 omniorb* jacorb echo_records[large] JacORB rejects GIOP 1.1 fragments
 # TypeCode they received, so those pairs pass.
 suite=value omniorb-cpp omniorbpy echo_any[ring] omniORB C++ valuetype TypeCodes have private members
 suite=value omniorb-cpp omniorbpy echo_any[derived] omniORB C++ valuetype TypeCodes have private members
+
+# JacORB 3.9 writes a value in an any through javax.rmi.CORBA.Util (to make
+# an RMI repository id), whose implementation on the class path (JBoss's)
+# needs JDK internals that Java 17 no longer has
+# (sun.reflect.ReflectionFactory$GetReflectionFactoryAction). So a JacORB
+# client cannot send such an any, nor a JacORB server echo one back.
+suite=value jacorb * echo_any[ring] JacORB on Java 17 cannot write values in anys
+suite=value jacorb * echo_any[derived] JacORB on Java 17 cannot write values in anys
+suite=value jacorb * echo_any[box] JacORB on Java 17 cannot write values in anys
+suite=value * jacorb echo_any[ring] JacORB on Java 17 cannot write values in anys
+suite=value * jacorb echo_any[derived] JacORB on Java 17 cannot write values in anys
+suite=value * jacorb echo_any[box] JacORB on Java 17 cannot write values in anys

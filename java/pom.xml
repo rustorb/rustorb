@@ -108,6 +108,7 @@
                 <argument>${rustorb.root}/interop/idl/InteropTest.idl</argument>
                 <argument>${rustorb.root}/interop/idl/AnyTest.idl</argument>
                 <argument>${rustorb.root}/interop/idl/AnyTestHidden.idl</argument>
+                <argument>${rustorb.root}/interop/idl/ValueTest.idl</argument>
               </arguments>
             </configuration>
           </execution>

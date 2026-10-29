@@ -56,7 +56,9 @@ public final class Cases {
                 fail(name, e.getMessage());
             } catch (SystemException e) {
                 fail(name, "unexpected " + e + " (minor " + e.minor + ", " + e.completed.value() + ")");
-            } catch (Exception e) {
+            } catch (Exception | LinkageError e) {
+                // LinkageError: a class of the ORB that cannot be loaded
+                // (JacORB's javax.rmi.CORBA on Java 17, see known-failures.txt).
                 fail(name, "unexpected " + e);
             }
         }
