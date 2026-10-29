@@ -205,6 +205,9 @@ fn typecodes_and_anys() {
 
 #[test]
 fn valuetypes() {
+    // Circle arrives where Shape is declared. Each test that relies on it
+    // registers, as the tests run in any order.
+    rust_mapping_idl::register_value_types();
     let s = Shape::new(ShapeState {
         name: "s".into(),
         secret: 1,
