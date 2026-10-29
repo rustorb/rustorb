@@ -23,6 +23,7 @@
 #![allow(clippy::missing_safety_doc, clippy::not_unsafe_ptr_arg_deref)]
 
 mod any;
+mod dynany;
 mod manager;
 mod object;
 mod orb;

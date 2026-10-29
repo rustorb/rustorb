@@ -3,7 +3,8 @@
 # into bin/: the stubs and skeletons of InteropTest.idl, AnyTest.idl,
 # AnyTestHidden.idl (the client only), ValueTest.idl, CosNaming.idl and PoaProbe.idl (the
 # probe server only) from rustorb-idl -bc++11 (in gen/), linked with
-# librustorb_ffi statically. run-matrix.sh and run-poa-probe.sh run it; idl_parser must be importable, or IDL_PARSER_DIR set to a
+# librustorb_ffi statically. run-matrix.sh, run-poa-probe.sh and run-dynany-probe.sh
+# run it; idl_parser must be importable, or IDL_PARSER_DIR set to a
 # checkout of it. CXX picks the compiler (default g++).
 #
 # The binaries run in the interop image (Ubuntu 24.04), so the host needs a

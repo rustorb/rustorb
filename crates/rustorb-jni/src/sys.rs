@@ -30,6 +30,7 @@ opaque!(
     rorb_server_reply,
     rorb_typecode,
     rorb_any,
+    rorb_dynany,
     rorb_manager_error
 );
 
@@ -821,6 +822,250 @@ unsafe extern "C" {
         manager: *mut rorb_poa_manager,
         etherealize: i32,
         wait_for_completion: i32,
+        exc: Exc,
+    ) -> rorb_status;
+
+    // DynamicAny
+    pub fn rorb_dynany_create(
+        any: *const rorb_any,
+        truncate: i32,
+        out: *mut *mut rorb_dynany,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_from_typecode(
+        tc: *const rorb_typecode,
+        out: *mut *mut rorb_dynany,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_clone(d: *const rorb_dynany) -> *mut rorb_dynany;
+    pub fn rorb_dynany_release(d: *mut rorb_dynany);
+    pub fn rorb_dynany_kind(d: *const rorb_dynany) -> u32;
+    pub fn rorb_dynany_same(a: *const rorb_dynany, b: *const rorb_dynany) -> i32;
+    pub fn rorb_dynany_type(
+        d: *const rorb_dynany,
+        out: *mut *mut rorb_typecode,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_target_type(
+        d: *const rorb_dynany,
+        out: *mut *mut rorb_typecode,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_assign(
+        d: *const rorb_dynany,
+        other: *const rorb_dynany,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_from_any(
+        d: *const rorb_dynany,
+        any: *const rorb_any,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_to_any(
+        d: *const rorb_dynany,
+        out: *mut *mut rorb_any,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_equal(
+        d: *const rorb_dynany,
+        other: *const rorb_dynany,
+        out: *mut i32,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_destroy(d: *const rorb_dynany, exc: Exc) -> rorb_status;
+    pub fn rorb_dynany_copy(
+        d: *const rorb_dynany,
+        out: *mut *mut rorb_dynany,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_insert(
+        d: *const rorb_dynany,
+        kind: u32,
+        value: *const rorb_any,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_get(
+        d: *const rorb_dynany,
+        kind: u32,
+        out: *mut *mut rorb_any,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_insert_seq(
+        d: *const rorb_dynany,
+        kind: u32,
+        value: *const rorb_any,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_get_seq(
+        d: *const rorb_dynany,
+        kind: u32,
+        out: *mut *mut rorb_any,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_insert_dyn_any(
+        d: *const rorb_dynany,
+        value: *const rorb_dynany,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_get_dyn_any(
+        d: *const rorb_dynany,
+        out: *mut *mut rorb_dynany,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_no_implement(d: *const rorb_dynany, exc: Exc) -> rorb_status;
+    pub fn rorb_dynany_seek(
+        d: *const rorb_dynany,
+        index: i32,
+        out: *mut i32,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_rewind(d: *const rorb_dynany, exc: Exc) -> rorb_status;
+    pub fn rorb_dynany_next(d: *const rorb_dynany, out: *mut i32, exc: Exc) -> rorb_status;
+    pub fn rorb_dynany_component_count(
+        d: *const rorb_dynany,
+        out: *mut u32,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_current_component(
+        d: *const rorb_dynany,
+        out: *mut *mut rorb_dynany,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_get_fixed_value(
+        d: *const rorb_dynany,
+        out: *mut rorb_bytes,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_set_fixed_value(
+        d: *const rorb_dynany,
+        value: *const c_char,
+        len: usize,
+        out: *mut i32,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_get_as_string(
+        d: *const rorb_dynany,
+        out: *mut rorb_bytes,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_set_as_string(
+        d: *const rorb_dynany,
+        value: *const c_char,
+        len: usize,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_get_as_ulong(d: *const rorb_dynany, out: *mut u32, exc: Exc) -> rorb_status;
+    pub fn rorb_dynany_set_as_ulong(d: *const rorb_dynany, value: u32, exc: Exc) -> rorb_status;
+    pub fn rorb_dynany_current_member_name(
+        d: *const rorb_dynany,
+        out: *mut rorb_bytes,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_current_member_kind(
+        d: *const rorb_dynany,
+        out: *mut u32,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_member_count(d: *const rorb_dynany, out: *mut u32, exc: Exc) -> rorb_status;
+    pub fn rorb_dynany_member_at(
+        d: *const rorb_dynany,
+        index: u32,
+        name: *mut rorb_bytes,
+        out: *mut *mut rorb_dynany,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_set_members(
+        d: *const rorb_dynany,
+        count: usize,
+        names: *const *const c_char,
+        name_lens: *const usize,
+        values: *const *const rorb_any,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_set_members_as_dyn_any(
+        d: *const rorb_dynany,
+        count: usize,
+        names: *const *const c_char,
+        name_lens: *const usize,
+        values: *const *const rorb_dynany,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_get_discriminator(
+        d: *const rorb_dynany,
+        out: *mut *mut rorb_dynany,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_set_discriminator(
+        d: *const rorb_dynany,
+        disc: *const rorb_dynany,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_set_to_default_member(d: *const rorb_dynany, exc: Exc) -> rorb_status;
+    pub fn rorb_dynany_set_to_no_active_member(d: *const rorb_dynany, exc: Exc) -> rorb_status;
+    pub fn rorb_dynany_has_no_active_member(
+        d: *const rorb_dynany,
+        out: *mut i32,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_discriminator_kind(
+        d: *const rorb_dynany,
+        out: *mut u32,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_member(
+        d: *const rorb_dynany,
+        out: *mut *mut rorb_dynany,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_member_name(
+        d: *const rorb_dynany,
+        out: *mut rorb_bytes,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_member_kind(d: *const rorb_dynany, out: *mut u32, exc: Exc) -> rorb_status;
+    pub fn rorb_dynany_get_length(d: *const rorb_dynany, out: *mut u32, exc: Exc) -> rorb_status;
+    pub fn rorb_dynany_set_length(d: *const rorb_dynany, len: u32, exc: Exc) -> rorb_status;
+    pub fn rorb_dynany_element_count(d: *const rorb_dynany, out: *mut u32, exc: Exc)
+    -> rorb_status;
+    pub fn rorb_dynany_element_at(
+        d: *const rorb_dynany,
+        index: u32,
+        out: *mut *mut rorb_dynany,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_set_elements(
+        d: *const rorb_dynany,
+        count: usize,
+        values: *const *const rorb_any,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_set_elements_as_dyn_any(
+        d: *const rorb_dynany,
+        count: usize,
+        values: *const *const rorb_dynany,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_is_null(d: *const rorb_dynany, out: *mut i32, exc: Exc) -> rorb_status;
+    pub fn rorb_dynany_set_to_null(d: *const rorb_dynany, exc: Exc) -> rorb_status;
+    pub fn rorb_dynany_set_to_value(d: *const rorb_dynany, exc: Exc) -> rorb_status;
+    pub fn rorb_dynany_get_boxed_value(
+        d: *const rorb_dynany,
+        out: *mut *mut rorb_any,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_set_boxed_value(
+        d: *const rorb_dynany,
+        value: *const rorb_any,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_get_boxed_value_as_dyn_any(
+        d: *const rorb_dynany,
+        out: *mut *mut rorb_dynany,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_dynany_set_boxed_value_as_dyn_any(
+        d: *const rorb_dynany,
+        value: *const rorb_dynany,
         exc: Exc,
     ) -> rorb_status;
 }

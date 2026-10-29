@@ -100,7 +100,7 @@ public final class OrbImpl extends org.omg.CORBA_2_3.ORB {
 
     /** The names resolve_initial_references answers without the core. */
     private static final String[] LOCAL_SERVICES = {
-        "RootPOA", "POACurrent", "ORBPolicyManager", "PolicyCurrent"
+        "RootPOA", "POACurrent", "ORBPolicyManager", "PolicyCurrent", "DynAnyFactory"
     };
 
     @Override
@@ -161,6 +161,9 @@ public final class OrbImpl extends org.omg.CORBA_2_3.ORB {
         }
         if ("PolicyCurrent".equals(object_name)) {
             return PolicyManagerImpl.Current.INSTANCE;
+        }
+        if ("DynAnyFactory".equals(object_name)) {
+            return DynAnyFactoryImpl.INSTANCE;
         }
         try {
             Object local = Native.orbResolveLocalInitialReference(handle(), object_name);

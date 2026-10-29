@@ -81,6 +81,14 @@ final class Bridge {
                 return new org.omg.CORBA.TypeCodePackage.Bounds();
             case 16:
                 return new org.omg.CORBA.PolicyError((short) index);
+            case 17:
+                return new org.omg.DynamicAny.DynAnyPackage.InvalidValue();
+            case 18:
+                return new org.omg.DynamicAny.DynAnyPackage.TypeMismatch();
+            case 19:
+                return new org.omg.DynamicAny.DynAnyFactoryPackage.InconsistentTypeCode();
+            case 20:
+                return new org.omg.DynamicAny.MustTruncate();
             default:
                 return new org.omg.CORBA.INTERNAL("local exception " + code, 0,
                         CompletionStatus.COMPLETED_MAYBE);

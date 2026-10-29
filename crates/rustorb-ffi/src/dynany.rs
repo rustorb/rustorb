@@ -289,8 +289,8 @@ pub unsafe extern "C" fn rorb_dynany_get_seq(
             let kind = kind_arg(kind)?;
             let items = arg(d)?.get_seq(kind)?;
             let element = TypeCode::simple(kind).map_err(|_| DynAnyError::System(bad_param()))?;
-            let tc = TypeCode::sequence(&element, 0)
-                .map_err(|_| DynAnyError::System(bad_param()))?;
+            let tc =
+                TypeCode::sequence(&element, 0).map_err(|_| DynAnyError::System(bad_param()))?;
             let value = match kind {
                 TCKind::Octet => Value::Octets(
                     items
@@ -462,7 +462,11 @@ pub unsafe extern "C" fn rorb_dynany_current_member_kind(
     out: *mut u32,
     exc: *mut Exception,
 ) -> Status {
-    unsafe { put(exc, out, || arg(d)?.current_member_kind().map(TCKind::as_u32)) }
+    unsafe {
+        put(exc, out, || {
+            arg(d)?.current_member_kind().map(TCKind::as_u32)
+        })
+    }
 }
 
 /// The number of members (`get_members` fails as it would: `InvalidValue`
@@ -605,7 +609,11 @@ pub unsafe extern "C" fn rorb_dynany_discriminator_kind(
     out: *mut u32,
     exc: *mut Exception,
 ) -> Status {
-    unsafe { put(exc, out, || arg(d)?.discriminator_kind().map(TCKind::as_u32)) }
+    unsafe {
+        put(exc, out, || {
+            arg(d)?.discriminator_kind().map(TCKind::as_u32)
+        })
+    }
 }
 
 #[unsafe(no_mangle)]

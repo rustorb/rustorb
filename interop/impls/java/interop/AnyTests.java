@@ -39,6 +39,14 @@ import org.omg.CORBA.ORB;
 import org.omg.CORBA.TCKind;
 import org.omg.CORBA.TypeCode;
 import org.omg.CORBA.TypeCodePackage.BadKind;
+import org.omg.DynamicAny.DynAny;
+import org.omg.DynamicAny.DynAnyFactory;
+import org.omg.DynamicAny.DynAnyFactoryHelper;
+import org.omg.DynamicAny.DynEnum;
+import org.omg.DynamicAny.DynFixed;
+import org.omg.DynamicAny.DynSequence;
+import org.omg.DynamicAny.DynUnion;
+import org.omg.DynamicAny.DynValueCommon;
 
 public final class AnyTests {
     private AnyTests() {}
@@ -326,6 +334,19 @@ public final class AnyTests {
                 Cases.check(d.equals(h[1]), d);
             });
         }
+        // The values taken apart and built again with DynAny, from their
+        // TypeCodes alone (docs/dynany.md).
+        for (String n : NAMES) {
+            r.run("dyn_check[" + n + "]", () -> Cases.check(
+                    echo.check(n, dynRebuild(orb, make(orb, n, echo))), "server says no"));
+            r.run("dyn_make[" + n + "]", () -> Cases.check(
+                    same(orb, n, dynRebuild(orb, echo.make(n)), echo), "wrong value"));
+        }
+        for (String[] h : hidden) {
+            r.run("dyn_echo[" + h[0] + "]", () -> Cases.check(
+                    same(orb, h[0], echo.echo(dynRebuild(orb, make(orb, h[0], echo))), echo),
+                    "wrong value"));
+        }
         r.run("describe[long]", () -> {
             String d = echo.describe(make(orb, "long", echo));
             Cases.check(d.equals("long "), d);
@@ -356,5 +377,118 @@ public final class AnyTests {
             }
             Cases.check(false, "no BAD_PARAM");
         });
+    }
+
+    /** value taken apart with a DynAny and built again in a DynAny made
+     * from its TypeCode alone, component by component. */
+    static Any dynRebuild(ORB orb, Any value) throws Exception {
+        DynAnyFactory factory =
+                DynAnyFactoryHelper.narrow(orb.resolve_initial_references("DynAnyFactory"));
+        DynAny src = factory.create_dyn_any(value);
+        DynAny dst = factory.create_dyn_any_from_type_code(value.type());
+        dynCopy(orb, src, dst);
+        Any rebuilt = dst.to_any();
+        src.destroy();
+        dst.destroy();
+        return rebuilt;
+    }
+
+    static void dynCopy(ORB orb, DynAny src, DynAny dst) throws Exception {
+        TypeCode tc = src.type();
+        while (tc.kind().value() == TCKind._tk_alias) {
+            tc = tc.content_type();
+        }
+        switch (tc.kind().value()) {
+            case TCKind._tk_struct:
+            case TCKind._tk_except:
+            case TCKind._tk_sequence:
+            case TCKind._tk_array:
+            case TCKind._tk_value:
+            case TCKind._tk_value_box:
+                if (src instanceof DynSequence) {
+                    ((DynSequence) dst).set_length(((DynSequence) src).get_length());
+                } else if (src instanceof DynValueCommon) {
+                    if (((DynValueCommon) src).is_null()) {
+                        ((DynValueCommon) dst).set_to_null();
+                        return;
+                    }
+                    ((DynValueCommon) dst).set_to_value();
+                }
+                for (int i = 0; i < src.component_count(); i++) {
+                    src.seek(i);
+                    dst.seek(i);
+                    dynCopy(orb, src.current_component(), dst.current_component());
+                }
+                return;
+            case TCKind._tk_union: {
+                DynUnion s = (DynUnion) src;
+                DynUnion d = (DynUnion) dst;
+                d.set_discriminator(s.get_discriminator());
+                if (!s.has_no_active_member()) {
+                    dynCopy(orb, s.member(), d.member());
+                }
+                return;
+            }
+            case TCKind._tk_enum:
+                ((DynEnum) dst).set_as_ulong(((DynEnum) src).get_as_ulong());
+                return;
+            case TCKind._tk_fixed:
+                ((DynFixed) dst).set_value(((DynFixed) src).get_value());
+                return;
+            case TCKind._tk_any:
+                dst.insert_any(dynRebuild(orb, src.get_any()));
+                return;
+            case TCKind._tk_long:
+                dst.insert_long(src.get_long());
+                return;
+            case TCKind._tk_short:
+                dst.insert_short(src.get_short());
+                return;
+            case TCKind._tk_ulong:
+                dst.insert_ulong(src.get_ulong());
+                return;
+            case TCKind._tk_ushort:
+                dst.insert_ushort(src.get_ushort());
+                return;
+            case TCKind._tk_longlong:
+                dst.insert_longlong(src.get_longlong());
+                return;
+            case TCKind._tk_ulonglong:
+                dst.insert_ulonglong(src.get_ulonglong());
+                return;
+            case TCKind._tk_float:
+                dst.insert_float(src.get_float());
+                return;
+            case TCKind._tk_double:
+                dst.insert_double(src.get_double());
+                return;
+            case TCKind._tk_boolean:
+                dst.insert_boolean(src.get_boolean());
+                return;
+            case TCKind._tk_char:
+                dst.insert_char(src.get_char());
+                return;
+            case TCKind._tk_wchar:
+                dst.insert_wchar(src.get_wchar());
+                return;
+            case TCKind._tk_octet:
+                dst.insert_octet(src.get_octet());
+                return;
+            case TCKind._tk_string:
+                dst.insert_string(src.get_string());
+                return;
+            case TCKind._tk_wstring:
+                dst.insert_wstring(src.get_wstring());
+                return;
+            case TCKind._tk_TypeCode:
+                dst.insert_typecode(src.get_typecode());
+                return;
+            case TCKind._tk_objref:
+                dst.insert_reference(src.get_reference());
+                return;
+            default:
+                // tk_null and tk_void
+                dst.from_any(src.to_any());
+        }
     }
 }

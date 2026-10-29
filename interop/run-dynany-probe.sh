@@ -10,7 +10,7 @@
 # rustorb (impls/rustorb/src/dynany_probe.rs), or a binding on the same core
 # compared with the rustorb file: rustorbpy (impls/rustorbpy/dynany-probe),
 # rustorbcpp (impls/rustorbcpp/dynany_probe.cc) or rustorbjava
-# (impls/rustorbjava/probe/DynAnyProbe.java) (default: all of them). omniORBpy has no DynAny.
+# (impls/rustorbjava/probe/interop/DynAnyProbe.java) (default: all of them). omniORBpy has no DynAny.
 # The probe records how DynAny behaves where the specification leaves room
 # or where rustorb had to choose; the two expected files differ where
 # rustorb chose otherwise (see docs/dynany.md). The rustorb probes run on

@@ -288,4 +288,68 @@ final class Native {
     static native boolean anyLabel(long any, long[] label);
     static native long anyInsert(long tc, Call call);
     static native void anyExtract(long any, Call call);
+
+    // --- DynamicAny (crates/rustorb-jni/src/dynany.rs) ------------------------
+    static native long dynCreate(long any, boolean truncate) throws org.omg.CORBA.UserException;
+    static native long dynFromTypeCode(long tc) throws org.omg.CORBA.UserException;
+    static native long dynClone(long d);
+    static native void dynRelease(long d);
+    static native int dynKind(long d);
+    static native boolean dynSame(long a, long b);
+    static native long dynType(long d) throws org.omg.CORBA.UserException;
+    static native long dynTargetType(long d) throws org.omg.CORBA.UserException;
+    static native long dynToAny(long d) throws org.omg.CORBA.UserException;
+    static native long dynCopy(long d) throws org.omg.CORBA.UserException;
+    static native long dynGetDynAny(long d) throws org.omg.CORBA.UserException;
+    static native long dynCurrentComponent(long d) throws org.omg.CORBA.UserException;
+    static native long dynGetDiscriminator(long d) throws org.omg.CORBA.UserException;
+    static native long dynMember(long d) throws org.omg.CORBA.UserException;
+    static native long dynGetBoxedValue(long d) throws org.omg.CORBA.UserException;
+    static native long dynGetBoxedValueAsDynAny(long d) throws org.omg.CORBA.UserException;
+    static native int dynComponentCount(long d) throws org.omg.CORBA.UserException;
+    static native int dynGetAsUlong(long d) throws org.omg.CORBA.UserException;
+    static native int dynCurrentMemberKind(long d) throws org.omg.CORBA.UserException;
+    static native int dynMemberCount(long d) throws org.omg.CORBA.UserException;
+    static native int dynDiscriminatorKind(long d) throws org.omg.CORBA.UserException;
+    static native int dynMemberKind(long d) throws org.omg.CORBA.UserException;
+    static native int dynGetLength(long d) throws org.omg.CORBA.UserException;
+    static native int dynElementCount(long d) throws org.omg.CORBA.UserException;
+    static native boolean dynNext(long d) throws org.omg.CORBA.UserException;
+    static native boolean dynHasNoActiveMember(long d) throws org.omg.CORBA.UserException;
+    static native boolean dynIsNull(long d) throws org.omg.CORBA.UserException;
+    static native String dynGetFixedValue(long d) throws org.omg.CORBA.UserException;
+    static native String dynGetAsString(long d) throws org.omg.CORBA.UserException;
+    static native String dynCurrentMemberName(long d) throws org.omg.CORBA.UserException;
+    static native String dynMemberName(long d) throws org.omg.CORBA.UserException;
+    static native void dynDestroy(long d) throws org.omg.CORBA.UserException;
+    static native void dynRewind(long d) throws org.omg.CORBA.UserException;
+    static native void dynNoImplement(long d) throws org.omg.CORBA.UserException;
+    static native void dynSetToDefaultMember(long d) throws org.omg.CORBA.UserException;
+    static native void dynSetToNoActiveMember(long d) throws org.omg.CORBA.UserException;
+    static native void dynSetToNull(long d) throws org.omg.CORBA.UserException;
+    static native void dynSetToValue(long d) throws org.omg.CORBA.UserException;
+    static native void dynAssign(long d, long h) throws org.omg.CORBA.UserException;
+    static native void dynFromAny(long d, long h) throws org.omg.CORBA.UserException;
+    static native void dynInsertDynAny(long d, long h) throws org.omg.CORBA.UserException;
+    static native void dynSetDiscriminator(long d, long h) throws org.omg.CORBA.UserException;
+    static native void dynSetBoxedValue(long d, long h) throws org.omg.CORBA.UserException;
+    static native void dynSetBoxedValueAsDynAny(long d, long h) throws org.omg.CORBA.UserException;
+    static native void dynInsert(long d, int kind, long any) throws org.omg.CORBA.UserException;
+    static native void dynInsertSeq(long d, int kind, long any) throws org.omg.CORBA.UserException;
+    static native long dynGet(long d, int kind) throws org.omg.CORBA.UserException;
+    static native long dynGetSeq(long d, int kind) throws org.omg.CORBA.UserException;
+    static native void dynSetAsUlong(long d, int value) throws org.omg.CORBA.UserException;
+    static native void dynSetLength(long d, int length) throws org.omg.CORBA.UserException;
+    static native boolean dynEqual(long d, long other) throws org.omg.CORBA.UserException;
+    static native boolean dynSeek(long d, int index) throws org.omg.CORBA.UserException;
+    static native boolean dynSetFixedValue(long d, String value) throws org.omg.CORBA.UserException;
+    static native void dynSetAsString(long d, String value) throws org.omg.CORBA.UserException;
+    /** The member's DynAny; its name goes in name[0]. */
+    static native long dynMemberAt(long d, int index, String[] name) throws org.omg.CORBA.UserException;
+    /** set_members (values are anys) or set_members_as_dyn_any (DynAnys). */
+    static native void dynSetMembers(long d, String[] names, long[] values, boolean asDynAny)
+            throws org.omg.CORBA.UserException;
+    static native long dynElementAt(long d, int index) throws org.omg.CORBA.UserException;
+    /** set_elements (anys) or set_elements_as_dyn_any (DynAnys). */
+    static native void dynSetElements(long d, long[] values, boolean asDynAny) throws org.omg.CORBA.UserException;
 }
