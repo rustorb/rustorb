@@ -3,16 +3,31 @@ use std::ops::Deref;
 
 use rustorb_core::giop::{Corbaloc, ObjAddr};
 use rustorb_core::name::{self, Name, NameComponent};
-use rustorb_core::{
-    CompletionStatus, Exception, InStream, ObjectRef, OutStream, Reply, SystemException,
-    SystemExceptionKind,
-};
+use rustorb_core::{ObjectRef, SystemException};
 
 use crate::NamingError;
-use crate::repository_id::{
-    ALREADY_BOUND, BINDING_ITERATOR, CANNOT_PROCEED, INVALID_ADDRESS, INVALID_NAME, NAMING_CONTEXT,
-    NAMING_CONTEXT_EXT, NOT_EMPTY, NOT_FOUND,
-};
+use crate::idl::cos_naming as idl;
+use crate::repository_id::{NAMING_CONTEXT, NAMING_CONTEXT_EXT};
+
+/// A name of the generated code.
+pub(crate) fn to_idl_name(n: &[NameComponent]) -> idl::Name {
+    n.iter()
+        .map(|c| idl::NameComponent {
+            id: c.id.clone(),
+            kind: c.kind.clone(),
+        })
+        .collect()
+}
+
+/// A name from the generated code.
+pub(crate) fn from_idl_name(n: idl::Name) -> Name {
+    n.into_iter()
+        .map(|c| NameComponent {
+            id: c.id,
+            kind: c.kind,
+        })
+        .collect()
+}
 
 /// `CosNaming::BindingType`: what a name is bound to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -44,68 +59,64 @@ pub struct Binding {
     pub binding_type: BindingType,
 }
 
-impl Binding {
-    fn read(input: &mut InStream<'_>) -> Result<Binding, SystemException> {
-        let binding_name = name::read_name(input)?;
-        let binding_type = match input.read::<u32>()? {
-            0 => BindingType::Object,
-            1 => BindingType::Context,
-            _ => return Err(marshal()),
-        };
-        Ok(Binding {
-            binding_name,
-            binding_type,
-        })
+impl From<idl::Binding> for Binding {
+    fn from(b: idl::Binding) -> Binding {
+        Binding {
+            binding_name: from_idl_name(b.binding_name),
+            binding_type: match b.binding_type {
+                idl::BindingType::Nobject => BindingType::Object,
+                idl::BindingType::Ncontext => BindingType::Context,
+            },
+        }
     }
 }
 
-fn read_bindings(input: &mut InStream<'_>) -> Result<Vec<Binding>, SystemException> {
-    // A binding is at least an empty name and the type (8 bytes).
-    let len = input.read_len(8).map_err(|_| marshal())?;
-    (0..len).map(|_| Binding::read(input)).collect()
+impl From<&Binding> for idl::Binding {
+    fn from(b: &Binding) -> idl::Binding {
+        idl::Binding {
+            binding_name: to_idl_name(&b.binding_name),
+            binding_type: match b.binding_type {
+                BindingType::Object => idl::BindingType::Nobject,
+                BindingType::Context => idl::BindingType::Ncontext,
+            },
+        }
+    }
 }
 
-fn marshal() -> SystemException {
-    SystemException::new(SystemExceptionKind::MARSHAL, 0, CompletionStatus::Yes)
+fn bindings(list: idl::BindingList) -> Vec<Binding> {
+    list.into_iter().map(Binding::from).collect()
 }
 
 /// Whether `obj` supports `repository_id`: from the IOR's type id when it
 /// says so, otherwise by asking the object (`_is_a`).
 fn supports(obj: &ObjectRef, repository_id: &str, also: &[&str]) -> Result<bool, SystemException> {
-    if obj.type_id() == repository_id || also.contains(&obj.type_id()) {
+    if also.contains(&obj.type_id()) {
         return Ok(true);
     }
-    obj.is_a(repository_id).map_err(|e| match e {
-        Exception::System(e) => e,
-        Exception::User(_) => SystemException::new(
-            SystemExceptionKind::UNKNOWN,
-            rustorb_core::minor::UNLISTED_USER_EXCEPTION,
-            CompletionStatus::Yes,
-        ),
-    })
+    rustorb_core::idl::is_a(obj, repository_id)
 }
 
-/// Sends `operation` to `obj` and maps its exceptions, `declared` being the
-/// user exceptions it may raise.
-fn call(
-    obj: &ObjectRef,
-    operation: &str,
-    declared: &[&str],
-    args: impl Fn(&mut OutStream<'_>) -> Result<(), SystemException>,
-) -> Result<Reply, NamingError> {
-    obj.request(operation)
-        .args(args)
-        .invoke()
-        .map_err(|e| NamingError::from_exception(e, declared))
+/// A context the operation returns; nil is a broken reply.
+fn context(nc: Option<idl::NamingContext>) -> Result<NamingContext, NamingError> {
+    let nc = nc.ok_or_else(|| {
+        SystemException::new(
+            rustorb_core::SystemExceptionKind::MARSHAL,
+            0,
+            rustorb_core::CompletionStatus::Yes,
+        )
+    })?;
+    Ok(NamingContext::unchecked_narrow(nc.into_object()))
 }
 
-/// A stub for `CosNaming::NamingContext`.
+/// A stub for `CosNaming::NamingContext`, over the one `rustorb-idl -brust`
+/// generates ([`crate::idl::cos_naming::NamingContext`]) with the names of
+/// [`rustorb_core::name`] and the errors of [`NamingError`].
 ///
 /// Names are given as slices of [`NameComponent`]; [`to_name`](crate::to_name)
 /// makes one from a string such as `"app/Echo"`.
 #[derive(Debug, Clone)]
 pub struct NamingContext {
-    obj: ObjectRef,
+    stub: idl::NamingContext,
 }
 
 impl NamingContext {
@@ -119,36 +130,43 @@ impl NamingContext {
 
     /// Uses `obj` as a naming context without checking its type.
     pub fn unchecked_narrow(obj: ObjectRef) -> NamingContext {
-        NamingContext { obj }
+        NamingContext {
+            stub: idl::NamingContext::unchecked_narrow(obj),
+        }
     }
 
     /// The object reference.
     pub fn object(&self) -> &ObjectRef {
-        &self.obj
+        self.stub.object()
     }
 
     /// The object reference.
     pub fn into_object(self) -> ObjectRef {
-        self.obj
+        self.stub.into_object()
+    }
+
+    /// The generated stub.
+    pub fn stub(&self) -> &idl::NamingContext {
+        &self.stub
     }
 
     /// `bind`: binds `n` to `obj`. Raises `NotFound`, `CannotProceed`,
     /// `InvalidName` or `AlreadyBound`.
     pub fn bind(&self, n: &[NameComponent], obj: &ObjectRef) -> Result<(), NamingError> {
-        self.bind_op("bind", n, Some(obj), true)
+        Ok(self.stub.bind(&to_idl_name(n), Some(obj))?)
     }
 
     /// `rebind`: binds `n` to `obj`, replacing an object binding. Raises
     /// `NotFound`, `CannotProceed` or `InvalidName`.
     pub fn rebind(&self, n: &[NameComponent], obj: &ObjectRef) -> Result<(), NamingError> {
-        self.bind_op("rebind", n, Some(obj), false)
+        Ok(self.stub.rebind(&to_idl_name(n), Some(obj))?)
     }
 
     /// `bind_context`: binds `n` to the context `nc`, so that names are
     /// resolved through it. Raises `NotFound`, `CannotProceed`,
     /// `InvalidName` or `AlreadyBound`.
     pub fn bind_context(&self, n: &[NameComponent], nc: &NamingContext) -> Result<(), NamingError> {
-        self.bind_op("bind_context", n, Some(&nc.obj), true)
+        Ok(self.stub.bind_context(&to_idl_name(n), Some(&nc.stub))?)
     }
 
     /// `rebind_context`: binds `n` to the context `nc`, replacing a context
@@ -158,77 +176,38 @@ impl NamingContext {
         n: &[NameComponent],
         nc: &NamingContext,
     ) -> Result<(), NamingError> {
-        self.bind_op("rebind_context", n, Some(&nc.obj), false)
-    }
-
-    pub(crate) fn bind_op(
-        &self,
-        operation: &str,
-        n: &[NameComponent],
-        obj: Option<&ObjectRef>,
-        already_bound: bool,
-    ) -> Result<(), NamingError> {
-        let declared: &[&str] = if already_bound {
-            &[NOT_FOUND, CANNOT_PROCEED, INVALID_NAME, ALREADY_BOUND]
-        } else {
-            &[NOT_FOUND, CANNOT_PROCEED, INVALID_NAME]
-        };
-        call(&self.obj, operation, declared, |out| {
-            name::write_name(out, n)?;
-            out.write_object(obj)
-        })?;
-        Ok(())
+        Ok(self.stub.rebind_context(&to_idl_name(n), Some(&nc.stub))?)
     }
 
     /// `resolve`: the object `n` is bound to (`None` if it is bound to a
     /// nil reference). Raises `NotFound`, `CannotProceed` or
     /// `InvalidName`.
     pub fn resolve(&self, n: &[NameComponent]) -> Result<Option<ObjectRef>, NamingError> {
-        let reply = call(
-            &self.obj,
-            "resolve",
-            &[NOT_FOUND, CANNOT_PROCEED, INVALID_NAME],
-            |out| name::write_name(out, n),
-        )?;
-        Ok(reply.input().read_object()?)
+        Ok(self.stub.resolve(&to_idl_name(n))?)
     }
 
     /// `unbind`: removes the binding of `n`. Raises `NotFound`,
     /// `CannotProceed` or `InvalidName`.
     pub fn unbind(&self, n: &[NameComponent]) -> Result<(), NamingError> {
-        call(
-            &self.obj,
-            "unbind",
-            &[NOT_FOUND, CANNOT_PROCEED, INVALID_NAME],
-            |out| name::write_name(out, n),
-        )?;
-        Ok(())
+        Ok(self.stub.unbind(&to_idl_name(n))?)
     }
 
     /// `new_context`: a new context, not bound to any name, in the same
     /// naming service.
     pub fn new_context(&self) -> Result<NamingContext, NamingError> {
-        let reply = call(&self.obj, "new_context", &[], |_| Ok(()))?;
-        read_context(&reply)
+        context(self.stub.new_context()?)
     }
 
     /// `bind_new_context`: creates a context and binds it to `n`. Raises
     /// `NotFound`, `CannotProceed`, `InvalidName` or `AlreadyBound`.
     pub fn bind_new_context(&self, n: &[NameComponent]) -> Result<NamingContext, NamingError> {
-        let reply = call(
-            &self.obj,
-            "bind_new_context",
-            &[NOT_FOUND, CANNOT_PROCEED, INVALID_NAME, ALREADY_BOUND],
-            |out| name::write_name(out, n),
-        )?;
-        read_context(&reply)
+        context(self.stub.bind_new_context(&to_idl_name(n))?)
     }
 
     /// `destroy`: deletes this context, which must have no bindings (or
     /// `NotEmpty` is raised). Names bound to it elsewhere are not unbound.
     pub fn destroy(&self) -> Result<(), NamingError> {
-        call(&self.obj, "destroy", &[NOT_EMPTY], |_| Ok(()))?;
-        Ok(())
+        Ok(self.stub.destroy()?)
     }
 
     /// `list`: up to `how_many` bindings of this context, and an iterator
@@ -237,22 +216,11 @@ impl NamingContext {
         &self,
         how_many: u32,
     ) -> Result<(Vec<Binding>, Option<BindingIterator>), NamingError> {
-        let reply = call(&self.obj, "list", &[], |out| {
-            out.write_u32(how_many);
-            Ok(())
-        })?;
-        let mut input = reply.input();
-        let bindings = read_bindings(&mut input)?;
-        let iterator = input.read_object()?.map(|obj| BindingIterator { obj });
-        Ok((bindings, iterator))
-    }
-}
-
-fn read_context(reply: &Reply) -> Result<NamingContext, NamingError> {
-    match reply.input().read_object()? {
-        Some(obj) => Ok(NamingContext::unchecked_narrow(obj)),
-        // The operation returns a context; nil is a broken reply.
-        None => Err(marshal().into()),
+        let (list, iterator) = self.stub.list(how_many)?;
+        Ok((
+            bindings(list),
+            iterator.map(|stub| BindingIterator { stub }),
+        ))
     }
 }
 
@@ -262,6 +230,7 @@ fn read_context(reply: &Reply) -> Result<NamingContext, NamingError> {
 #[derive(Debug, Clone)]
 pub struct NamingContextExt {
     ctx: NamingContext,
+    stub: idl::NamingContextExt,
 }
 
 impl NamingContextExt {
@@ -276,7 +245,8 @@ impl NamingContextExt {
     /// Uses `obj` as a `NamingContextExt` without checking its type.
     pub fn unchecked_narrow(obj: ObjectRef) -> NamingContextExt {
         NamingContextExt {
-            ctx: NamingContext::unchecked_narrow(obj),
+            ctx: NamingContext::unchecked_narrow(obj.clone()),
+            stub: idl::NamingContextExt::unchecked_narrow(obj),
         }
     }
 
@@ -285,23 +255,22 @@ impl NamingContextExt {
         &self.ctx
     }
 
+    /// The generated stub.
+    pub fn stub(&self) -> &idl::NamingContextExt {
+        &self.stub
+    }
+
     /// `to_string`: the naming service writes `n` as a stringified name.
     /// Raises `InvalidName`. [`to_string`](crate::to_string) does the same
     /// locally.
     pub fn to_string(&self, n: &[NameComponent]) -> Result<String, NamingError> {
-        let reply = call(&self.obj, "to_string", &[INVALID_NAME], |out| {
-            name::write_name(out, n)
-        })?;
-        Ok(reply.input().read_string()?)
+        Ok(self.stub.to_string(&to_idl_name(n))?)
     }
 
     /// `to_name`: the naming service parses a stringified name. Raises
     /// `InvalidName`. [`to_name`](crate::to_name) does the same locally.
     pub fn to_name(&self, sn: &str) -> Result<Name, NamingError> {
-        let reply = call(&self.obj, "to_name", &[INVALID_NAME], |out| {
-            out.write_string(sn)
-        })?;
-        Ok(name::read_name(&mut reply.input())?)
+        Ok(from_idl_name(self.stub.to_name(sn)?))
     }
 
     /// `to_url`: the naming service makes a `corbaname:` URL from a
@@ -309,28 +278,13 @@ impl NamingContextExt {
     /// `InvalidAddress` or `InvalidName`. [`to_url`](crate::to_url) does
     /// the same locally.
     pub fn to_url(&self, addr: &str, sn: &str) -> Result<String, NamingError> {
-        let reply = call(
-            &self.obj,
-            "to_url",
-            &[INVALID_ADDRESS, INVALID_NAME],
-            |out| {
-                out.write_string(addr)?;
-                out.write_string(sn)
-            },
-        )?;
-        Ok(reply.input().read_string()?)
+        Ok(self.stub.to_url(addr, sn)?)
     }
 
     /// `resolve_str`: resolves a stringified name. Raises `NotFound`,
     /// `CannotProceed` or `InvalidName`.
     pub fn resolve_str(&self, sn: &str) -> Result<Option<ObjectRef>, NamingError> {
-        let reply = call(
-            &self.obj,
-            "resolve_str",
-            &[NOT_FOUND, CANNOT_PROCEED, INVALID_NAME],
-            |out| out.write_string(sn),
-        )?;
-        Ok(reply.input().read_object()?)
+        Ok(self.stub.resolve_str(sn)?)
     }
 }
 
@@ -354,46 +308,36 @@ impl From<NamingContextExt> for NamingContext {
 /// leaves the iterator in the naming service.
 #[derive(Debug, Clone)]
 pub struct BindingIterator {
-    obj: ObjectRef,
+    stub: idl::BindingIterator,
 }
 
 impl BindingIterator {
     /// Narrows `obj` to a binding iterator: `None` if it is not one.
     pub fn narrow(obj: ObjectRef) -> Result<Option<BindingIterator>, SystemException> {
-        Ok(supports(&obj, BINDING_ITERATOR, &[])?.then(|| BindingIterator { obj }))
+        Ok(idl::BindingIterator::narrow(&obj)?.map(|stub| BindingIterator { stub }))
     }
 
     /// The object reference.
     pub fn object(&self) -> &ObjectRef {
-        &self.obj
+        self.stub.object()
     }
 
     /// `next_one`: the next binding, or `None` at the end.
     pub fn next_one(&self) -> Result<Option<Binding>, NamingError> {
-        let reply = call(&self.obj, "next_one", &[], |_| Ok(()))?;
-        let mut input = reply.input();
-        let more = input.read::<bool>()?;
-        let binding = Binding::read(&mut input)?;
-        Ok(more.then_some(binding))
+        let (more, binding) = self.stub.next_one()?;
+        Ok(more.then(|| binding.into()))
     }
 
     /// `next_n`: up to `how_many` more bindings, and whether any were
     /// returned (`false` at the end).
     pub fn next_n(&self, how_many: u32) -> Result<(bool, Vec<Binding>), NamingError> {
-        let reply = call(&self.obj, "next_n", &[], |out| {
-            out.write_u32(how_many);
-            Ok(())
-        })?;
-        let mut input = reply.input();
-        let more = input.read::<bool>()?;
-        let bindings = read_bindings(&mut input)?;
-        Ok((more, bindings))
+        let (more, list) = self.stub.next_n(how_many)?;
+        Ok((more, bindings(list)))
     }
 
     /// `destroy`: releases the iterator in the naming service.
     pub fn destroy(&self) -> Result<(), NamingError> {
-        call(&self.obj, "destroy", &[], |_| Ok(()))?;
-        Ok(())
+        Ok(self.stub.destroy()?)
     }
 }
 

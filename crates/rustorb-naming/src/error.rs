@@ -1,12 +1,10 @@
 use std::fmt;
 
 use rustorb_core::name::{self, InvalidName, Name};
-use rustorb_core::{
-    CompletionStatus, Exception, InStream, ServerReply, SystemException, SystemExceptionKind,
-    UserException, minor,
-};
+use rustorb_core::{CompletionStatus, SystemException, SystemExceptionKind, minor};
 
-use crate::client::NamingContext;
+use crate::client::{NamingContext, from_idl_name, to_idl_name};
+use crate::idl::cos_naming::{self as idl, naming_context as nc, naming_context_ext as nce};
 use crate::repository_id;
 
 /// `CosNaming::NamingContext::NotFoundReason`: why a name was not found.
@@ -30,19 +28,6 @@ impl NotFoundReason {
             NotFoundReason::MissingNode => "missing_node",
             NotFoundReason::NotContext => "not_context",
             NotFoundReason::NotObject => "not_object",
-        }
-    }
-
-    fn read(input: &mut InStream<'_>) -> Result<NotFoundReason, SystemException> {
-        match input.read::<u32>()? {
-            0 => Ok(NotFoundReason::MissingNode),
-            1 => Ok(NotFoundReason::NotContext),
-            2 => Ok(NotFoundReason::NotObject),
-            _ => Err(SystemException::new(
-                SystemExceptionKind::MARSHAL,
-                0,
-                CompletionStatus::Yes,
-            )),
         }
     }
 }
@@ -113,68 +98,156 @@ impl NamingError {
             _ => None,
         }
     }
+}
 
-    /// Decodes an exception raised by an operation that declares the user
-    /// exceptions in `declared` (repository ids).
-    pub(crate) fn from_exception(e: Exception, declared: &[&str]) -> NamingError {
-        match e {
-            Exception::System(e) => NamingError::System(e),
-            Exception::User(e) if declared.contains(&e.repository_id()) => {
-                NamingError::from_user(&e).unwrap_or_else(NamingError::System)
-            }
-            Exception::User(_) => NamingError::System(SystemException::new(
-                SystemExceptionKind::UNKNOWN,
-                minor::UNLISTED_USER_EXCEPTION,
-                CompletionStatus::Yes,
-            )),
+// --- the exceptions of the generated code (crate::idl) ----------------------
+
+impl From<nc::NotFoundReason> for NotFoundReason {
+    fn from(why: nc::NotFoundReason) -> NotFoundReason {
+        match why {
+            nc::NotFoundReason::MissingNode => NotFoundReason::MissingNode,
+            nc::NotFoundReason::NotContext => NotFoundReason::NotContext,
+            nc::NotFoundReason::NotObject => NotFoundReason::NotObject,
         }
     }
+}
 
-    /// Writes a user exception as the reply of a servant; a system
-    /// exception is returned instead.
-    pub(crate) fn write(&self, reply: &mut ServerReply) -> Result<(), SystemException> {
-        if let NamingError::System(e) = self {
-            return Err(e.clone());
+impl From<NotFoundReason> for nc::NotFoundReason {
+    fn from(why: NotFoundReason) -> nc::NotFoundReason {
+        match why {
+            NotFoundReason::MissingNode => nc::NotFoundReason::MissingNode,
+            NotFoundReason::NotContext => nc::NotFoundReason::NotContext,
+            NotFoundReason::NotObject => nc::NotFoundReason::NotObject,
         }
-        let mut out = reply.user_exception(self.repository_id())?;
-        match self {
-            NamingError::NotFound { why, rest_of_name } => {
-                out.write_u32(match why {
-                    NotFoundReason::MissingNode => 0,
-                    NotFoundReason::NotContext => 1,
-                    NotFoundReason::NotObject => 2,
-                });
-                name::write_name(&mut out, rest_of_name)
-            }
+    }
+}
+
+impl From<nc::NotFound> for NamingError {
+    fn from(e: nc::NotFound) -> NamingError {
+        NamingError::NotFound {
+            why: e.why.into(),
+            rest_of_name: from_idl_name(e.rest_of_name),
+        }
+    }
+}
+
+impl From<nc::CannotProceed> for NamingError {
+    fn from(e: nc::CannotProceed) -> NamingError {
+        NamingError::CannotProceed {
+            context: e
+                .cxt
+                .map(|c| NamingContext::unchecked_narrow(c.into_object())),
+            rest_of_name: from_idl_name(e.rest_of_name),
+        }
+    }
+}
+
+impl From<nc::InvalidName> for NamingError {
+    fn from(_: nc::InvalidName) -> NamingError {
+        NamingError::InvalidName
+    }
+}
+
+impl From<nc::AlreadyBound> for NamingError {
+    fn from(_: nc::AlreadyBound) -> NamingError {
+        NamingError::AlreadyBound
+    }
+}
+
+impl From<nc::NotEmpty> for NamingError {
+    fn from(_: nc::NotEmpty) -> NamingError {
+        NamingError::NotEmpty
+    }
+}
+
+impl From<nce::InvalidAddress> for NamingError {
+    fn from(_: nce::InvalidAddress) -> NamingError {
+        NamingError::InvalidAddress
+    }
+}
+
+/// A [`NamingError`] as the user exception of the generated code, for the
+/// servants.
+enum User {
+    NotFound(nc::NotFound),
+    CannotProceed(nc::CannotProceed),
+    InvalidName(nc::InvalidName),
+    AlreadyBound(nc::AlreadyBound),
+    NotEmpty(nc::NotEmpty),
+    InvalidAddress(nce::InvalidAddress),
+}
+
+impl NamingError {
+    fn into_user(self) -> Result<User, SystemException> {
+        Ok(match self {
+            NamingError::NotFound { why, rest_of_name } => User::NotFound(nc::NotFound {
+                why: why.into(),
+                rest_of_name: to_idl_name(&rest_of_name),
+            }),
             NamingError::CannotProceed {
                 context,
                 rest_of_name,
-            } => {
-                out.write_object(context.as_ref().map(NamingContext::object))?;
-                name::write_name(&mut out, rest_of_name)
-            }
-            _ => Ok(()),
-        }
-    }
-
-    fn from_user(e: &UserException) -> Result<NamingError, SystemException> {
-        let mut input = e.input()?;
-        Ok(match e.repository_id() {
-            repository_id::NOT_FOUND => NamingError::NotFound {
-                why: NotFoundReason::read(&mut input)?,
-                rest_of_name: name::read_name(&mut input)?,
-            },
-            repository_id::CANNOT_PROCEED => NamingError::CannotProceed {
-                context: input.read_object()?.map(NamingContext::unchecked_narrow),
-                rest_of_name: name::read_name(&mut input)?,
-            },
-            repository_id::INVALID_NAME => NamingError::InvalidName,
-            repository_id::ALREADY_BOUND => NamingError::AlreadyBound,
-            repository_id::NOT_EMPTY => NamingError::NotEmpty,
-            repository_id::INVALID_ADDRESS => NamingError::InvalidAddress,
-            _ => unreachable!("only declared CosNaming exceptions are decoded"),
+            } => User::CannotProceed(nc::CannotProceed {
+                cxt: context.map(|c| idl::NamingContext::unchecked_narrow(c.into_object())),
+                rest_of_name: to_idl_name(&rest_of_name),
+            }),
+            NamingError::InvalidName => User::InvalidName(nc::InvalidName {}),
+            NamingError::AlreadyBound => User::AlreadyBound(nc::AlreadyBound {}),
+            NamingError::NotEmpty => User::NotEmpty(nc::NotEmpty {}),
+            NamingError::InvalidAddress => User::InvalidAddress(nce::InvalidAddress {}),
+            NamingError::System(e) => return Err(e),
         })
     }
+}
+
+/// Converts between [`NamingError`] and the error enum of an operation of
+/// the generated code, whose user exceptions are `$user`. A user exception
+/// the operation does not declare becomes `UNKNOWN`, as a skeleton sends it.
+macro_rules! errors {
+    ($($ty:ty { $($user:ident),* })*) => {
+        $(
+            impl From<$ty> for NamingError {
+                fn from(e: $ty) -> NamingError {
+                    type E = $ty;
+                    match e {
+                        $(E::$user(e) => e.into(),)*
+                        E::System(e) => NamingError::System(e),
+                    }
+                }
+            }
+
+            impl From<NamingError> for $ty {
+                fn from(e: NamingError) -> $ty {
+                    type E = $ty;
+                    match e.into_user() {
+                        $(Ok(User::$user(e)) => E::$user(e),)*
+                        #[allow(unreachable_patterns)]
+                        Ok(_) => E::System(SystemException::new(
+                            SystemExceptionKind::UNKNOWN,
+                            minor::UNLISTED_USER_EXCEPTION,
+                            CompletionStatus::Maybe,
+                        )),
+                        Err(e) => E::System(e),
+                    }
+                }
+            }
+        )*
+    };
+}
+
+errors! {
+    nc::BindError { NotFound, CannotProceed, InvalidName, AlreadyBound }
+    nc::RebindError { NotFound, CannotProceed, InvalidName }
+    nc::BindContextError { NotFound, CannotProceed, InvalidName, AlreadyBound }
+    nc::RebindContextError { NotFound, CannotProceed, InvalidName }
+    nc::ResolveError { NotFound, CannotProceed, InvalidName }
+    nc::UnbindError { NotFound, CannotProceed, InvalidName }
+    nc::BindNewContextError { NotFound, CannotProceed, InvalidName, AlreadyBound }
+    nc::DestroyError { NotEmpty }
+    nce::ToStringError { InvalidName }
+    nce::ToNameError { InvalidName }
+    nce::ToUrlError { InvalidAddress, InvalidName }
+    nce::ResolveStrError { NotFound, CannotProceed, InvalidName }
 }
 
 impl From<SystemException> for NamingError {
