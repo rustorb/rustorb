@@ -153,6 +153,17 @@ template <uint32_t N> struct codec<IDL::bounded_wstring<N>> {
   }
 };
 
+template <uint16_t D, uint16_t S> struct codec<IDL::Fixed<D, S>> {
+  static void write(rorb_out* out, const IDL::Fixed<D, S>& v) {
+    rorb_out_write_fixed(out, v._rorb_digits().data(), D, v._rorb_negative() ? 1 : 0);
+  }
+  static void read(rorb_in* in, IDL::Fixed<D, S>& v) {
+    typename IDL::Fixed<D, S>::digits_type digits{};
+    bool negative = rorb_in_read_fixed(in, digits.data(), D) != 0;
+    v._rorb_set(digits, negative);
+  }
+};
+
 inline void write_length(rorb_out* out, size_t n) {
   if (n > 0xFFFFFFFFu) throw CORBA::MARSHAL(0, CORBA::CompletionStatus::COMPLETED_NO);
   rorb_out_write_ulong(out, static_cast<uint32_t>(n));
@@ -319,6 +330,13 @@ template <uint32_t N> struct type_code<IDL::bounded_string<N>> {
 template <uint32_t N> struct type_code<IDL::bounded_wstring<N>> {
   static const detail::TypeCodeRef& get() {
     static const detail::TypeCodeRef tc = detail::tc_string(true, N);
+    return tc;
+  }
+};
+
+template <uint16_t D, uint16_t S> struct type_code<IDL::Fixed<D, S>> {
+  static const detail::TypeCodeRef& get() {
+    static const detail::TypeCodeRef tc = detail::tc_fixed(D, static_cast<int16_t>(S));
     return tc;
   }
 };

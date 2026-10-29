@@ -13,7 +13,7 @@ import AnyTestHidden
 #: The names of the table of AnyTest.idl, in the order the client runs them.
 NAMES = [
     "long", "short", "ulonglong", "float", "double", "boolean", "char", "octet",
-    "string", "bounded", "count", "point", "shade", "choice_l", "choice_s",
+    "string", "bounded", "count", "money", "fixed", "point", "shade", "choice_l", "choice_s",
     "choice_default", "longseq", "octets", "shortarray", "node", "nvlist", "any",
     "typecode", "objref", "nil", "oops", "empty",
 ]
@@ -48,6 +48,9 @@ def value(name, echo):
         "string": (CORBA.TC_string, lambda: "hello any"),
         "bounded": (A._tc_Short5, lambda: "abc"),
         "count": (A._tc_Count, lambda: 7),
+        "money": (A._tc_Money, lambda: CORBA.fixed("-123.45")),
+        "fixed": (CORBA.ORB_init().create_fixed_tc(31, 4),
+                  lambda: CORBA.fixed("123456789012345678901234567.8901")),
         "point": (A._tc_Point, lambda: A.Point(1, 2.5)),
         "shade": (A._tc_Shade, lambda: A.DIM),
         "choice_l": (A._tc_Choice, lambda: A.Choice(1, 10)),

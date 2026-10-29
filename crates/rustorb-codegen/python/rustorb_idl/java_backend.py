@@ -17,8 +17,9 @@ The classes use only the standard API of the mapping (``org.omg.CORBA``
 and ``org.omg.PortableServer``), except for what the stubs call to invoke
 and what the Helpers call to put values in anys (``org.rustorb.Stubs``,
 ``org.rustorb.Call``, ``org.rustorb.Anys``), all in the rustorb runtime
-(``java/``, MIT OR Apache-2.0). Valuetypes, ``fixed`` and abstract
-interfaces are not mapped yet.
+(``java/``, MIT OR Apache-2.0). ``fixed<d, s>`` is ``java.math.BigDecimal``,
+read and written with ``read_fixed(d, s)`` / ``write_fixed(v, d, s)``.
+Valuetypes and abstract interfaces are not mapped yet.
 
 ``-Wbpackage=PKG`` puts every package under ``PKG`` (and the definitions
 outside modules in ``PKG``).
@@ -94,6 +95,7 @@ HOLDER = {
     "any": "org.omg.CORBA.AnyHolder",
     "TypeCode": "org.omg.CORBA.TypeCodeHolder",
     "Object": "org.omg.CORBA.ObjectHolder",
+    "fixed": "org.omg.CORBA.FixedHolder",
 }
 
 TCKIND = {
@@ -226,7 +228,7 @@ class JavaBackend(object):
         if k in ("sequence", "array"):
             return self.jtype(t.content, where) + "[]"
         if k == "fixed":
-            raise fe.GeneratorError("fixed is not supported by the Java backend yet", where)
+            return "java.math.BigDecimal"
         if k == "named":
             n = self.full(t.node)
             if fe.is_native(n):
@@ -297,6 +299,10 @@ class JavaBackend(object):
             return "'%s'" % _escape(c, "'")
         if k in ("string", "wstring"):
             return '"%s"' % "".join(_escape(c, '"') for c in str(value))
+        if k == "fixed":
+            whole, _, frac = cxx_backend.fixed_text(value, r.digits, r.scale).partition(".")
+            text = whole + ("." + frac.ljust(r.scale, "0") if r.scale else "")
+            return 'new java.math.BigDecimal("%s")' % text
         if k in INT_RANGES:
             v = int(value)
             lo, hi = INT_RANGES[k]
@@ -338,6 +344,8 @@ class JavaBackend(object):
                 w("            org.omg.CORBA.CompletionStatus.COMPLETED_NO);")
                 w("}")
             w("$out.write_%s(%s);" % (k, expr))
+        elif k == "fixed":
+            w("$out.write_fixed(%s, (short) %d, (short) %d);" % (expr, t.digits, t.scale))
         elif k == "any":
             w("$out.write_any(%s);" % expr)
         elif k == "TypeCode":
@@ -392,6 +400,8 @@ class JavaBackend(object):
                 w("    throw new org.omg.CORBA.MARSHAL(\"string longer than its bound\", 0,")
                 w("            org.omg.CORBA.CompletionStatus.COMPLETED_MAYBE);")
                 w("}")
+        elif k == "fixed":
+            w("%s = $in.read_fixed((short) %d, (short) %d);" % (target, t.digits, t.scale))
         elif k == "any":
             w("%s = $in.read_any();" % target)
         elif k == "TypeCode":
@@ -457,6 +467,8 @@ class JavaBackend(object):
             return "%s.create_wstring_tc(%d)" % (ORB, t.bound)
         if k == "Object":
             return "org.omg.CORBA.ObjectHelper.type()"
+        if k == "fixed":
+            return "%s.create_fixed_tc((short) %d, (short) %d)" % (ORB, t.digits, t.scale)
         if k == "sequence":
             return "%s.create_sequence_tc(%d, %s)" % (ORB, t.bound, self.tc_expr(t.content, where))
         if k == "array":

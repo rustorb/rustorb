@@ -15,6 +15,8 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.Arrays;
 
 import mapping.CxxMapping.Base;
@@ -29,6 +31,8 @@ import mapping.CxxMapping.C_CHAR;
 import mapping.CxxMapping.C_DOUBLE;
 import mapping.CxxMapping.C_ENUM;
 import mapping.CxxMapping.C_EXPR;
+import mapping.CxxMapping.C_FIXED;
+import mapping.CxxMapping.C_MONEY;
 import mapping.CxxMapping.C_OCTET;
 import mapping.CxxMapping.C_SHORT;
 import mapping.CxxMapping.C_STRING;
@@ -43,6 +47,7 @@ import mapping.CxxMapping.Holder;
 import mapping.CxxMapping.Keywords;
 import mapping.CxxMapping.Later;
 import mapping.CxxMapping.LaterPOA;
+import mapping.CxxMapping.MoneyHelper;
 import mapping.CxxMapping.Multi;
 import mapping.CxxMapping.MultiHelper;
 import mapping.CxxMapping.MultiPOA;
@@ -53,6 +58,8 @@ import mapping.CxxMapping.Outer;
 import mapping.CxxMapping.OuterPackage.Inner;
 import mapping.CxxMapping.OuterPackage.Mode;
 import mapping.CxxMapping.Pair;
+import mapping.CxxMapping.Price;
+import mapping.CxxMapping.PriceHelper;
 import mapping.CxxMapping.REOPENED;
 import mapping.CxxMapping.Tree;
 import mapping.CxxMapping.Types;
@@ -64,10 +71,13 @@ import mapping.GlobalPoint;
 import org.junit.jupiter.api.Test;
 import org.omg.CORBA.BAD_OPERATION;
 import org.omg.CORBA.BAD_PARAM;
+import org.omg.CORBA.Any;
 import org.omg.CORBA.CompletionStatus;
+import org.omg.CORBA.FixedHolder;
 import org.omg.CORBA.IntHolder;
 import org.omg.CORBA.NO_PERMISSION;
 import org.omg.CORBA.ORB;
+import org.omg.CORBA.TCKind;
 
 class MappingTest {
     static final class LaterImpl extends LaterPOA {
@@ -101,6 +111,17 @@ class MappingTest {
             // Longer than the bound: the reply cannot be marshalled.
             return s.equals("grow") ? "much too long" : s;
         }
+
+        public BigDecimal echo_money(BigDecimal m, FixedHolder total, FixedHolder whole) {
+            if (total.value.compareTo(BigDecimal.ONE) != 0) {
+                throw new BAD_PARAM(0, CompletionStatus.COMPLETED_NO);
+            }
+            total.value = m;
+            whole.value = m.setScale(0, RoundingMode.DOWN);
+            return m;
+        }
+
+        public Price echo_price(Price p) { return p; }
 
         public void fail(int code) throws Failure, Empty {
             if (code == 0) {
@@ -170,6 +191,59 @@ class MappingTest {
         assertEquals(1, REOPENED.value);
         assertSame(Fruit.CHERRY, Fruit.from_int(Fruit._CHERRY));
         assertThrows(BAD_PARAM.class, () -> Fruit.from_int(3));
+    }
+
+    @Test
+    void fixed() throws Exception {
+        assertEquals(new BigDecimal("12.50"), C_FIXED.value);
+        assertEquals(new BigDecimal("-1.50"), C_MONEY.value);
+        Any a = ORB.init().create_any();
+        MoneyHelper.insert(a, new BigDecimal("123.4"));
+        assertEquals(TCKind.tk_alias, a.type().kind());
+        assertEquals(new BigDecimal("123.40"), MoneyHelper.extract(a));
+        assertEquals(new BigDecimal("123.40"), a.extract_fixed());
+        a.insert_fixed(new BigDecimal("-0.125"));
+        assertEquals(TCKind.tk_fixed, a.type().kind());
+        assertEquals(new BigDecimal("-0.125"), a.extract_fixed());
+        a.insert_fixed(new BigDecimal("7"), ORB.init().create_fixed_tc((short) 4, (short) 1));
+        assertEquals(new BigDecimal("7.0"), a.extract_fixed());
+        assertThrows(BAD_PARAM.class,
+                () -> a.insert_fixed(new BigDecimal("7.25"), ORB.init().create_fixed_tc((short) 4, (short) 1)));
+        assertThrows(org.omg.CORBA.BAD_INV_ORDER.class,
+                () -> a.insert_fixed(BigDecimal.ONE, ORB.init().get_primitive_tc(TCKind.tk_long)));
+        a.insert_long(1);
+        assertThrows(BAD_OPERATION.class, a::extract_fixed);
+        Price p = new Price(new BigDecimal("-0.99"), new BigDecimal("0.0000000000000000000000000000001"),
+                new BigDecimal[] {BigDecimal.ONE, new BigDecimal("-2.5")});
+        PriceHelper.insert(a, p);
+        Price back = PriceHelper.extract(a);
+        assertEquals(new BigDecimal("-0.99"), back.amount);
+        assertEquals(0, p.tiny.compareTo(back.tiny));
+        assertEquals(new BigDecimal("-2.50"), back.history[1]);
+        // A FixedHolder has the digits and scale of its value.
+        a.insert_Streamable(new FixedHolder(new BigDecimal("-0.0500")));
+        assertEquals(4, a.type().fixed_digits());
+        assertEquals(4, a.type().fixed_scale());
+        assertEquals(new BigDecimal("-0.0500"), a.extract_fixed());
+
+        // The packed decimal of the stream methods: two digits an octet, a
+        // leading zero digit when the count is even, the sign last.
+        OctetStreams.Out out = new OctetStreams.Out();
+        out.write_fixed(new BigDecimal("-12.345"));
+        out.write_fixed(new BigDecimal("9.5"), (short) 4, (short) 2);
+        out.write_fixed(BigDecimal.ZERO, (short) 1, (short) 0);
+        assertArrayEquals(new byte[] {0x12, 0x34, 0x5d, 0x00, (byte) 0x95, 0x0c, 0x0c},
+                out.bytes.toByteArray());
+        org.omg.CORBA.portable.InputStream in = out.create_input_stream();
+        assertEquals(new BigDecimal("-12345"), in.read_fixed());
+        assertEquals(new BigDecimal("9.50"), in.read_fixed((short) 4, (short) 2));
+        assertEquals(BigDecimal.ZERO, in.read_fixed((short) 1, (short) 0));
+        assertThrows(org.omg.CORBA.MARSHAL.class,
+                () -> new OctetStreams.In(new byte[] {(byte) 0xa1, 0x0c}).read_fixed((short) 3, (short) 0));
+        assertThrows(org.omg.CORBA.MARSHAL.class,
+                () -> new OctetStreams.In(new byte[] {0x01, 0x23}).read_fixed((short) 3, (short) 0));
+        assertThrows(BAD_PARAM.class,
+                () -> new OctetStreams.Out().write_fixed(new BigDecimal("100"), (short) 2, (short) 0));
     }
 
     @Test
@@ -324,6 +398,25 @@ class MappingTest {
         tooMany.bounded = new int[] {1, 2, 3, 4, 5, 6};
         assertThrows(BAD_PARAM.class, () -> types.echo_holder(tooMany));
         assertEquals("short", types.echo_short_string("short"));
+
+        for (String text : new String[] {"123.45", "-0.5", "0", "999.99", "-999.99", "0.01"}) {
+            BigDecimal m = new BigDecimal(text);
+            FixedHolder total = new FixedHolder(BigDecimal.ONE);
+            FixedHolder whole = new FixedHolder(BigDecimal.TEN);
+            assertEquals(m.setScale(2), types.echo_money(m, total, whole), text);
+            assertEquals(m.setScale(2), total.value, text);
+            assertEquals(m.setScale(0, RoundingMode.DOWN), whole.value, text);
+        }
+        assertThrows(BAD_PARAM.class,
+                () -> types.echo_money(new BigDecimal("1000"), new FixedHolder(BigDecimal.ONE), new FixedHolder()));
+        assertThrows(BAD_PARAM.class,
+                () -> types.echo_money(new BigDecimal("1.234"), new FixedHolder(BigDecimal.ONE), new FixedHolder()));
+        Price price = new Price(new BigDecimal("-12.34"), new BigDecimal("0.9999999999999999999999999999999"),
+                new BigDecimal[] {BigDecimal.ONE, new BigDecimal("2.5"), new BigDecimal("-0.01")});
+        Price echoed = types.echo_price(price);
+        assertEquals(price.amount, echoed.amount);
+        assertEquals(price.tiny, echoed.tiny);
+        assertEquals(new BigDecimal("2.50"), echoed.history[1]);
         BAD_PARAM grow = assertThrows(BAD_PARAM.class, () -> types.echo_short_string("grow"));
         assertEquals(CompletionStatus._COMPLETED_YES, grow.completed.value());
 

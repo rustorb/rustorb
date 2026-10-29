@@ -125,7 +125,6 @@ class CxxBackendTest(unittest.TestCase):
 
     def test_unsupported(self):
         cases = {
-            "fixed": "module U { typedef fixed<5, 2> F; };",
             "valuetype": "module U { valuetype V { public long x; }; };",
             "abstract": "module U { abstract interface A { void f(); }; };",
             "longdouble": "module U { struct S { long double d; }; };",
@@ -134,6 +133,18 @@ class CxxBackendTest(unittest.TestCase):
             with self.subTest(name):
                 path = write_idl("Unsupported_%s.idl" % name, text)
                 self.assertEqual(cli.main(["-bc++11", "-C", OUT, path]), 1)
+
+    def test_fixed(self):
+        header = read(os.path.join(self.outdir, "CxxMapping.hh"))
+        source = read(os.path.join(self.outdir, "CxxMapping.cc"))
+        self.assertIn("using Money = ::IDL::Fixed<5, 2>;", header)
+        # A constant of type fixed has the digits and scale of its literal.
+        self.assertIn('inline const ::IDL::Fixed<4, 2> C_FIXED = ::IDL::Fixed<4, 2>("12.5");', header)
+        self.assertIn('inline const ::CxxMapping::Money C_MONEY = ::IDL::Fixed<5, 2>("-1.5");', header)
+        self.assertIn("::IDL::Fixed<3, 0>& whole", header)
+        self.assertIn("::rustorb::cdr::type_code<::IDL::Fixed<31, 31>>::get()", source)
+        path = write_idl("FixedRange.idl", "module U { typedef fixed<3, 1> F; const F C = 123.4d; };")
+        self.assertEqual(cli.main(["-bc++11", "-C", OUT, path]), 1)
 
     @unittest.skipUnless(CXX, "no C++ compiler")
     def test_compiles(self):

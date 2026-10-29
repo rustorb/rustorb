@@ -17,6 +17,7 @@ import AnyTest.Choice;
 import AnyTest.ChoiceHelper;
 import AnyTest.CountHelper;
 import AnyTest.LongSeqHelper;
+import AnyTest.MoneyHelper;
 import AnyTest.NVListHelper;
 import AnyTest.NameValue;
 import AnyTest.Node;
@@ -44,9 +45,13 @@ public final class AnyTests {
 
     static final List<String> NAMES = Arrays.asList(
             "long", "short", "ulonglong", "float", "double", "boolean", "char", "octet",
-            "string", "bounded", "count", "point", "shade", "choice_l", "choice_s",
+            "string", "bounded", "count", "money", "fixed", "point", "shade", "choice_l", "choice_s",
             "choice_default", "longseq", "octets", "shortarray", "node", "nvlist", "any",
             "typecode", "objref", "nil", "oops", "empty");
+
+    static final java.math.BigDecimal MONEY = new java.math.BigDecimal("-123.45");
+    static final java.math.BigDecimal FIXED =
+            new java.math.BigDecimal("123456789012345678901234567.8901");
 
     static Node node(String name, Node... children) {
         return new Node(name, children);
@@ -94,6 +99,8 @@ public final class AnyTests {
             case "string": a.insert_string("hello any"); break;
             case "bounded": Short5Helper.insert(a, "abc"); break;
             case "count": CountHelper.insert(a, 7); break;
+            case "money": MoneyHelper.insert(a, MONEY); break;
+            case "fixed": a.insert_fixed(FIXED, orb.create_fixed_tc((short) 31, (short) 4)); break;
             case "point": PointHelper.insert(a, new Point(1, 2.5)); break;
             case "shade": ShadeHelper.insert(a, Shade.DIM); break;
             case "choice_l":
@@ -173,6 +180,8 @@ public final class AnyTests {
             case "octet": return got.extract_octet() == (byte) 255;
             case "string": return got.extract_string().equals("hello any");
             case "bounded": return Short5Helper.extract(got).equals("abc");
+            case "money": return MoneyHelper.extract(got).compareTo(MONEY) == 0;
+            case "fixed": return got.extract_fixed().compareTo(FIXED) == 0;
             case "point": {
                 Point p = PointHelper.extract(got);
                 return p.x == 1 && p.y == 2.5;

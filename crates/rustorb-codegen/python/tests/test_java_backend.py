@@ -121,6 +121,19 @@ class JavaBackendTest(unittest.TestCase):
         # An alias Helper inserts with the alias TypeCode.
         self.assertIn("create_alias_tc", self.java("AnyTest", "CountHelper"))
 
+    def test_fixed(self):
+        money = self.java("mapping", "CxxMapping", "MoneyHelper")
+        self.assertIn("create_fixed_tc((short) 5, (short) 2)", money)
+        self.assertIn("$out.write_fixed(value, (short) 5, (short) 2);", money)
+        self.assertIn("$result = $in.read_fixed((short) 5, (short) 2);", money)
+        # Constants have the scale of their type.
+        self.assertIn('new java.math.BigDecimal("12.50")', self.java("mapping", "CxxMapping", "C_FIXED"))
+        self.assertIn('new java.math.BigDecimal("-1.50")', self.java("mapping", "CxxMapping", "C_MONEY"))
+        self.assertIn("org.omg.CORBA.FixedHolder whole",
+                      self.java("mapping", "CxxMapping", "TypesOperations"))
+        path = write_idl("FixedRange.idl", "module U { typedef fixed<3, 1> F; const F C = 0.25d; };")
+        self.assertEqual(cli.main(["-bjava", "-C", OUT, path]), 1)
+
     def test_options(self):
         path = os.path.join(INTEROP_IDL, "InteropTest.idl")
         self.assertEqual(cli.main(["-bjava", "-Wbh=.h", "-C", OUT, path]), 2)
@@ -128,7 +141,6 @@ class JavaBackendTest(unittest.TestCase):
 
     def test_unsupported(self):
         cases = {
-            "fixed": "module U { typedef fixed<5, 2> F; };",
             "valuetype": "module U { valuetype V { public long x; }; };",
             "abstract": "module U { abstract interface A { void f(); }; };",
             "longdouble": "module U { struct S { long double d; }; };",

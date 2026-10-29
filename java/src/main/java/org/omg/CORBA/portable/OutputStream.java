@@ -46,8 +46,53 @@ public abstract class OutputStream extends java.io.OutputStream {
         throw new org.omg.CORBA.NO_IMPLEMENT();
     }
 
+    /** Writes value with the digits of its unscaled value (the scale is
+     * not written; read it back with read_fixed()). */
     public void write_fixed(java.math.BigDecimal value) {
-        throw new org.omg.CORBA.NO_IMPLEMENT();
+        if (value.scale() < 0) {
+            value = value.setScale(0);
+        }
+        int digits = Math.max(1, Math.max(value.precision(), value.scale()));
+        write_fixed(value, (short) digits, (short) value.scale());
+    }
+
+    /**
+     * Writes value as a fixed&lt;digits, scale&gt;: packed decimal, two digits
+     * an octet and the sign last. A value with more integer digits, or
+     * more nonzero fraction digits, than the type has is BAD_PARAM.
+     */
+    public void write_fixed(java.math.BigDecimal value, short digits, short scale) {
+        if (value == null) {
+            throw badFixed("null fixed");
+        }
+        if (digits < 1 || digits > 31 || scale < 0 || scale > digits) {
+            throw badFixed("not a fixed type: fixed<" + digits + ", " + scale + ">");
+        }
+        String text;
+        try {
+            text = value.setScale(scale, java.math.RoundingMode.UNNECESSARY)
+                    .unscaledValue().abs().toString();
+        } catch (ArithmeticException e) {
+            throw badFixed("fixed value with more than " + scale + " fraction digits");
+        }
+        if (text.length() > digits) {
+            throw badFixed("fixed value with more than " + digits + " digits");
+        }
+        // A leading zero digit when the count is even, then the sign.
+        int nibbles = digits + (digits % 2 == 0 ? 2 : 1);
+        byte[] out = new byte[nibbles / 2];
+        int pad = nibbles - 1 - text.length();
+        for (int i = 0; i < text.length(); i++) {
+            int n = pad + i;
+            out[n / 2] |= (byte) ((text.charAt(i) - '0') << (n % 2 == 0 ? 4 : 0));
+        }
+        out[out.length - 1] |= (byte) (value.signum() < 0 ? 0xd : 0xc);
+        write_octet_array(out, 0, out.length);
+    }
+
+    private static org.omg.CORBA.BAD_PARAM badFixed(String message) {
+        return new org.omg.CORBA.BAD_PARAM(message, 0,
+                org.omg.CORBA.CompletionStatus.COMPLETED_NO);
     }
 
     public org.omg.CORBA.ORB orb() {

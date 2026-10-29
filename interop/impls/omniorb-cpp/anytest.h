@@ -21,7 +21,7 @@ using namespace AnyTest;
 inline const std::vector<std::string>& names() {
   static const std::vector<std::string> n = {
       "long", "short", "ulonglong", "float", "double", "boolean", "char", "octet",
-      "string", "bounded", "count", "point", "shade", "choice_l", "choice_s",
+      "string", "bounded", "count", "money", "fixed", "point", "shade", "choice_l", "choice_s",
       "choice_default", "longseq", "octets", "shortarray", "node", "nvlist", "any",
       "typecode", "objref", "nil", "oops", "empty"};
   return n;
@@ -68,6 +68,11 @@ inline CORBA::Any* make(const std::string& name, AnyEcho_ptr self) {
   } else if (name == "count") {
     *a <<= static_cast<CORBA::Long>(7);
     a->type(_tc_Count);
+  } else if (name == "money") {
+    *a <<= CORBA::Any::from_fixed(CORBA::Fixed("-123.45"), 5, 2);
+    a->type(_tc_Money);
+  } else if (name == "fixed") {
+    *a <<= CORBA::Any::from_fixed(CORBA::Fixed("123456789012345678901234567.8901"), 31, 4);
   } else if (name == "point") {
     Point p;
     p.x = 1;
@@ -212,6 +217,15 @@ inline bool same(const std::string& name, const CORBA::Any& got, AnyEcho_ptr sel
   if (name == "bounded") {
     const char* v;
     return (got >>= CORBA::Any::to_string(v, 5)) && std::string(v) == "abc";
+  }
+  if (name == "money") {
+    CORBA::Fixed v;
+    return (got >>= CORBA::Any::to_fixed(v, 5, 2)) && v == CORBA::Fixed("-123.45");
+  }
+  if (name == "fixed") {
+    CORBA::Fixed v;
+    return (got >>= CORBA::Any::to_fixed(v, 31, 4)) &&
+           v == CORBA::Fixed("123456789012345678901234567.8901");
   }
   if (name == "point") {
     const Point* v;

@@ -36,6 +36,16 @@ module CxxMapping {
   typedef sequence<boolean> Flags;
   typedef sequence<wchar> WChars;
 
+  typedef fixed<5, 2> Money;
+  const fixed C_FIXED = 012.50d;
+  const Money C_MONEY = -1.5d;
+
+  struct Price {
+    Money amount;
+    fixed<31, 31> tiny;
+    sequence<Money> history;
+  };
+
   struct Pair {
     Count first;
     Count second;
@@ -161,6 +171,8 @@ module CxxMapping {
     Keywords echo_keywords(in Keywords k);
     GlobalPoint echo_global(in ::GlobalPoint p);
     ShortString echo_short_string(in ShortString s);
+    Money echo_money(in Money m, inout Money total, out fixed<3, 0> whole);
+    Price echo_price(in Price p);
     void fail(in long code) raises (Failure, Empty);
     LaterSeq laters(in long n);
     void _delete(in string what);

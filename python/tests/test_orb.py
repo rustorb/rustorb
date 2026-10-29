@@ -320,7 +320,7 @@ def make_types_servant():
             return v
 
         echo_char_array = echo_octet_array = echo_short_string = echo_pair = echo_chars
-        echo_money = echo_node = echo_keywords = echo_chars
+        echo_money = echo_big = echo_node = echo_keywords = echo_chars
         echo_bool_union = echo_char_union = echo_object = echo_chars
 
         def raise_undeclared(self):
@@ -379,6 +379,8 @@ class TypesTest(unittest.TestCase):
             self.t.echo_money(CORBA.fixed("1000"))
         with self.assertRaises(CORBA.BAD_PARAM):
             self.t.echo_money(CORBA.fixed("1.234"))
+        for text in ("123456789012345678901234567.8901", "-999999999999999999999999999.9999"):
+            self.assertEqual(self.t.echo_big(CORBA.fixed(text)), CORBA.fixed(text), text)
 
     def test_recursive_struct(self):
         tree = NT.Node("root", [NT.Node("a", []), NT.Node("b", [NT.Node("c", [])])])

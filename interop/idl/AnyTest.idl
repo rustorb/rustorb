@@ -17,6 +17,8 @@
 // | string         | string   | "hello any"                                    |
 // | bounded        | Short5   | "abc"                                          |
 // | count          | Count    | 7                                              |
+// | money          | Money    | -123.45                                        |
+// | fixed          | fixed<31, 4> | 123456789012345678901234567.8901           |
 // | point          | Point    | {x=1, y=2.5}                                   |
 // | shade          | Shade    | DIM                                            |
 // | choice_l       | Choice   | l=10 (discriminator 1)                         |
@@ -56,6 +58,7 @@ module AnyTest {
 
   typedef long Count;
   typedef string<5> Short5;
+  typedef fixed<5, 2> Money;
   typedef sequence<long> LongSeq;
   typedef sequence<octet> Octets;
   typedef short ShortArray[3];

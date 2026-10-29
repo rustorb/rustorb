@@ -19,6 +19,9 @@ class FixedTest(unittest.TestCase):
             ("100", 3, 0, 100),
             ("-0.010", 2, 2, -1),
             ("3.14159", 6, 5, 314159),
+            # More digits than the default decimal context keeps (28).
+            ("123456789012345678901234567.8901", 31, 4, 1234567890123456789012345678901),
+            ("-1234567890123456789012345678901", 31, 0, -1234567890123456789012345678901),
         ):
             f = CORBA.fixed(text)
             self.assertEqual((f.precision(), f.decimals(), f.value()), (digits, scale, value), text)
