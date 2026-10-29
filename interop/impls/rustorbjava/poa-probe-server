@@ -1,0 +1,7 @@
+#!/bin/sh
+# rustorb Java POA probe server. run-poa-probe.sh builds it on the host
+# (build.sh) and mounts this directory, with classes/ and lib/, into the
+# server container.
+here="$(dirname "$0")"
+exec java -Drustorb.jni.library="$here/lib/librustorb_jni.so" -cp "$here/classes" \
+  interop.PoaProbeServer "$@"

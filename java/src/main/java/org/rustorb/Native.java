@@ -158,6 +158,17 @@ final class Native {
             throws org.omg.CORBA.UserException;
     static native Object poaGetServant(long poa) throws org.omg.CORBA.UserException;
     static native void poaSetServant(long poa, long servant) throws org.omg.CORBA.UserException;
+    /** set_servant_manager with a ServantLocator (locator) or a
+     * ServantActivator; the callbacks go to Bridge. */
+    static native void poaSetServantManager(long poa, Object manager, boolean locator)
+            throws org.omg.CORBA.UserException;
+    static native Object poaGetServantManager(long poa) throws org.omg.CORBA.UserException;
+    /** null removes the adapter activator. */
+    static native void poaSetTheActivator(long poa, Object activator);
+    static native Object poaTheActivator(long poa);
+    /** What incarnate or preinvoke raised (rorb_manager_error_*). */
+    static native void managerErrorForward(long error, long obj);
+    static native void managerErrorSystem(long error, String id, int minor, int completed);
 
     static native long currentGetPoa() throws org.omg.CORBA.UserException;
     static native byte[] currentGetObjectId() throws org.omg.CORBA.UserException;

@@ -5,7 +5,7 @@
 
 package org.omg.PortableServer;
 
-/** PortableServer::ServantManager. Not supported by the Java binding yet:
- * set_servant_manager raises NO_IMPLEMENT. */
+/** PortableServer::ServantManager: a ServantActivator or a
+ * ServantLocator. */
 public interface ServantManager extends ServantManagerOperations, org.omg.CORBA.Object,
         org.omg.CORBA.portable.IDLEntity {}

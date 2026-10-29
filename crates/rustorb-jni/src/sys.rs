@@ -29,7 +29,8 @@ opaque!(
     rorb_in,
     rorb_server_reply,
     rorb_typecode,
-    rorb_any
+    rorb_any,
+    rorb_manager_error
 );
 
 pub type rorb_status = i32;
@@ -109,6 +110,63 @@ pub struct rorb_servant_vtable {
         *mut rorb_server_reply,
     ) -> rorb_status,
     pub is_a: unsafe extern "C" fn(*mut c_void, *const c_char, usize) -> i32,
+    pub add_ref: unsafe extern "C" fn(*mut c_void),
+    pub remove_ref: unsafe extern "C" fn(*mut c_void),
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct rorb_servant_activator_vtable {
+    pub incarnate: unsafe extern "C" fn(
+        *mut c_void,
+        *const u8,
+        usize,
+        *mut rorb_poa,
+        *mut *mut rorb_servant,
+        *mut rorb_manager_error,
+    ) -> rorb_status,
+    pub etherealize: Option<
+        unsafe extern "C" fn(*mut c_void, *const u8, usize, *mut rorb_poa, *mut c_void, i32, i32),
+    >,
+    pub add_ref: unsafe extern "C" fn(*mut c_void),
+    pub remove_ref: unsafe extern "C" fn(*mut c_void),
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct rorb_servant_locator_vtable {
+    pub preinvoke: unsafe extern "C" fn(
+        *mut c_void,
+        *const u8,
+        usize,
+        *mut rorb_poa,
+        *const c_char,
+        usize,
+        *mut *mut rorb_servant,
+        *mut *mut c_void,
+        *mut rorb_manager_error,
+    ) -> rorb_status,
+    pub postinvoke: Option<
+        unsafe extern "C" fn(
+            *mut c_void,
+            *const u8,
+            usize,
+            *mut rorb_poa,
+            *const c_char,
+            usize,
+            *mut c_void,
+            *mut c_void,
+        ),
+    >,
+    pub add_ref: unsafe extern "C" fn(*mut c_void),
+    pub remove_ref: unsafe extern "C" fn(*mut c_void),
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct rorb_adapter_activator_vtable {
+    pub unknown_adapter:
+        unsafe extern "C" fn(*mut c_void, *mut rorb_poa, *const c_char, usize) -> i32,
     pub add_ref: unsafe extern "C" fn(*mut c_void),
     pub remove_ref: unsafe extern "C" fn(*mut c_void),
 }
@@ -571,6 +629,40 @@ unsafe extern "C" {
         servant: *mut rorb_servant,
         exc: Exc,
     ) -> rorb_status;
+
+    pub fn rorb_manager_error_forward(error: *mut rorb_manager_error, obj: *mut rorb_object);
+    pub fn rorb_manager_error_system(
+        error: *mut rorb_manager_error,
+        id: *const c_char,
+        len: usize,
+        minor: u32,
+        completed: u32,
+    );
+    pub fn rorb_poa_set_servant_activator(
+        poa: *mut rorb_poa,
+        this: *mut c_void,
+        vtable: *const rorb_servant_activator_vtable,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_poa_set_servant_locator(
+        poa: *mut rorb_poa,
+        this: *mut c_void,
+        vtable: *const rorb_servant_locator_vtable,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_poa_get_servant_manager(
+        poa: *mut rorb_poa,
+        kind: *mut i32,
+        this: *mut *mut c_void,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_poa_set_the_activator(
+        poa: *mut rorb_poa,
+        this: *mut c_void,
+        vtable: *const rorb_adapter_activator_vtable,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_poa_the_activator(poa: *mut rorb_poa) -> *mut c_void;
 
     pub fn rorb_current_get_poa(poa: *mut *mut rorb_poa, exc: Exc) -> rorb_status;
     pub fn rorb_current_get_object_id(id: *mut rorb_bytes, exc: Exc) -> rorb_status;
