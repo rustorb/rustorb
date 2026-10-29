@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fmt;
 use std::future::Future;
 use std::panic::{self, AssertUnwindSafe};
@@ -300,12 +300,22 @@ pub(crate) struct OrbInner {
     call_timeout: AtomicU64,
     connect_timeout: AtomicU64,
     connections: Mutex<HashMap<(String, u16), Arc<Connection>>>,
+    /// [`Orb::register_initial_reference`] and
+    /// [`Orb::register_local_initial_reference`]. IORs rather than
+    /// references, which would hold the ORB.
+    registered: Mutex<BTreeMap<String, Registered>>,
     shut_down: AtomicBool,
     server: Mutex<Option<Arc<Server>>>,
     /// The MAIN_THREAD_MODEL requests, and whether shutdown has completed;
     /// `run` waits for both.
     main: Mutex<MainQueue>,
     main_cond: Condvar,
+}
+
+/// An initial reference registered at run time.
+enum Registered {
+    Object(Ior),
+    Local(Arc<dyn std::any::Any + Send + Sync>),
 }
 
 #[derive(Default)]
@@ -393,6 +403,7 @@ impl Orb {
                 connect_timeout: AtomicU64::new(timeout::encode(options.connect_timeout)),
                 options,
                 connections: Mutex::new(HashMap::new()),
+                registered: Mutex::default(),
                 shut_down: AtomicBool::new(false),
                 server: Mutex::new(None),
                 main: Mutex::default(),
@@ -555,10 +566,20 @@ impl Orb {
             })
     }
 
-    /// Looks up an initial reference: first in
+    /// Looks up an initial reference: first among those
+    /// [registered](Orb::register_initial_reference), then in
     /// [`init_refs`](OrbOptions::init_refs), then under
     /// [`default_init_ref`](OrbOptions::default_init_ref).
     pub fn resolve_initial_references(&self, name: &str) -> Result<ObjectRef, ResolveError> {
+        match self.inner.registered.lock().unwrap().get(name) {
+            Some(Registered::Object(ior)) => {
+                return Ok(ObjectRef::new(self.clone(), ior.clone()));
+            }
+            Some(Registered::Local(_)) => {
+                return Err(ResolveError::InvalidName(name.to_owned()));
+            }
+            None => {}
+        }
         let options = &self.inner.options;
         let url = match (options.init_refs.get(name), &options.default_init_ref) {
             (Some(url), _) => url.clone(),
@@ -578,11 +599,77 @@ impl Orb {
     }
 
     /// The names [`resolve_initial_references`](Orb::resolve_initial_references)
-    /// knows without the default URL.
+    /// knows without the default URL, sorted.
     pub fn list_initial_services(&self) -> Vec<String> {
         let mut names: Vec<_> = self.inner.options.init_refs.keys().cloned().collect();
+        names.extend(self.inner.registered.lock().unwrap().keys().cloned());
         names.sort();
+        names.dedup();
         names
+    }
+
+    /// `CORBA::ORB::register_initial_reference`: makes
+    /// [`resolve_initial_references`](Orb::resolve_initial_references)
+    /// return `obj` for `name`. `InvalidName` if `name` is empty or
+    /// already an initial reference (registered or given with
+    /// `-ORBInitRef`), `BAD_PARAM` (minor
+    /// [`NIL_INITIAL_REFERENCE`](crate::minor::NIL_INITIAL_REFERENCE)) for
+    /// a nil `obj`. The names a binding resolves itself, such as
+    /// `RootPOA`, are the binding's to refuse.
+    pub fn register_initial_reference(
+        &self,
+        name: &str,
+        obj: Option<&ObjectRef>,
+    ) -> Result<(), ResolveError> {
+        let obj = obj.ok_or_else(|| {
+            SystemException::new(
+                SystemExceptionKind::BAD_PARAM,
+                minor::NIL_INITIAL_REFERENCE,
+                CompletionStatus::No,
+            )
+        });
+        self.register(name, || Ok(Registered::Object(obj?.ior().clone())))
+    }
+
+    /// [`register_initial_reference`](Orb::register_initial_reference) for
+    /// an object of a binding that has no reference, such as a local
+    /// object: the ORB keeps `obj` under `name` until it is destroyed, for
+    /// [`resolve_local_initial_reference`](Orb::resolve_local_initial_reference).
+    /// `resolve_initial_references` does not resolve it.
+    pub fn register_local_initial_reference(
+        &self,
+        name: &str,
+        obj: Arc<dyn std::any::Any + Send + Sync>,
+    ) -> Result<(), ResolveError> {
+        self.register(name, || Ok(Registered::Local(obj)))
+    }
+
+    /// An object registered with
+    /// [`register_local_initial_reference`](Orb::register_local_initial_reference).
+    pub fn resolve_local_initial_reference(
+        &self,
+        name: &str,
+    ) -> Option<Arc<dyn std::any::Any + Send + Sync>> {
+        match self.inner.registered.lock().unwrap().get(name) {
+            Some(Registered::Local(obj)) => Some(Arc::clone(obj)),
+            _ => None,
+        }
+    }
+
+    fn register(
+        &self,
+        name: &str,
+        entry: impl FnOnce() -> Result<Registered, SystemException>,
+    ) -> Result<(), ResolveError> {
+        let mut registered = self.inner.registered.lock().unwrap();
+        if name.is_empty()
+            || registered.contains_key(name)
+            || self.inner.options.init_refs.contains_key(name)
+        {
+            return Err(ResolveError::InvalidName(name.to_owned()));
+        }
+        registered.insert(name.to_owned(), entry()?);
+        Ok(())
     }
 
     /// The RootPOA. The first call starts the server side: it opens the
@@ -810,6 +897,9 @@ impl Orb {
         if let Some(server) = self.inner.server.lock().unwrap().take() {
             server.stop_pool();
         }
+        // Local objects may hold the ORB.
+        let registered = std::mem::take(&mut *self.inner.registered.lock().unwrap());
+        drop(registered);
         Ok(())
     }
 

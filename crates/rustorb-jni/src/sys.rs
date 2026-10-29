@@ -423,6 +423,91 @@ unsafe extern "C" {
     pub fn rorb_set_thread_call_timeout(us: i64);
     pub fn rorb_thread_call_timeout() -> i64;
 
+    // policies and registered initial references
+    pub fn rorb_orb_create_policy(
+        orb: *mut rorb_orb,
+        policy_type: u32,
+        value: *const rorb_any,
+        raw_value: *mut u64,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_orb_register_initial_reference(
+        orb: *mut rorb_orb,
+        name: *const c_char,
+        len: usize,
+        obj: *mut rorb_object,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_orb_register_local_initial_reference(
+        orb: *mut rorb_orb,
+        name: *const c_char,
+        len: usize,
+        object: *mut c_void,
+        release: unsafe extern "C" fn(*mut c_void),
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_orb_resolve_local_initial_reference(
+        orb: *mut rorb_orb,
+        name: *const c_char,
+        len: usize,
+        context: *mut c_void,
+        each: unsafe extern "C" fn(*mut c_void, *mut c_void),
+    ) -> i32;
+    pub fn rorb_orb_set_policy_overrides(
+        orb: *mut rorb_orb,
+        types: *const u32,
+        values: *const u64,
+        count: usize,
+        set_add: u32,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_orb_get_policy_overrides(
+        orb: *mut rorb_orb,
+        types: *const u32,
+        count: usize,
+        context: *mut c_void,
+        each: unsafe extern "C" fn(*mut c_void, u32, u64),
+    );
+    pub fn rorb_set_thread_policy_overrides(
+        types: *const u32,
+        values: *const u64,
+        count: usize,
+        set_add: u32,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_thread_policy_overrides(
+        types: *const u32,
+        count: usize,
+        context: *mut c_void,
+        each: unsafe extern "C" fn(*mut c_void, u32, u64),
+    );
+    pub fn rorb_object_set_policy_overrides(
+        obj: *mut rorb_object,
+        types: *const u32,
+        values: *const u64,
+        count: usize,
+        set_add: u32,
+        result: *mut *mut rorb_object,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_object_get_policy_overrides(
+        obj: *mut rorb_object,
+        types: *const u32,
+        count: usize,
+        context: *mut c_void,
+        each: unsafe extern "C" fn(*mut c_void, u32, u64),
+    );
+    pub fn rorb_object_get_client_policy(
+        obj: *mut rorb_object,
+        policy_type: u32,
+        raw_value: *mut u64,
+    ) -> i32;
+    pub fn rorb_object_validate_connection(
+        obj: *mut rorb_object,
+        result: *mut i32,
+        exc: Exc,
+    ) -> rorb_status;
+
     // object references
     pub fn rorb_object_clone(obj: *mut rorb_object) -> *mut rorb_object;
     pub fn rorb_object_release(obj: *mut rorb_object);

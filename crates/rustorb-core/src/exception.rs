@@ -143,6 +143,12 @@ pub mod minor {
     /// `OBJ_ADAPTER`: a POA with USE_SERVANT_MANAGER has no servant
     /// manager, or `set_servant_manager` got the wrong kind.
     pub const NO_SERVANT_MANAGER: u32 = OMG_VMCID | 4;
+    /// `BAD_PARAM`: a list of policy overrides has two policies of one
+    /// type.
+    pub const DUPLICATE_POLICY: u32 = OMG_VMCID | 30;
+    /// `BAD_PARAM`: `register_initial_reference` was given a nil
+    /// reference.
+    pub const NIL_INITIAL_REFERENCE: u32 = OMG_VMCID | 27;
     /// `BAD_INV_ORDER`: `set_servant_manager` was called a second time.
     pub const SERVANT_MANAGER_ALREADY_SET: u32 = OMG_VMCID | 6;
 }

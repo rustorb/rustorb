@@ -1,0 +1,31 @@
+id                                           -> rustorb
+list_initial_services has Foo                -> True
+register ''                                  InvalidName
+register Foo (given with -ORBInitRef)        InvalidName
+register Nil (nil)                           BAD_PARAM minor 0x4f4d001b
+register Bar                                 -> None
+register Bar again                           InvalidName
+resolve Bar is the reference                 -> True
+register Local (the RootPOA, a local object) -> None
+resolve Local                                -> POA
+register RootPOA (resolved by the ORB itself) InvalidName
+list_initial_services has Bar and Local      -> True
+resolve Missing                              InvalidName
+create_policy 16 MAIN_THREAD_MODEL           -> ThreadPolicy type 16 value MAIN_THREAD_MODEL
+create_policy 17 PERSISTENT                  -> LifespanPolicy type 17 value PERSISTENT
+create_policy 18 MULTIPLE_ID                 -> IdUniquenessPolicy type 18 value MULTIPLE_ID
+create_policy 19 USER_ID                     -> IdAssignmentPolicy type 19 value USER_ID
+create_policy 20 NO_IMPLICIT_ACTIVATION      -> ImplicitActivationPolicy type 20 value NO_IMPLICIT_ACTIVATION
+create_policy 21 NON_RETAIN                  -> ServantRetentionPolicy type 21 value NON_RETAIN
+create_policy 22 USE_SERVANT_MANAGER         -> RequestProcessingPolicy type 22 value USE_SERVANT_MANAGER
+create_policy 17 with a ulong                PolicyError reason 2
+create_policy 17 with a ThreadPolicyValue    PolicyError reason 2
+create_policy 9999                           PolicyError reason 0
+create_policy 32 (RelativeRoundtripTimeout)  -> RelativeRoundtripTimeoutPolicy
+create_policy 32 with a long                 PolicyError reason 2
+create_POA with a create_policy policy       WrongPolicy
+CORBA.Object has _get_policy                 -> True
+CORBA.Object has _get_client_policy          -> True
+CORBA.Object has _set_policy_overrides       -> True
+CORBA.Object has _get_policy_overrides       -> True
+CORBA.Object has _validate_connection        -> True

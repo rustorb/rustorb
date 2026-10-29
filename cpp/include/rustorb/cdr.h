@@ -661,4 +661,37 @@ inline const IDL::traits<TypeCode>::ref_type _tc_Object = rustorb::cdr::type_cod
 
 }  // namespace CORBA
 
+// The POA policy values in anys, for ORB::create_policy.
+namespace rustorb {
+namespace cdr {
+
+#define RUSTORB_POLICY_VALUE_TYPE(NAME, ...)                                          \
+  template <> struct type_code<PortableServer::NAME> {                                \
+    static const detail::TypeCodeRef& get() {                                         \
+      static const detail::TypeCodeRef tc = detail::tc_enum(                          \
+          "IDL:omg.org/PortableServer/" #NAME ":2.3", #NAME, {__VA_ARGS__});          \
+      return tc;                                                                      \
+    }                                                                                 \
+  };                                                                                  \
+  template <>                                                                         \
+  struct codec<PortableServer::NAME>                                                  \
+      : enum_codec<PortableServer::NAME,                                              \
+                   std::initializer_list<const char*>{__VA_ARGS__}.size()> {};
+
+RUSTORB_POLICY_VALUE_TYPE(ThreadPolicyValue, "ORB_CTRL_MODEL", "SINGLE_THREAD_MODEL",
+                          "MAIN_THREAD_MODEL")
+RUSTORB_POLICY_VALUE_TYPE(LifespanPolicyValue, "TRANSIENT", "PERSISTENT")
+RUSTORB_POLICY_VALUE_TYPE(IdUniquenessPolicyValue, "UNIQUE_ID", "MULTIPLE_ID")
+RUSTORB_POLICY_VALUE_TYPE(IdAssignmentPolicyValue, "USER_ID", "SYSTEM_ID")
+RUSTORB_POLICY_VALUE_TYPE(ImplicitActivationPolicyValue, "IMPLICIT_ACTIVATION",
+                          "NO_IMPLICIT_ACTIVATION")
+RUSTORB_POLICY_VALUE_TYPE(ServantRetentionPolicyValue, "RETAIN", "NON_RETAIN")
+RUSTORB_POLICY_VALUE_TYPE(RequestProcessingPolicyValue, "USE_ACTIVE_OBJECT_MAP_ONLY",
+                          "USE_DEFAULT_SERVANT", "USE_SERVANT_MANAGER")
+
+#undef RUSTORB_POLICY_VALUE_TYPE
+
+}  // namespace cdr
+}  // namespace rustorb
+
 #endif

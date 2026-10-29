@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+"""Records how an ORB's remaining standard operations behave through the
+omniORBpy API, which rustorb's omniORB compatibility package also has:
+``ORB.id``, ``list_initial_services``, ``register_initial_reference``,
+``create_policy`` and the ``CORBA.Object`` policy operations.
+
+    orb-ops-probe --impl omniorbpy|rustorbpy
+
+Each case prints what the call returned or raised (the exception's name,
+and the minor code or PolicyError reason). run-orb-ops-probe.sh compares
+the output with expected/orb-ops-probe-<impl>.txt.
+"""
+
+import argparse
+import os
+import sys
+
+parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+parser.add_argument("--impl", required=True, choices=["omniorbpy", "rustorbpy"])
+args = parser.parse_args()
+
+impls = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "impls")
+if args.impl == "rustorbpy":
+    sys.path[:0] = [os.path.join(impls, "rustorbpy", "lib"),
+                    os.path.join(impls, "rustorbpy", "stubs")]
+
+from omniORB import CORBA, PortableServer  # noqa: E402
+import CosNaming__POA  # noqa: E402
+
+orb = CORBA.ORB_init(
+    [sys.argv[0], "-ORBInitRef", "Foo=corbaloc::127.0.0.1:1/Foo",
+     "-ORBendPoint", "giop:tcp:127.0.0.1:"],
+    CORBA.ORB_ID,
+)
+poa = orb.resolve_initial_references("RootPOA")
+poa._get_the_POAManager().activate()
+
+
+def outcome(f):
+    try:
+        r = f()
+    except CORBA.SystemException as e:
+        return "%s minor 0x%08x" % (type(e).__name__, e.minor)
+    except CORBA.PolicyError as e:
+        return "PolicyError reason %d" % e.reason
+    except CORBA.UserException as e:
+        return type(e).__name__
+    return "-> %s" % (r if isinstance(r, (str, bool, int, type(None))) else type(r).__name__)
+
+
+def case(name, f):
+    print("%-44s %s" % (name, outcome(f)))
+
+
+def any_of(tc, value):
+    return CORBA.Any(tc, value)
+
+
+# -- the ORB's initial references --
+
+case("id", orb.id)
+case("list_initial_services has Foo",
+     lambda: "Foo" in orb.list_initial_services())
+bar = orb.string_to_object("corbaloc::127.0.0.1:2/Bar")
+case("register ''", lambda: orb.register_initial_reference("", bar))
+case("register Foo (given with -ORBInitRef)", lambda: orb.register_initial_reference("Foo", bar))
+case("register Nil (nil)", lambda: orb.register_initial_reference("Nil", None))
+case("register Bar", lambda: orb.register_initial_reference("Bar", bar))
+case("register Bar again", lambda: orb.register_initial_reference("Bar", bar))
+case("resolve Bar is the reference",
+     lambda: orb.resolve_initial_references("Bar")._is_equivalent(bar))
+case("register Local (the RootPOA, a local object)",
+     lambda: orb.register_initial_reference("Local", poa))
+case("resolve Local", lambda: type(orb.resolve_initial_references("Local")).__name__)
+case("register RootPOA (resolved by the ORB itself)",
+     lambda: orb.register_initial_reference("RootPOA", bar))
+case("list_initial_services has Bar and Local",
+     lambda: {"Bar", "Local"} <= set(orb.list_initial_services()))
+case("resolve Missing", lambda: orb.resolve_initial_references("Missing"))
+
+# -- create_policy (omniORBpy has no constants for the policy types) --
+
+POLICIES = [
+    (16, "ThreadPolicyValue", "MAIN_THREAD_MODEL"),
+    (17, "LifespanPolicyValue", "PERSISTENT"),
+    (18, "IdUniquenessPolicyValue", "MULTIPLE_ID"),
+    (19, "IdAssignmentPolicyValue", "USER_ID"),
+    (20, "ImplicitActivationPolicyValue", "NO_IMPLICIT_ACTIVATION"),
+    (21, "ServantRetentionPolicyValue", "NON_RETAIN"),
+    (22, "RequestProcessingPolicyValue", "USE_SERVANT_MANAGER"),
+]
+
+
+def describe(p):
+    return "%s type %d value %s" % (type(p).__name__, p.policy_type, p.value)
+
+
+for type_, enum, item in POLICIES:
+    tc = getattr(PortableServer, "_tc_" + enum)
+    case("create_policy %d %s" % (type_, item),
+         lambda: describe(orb.create_policy(type_, any_of(tc, getattr(PortableServer, item)))))
+case("create_policy 17 with a ulong",
+     lambda: orb.create_policy(17, any_of(CORBA.TC_ulong, 1)))
+case("create_policy 17 with a ThreadPolicyValue",
+     lambda: orb.create_policy(17, any_of(PortableServer._tc_ThreadPolicyValue,
+                                          PortableServer.ORB_CTRL_MODEL)))
+case("create_policy 9999", lambda: orb.create_policy(9999, any_of(CORBA.TC_long, 1)))
+case("create_policy 32 (RelativeRoundtripTimeout)",
+     lambda: type(orb.create_policy(32, any_of(CORBA.TC_ulonglong, 10000000))).__name__)
+case("create_policy 32 with a long", lambda: orb.create_policy(32, any_of(CORBA.TC_long, 1)))
+
+
+def user_id_poa():
+    user_id = orb.create_policy(
+        19, any_of(PortableServer._tc_IdAssignmentPolicyValue, PortableServer.USER_ID))
+    child = poa.create_POA("Probe", None, [user_id])
+
+    class Servant(CosNaming__POA.NamingContext):
+        pass
+
+    return child.activate_object(Servant())
+
+
+case("create_POA with a create_policy policy", user_id_poa)
+
+# -- the policy operations of CORBA::Object --
+
+for op in ("_get_policy", "_get_client_policy", "_set_policy_overrides",
+           "_get_policy_overrides", "_validate_connection"):
+    case("CORBA.Object has %s" % op, lambda: hasattr(CORBA.Object, op))
+
+orb.destroy()

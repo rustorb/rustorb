@@ -700,6 +700,37 @@ class Object(object):
     def _get_interface(self):
         raise NO_IMPLEMENT(0, COMPLETED_NO)
 
+    # -- policies --
+
+    def _get_client_policy(self, type):
+        """The policy of type ``type`` for calls on this reference: the
+        reference's override, else the calling thread's, else the ORB's;
+        None if there is none."""
+        value = self._orb_object().client_policy(type)
+        return None if value is None else _make_policy(type, value)
+
+    #: rustorb reads no policies from IORs: the effective policy is the
+    #: client's.
+    _get_policy = _get_client_policy
+
+    def _set_policy_overrides(self, policies, set_add):
+        """A new reference to the object with the overrides ``policies``
+        (``SET_OVERRIDE`` replaces this reference's, ``ADD_OVERRIDE`` adds
+        to them). NO_PERMISSION for a policy that cannot override, such as
+        a POA policy."""
+        native = self._orb_object().set_policy_overrides(
+            _raw_policies(policies), _override_mode(set_add)
+        )
+        return type(self)(native)
+
+    def _get_policy_overrides(self, types):
+        return [_make_policy(t, v) for t, v in self._orb_object().policy_overrides(list(types))]
+
+    def _validate_connection(self):
+        """Binds the reference with a LocateRequest: ``(True, [])``, or the
+        system exception of the failure."""
+        return self._orb_object().validate_connection(), []
+
     def __repr__(self):
         return "<%s.%s %s>" % (
             type(self).__module__,
@@ -759,6 +790,119 @@ class Policy(LocalObject):
     def destroy(self):
         pass
 
+    def _rorb_raw(self):
+        """The type and value of the policy for the native module."""
+        return self.policy_type, int(self.value)
+
+
+#: CORBA::PolicyErrorCode
+BAD_POLICY = 0
+UNSUPPORTED_POLICY = 1
+BAD_POLICY_TYPE = 2
+BAD_POLICY_VALUE = 3
+UNSUPPORTED_POLICY_VALUE = 4
+
+
+class PolicyError(UserException):
+    _NP_RepositoryId = "IDL:omg.org/CORBA/PolicyError:1.0"
+    _NP_members = ("reason",)
+
+
+class InvalidPolicies(UserException):
+    _NP_RepositoryId = "IDL:omg.org/CORBA/InvalidPolicies:1.0"
+    _NP_members = ("indices",)
+
+
+_override = _types.Enum("IDL:omg.org/CORBA/SetOverrideType:1.0", ("SET_OVERRIDE", "ADD_OVERRIDE"))
+SetOverrideType = _override
+SET_OVERRIDE, ADD_OVERRIDE = _override._items
+
+
+def _override_mode(set_add):
+    """True for ADD_OVERRIDE."""
+    if set_add is ADD_OVERRIDE:
+        return True
+    if set_add is SET_OVERRIDE:
+        return False
+    raise BAD_PARAM(0, COMPLETED_NO)
+
+
+def _raw_policies(policies):
+    raw = []
+    for p in policies:
+        if not isinstance(p, Policy):
+            raise BAD_PARAM(0, COMPLETED_NO)
+        raw.append(p._rorb_raw())
+    return raw
+
+
+def _make_policy(type, value):
+    """The policy object of a type and value from the native module."""
+    if type == 32:
+        from . import Messaging
+
+        return Messaging.RelativeRoundtripTimeoutPolicy(value)
+    from . import PortableServer
+
+    return PortableServer._make_policy(type, value)
+
+
+def _native_module():
+    if _native is None:
+        raise INITIALIZE(0, COMPLETED_NO)
+    return _native
+
+
+class PolicyManager(LocalObject):
+    """The policy overrides of the ORB (initial reference
+    ``ORBPolicyManager``). ``set_policy_overrides`` raises NO_PERMISSION
+    for a policy that cannot override, BAD_PARAM for two of one type."""
+
+    _NP_RepositoryId = "IDL:omg.org/CORBA/PolicyManager:1.0"
+
+    def __init__(self, native):
+        LocalObject.__init__(self)
+        self._native = native
+
+    def get_policy_overrides(self, ts):
+        return [_make_policy(t, v) for t, v in self._native.policy_overrides(list(ts))]
+
+    def set_policy_overrides(self, policies, set_add):
+        self._native.set_policy_overrides(_raw_policies(policies), _override_mode(set_add))
+
+
+class Current(LocalObject):
+    _NP_RepositoryId = "IDL:omg.org/CORBA/Current:1.0"
+
+
+class PolicyCurrent(PolicyManager, Current):
+    """The policy overrides of the calling thread (initial reference
+    ``PolicyCurrent``), for every ORB."""
+
+    _NP_RepositoryId = "IDL:omg.org/CORBA/PolicyCurrent:1.0"
+
+    def __init__(self):
+        LocalObject.__init__(self)
+
+    def get_policy_overrides(self, ts):
+        native = _native_module()
+        return [_make_policy(t, v) for t, v in native.thread_policy_overrides(list(ts))]
+
+    def set_policy_overrides(self, policies, set_add):
+        _native_module().set_thread_policy_overrides(
+            _raw_policies(policies), _override_mode(set_add)
+        )
+
+
+class ServiceDetail(_types.Struct):
+    _NP_RepositoryId = "IDL:omg.org/CORBA/ServiceDetail:1.0"
+    _NP_members = ("service_detail_type", "service_detail")
+
+
+class ServiceInformation(_types.Struct):
+    _NP_RepositoryId = "IDL:omg.org/CORBA/ServiceInformation:1.0"
+    _NP_members = ("service_options", "service_details")
+
 
 # ---------------------------------------------------------------------------
 # The ORB
@@ -813,14 +957,60 @@ class ORB(object):
             return PortableServer.Current()
         if identifier == "omniINSPOA":
             return self._get_ins_poa()
+        if identifier == "ORBPolicyManager":
+            return PolicyManager(self._native)
+        if identifier == "PolicyCurrent":
+            return PolicyCurrent()
+        local = self._native.resolve_local_initial_reference(identifier)
+        if local is not None:
+            return local
         try:
             native = self._native.resolve_initial_references(identifier)
         except LookupError:
             raise ORB.InvalidName()
         return _rt.make_objref(native, Object._NP_RepositoryId)
 
+    #: The names resolve_initial_references answers without the core.
+    _LOCAL_SERVICES = ("RootPOA", "POACurrent", "omniINSPOA", "ORBPolicyManager", "PolicyCurrent")
+
     def list_initial_services(self):
-        return ["RootPOA", "POACurrent", "omniINSPOA"] + list(self._native.list_initial_services())
+        return list(self._LOCAL_SERVICES) + list(self._native.list_initial_services())
+
+    def register_initial_reference(self, identifier, obj):
+        """Makes ``resolve_initial_references(identifier)`` return
+        ``obj``, a reference or a local object. InvalidName for an empty
+        name or one that is already an initial reference, BAD_PARAM (minor
+        27) for nil."""
+        if identifier in self._LOCAL_SERVICES:
+            raise ORB.InvalidName()
+        try:
+            if isinstance(obj, Object) and obj._obj is not None:
+                self._native.register_initial_reference(identifier, obj._obj)
+            elif obj is None:
+                self._native.register_initial_reference(identifier, None)
+            else:
+                self._native.register_local_initial_reference(identifier, obj)
+        except LookupError:
+            raise ORB.InvalidName()
+
+    def get_service_information(self, service_type):
+        """rustorb offers no services (such as security):
+        ``(False, ServiceInformation)``."""
+        return False, ServiceInformation([], [])
+
+    def create_policy(self, type, val):
+        """A POA policy from its enumerator, or a
+        ``Messaging.RelativeRoundtripTimeoutPolicy`` from a
+        ``TimeBase::TimeT`` (unsigned long long, in units of 100 ns), in
+        the any ``val``. PolicyError: BAD_POLICY for a type rustorb does not
+        know, BAD_POLICY_TYPE for an any of the wrong type,
+        BAD_POLICY_VALUE for an enumerator out of range."""
+        if not isinstance(val, Any):
+            raise BAD_PARAM(0, COMPLETED_NO)
+        value, reason = self._native.create_policy(type, val)
+        if reason is not None:
+            raise PolicyError(reason)
+        return _make_policy(type, value)
 
     def _get_root_poa(self):
         with self._lock:

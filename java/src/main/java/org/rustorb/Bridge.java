@@ -79,6 +79,8 @@ final class Bridge {
                 return new org.omg.CORBA.TypeCodePackage.BadKind();
             case 15:
                 return new org.omg.CORBA.TypeCodePackage.Bounds();
+            case 16:
+                return new org.omg.CORBA.PolicyError((short) index);
             default:
                 return new org.omg.CORBA.INTERNAL("local exception " + code, 0,
                         CompletionStatus.COMPLETED_MAYBE);

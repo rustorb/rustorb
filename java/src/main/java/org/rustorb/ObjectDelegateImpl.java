@@ -91,6 +91,56 @@ final class ObjectDelegateImpl extends Delegate {
         return orb;
     }
 
+    @Override
+    public org.omg.CORBA.Policy get_policy(org.omg.CORBA.Object self, int policy_type) {
+        return get_client_policy(self, policy_type);
+    }
+
+    @Override
+    public org.omg.CORBA.Object set_policy_override(org.omg.CORBA.Object self,
+            org.omg.CORBA.Policy[] policies, org.omg.CORBA.SetOverrideType set_add) {
+        Policies.Raw raw = new Policies.Raw(policies);
+        try {
+            return ObjectStub.of(Native.objectSetPolicyOverrides(handle(), raw.types, raw.values,
+                    set_add == org.omg.CORBA.SetOverrideType.ADD_OVERRIDE), orb);
+        } finally {
+            Reference.reachabilityFence(this);
+        }
+    }
+
+    @Override
+    public org.omg.CORBA.Policy get_client_policy(org.omg.CORBA.Object self, int type) {
+        long[] value = new long[1];
+        try {
+            return Native.objectClientPolicy(handle(), type, value)
+                    ? Policies.make(type, value[0]) : null;
+        } finally {
+            Reference.reachabilityFence(this);
+        }
+    }
+
+    @Override
+    public org.omg.CORBA.Policy[] get_policy_overrides(org.omg.CORBA.Object self, int[] types) {
+        try {
+            return Policies.fromPairs(Native.objectPolicyOverrides(handle(), types));
+        } finally {
+            Reference.reachabilityFence(this);
+        }
+    }
+
+    @Override
+    public boolean validate_connection(org.omg.CORBA.Object self,
+            org.omg.CORBA.PolicyListHolder inconsistent_policies) {
+        if (inconsistent_policies != null) {
+            inconsistent_policies.value = new org.omg.CORBA.Policy[0];
+        }
+        try {
+            return Native.objectValidateConnection(handle());
+        } finally {
+            Reference.reachabilityFence(this);
+        }
+    }
+
     /** The repository id in the IOR (may be empty). */
     String typeId() {
         try {

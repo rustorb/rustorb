@@ -88,6 +88,7 @@ typedef int32_t rorb_status;
 #define RORB_INVALID_NAME 13          /* ORB::InvalidName */
 #define RORB_TC_BAD_KIND 14           /* TypeCode::BadKind */
 #define RORB_TC_BOUNDS 15             /* TypeCode::Bounds */
+#define RORB_POLICY_ERROR 16          /* CORBA::PolicyError (reason in .index) */
 
 typedef struct rorb_exception {
   /* RORB_SYSTEM_EXCEPTION: the repository id, such as
@@ -97,7 +98,7 @@ typedef struct rorb_exception {
   uint32_t minor;
   uint32_t completed;
   /* RORB_LOCAL_EXCEPTION: which one, and the policy index of
-     RORB_INVALID_POLICY. */
+     RORB_INVALID_POLICY or the reason of RORB_POLICY_ERROR. */
   uint32_t local;
   uint32_t index;
 } rorb_exception;
@@ -330,6 +331,75 @@ rorb_status rorb_default_root_poa(rorb_poa** poa, rorb_exception* exc);
 /* A new handle of the first ORB initialised and not yet destroyed; NULL if
    there is none. */
 rorb_orb* rorb_default_orb(void);
+
+/* --- policies ---------------------------------------------------------- */
+
+/* A policy crosses the ABI as its type and a value: the enumerator of a
+   POA policy (types 16 to 22), the relative_expiry of a
+   Messaging::RelativeRoundtripTimeoutPolicy (type 32, units of 100 ns). */
+#define RORB_RELATIVE_RT_TIMEOUT_POLICY_TYPE 32
+/* CORBA::SetOverrideType */
+#define RORB_SET_OVERRIDE 0
+#define RORB_ADD_OVERRIDE 1
+
+/* Called with each policy of a list. */
+typedef void (*rorb_each_policy)(void* context, uint32_t type, uint64_t value);
+
+/* ORB::create_policy: the value of the policy of `type` in the any.
+   RORB_POLICY_ERROR with the reason (BAD_POLICY 0 for an unknown type,
+   BAD_POLICY_TYPE 2 for an any of the wrong type, BAD_POLICY_VALUE 3). */
+rorb_status rorb_orb_create_policy(rorb_orb* orb, uint32_t type, const rorb_any* value,
+                                   uint64_t* raw_value, rorb_exception* exc);
+/* ORB::register_initial_reference. RORB_INVALID_NAME for an empty name or
+   one that is already an initial reference of the core (-ORBInitRef or
+   registered); BAD_PARAM (minor 27) for a NULL obj. */
+rorb_status rorb_orb_register_initial_reference(rorb_orb* orb, const char* name, size_t len,
+                                                rorb_object* obj, rorb_exception* exc);
+/* register_initial_reference for an object of the binding that has no
+   rorb_object (a local object): the ORB keeps `object` until it is
+   destroyed, then calls release(object) (at once if registering fails).
+   Errors as above. resolve calls
+   each(context, object) and returns 1 if `name` is such an object, else
+   0; the object is only guaranteed to live during the call. */
+rorb_status rorb_orb_register_local_initial_reference(rorb_orb* orb, const char* name,
+                                                      size_t len, void* object,
+                                                      void (*release)(void*),
+                                                      rorb_exception* exc);
+int32_t rorb_orb_resolve_local_initial_reference(rorb_orb* orb, const char* name, size_t len,
+                                                 void* context,
+                                                 void (*each)(void* context, void* object));
+/* The overrides of the ORB (its PolicyManager), of the calling thread
+   (PolicyCurrent) and of an object reference. Setting them raises
+   NO_PERMISSION for a policy that is not a client side override (the POA
+   policies) and BAD_PARAM (minor 30) for two policies of one type. The
+   getters call `each` with the overrides of the `count` types (all types
+   if count is 0). The timeout overrides are the call timeouts of
+   rorb_orb_set_call_timeout and friends. */
+rorb_status rorb_orb_set_policy_overrides(rorb_orb* orb, const uint32_t* types,
+                                          const uint64_t* values, size_t count,
+                                          uint32_t set_add, rorb_exception* exc);
+void rorb_orb_get_policy_overrides(rorb_orb* orb, const uint32_t* types, size_t count,
+                                   void* context, rorb_each_policy each);
+rorb_status rorb_set_thread_policy_overrides(const uint32_t* types, const uint64_t* values,
+                                             size_t count, uint32_t set_add,
+                                             rorb_exception* exc);
+void rorb_thread_policy_overrides(const uint32_t* types, size_t count, void* context,
+                                  rorb_each_policy each);
+/* Object::set_policy_overrides: a new reference in *result. */
+rorb_status rorb_object_set_policy_overrides(rorb_object* obj, const uint32_t* types,
+                                             const uint64_t* values, size_t count,
+                                             uint32_t set_add, rorb_object** result,
+                                             rorb_exception* exc);
+void rorb_object_get_policy_overrides(rorb_object* obj, const uint32_t* types, size_t count,
+                                      void* context, rorb_each_policy each);
+/* Object::get_client_policy (and get_policy): 1 and the value if the
+   reference, the thread or the ORB has a policy of `type`, else 0. */
+int32_t rorb_object_get_client_policy(rorb_object* obj, uint32_t type, uint64_t* raw_value);
+/* Object::validate_connection: binds with a LocateRequest. 1 on success;
+   failures are system exceptions (OBJECT_NOT_EXIST when the server does
+   not have the object). */
+rorb_status rorb_object_validate_connection(rorb_object* obj, int32_t* result,
+                                            rorb_exception* exc);
 
 /* --- object references -------------------------------------------------- */
 

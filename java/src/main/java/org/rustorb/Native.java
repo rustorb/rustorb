@@ -48,6 +48,24 @@ final class Native {
     static native void setThreadCallTimeout(long us);
     static native long threadCallTimeout();
 
+    // policies and registered initial references
+    static native long orbCreatePolicy(long orb, int type, long any)
+            throws org.omg.CORBA.PolicyError;
+    static native void orbRegisterInitialReference(long orb, String name, long obj)
+            throws org.omg.CORBA.ORBPackage.InvalidName;
+    static native void orbRegisterLocalInitialReference(long orb, String name, Object obj)
+            throws org.omg.CORBA.ORBPackage.InvalidName;
+    static native Object orbResolveLocalInitialReference(long orb, String name);
+    static native void orbSetPolicyOverrides(long orb, int[] types, long[] values, boolean add);
+    static native long[] orbPolicyOverrides(long orb, int[] types);
+    static native void setThreadPolicyOverrides(int[] types, long[] values, boolean add);
+    static native long[] threadPolicyOverrides(int[] types);
+    static native long objectSetPolicyOverrides(long obj, int[] types, long[] values,
+            boolean add);
+    static native long[] objectPolicyOverrides(long obj, int[] types);
+    static native boolean objectClientPolicy(long obj, int type, long[] value);
+    static native boolean objectValidateConnection(long obj);
+
     // --- object references -----------------------------------------------
     static native long objectClone(long obj);
     static native void objectRelease(long obj);

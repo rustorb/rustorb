@@ -58,6 +58,32 @@ public abstract class ObjectImpl implements org.omg.CORBA.Object {
         return _get_delegate().get_interface_def(this);
     }
 
+    @Override
+    public org.omg.CORBA.Policy _get_policy(int policy_type) {
+        return _get_delegate().get_policy(this, policy_type);
+    }
+
+    @Override
+    public org.omg.CORBA.Object _set_policy_override(org.omg.CORBA.Policy[] policies,
+            org.omg.CORBA.SetOverrideType set_add) {
+        return _get_delegate().set_policy_override(this, policies, set_add);
+    }
+
+    @Override
+    public org.omg.CORBA.Policy _get_client_policy(int type) {
+        return _get_delegate().get_client_policy(this, type);
+    }
+
+    @Override
+    public org.omg.CORBA.Policy[] _get_policy_overrides(int[] types) {
+        return _get_delegate().get_policy_overrides(this, types);
+    }
+
+    @Override
+    public boolean _validate_connection(org.omg.CORBA.PolicyListHolder inconsistent_policies) {
+        return _get_delegate().validate_connection(this, inconsistent_policies);
+    }
+
     public org.omg.CORBA.ORB _orb() {
         return _get_delegate().orb(this);
     }
