@@ -85,7 +85,14 @@ orb.run();
 
 ## POA の範囲
 
-`create_POA`（7種のポリシー）、`find_POA`、`destroy`、`activate_object(_with_id)`、`deactivate_object`、`servant_to_id/reference`、`id_to_servant/reference`、`reference_to_id/servant`、`create_reference(_with_id)`、デフォルトサーバント（`get_servant` / `set_servant`）、`POAManager` の4状態、`PortableServer::Current`。servant manager と `AdapterActivator` は C++ と同じくまだなく、`NO_IMPLEMENT` になる。
+`create_POA`（7種のポリシー）、`find_POA`、`destroy`、`activate_object(_with_id)`、`deactivate_object`、`servant_to_id/reference`、`id_to_servant/reference`、`reference_to_id/servant`、`create_reference(_with_id)`、デフォルトサーバント（`get_servant` / `set_servant`）、servant manager（`set_servant_manager` / `get_servant_manager`）、`the_activator`、`POAManager` の4状態、`PortableServer::Current`。
+
+servant manager と adapter activator は `org.omg.CORBA.LocalObject` を継承して `ServantActivator`・`ServantLocator`・`AdapterActivator` を実装する（CORBA 3 の Java マッピングのローカルインターフェース）。各メソッドは ORB のアップコールのスレッドで呼ばれる。
+
+- `incarnate` / `preinvoke` は `org.omg.PortableServer.ForwardRequest` で転送でき、`SystemException` はそのままクライアントに返る。null のサーバントは `OBJ_ADAPTER`、その他の例外は `UNKNOWN`（標準エラーに出す）
+- cookie は `ServantLocatorPackage.CookieHolder` に入れた任意の Java オブジェクトで、`postinvoke` に渡る
+- `get_servant_manager` と `the_activator()` は設定した Java オブジェクトそのものを返す。C 側はグローバル参照を数えて持ち、POA が手放すと解放する
+- `etherealize`・`postinvoke`・`unknown_adapter` が送出した例外は標準エラーに出して捨てる
 
 `_this()` は、そのサーバントの要求の実行中ならその要求のオブジェクトを、そうでなければ `_default_POA()`（最初に初期化して破棄していない ORB の RootPOA）で暗黙に活性化した参照を返す。同じ ORB の中の呼び出しは、コアの同一 ORB 内呼び出しで呼び出し元のスレッドで実行する。
 
@@ -93,12 +100,15 @@ orb.run();
 
 - `java/src/test`（`mvn -f java/pom.xml -Didl.parser.dir=... verify`。cargo で `librustorb_jni` を、`rustorb-idl -bjava` でテスト用 IDL のコードを作る）
   - `MappingTest`：C++ と同じ `cpp/tests/idl/CxxMapping.idl`（`-Wbpackage=mapping`）の定数、union の規則、すべての型を、同じプロセスの2つの ORB の間と同一 ORB 内で往復させる
+  - `PoaTest`：C++ の `test_poa.cc` と同じ内容（ServantActivator・ServantLocator・AdapterActivator、転送と例外、ポリシーの検査）を、2つの ORB の間と同一 ORB 内で確かめる
   - `InteropCasesTest`：相互接続の78ケース（`interop/impls/java/interop/Cases.java`）と Any / TypeCode の178ケース（`AnyTests.java`）を、2つの ORB の間で回す
 - `crates/rustorb-codegen/python/tests/test_java_backend.py`：コマンドライン、生成物の形、対応しない構文のエラー、生成コードとランタイムの `javac -Werror` でのコンパイル
 - CI（`ci.yml` の `java`）：Linux（Java 11 と 21）、macOS、Windows で `mvn verify`。Linux では同梱の CosNaming のスタブが生成器の出力と一致することも確かめる
 - 相互接続：`interop/run-matrix.sh` に `rustorbjava`（ホストでビルドし、イメージの Java 17 で動かす）と `jacorb`（イメージの中で JacORB の IDL コンパイラで同じソースをビルドする）を加えた。Java が関わる24組（omniORBpy・omniORB C++・JacORB・rustorb の Rust・Python・C++・Java）の結果は次のとおり（ローカルで確認。失敗はすべて `known-failures.txt` の範囲）
   - basic（78ケース）：omniNames と rustorb-names、GIOP 1.2 と 1.1 で、`rustorbjava` はすべての相手と通る（omniORB 側の wchar の既知の失敗を除く）。`jacorb` との組は、下の union の判別子の1ケース（`echo_value[5]`）と、GIOP 1.1 で omniORB のクライアントが分割したメッセージ（JacORB が GIOP 1.1 の Fragment を受け付けない）だけが失敗する
   - any（178ケース）：`rustorbjava` は omniORBpy・omniORB C++・rustorb（Rust・Python・C++）・自身とのすべての組で GIOP 1.2 / 1.1 とも通る。`jacorb` は下の Helper の違いで大半の `make` / `check` が失敗するため、既定では any のマトリクスに入れない（組を指定すれば回せる）
+
+- POA プローブ：`interop/impls/rustorbjava/probe/interop/PoaProbeServer.java` で `run-poa-probe.sh` を回し、Rust のプローブサーバーと同じ期待出力（`expected/poa-probe-rustorb.txt`）と一致する
 
 ## JacORB の実測
 
@@ -116,7 +126,6 @@ JacORB は、UTF-8 に決まった `char` のデータ（rustorb とはどちら
 
 ## 残り
 
-- servant manager（`ServantActivator`・`ServantLocator`）と `AdapterActivator`（C ABI に関数表を足す。C++ と共通）
 - `Any.create_output_stream` / `read_value` などのストリームによる Any の操作、DII / DSI、`ObjectImpl._request` の形のスタブ（他の IDL コンパイラが生成したスタブを rustorb の上で使う場合に要る）
 - `fixed`、valuetype、DynAny
 - 呼び出しごとのタイムアウトの Java API（C ABI の `rorb_invocation` にはある）、`ORB.create_policy` などの残りの ORB 操作

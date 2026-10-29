@@ -95,6 +95,13 @@ target_link_libraries(test_mapping PRIVATE rustorb)
 target_compile_options(test_mapping PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME mapping COMMAND test_mapping)
 
+# Servant managers, adapter activators and default servants.
+add_executable(test_poa tests/test_poa.cc ${MAPPING_SOURCES})
+target_include_directories(test_poa PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl")
+target_link_libraries(test_poa PRIVATE rustorb)
+target_compile_options(test_poa PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME poa COMMAND test_poa)
+
 # The interop test cases of interop/impls/rustorbcpp, in one process.
 rustorb_idl_generate(INTEROP_SOURCES "${RUSTORB_ROOT}/interop/idl/InteropTest.idl")
 add_executable(test_interop tests/test_interop.cc ${INTEROP_SOURCES})
@@ -112,4 +119,4 @@ target_include_directories(test_any PRIVATE
 target_link_libraries(test_any PRIVATE rustorb)
 target_compile_options(test_any PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME any COMMAND test_any)
-set_tests_properties(mapping interop any PROPERTIES TIMEOUT 120)
+set_tests_properties(mapping poa interop any PROPERTIES TIMEOUT 120)

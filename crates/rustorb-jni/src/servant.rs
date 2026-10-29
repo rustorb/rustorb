@@ -41,7 +41,7 @@ static VTABLE: rorb_servant_vtable = rorb_servant_vtable {
 
 /// The JNIEnv of the calling thread, attaching it (as a daemon, detached
 /// when the thread exits) if it is not attached yet.
-fn thread_env() -> Option<JNIEnv<'static>> {
+pub(crate) fn thread_env() -> Option<JNIEnv<'static>> {
     VM.get()?.attach_current_thread_as_daemon().ok()
 }
 
@@ -174,6 +174,22 @@ pub(crate) fn servant_object<'local>(
     };
     unsafe { remove_ref(this) };
     Ok(obj)
+}
+
+/// The Java servant of a `self` the C side passes to a callback without a
+/// reference added (etherealize, postinvoke), as a local reference.
+pub(crate) fn borrowed_servant<'local>(
+    env: &mut JNIEnv<'local>,
+    this: *mut c_void,
+) -> JResult<JObject<'local>> {
+    if this.is_null() {
+        return Ok(JObject::null());
+    }
+    let peer = unsafe { &*(this as *const Peer) };
+    Ok(match peer.strong() {
+        Some(g) => env.new_local_ref(g.as_obj())?,
+        None => JObject::null(),
+    })
 }
 
 #[unsafe(no_mangle)]

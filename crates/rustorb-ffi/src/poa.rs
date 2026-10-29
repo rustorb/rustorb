@@ -178,7 +178,7 @@ pub unsafe extern "C" fn rorb_poa_policies(poa: *mut Poa, policies: *mut PolicyF
 }
 
 /// Runs a POA operation and reports its error.
-fn poa_call<T>(
+pub(crate) fn poa_call<T>(
     exc: *mut Exception,
     f: impl FnOnce() -> Result<T, PoaError>,
     done: impl FnOnce(T),

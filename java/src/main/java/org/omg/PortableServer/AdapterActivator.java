@@ -5,7 +5,7 @@
 
 package org.omg.PortableServer;
 
-/** PortableServer::AdapterActivator. Not supported by the Java binding
- * yet: the_activator(activator) raises NO_IMPLEMENT. */
+/** PortableServer::AdapterActivator: implemented by extending
+ * org.omg.CORBA.LocalObject. unknown_adapter runs on an upcall thread. */
 public interface AdapterActivator extends AdapterActivatorOperations, org.omg.CORBA.Object,
         org.omg.CORBA.portable.IDLEntity {}

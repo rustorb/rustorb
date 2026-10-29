@@ -96,7 +96,15 @@ C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP �
 
 ## POA の範囲
 
-`create_POA`（7種のポリシー）、`find_POA`、`destroy`、`activate_object(_with_id)`、`deactivate_object`、`servant_to_id/reference`、`id_to_servant/reference`、`reference_to_id/servant`、`create_reference(_with_id)`、デフォルトサーバント（`get_servant` / `set_servant`）、`POAManager` の4状態、`PortableServer::Current`。`id_to_servant` などで返るサーバントは、元の C++ オブジェクトに戻る。
+`create_POA`（7種のポリシー）、`find_POA`、`destroy`、`activate_object(_with_id)`、`deactivate_object`、`servant_to_id/reference`、`id_to_servant/reference`、`reference_to_id/servant`、`create_reference(_with_id)`、デフォルトサーバント（`get_servant` / `set_servant`）、servant manager（`set_servant_manager` / `get_servant_manager`）、`the_activator`、`POAManager` の4状態、`PortableServer::Current`。`id_to_servant` などで返るサーバントは、元の C++ オブジェクトに戻る。
+
+`PortableServer::ServantActivator`・`ServantLocator`・`AdapterActivator` はローカルインターフェースで、アプリケーションが派生クラスを `CORBA::make_reference<T>()` で作って POA に渡す。各操作は ORB のアップコールのスレッドで呼ばれる。
+
+- `incarnate` / `preinvoke` は `PortableServer::ForwardRequest` で転送（`LOCATION_FORWARD`）でき、`CORBA::SystemException` はそのままクライアントに返る。nil のサーバントは `OBJ_ADAPTER`、その他の C++ 例外は `UNKNOWN`（`what()` を標準エラーに出す）
+- `ServantLocator::Cookie` は `void*` で、`preinvoke` が設定した値が `postinvoke` に渡る。`preinvoke` が失敗したときは `postinvoke` を呼ばない
+- `etherealize` と `postinvoke` が受け取るサーバントは、`incarnate` / `preinvoke` が返した C++ オブジェクト
+- `get_servant_manager` と `the_activator()` は設定した C++ オブジェクト（同じ `shared_ptr`）を返す。POA は破棄されるまで参照を持ち、破棄されると手放す
+- C ABI では `rorb_poa_set_servant_activator` / `_locator`・`rorb_poa_set_the_activator` が関数表（`rorb_servant_activator_vtable` など）と `self` を受け取り、サーバントと同じく `add_ref` / `remove_ref` で参照を数える。`incarnate` / `preinvoke` の例外は `rorb_manager_error_forward` / `_system` で伝える
 
 `_this()` は、そのサーバントの要求の実行中ならその要求のオブジェクトを、そうでなければ `_default_POA()`（最初に初期化した ORB の RootPOA）で暗黙に活性化した参照を返す。同じ ORB の中の呼び出しは呼び出し元のスレッドでサーバントを実行する（コアの同一 ORB 内呼び出しをそのまま使う）。
 
@@ -104,16 +112,16 @@ C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP �
 
 - `cpp/tests/test_mapping.cc`：`cpp/tests/idl/CxxMapping.idl`（定数、typedef、上限付きの型、多次元配列、再帰的な struct と union、すべての種類の判別子、入れ子の型、予約語の名前、多重継承、oneway、inout / out、ユーザー例外とシステム例外、オブジェクト参照の列）を、同じプロセスの2つの ORB の間と、同一 ORB 内で往復させる
 - `cpp/tests/test_interop.cc`：相互接続の78ケース（`interop/impls/rustorbcpp/cases.h`）を同じプロセスの2つの ORB の間で回す
+- `cpp/tests/test_poa.cc`：`ServantActivator`（初回の `incarnate`、転送、システム例外、nil、C++ 例外、`deactivate_object` と `destroy` での `etherealize`）、`ServantLocator`（cookie の受け渡し、失敗時に `postinvoke` を呼ばないこと）、`AdapterActivator`（`find_POA` と、存在しない POA への要求での作成）、ポリシーの検査（`WrongPolicy`、種類の違う manager の `OBJ_ADAPTER`、2回目の `BAD_INV_ORDER`）を、2つの ORB の間と同一 ORB 内で確かめる。POA が破棄されると manager が解放されることも見る
 - `cpp/tests/test_any.cc`：Any / TypeCode の相互接続の178ケース（`interop/impls/rustorbcpp/anytest.h`）を同じプロセスの2つの ORB の間で回し、TypeCode の操作、`ORB::create_*_tc`、`<<=` / `>>=` の規則を確かめる
 - CI（`ci.yml` の `cpp`）は g++ と clang++ の両方で `-Wall -Wextra -Werror` でビルドして ctest を回す。ローカルでは ASan・UBSan・LeakSanitizer でも警告なし
 - `crates/rustorb-codegen/python/tests/test_cxx_backend.py`：コマンドライン、生成物の形、対応しない構文のエラー、生成コードのコンパイル
 - 相互接続：`interop/impls/rustorbcpp` を omniORB C++・omniORBpy・rustorb（Rust・Python）とすべての組み合わせで、omniNames と rustorb-names の両方、GIOP 1.1 でも回す。失敗は既存の `known-failures.txt`（omniORB 側の wchar）の範囲だけ
+- POA プローブ：`interop/impls/rustorbcpp/poa_probe_server.cc`（servant manager・AdapterActivator・デフォルトサーバント・スレッドモデルを含む）で `run-poa-probe.sh` を回し、Rust のプローブサーバーと同じ期待出力（`expected/poa-probe-rustorb.txt`）と一致する
 
 ## 残り
 
-- servant manager（`ServantActivator`・`ServantLocator`）と `AdapterActivator` の C++ API（コアと Python には既にある。C ABI に関数表を足す）
 - `fixed`、valuetype、DynAny
 - 呼び出しごとのタイムアウトの C++ API（C ABI の `rorb_invocation` にはある）、`ORB::create_policy` などの残りの ORB 操作
 - IDL4-CPP の構文（アノテーションなど）
-- `run-poa-probe.sh` と `run-wire-probe.sh` への C++ の rustorb の追加
-- Java バインディング（同じ C ABI の上に JNI で載せる）
+- `run-wire-probe.sh` への C++ の rustorb の追加

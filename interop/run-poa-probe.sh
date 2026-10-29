@@ -6,9 +6,11 @@
 #
 # --update   rewrites the expected files with the current output
 #
-# SERVER is omniorbpy, omniorb-cpp or rustorb (default: all three). The
-# rustorb server is built on the host and mounted into the container, like
-# in run-matrix.sh. Each server is started
+# SERVER is omniorbpy, omniorb-cpp, rustorb (Rust), rustorbcpp (C++) or
+# rustorbjava (Java) (default: all of them). The rustorb servers are built
+# on the host and mounted into the container, like in run-matrix.sh; the
+# C++ and Java ones run on the same core as the Rust one and are compared
+# with its expected file. Each server is started
 # three times: once to record the object keys, once after a restart to check
 # which keys survive it and to run the probe (the last stage shuts the ORB
 # down), and once more for ORB::shutdown(false) called inside an upcall.
@@ -23,7 +25,7 @@ if [ "${1:-}" = "--update" ]; then
   shift
 fi
 servers=("$@")
-[ ${#servers[@]} -eq 0 ] && servers=(omniorbpy omniorb-cpp rustorb)
+[ ${#servers[@]} -eq 0 ] && servers=(omniorbpy omniorb-cpp rustorb rustorbcpp rustorbjava)
 image=${SERVER_IMAGE:-rustorb-interop-omniorb:latest}
 network=interop-poa-probe
 
@@ -32,7 +34,17 @@ server_cmd() {
     omniorbpy) echo impls/omniorbpy/poa-probe-server ;;
     omniorb-cpp) echo impls/omniorb-cpp/poa_probe_server ;;
     rustorb) echo impls/rustorb/poa-probe-server ;;
+    rustorbcpp) echo impls/rustorbcpp/poa-probe-server ;;
+    rustorbjava) echo impls/rustorbjava/poa-probe-server ;;
     *) echo "unknown server: $1" >&2; exit 2 ;;
+  esac
+}
+
+# The expected output: the bindings of the rustorb core share one.
+expected_name() {
+  case "$1" in
+    rustorbcpp | rustorbjava) echo rustorb ;;
+    *) echo "$1" ;;
   esac
 }
 
@@ -47,7 +59,9 @@ start_server() {
   docker rm -f poa-probe-server >/dev/null 2>&1 || true
   rm -f "$dir/control.ior"
   docker run -d --name poa-probe-server --hostname server --network "$network" \
-    -v "$PWD/out:/out" -v "$PWD/impls/rustorb:/opt/interop/impls/rustorb:ro" "$image" \
+    -v "$PWD/out:/out" -v "$PWD/impls/rustorb:/opt/interop/impls/rustorb:ro" \
+    -v "$PWD/impls/rustorbcpp:/opt/interop/impls/rustorbcpp:ro" \
+    -v "$PWD/impls/rustorbjava:/opt/interop/impls/rustorbjava:ro" "$image" \
     "$cmd" --host server --port 2820 --ior-file "/out/${dir#out/}/control.ior" >/dev/null
   for _ in $(seq 100); do
     [ -f "$dir/control.ior" ] && return 0
@@ -66,11 +80,14 @@ probe() {
 }
 
 for server in "${servers[@]}"; do
-  if [ "$server" = rustorb ]; then
-    cargo build --release --locked -p rustorb-interop --manifest-path ../Cargo.toml
-    mkdir -p impls/rustorb/bin
-    cp ../target/release/rustorb-poa-probe-server impls/rustorb/bin/
-  fi
+  case "$server" in
+    rustorb)
+      cargo build --release --locked -p rustorb-interop --manifest-path ../Cargo.toml
+      mkdir -p impls/rustorb/bin
+      cp ../target/release/rustorb-poa-probe-server impls/rustorb/bin/
+      ;;
+    rustorbcpp | rustorbjava) "impls/$server/build.sh" ;;
+  esac
 done
 
 mkdir -p out
@@ -80,7 +97,7 @@ for server in "${servers[@]}"; do
   cmd=$(server_cmd "$server")
   dir="out/poa-probe-$server"
   actual="out/poa-probe-$server.txt"
-  expected="expected/poa-probe-$server.txt"
+  expected="expected/poa-probe-$(expected_name "$server").txt"
   mkdir -p "$dir"
 
   start_server "$cmd" "$dir"

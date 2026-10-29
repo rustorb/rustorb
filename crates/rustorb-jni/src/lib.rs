@@ -12,7 +12,8 @@
 //!   call static methods of `org.rustorb.Bridge`, which give Java the
 //!   stream as a `long` and keep any Java exception for the caller.
 //! - Servants: each Java servant has a peer (see [`servant`]) whose address
-//!   is the `self` of the C ABI.
+//!   is the `self` of the C ABI. Servant managers and adapter activators
+//!   are held by a counted global reference (see [`manager`]).
 //!
 //! Threads of the ORB's upcall pool attach to the JVM as daemons the first
 //! time they call Java, and detach when they exit.
@@ -22,6 +23,7 @@
 #![allow(clippy::missing_safety_doc, clippy::not_unsafe_ptr_arg_deref)]
 
 mod any;
+mod manager;
 mod object;
 mod orb;
 mod poa;
@@ -65,6 +67,11 @@ struct Cache {
     call_read_exception: JStaticMethodID,
     dispatch: JStaticMethodID,
     is_a: JStaticMethodID,
+    incarnate: JStaticMethodID,
+    etherealize: JStaticMethodID,
+    preinvoke: JStaticMethodID,
+    postinvoke: JStaticMethodID,
+    unknown_adapter: JStaticMethodID,
 }
 
 static VM: OnceLock<JavaVM> = OnceLock::new();
@@ -110,6 +117,27 @@ pub extern "system" fn Java_org_rustorb_Native_init(
             )?,
             dispatch: id(env, "dispatch", "(Ljava/lang/Object;Ljava/lang/String;JJ)I")?,
             is_a: id(env, "isA", "(Ljava/lang/Object;Ljava/lang/String;)Z")?,
+            incarnate: id(env, "incarnate", "(Ljava/lang/Object;[BJJ)J")?,
+            etherealize: id(
+                env,
+                "etherealize",
+                "(Ljava/lang/Object;[BJLjava/lang/Object;ZZ)V",
+            )?,
+            preinvoke: id(
+                env,
+                "preinvoke",
+                "(Ljava/lang/Object;[BJLjava/lang/String;[Ljava/lang/Object;J)J",
+            )?,
+            postinvoke: id(
+                env,
+                "postinvoke",
+                "(Ljava/lang/Object;[BJLjava/lang/String;Ljava/lang/Object;Ljava/lang/Object;)V",
+            )?,
+            unknown_adapter: id(
+                env,
+                "unknownAdapter",
+                "(Ljava/lang/Object;JLjava/lang/String;)Z",
+            )?,
             bridge: env.new_global_ref(&bridge)?,
         };
         let _ = CACHE.set(c);
@@ -285,3 +313,5 @@ pub(crate) fn ptr<T>(h: jlong) -> *mut T {
 
 pub(crate) const BOOLEAN: ReturnType = ReturnType::Primitive(Primitive::Boolean);
 pub(crate) const INT: ReturnType = ReturnType::Primitive(Primitive::Int);
+pub(crate) const LONG: ReturnType = ReturnType::Primitive(Primitive::Long);
+pub(crate) const VOID: ReturnType = ReturnType::Primitive(Primitive::Void);

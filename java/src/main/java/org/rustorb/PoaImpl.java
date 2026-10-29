@@ -186,24 +186,53 @@ final class PoaImpl extends org.omg.CORBA.LocalObject implements POA {
 
     @Override
     public AdapterActivator the_activator() {
-        return null;
+        try {
+            return (AdapterActivator) Native.poaTheActivator(handle());
+        } finally {
+            Reference.reachabilityFence(this);
+        }
     }
 
     @Override
     public void the_activator(AdapterActivator newThe_activator) {
-        throw new NO_IMPLEMENT("AdapterActivator is not supported by the Java binding yet", 0,
-                CompletionStatus.COMPLETED_NO);
+        try {
+            Native.poaSetTheActivator(handle(), newThe_activator);
+        } finally {
+            Reference.reachabilityFence(this);
+        }
     }
 
     @Override
     public ServantManager get_servant_manager() throws WrongPolicy {
-        return null;
+        try {
+            return (ServantManager) Native.poaGetServantManager(handle());
+        } catch (WrongPolicy e) {
+            throw e;
+        } catch (UserException e) {
+            throw Bridge.unexpected(e);
+        } finally {
+            Reference.reachabilityFence(this);
+        }
     }
 
+    /** A ServantActivator for a RETAIN POA, a ServantLocator for a
+     * NON_RETAIN one (otherwise OBJ_ADAPTER); it can be set once. */
     @Override
     public void set_servant_manager(ServantManager imgr) throws WrongPolicy {
-        throw new NO_IMPLEMENT("servant managers are not supported by the Java binding yet", 0,
-                CompletionStatus.COMPLETED_NO);
+        boolean locator = imgr instanceof ServantLocator;
+        if (!locator && !(imgr instanceof ServantActivator)) {
+            throw new org.omg.CORBA.OBJ_ADAPTER("not a ServantActivator or ServantLocator",
+                    0x4f4d0004, CompletionStatus.COMPLETED_NO);
+        }
+        try {
+            Native.poaSetServantManager(handle(), imgr, locator);
+        } catch (WrongPolicy e) {
+            throw e;
+        } catch (UserException e) {
+            throw Bridge.unexpected(e);
+        } finally {
+            Reference.reachabilityFence(this);
+        }
     }
 
     @Override

@@ -14,6 +14,8 @@
 //! - [`servant`]: servants implemented by the caller through a table of
 //!   callbacks, and the replies they write.
 //! - [`poa`]: the POA, its manager and `PortableServer::Current`.
+//! - [`manager`]: servant managers and adapter activators implemented by
+//!   the caller through tables of callbacks.
 //! - [`any`]: TypeCodes, and anys whose values the caller puts in and
 //!   takes out through the same streams.
 
@@ -22,6 +24,7 @@
 #![allow(clippy::missing_safety_doc)]
 
 pub mod any;
+pub mod manager;
 pub mod object;
 pub mod orb;
 pub mod poa;

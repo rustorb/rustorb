@@ -9,7 +9,12 @@ import org.omg.CORBA.CompletionStatus;
 import org.omg.CORBA.SystemException;
 import org.omg.CORBA.UNKNOWN;
 import org.omg.CORBA.portable.InvokeHandler;
+import org.omg.PortableServer.AdapterActivator;
+import org.omg.PortableServer.ForwardRequest;
 import org.omg.PortableServer.Servant;
+import org.omg.PortableServer.ServantActivator;
+import org.omg.PortableServer.ServantLocator;
+import org.omg.PortableServer.ServantLocatorPackage.CookieHolder;
 
 final class Bridge {
     private Bridge() {}
@@ -189,5 +194,117 @@ final class Bridge {
             return false;
         }
         return false;
+    }
+
+    // --- servant managers and adapter activators -------------------------------
+
+    /** A POA handle passed to a callback, which keeps it only during the
+     * call. */
+    private static PoaImpl borrowedPoa(long poa) {
+        return PoaImpl.of(Native.poaClone(poa));
+    }
+
+    /** The servant a servant manager returned, as a new rorb_servant handle
+     * the core takes over; 0 after reporting an error. */
+    private static long provide(Servant servant, long error) {
+        if (servant == null) {
+            Native.managerErrorSystem(error, "IDL:omg.org/CORBA/OBJ_ADAPTER:1.0", 0,
+                    CompletionStatus._COMPLETED_NO);
+            return 0;
+        }
+        return ServantDelegateImpl.rorbServant(servant);
+    }
+
+    /** Reports what incarnate or preinvoke threw; returns 0. */
+    private static long managerError(Throwable t, long error) {
+        if (t instanceof ForwardRequest) {
+            org.omg.CORBA.Object target = ((ForwardRequest) t).forward_reference;
+            try {
+                if (target == null) {
+                    throw new org.omg.CORBA.BAD_PARAM("nil forward_reference", 0,
+                            CompletionStatus.COMPLETED_NO);
+                }
+                ObjectDelegateImpl d = ObjectDelegateImpl.of(target);
+                try {
+                    Native.managerErrorForward(error, d.handle());
+                } finally {
+                    java.lang.ref.Reference.reachabilityFence(d);
+                }
+                return 0;
+            } catch (Throwable u) {
+                t = u;
+            }
+        }
+        if (t instanceof SystemException) {
+            SystemException e = (SystemException) t;
+            int completed = e.completed == null ? CompletionStatus._COMPLETED_MAYBE
+                    : e.completed.value();
+            Native.managerErrorSystem(error, SystemExceptions.id(e), e.minor, completed);
+        } else {
+            Native.managerErrorSystem(error, "IDL:omg.org/CORBA/UNKNOWN:1.0", 0,
+                    CompletionStatus._COMPLETED_MAYBE);
+        }
+        return 0;
+    }
+
+    private static void report(String what, Throwable t) {
+        System.err.println("rustorb: exception in " + what + ": " + t);
+    }
+
+    static long incarnate(Object activator, byte[] oid, long poa, long error) {
+        try {
+            return provide(((ServantActivator) activator).incarnate(oid, borrowedPoa(poa)), error);
+        } catch (Throwable t) {
+            if (!(t instanceof ForwardRequest) && !(t instanceof SystemException)) {
+                report("incarnate", t);
+            }
+            return managerError(t, error);
+        }
+    }
+
+    static void etherealize(Object activator, byte[] oid, long poa, Object servant,
+            boolean cleanupInProgress, boolean remainingActivations) {
+        try {
+            ((ServantActivator) activator).etherealize(oid, borrowedPoa(poa), (Servant) servant,
+                    cleanupInProgress, remainingActivations);
+        } catch (Throwable t) {
+            report("etherealize", t);
+        }
+    }
+
+    static long preinvoke(Object locator, byte[] oid, long poa, String operation,
+            Object[] cookie, long error) {
+        try {
+            CookieHolder holder = new CookieHolder();
+            Servant servant = ((ServantLocator) locator).preinvoke(oid, borrowedPoa(poa),
+                    operation, holder);
+            long h = provide(servant, error);
+            cookie[0] = holder.value;
+            return h;
+        } catch (Throwable t) {
+            if (!(t instanceof ForwardRequest) && !(t instanceof SystemException)) {
+                report("preinvoke", t);
+            }
+            return managerError(t, error);
+        }
+    }
+
+    static void postinvoke(Object locator, byte[] oid, long poa, String operation,
+            Object cookie, Object servant) {
+        try {
+            ((ServantLocator) locator).postinvoke(oid, borrowedPoa(poa), operation, cookie,
+                    (Servant) servant);
+        } catch (Throwable t) {
+            report("postinvoke", t);
+        }
+    }
+
+    static boolean unknownAdapter(Object activator, long parent, String name) {
+        try {
+            return ((AdapterActivator) activator).unknown_adapter(borrowedPoa(parent), name);
+        } catch (Throwable t) {
+            report("unknown_adapter", t);
+            return false;
+        }
     }
 }
