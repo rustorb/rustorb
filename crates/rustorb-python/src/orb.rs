@@ -12,7 +12,7 @@ use rustorb_core::cdr::{ByteOrder, CdrVersion, Decoder, Encoder};
 use rustorb_core::giop::code_set;
 use rustorb_core::{
     CodeSets, CompletionStatus, Exception, InStream, ObjectRef, Orb as CoreOrb, OutStream,
-    ResolveError, SystemException, SystemExceptionKind, minor,
+    PolicyValue, ResolveError, SetOverrideType, SystemException, SystemExceptionKind, minor,
 };
 
 use crate::error::{marshal, marshal_err, sys_err};
@@ -85,6 +85,74 @@ impl Orb {
 
     fn list_initial_services(&self) -> Vec<String> {
         self.orb.list_initial_services()
+    }
+
+    /// `register_initial_reference` of a reference (None for nil).
+    /// Raises `LookupError` for a name that is empty or taken.
+    fn register_initial_reference(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        obj: Option<PyRef<'_, ObjRef>>,
+    ) -> PyResult<()> {
+        resolve_err(
+            py,
+            self.orb
+                .register_initial_reference(name, obj.as_ref().map(|o| &o.obj)),
+        )
+    }
+
+    /// `register_initial_reference` of a Python object that has no
+    /// reference (a local object). The ORB keeps it until it is destroyed.
+    fn register_local_initial_reference(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        obj: Py<PyAny>,
+    ) -> PyResult<()> {
+        resolve_err(
+            py,
+            self.orb
+                .register_local_initial_reference(name, std::sync::Arc::new(obj)),
+        )
+    }
+
+    /// The object of `register_local_initial_reference`, or None.
+    fn resolve_local_initial_reference(&self, py: Python<'_>, name: &str) -> Option<Py<PyAny>> {
+        let obj = self.orb.resolve_local_initial_reference(name)?;
+        obj.downcast_ref::<Py<PyAny>>().map(|o| o.clone_ref(py))
+    }
+
+    /// `create_policy` with the value in a `CORBA.Any`: returns
+    /// `(value, None)` (see `PolicyValue::raw_value`) or `(None, reason)`
+    /// for a `PolicyError`.
+    fn create_policy(
+        &self,
+        policy_type: u32,
+        value: &Bound<'_, PyAny>,
+    ) -> PyResult<(Option<u64>, Option<i16>)> {
+        let any = crate::any::any_from_py(value)?;
+        Ok(match self.orb.create_policy(policy_type, &any) {
+            Ok(p) => (Some(p.raw_value()), None),
+            Err(e) => (None, Some(e.reason)),
+        })
+    }
+
+    /// The ORB's `PolicyManager`: policies are `(type, value)` pairs.
+    fn set_policy_overrides(
+        &self,
+        py: Python<'_>,
+        policies: Vec<(u32, u64)>,
+        add: bool,
+    ) -> PyResult<()> {
+        let (list, set_add) = policy_list(py, policies, add)?;
+        self.orb
+            .set_policy_overrides(&list, set_add)
+            .map_err(|e| sys_err(py, &e))
+    }
+
+    fn policy_overrides(&self, types: Vec<u32>) -> Vec<(u32, u64)> {
+        raw_policies(self.orb.policy_overrides(&types))
     }
 
     fn root_poa(&self, py: Python<'_>) -> PyResult<Poa> {
@@ -334,6 +402,95 @@ impl ObjRef {
 
     fn call_timeout(&self) -> Option<f64> {
         seconds_of_setting(self.obj.call_timeout())
+    }
+
+    /// `_set_policy_overrides`: a new reference.
+    fn set_policy_overrides(
+        &self,
+        py: Python<'_>,
+        policies: Vec<(u32, u64)>,
+        add: bool,
+    ) -> PyResult<ObjRef> {
+        let (list, set_add) = policy_list(py, policies, add)?;
+        self.obj
+            .set_policy_overrides(&list, set_add)
+            .map(|obj| ObjRef { obj })
+            .map_err(|e| sys_err(py, &e))
+    }
+
+    fn policy_overrides(&self, types: Vec<u32>) -> Vec<(u32, u64)> {
+        raw_policies(self.obj.policy_overrides(&types))
+    }
+
+    /// `_get_client_policy`: the value, or None.
+    fn client_policy(&self, policy_type: u32) -> Option<u64> {
+        self.obj.client_policy(policy_type).map(|p| p.raw_value())
+    }
+
+    fn validate_connection(&self, py: Python<'_>) -> PyResult<bool> {
+        py.detach(|| self.obj.validate_connection())
+            .map_err(|e| exc_err(py, e))
+    }
+}
+
+/// The `PolicyCurrent` of the calling thread.
+#[pyfunction]
+pub(crate) fn set_thread_policy_overrides(
+    py: Python<'_>,
+    policies: Vec<(u32, u64)>,
+    add: bool,
+) -> PyResult<()> {
+    let (list, set_add) = policy_list(py, policies, add)?;
+    rustorb_core::policy::set_thread_policy_overrides(&list, set_add).map_err(|e| sys_err(py, &e))
+}
+
+#[pyfunction]
+pub(crate) fn thread_policy_overrides(types: Vec<u32>) -> Vec<(u32, u64)> {
+    raw_policies(rustorb_core::policy::thread_policy_overrides(&types))
+}
+
+/// `(type, value)` pairs as policies; `NO_PERMISSION` for one rustorb
+/// does not know (it cannot be an override).
+fn policy_list(
+    py: Python<'_>,
+    policies: Vec<(u32, u64)>,
+    add: bool,
+) -> PyResult<(Vec<PolicyValue>, SetOverrideType)> {
+    let list = policies
+        .into_iter()
+        .map(|(t, v)| {
+            PolicyValue::from_raw(t, v).ok_or_else(|| {
+                sys_err(
+                    py,
+                    &SystemException::new(
+                        SystemExceptionKind::NO_PERMISSION,
+                        0,
+                        CompletionStatus::No,
+                    ),
+                )
+            })
+        })
+        .collect::<PyResult<_>>()?;
+    let set_add = if add {
+        SetOverrideType::Add
+    } else {
+        SetOverrideType::Set
+    };
+    Ok((list, set_add))
+}
+
+fn raw_policies(policies: Vec<PolicyValue>) -> Vec<(u32, u64)> {
+    policies
+        .into_iter()
+        .map(|p| (p.policy_type(), p.raw_value()))
+        .collect()
+}
+
+fn resolve_err(py: Python<'_>, r: Result<(), ResolveError>) -> PyResult<()> {
+    match r {
+        Ok(()) => Ok(()),
+        Err(ResolveError::InvalidName(name)) => Err(PyLookupError::new_err(name)),
+        Err(ResolveError::System(e)) => Err(sys_err(py, &e)),
     }
 }
 

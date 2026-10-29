@@ -25,6 +25,28 @@ public abstract class Delegate {
         throw new org.omg.CORBA.NO_IMPLEMENT();
     }
 
+    public org.omg.CORBA.Policy get_policy(org.omg.CORBA.Object self, int policy_type) {
+        throw new org.omg.CORBA.NO_IMPLEMENT();
+    }
+
+    public org.omg.CORBA.Object set_policy_override(org.omg.CORBA.Object self,
+            org.omg.CORBA.Policy[] policies, org.omg.CORBA.SetOverrideType set_add) {
+        throw new org.omg.CORBA.NO_IMPLEMENT();
+    }
+
+    public org.omg.CORBA.Policy get_client_policy(org.omg.CORBA.Object self, int type) {
+        throw new org.omg.CORBA.NO_IMPLEMENT();
+    }
+
+    public org.omg.CORBA.Policy[] get_policy_overrides(org.omg.CORBA.Object self, int[] types) {
+        throw new org.omg.CORBA.NO_IMPLEMENT();
+    }
+
+    public boolean validate_connection(org.omg.CORBA.Object self,
+            org.omg.CORBA.PolicyListHolder inconsistent_policies) {
+        throw new org.omg.CORBA.NO_IMPLEMENT();
+    }
+
     public org.omg.CORBA.ORB orb(org.omg.CORBA.Object self) {
         throw new org.omg.CORBA.NO_IMPLEMENT();
     }

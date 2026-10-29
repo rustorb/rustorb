@@ -100,6 +100,9 @@ jobs:
       - name: Probe the client call timeouts of omniORBpy and rustorbpy
         run: interop/run-timeout-probe.sh
 
+      - name: Probe the remaining ORB operations of omniORBpy and rustorbpy
+        run: interop/run-orb-ops-probe.sh
+
       - name: Compare the generated Python code with omniidl -bpython
         run: interop/run-pymapping-check.sh
 

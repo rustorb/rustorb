@@ -27,6 +27,7 @@ mod manager;
 mod object;
 mod orb;
 mod poa;
+mod policy;
 mod servant;
 mod stream;
 mod sys;

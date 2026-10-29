@@ -554,6 +554,11 @@ inline std::vector<uint8_t> take_bytes(rorb_bytes b) {
 
 namespace CORBA {
 
+using PolicyType = uint32_t;
+using PolicyTypeSeq = std::vector<PolicyType>;
+using PolicyList = std::vector<object_reference<Policy>>;
+enum class SetOverrideType : uint32_t { SET_OVERRIDE, ADD_OVERRIDE };
+
 // An object: the base of the stubs (generated interface classes), which
 // hold a handle of the core, and of local objects, which do not.
 class Object {
@@ -573,6 +578,19 @@ class Object {
   virtual bool _is_equivalent(const object_reference<Object>& other);
   virtual uint32_t _hash(uint32_t maximum);
   virtual object_reference<ORB> _get_orb();
+  // Policies of the reference (rustorb's client side policy is
+  // Messaging::RelativeRoundtripTimeoutPolicy). get_policy and
+  // get_client_policy give the policy of the reference, else the calling
+  // thread's, else the ORB's, or nil; set_policy_overrides returns a new
+  // reference. Local objects raise NO_IMPLEMENT.
+  virtual object_reference<Policy> _get_policy(PolicyType policy_type);
+  virtual object_reference<Policy> _get_client_policy(PolicyType policy_type);
+  virtual object_reference<Object> _set_policy_overrides(const PolicyList& policies,
+                                                         SetOverrideType set_add);
+  virtual PolicyList _get_policy_overrides(const PolicyTypeSeq& types);
+  // Binds the reference with a LocateRequest: true, or the system
+  // exception of the failure.
+  virtual bool _validate_connection(PolicyList& inconsistent_policies);
   // The repository id in the IOR (may be empty).
   std::string _rorb_type_id() const;
 
@@ -599,8 +617,6 @@ class LocalObject : public virtual Object {
   LocalObject() = default;
 };
 
-using PolicyType = uint32_t;
-
 class Policy : public virtual LocalObject {
  public:
   virtual PolicyType policy_type() const = 0;
@@ -608,7 +624,49 @@ class Policy : public virtual LocalObject {
   virtual void destroy() {}
 };
 
-using PolicyList = std::vector<object_reference<Policy>>;
+using PolicyErrorCode = int16_t;
+constexpr PolicyErrorCode BAD_POLICY = 0;
+constexpr PolicyErrorCode UNSUPPORTED_POLICY = 1;
+constexpr PolicyErrorCode BAD_POLICY_TYPE = 2;
+constexpr PolicyErrorCode BAD_POLICY_VALUE = 3;
+constexpr PolicyErrorCode UNSUPPORTED_POLICY_VALUE = 4;
+
+class PolicyError : public UserException {
+ public:
+  PolicyError() = default;
+  explicit PolicyError(PolicyErrorCode reason) : reason_(reason) {}
+  PolicyErrorCode reason() const { return reason_; }
+  void reason(PolicyErrorCode r) { reason_ = r; }
+  RUSTORB_LOCAL_EXCEPTION_BODY(PolicyError, "IDL:omg.org/CORBA/PolicyError:1.0")
+ private:
+  PolicyErrorCode reason_ = 0;
+};
+
+// The policy overrides of a scope: the ORB's (initial reference
+// "ORBPolicyManager") or the calling thread's ("PolicyCurrent").
+// set_policy_overrides raises NO_PERMISSION for a policy that is not a
+// client side override, and BAD_PARAM for two of one type.
+class PolicyManager : public virtual LocalObject {
+ public:
+  virtual PolicyList get_policy_overrides(const PolicyTypeSeq& ts) = 0;
+  virtual void set_policy_overrides(const PolicyList& policies, SetOverrideType set_add) = 0;
+};
+
+class Current : public virtual LocalObject {};
+
+class PolicyCurrent : public virtual PolicyManager, public virtual Current {};
+
+using ServiceType = uint16_t;
+using ServiceOption = uint32_t;
+using ServiceDetailType = uint32_t;
+struct ServiceDetail {
+  ServiceDetailType service_detail_type = 0;
+  std::vector<uint8_t> service_detail;
+};
+struct ServiceInformation {
+  std::vector<ServiceOption> service_options;
+  std::vector<ServiceDetail> service_details;
+};
 
 // CORBA::make_reference<T>(args...): a servant (T derived from
 // PortableServer::ServantBase) or a local object.
@@ -987,6 +1045,16 @@ template <typename T> class DefaultValueFactory : public CORBA::ValueFactoryBase
 }  // namespace detail
 }  // namespace rustorb
 
+namespace rustorb {
+namespace detail {
+// The names resolve_initial_references answers without the core.
+inline constexpr const char* local_initial_references[] = {"RootPOA", "POACurrent",
+                                                           "ORBPolicyManager", "PolicyCurrent"};
+CORBA::object_reference<CORBA::Object> orb_policy_manager(rorb_orb* orb);
+CORBA::object_reference<CORBA::Object> policy_current();
+}  // namespace detail
+}  // namespace rustorb
+
 // ---------------------------------------------------------------------------
 // CORBA::ORB
 
@@ -994,7 +1062,7 @@ namespace CORBA {
 
 class ORB : public LocalObject {
  public:
-  ORB(rustorb::detail::adopt_t, rorb_orb* handle) noexcept : handle_(handle) {}
+  ORB(rustorb::detail::adopt_t, rorb_orb* handle) noexcept : handle_(handle), id_("rustorb") {}
   ~ORB() override { rorb_orb_release(handle_); }
 
   class InvalidName : public UserException {
@@ -1002,8 +1070,28 @@ class ORB : public LocalObject {
     RUSTORB_LOCAL_EXCEPTION_BODY(InvalidName, "IDL:omg.org/CORBA/ORB/InvalidName:1.0")
   };
 
+  ORB(rustorb::detail::adopt_t, rorb_orb* handle, std::string id) noexcept
+      : handle_(handle), id_(std::move(id)) {}
+
+  std::string id() const { return id_; }
   object_reference<Object> resolve_initial_references(const std::string& identifier);
   std::vector<std::string> list_initial_services();
+  // InvalidName for an empty name or one that is already an initial
+  // reference; BAD_PARAM (minor 27) for nil.
+  void register_initial_reference(const std::string& identifier,
+                                  const object_reference<Object>& obj);
+  // A POA policy from its enumerator, or a
+  // Messaging::RelativeRoundtripTimeoutPolicy from a TimeBase::TimeT
+  // (uint64_t, in 100 ns). PolicyError: BAD_POLICY for a type rustorb does
+  // not know, BAD_POLICY_TYPE for an any of the wrong type,
+  // BAD_POLICY_VALUE for an enumerator out of range.
+  object_reference<Policy> create_policy(PolicyType type, const Any& val);
+  // rustorb offers no services (such as security): always false.
+  bool get_service_information(ServiceType service_type, ServiceInformation& service_information) {
+    (void)service_type;
+    service_information = ServiceInformation();
+    return false;
+  }
   object_reference<Object> string_to_object(const std::string& str);
   std::string object_to_string(const object_reference<Object>& obj);
   void run();
@@ -1058,15 +1146,16 @@ class ORB : public LocalObject {
 
  private:
   rorb_orb* handle_;
+  std::string id_;
 };
 
 // Initialises an ORB, removing the ORB options (-ORB...) from argv.
 inline object_reference<ORB> ORB_init(int& argc, char* argv[], const std::string& orb_id = "") {
-  (void)orb_id;
   rorb_orb* handle = nullptr;
   rustorb::detail::Exc exc;
   rustorb::detail::check(rorb_orb_init(&argc, argv, &handle, &exc), exc);
-  return object_reference<ORB>(std::make_shared<ORB>(rustorb::detail::adopt, handle));
+  return object_reference<ORB>(std::make_shared<ORB>(rustorb::detail::adopt, handle,
+                                                     orb_id.empty() ? "rustorb" : orb_id));
 }
 
 }  // namespace CORBA
@@ -1487,6 +1576,8 @@ inline void check(rorb_status status, rorb_exception& exc) {
         case RORB_INVALID_NAME: throw CORBA::ORB::InvalidName();
         case RORB_TC_BAD_KIND: throw CORBA::TypeCode::BadKind();
         case RORB_TC_BOUNDS: throw CORBA::TypeCode::Bounds();
+        case RORB_POLICY_ERROR:
+          throw CORBA::PolicyError(static_cast<CORBA::PolicyErrorCode>(index));
         default: throw CORBA::INTERNAL(0, CORBA::CompletionStatus::COMPLETED_MAYBE);
       }
     }
@@ -1622,6 +1713,16 @@ inline object_reference<Object> ORB::resolve_initial_references(const std::strin
   if (identifier == "POACurrent") {
     return object_reference<Object>(std::make_shared<PortableServer::Current>());
   }
+  if (identifier == "ORBPolicyManager") return rustorb::detail::orb_policy_manager(handle_);
+  if (identifier == "PolicyCurrent") return rustorb::detail::policy_current();
+  object_reference<Object> local;
+  if (rorb_orb_resolve_local_initial_reference(
+          handle_, identifier.data(), identifier.size(), &local, [](void* ctx, void* p) {
+            *static_cast<object_reference<Object>*>(ctx) =
+                *static_cast<object_reference<Object>*>(p);
+          })) {
+    return local;
+  }
   rorb_object* obj = nullptr;
   rustorb::detail::check(rorb_orb_resolve_initial_references(handle_, identifier.data(),
                                                              identifier.size(), &obj, &exc),
@@ -1634,12 +1735,33 @@ inline std::vector<std::string> ORB::list_initial_services() {
   rorb_orb_list_initial_services(handle_, &names, [](void* ctx, const char* name, size_t len) {
     static_cast<std::vector<std::string>*>(ctx)->emplace_back(name, len);
   });
-  for (const char* local : {"RootPOA", "POACurrent"}) {
+  for (const char* local : rustorb::detail::local_initial_references) {
     bool found = false;
     for (auto& n : names) found = found || n == local;
     if (!found) names.emplace_back(local);
   }
   return names;
+}
+
+inline void ORB::register_initial_reference(const std::string& identifier,
+                                            const object_reference<Object>& obj) {
+  for (const char* local : rustorb::detail::local_initial_references) {
+    if (identifier == local) throw InvalidName();
+  }
+  rustorb::detail::Exc exc;
+  if (obj && !obj->_rorb_handle()) {
+    // A local object: the core keeps a copy of the reference.
+    rustorb::detail::check(
+        rorb_orb_register_local_initial_reference(
+            handle_, identifier.data(), identifier.size(), new object_reference<Object>(obj),
+            [](void* p) { delete static_cast<object_reference<Object>*>(p); }, &exc),
+        exc);
+    return;
+  }
+  rustorb::detail::check(
+      rorb_orb_register_initial_reference(handle_, identifier.data(), identifier.size(),
+                                          rustorb::detail::handle_of(obj), &exc),
+      exc);
 }
 
 inline object_reference<Object> ORB::string_to_object(const std::string& str) {
@@ -1751,6 +1873,218 @@ inline void setClientConnectTimeout(uint32_t millisecs) {
 }
 
 }  // namespace rustorb
+
+// --- policies ---------------------------------------------------------------
+
+namespace TimeBase {
+// 100 ns units.
+using TimeT = uint64_t;
+}  // namespace TimeBase
+
+namespace Messaging {
+
+constexpr CORBA::PolicyType RELATIVE_RT_TIMEOUT_POLICY_TYPE = 32;
+
+// How long a call may take: ORB::create_policy with a TimeBase::TimeT,
+// then Object::_set_policy_overrides, the ORB's PolicyManager or the
+// PolicyCurrent. The same timeouts as rustorb::setClientCallTimeout and
+// friends.
+class RelativeRoundtripTimeoutPolicy : public virtual CORBA::Policy {
+ public:
+  explicit RelativeRoundtripTimeoutPolicy(TimeBase::TimeT relative_expiry)
+      : relative_expiry_(relative_expiry) {}
+  TimeBase::TimeT relative_expiry() const { return relative_expiry_; }
+  CORBA::PolicyType policy_type() const override { return RELATIVE_RT_TIMEOUT_POLICY_TYPE; }
+  CORBA::object_reference<CORBA::Policy> copy() override {
+    return CORBA::object_reference<CORBA::Policy>(
+        std::make_shared<RelativeRoundtripTimeoutPolicy>(relative_expiry_));
+  }
+
+ private:
+  TimeBase::TimeT relative_expiry_;
+};
+
+}  // namespace Messaging
+
+namespace rustorb {
+namespace detail {
+
+// A policy object from its type and value (see rustorb.h); nil if unknown.
+inline CORBA::object_reference<CORBA::Policy> make_policy(uint32_t type, uint64_t value) {
+  using namespace PortableServer;
+  auto v = static_cast<uint32_t>(value);
+  std::shared_ptr<CORBA::Policy> p;
+  switch (type) {
+    case THREAD_POLICY_ID: p = std::make_shared<ThreadPolicy>(ThreadPolicyValue(v)); break;
+    case LIFESPAN_POLICY_ID: p = std::make_shared<LifespanPolicy>(LifespanPolicyValue(v)); break;
+    case ID_UNIQUENESS_POLICY_ID:
+      p = std::make_shared<IdUniquenessPolicy>(IdUniquenessPolicyValue(v));
+      break;
+    case ID_ASSIGNMENT_POLICY_ID:
+      p = std::make_shared<IdAssignmentPolicy>(IdAssignmentPolicyValue(v));
+      break;
+    case IMPLICIT_ACTIVATION_POLICY_ID:
+      p = std::make_shared<ImplicitActivationPolicy>(ImplicitActivationPolicyValue(v));
+      break;
+    case SERVANT_RETENTION_POLICY_ID:
+      p = std::make_shared<ServantRetentionPolicy>(ServantRetentionPolicyValue(v));
+      break;
+    case REQUEST_PROCESSING_POLICY_ID:
+      p = std::make_shared<RequestProcessingPolicy>(RequestProcessingPolicyValue(v));
+      break;
+    case Messaging::RELATIVE_RT_TIMEOUT_POLICY_TYPE:
+      p = std::make_shared<Messaging::RelativeRoundtripTimeoutPolicy>(value);
+      break;
+    default: return nullptr;
+  }
+  return CORBA::object_reference<CORBA::Policy>(std::move(p));
+}
+
+// The type and value of the policies of a list: BAD_PARAM for nil,
+// NO_PERMISSION for a policy rustorb does not know (it cannot override).
+struct RawPolicies {
+  std::vector<uint32_t> types;
+  std::vector<uint64_t> values;
+
+  explicit RawPolicies(const CORBA::PolicyList& policies) {
+    using namespace PortableServer;
+    for (const auto& p : policies) {
+      if (!p) throw CORBA::BAD_PARAM(0, CORBA::CompletionStatus::COMPLETED_NO);
+      auto sp = p._rorb_shared();
+      uint64_t value = 0;
+#define RUSTORB_RAW_POLICY(NAME)                              \
+  if (auto q = std::dynamic_pointer_cast<NAME>(sp)) {        \
+    value = static_cast<uint64_t>(q->value());                \
+  } else
+      RUSTORB_RAW_POLICY(ThreadPolicy)
+      RUSTORB_RAW_POLICY(LifespanPolicy)
+      RUSTORB_RAW_POLICY(IdUniquenessPolicy)
+      RUSTORB_RAW_POLICY(IdAssignmentPolicy)
+      RUSTORB_RAW_POLICY(ImplicitActivationPolicy)
+      RUSTORB_RAW_POLICY(ServantRetentionPolicy)
+      RUSTORB_RAW_POLICY(RequestProcessingPolicy)
+#undef RUSTORB_RAW_POLICY
+      if (auto q = std::dynamic_pointer_cast<Messaging::RelativeRoundtripTimeoutPolicy>(sp)) {
+        value = q->relative_expiry();
+      } else {
+        throw CORBA::NO_PERMISSION(0, CORBA::CompletionStatus::COMPLETED_NO);
+      }
+      types.push_back(p->policy_type());
+      values.push_back(value);
+    }
+  }
+};
+
+inline void add_policy(void* ctx, uint32_t type, uint64_t value) {
+  static_cast<CORBA::PolicyList*>(ctx)->push_back(make_policy(type, value));
+}
+
+class OrbPolicyManager : public CORBA::PolicyManager {
+ public:
+  explicit OrbPolicyManager(rorb_orb* orb) : orb_(rorb_orb_clone(orb)) {}
+  ~OrbPolicyManager() override { rorb_orb_release(orb_); }
+  OrbPolicyManager(const OrbPolicyManager&) = delete;
+  OrbPolicyManager& operator=(const OrbPolicyManager&) = delete;
+
+  CORBA::PolicyList get_policy_overrides(const CORBA::PolicyTypeSeq& ts) override {
+    CORBA::PolicyList list;
+    rorb_orb_get_policy_overrides(orb_, ts.data(), ts.size(), &list, add_policy);
+    return list;
+  }
+  void set_policy_overrides(const CORBA::PolicyList& policies,
+                            CORBA::SetOverrideType set_add) override {
+    RawPolicies raw(policies);
+    Exc exc;
+    check(rorb_orb_set_policy_overrides(orb_, raw.types.data(), raw.values.data(),
+                                        raw.types.size(), static_cast<uint32_t>(set_add), &exc),
+          exc);
+  }
+
+ private:
+  rorb_orb* orb_;
+};
+
+class PolicyCurrentImpl : public CORBA::PolicyCurrent {
+ public:
+  CORBA::PolicyList get_policy_overrides(const CORBA::PolicyTypeSeq& ts) override {
+    CORBA::PolicyList list;
+    rorb_thread_policy_overrides(ts.data(), ts.size(), &list, add_policy);
+    return list;
+  }
+  void set_policy_overrides(const CORBA::PolicyList& policies,
+                            CORBA::SetOverrideType set_add) override {
+    RawPolicies raw(policies);
+    Exc exc;
+    check(rorb_set_thread_policy_overrides(raw.types.data(), raw.values.data(), raw.types.size(),
+                                           static_cast<uint32_t>(set_add), &exc),
+          exc);
+  }
+};
+
+inline CORBA::object_reference<CORBA::Object> orb_policy_manager(rorb_orb* orb) {
+  return CORBA::object_reference<CORBA::Object>(std::make_shared<OrbPolicyManager>(orb));
+}
+
+inline CORBA::object_reference<CORBA::Object> policy_current() {
+  return CORBA::object_reference<CORBA::Object>(std::make_shared<PolicyCurrentImpl>());
+}
+
+}  // namespace detail
+}  // namespace rustorb
+
+namespace CORBA {
+
+inline object_reference<Policy> ORB::create_policy(PolicyType type, const Any& val) {
+  uint64_t value = 0;
+  rustorb::detail::Exc exc;
+  rustorb::detail::check(
+      rorb_orb_create_policy(handle_, type, val._rorb_handle(), &value, &exc), exc);
+  return rustorb::detail::make_policy(type, value);
+}
+
+inline object_reference<Policy> Object::_get_client_policy(PolicyType policy_type) {
+  if (!handle_) throw NO_IMPLEMENT(0, CompletionStatus::COMPLETED_NO);
+  uint64_t value = 0;
+  if (!rorb_object_get_client_policy(handle_, policy_type, &value)) return nullptr;
+  return rustorb::detail::make_policy(policy_type, value);
+}
+
+inline object_reference<Policy> Object::_get_policy(PolicyType policy_type) {
+  return _get_client_policy(policy_type);
+}
+
+inline object_reference<Object> Object::_set_policy_overrides(const PolicyList& policies,
+                                                              SetOverrideType set_add) {
+  if (!handle_) throw NO_IMPLEMENT(0, CompletionStatus::COMPLETED_NO);
+  rustorb::detail::RawPolicies raw(policies);
+  rorb_object* result = nullptr;
+  rustorb::detail::Exc exc;
+  rustorb::detail::check(
+      rorb_object_set_policy_overrides(handle_, raw.types.data(), raw.values.data(),
+                                       raw.types.size(), static_cast<uint32_t>(set_add),
+                                       &result, &exc),
+      exc);
+  return rustorb::detail::object(result);
+}
+
+inline PolicyList Object::_get_policy_overrides(const PolicyTypeSeq& types) {
+  if (!handle_) throw NO_IMPLEMENT(0, CompletionStatus::COMPLETED_NO);
+  PolicyList list;
+  rorb_object_get_policy_overrides(handle_, types.data(), types.size(), &list,
+                                   rustorb::detail::add_policy);
+  return list;
+}
+
+inline bool Object::_validate_connection(PolicyList& inconsistent_policies) {
+  if (!handle_) throw NO_IMPLEMENT(0, CompletionStatus::COMPLETED_NO);
+  inconsistent_policies.clear();
+  int32_t result = 0;
+  rustorb::detail::Exc exc;
+  rustorb::detail::check(rorb_object_validate_connection(handle_, &result, &exc), exc);
+  return result != 0;
+}
+
+}  // namespace CORBA
 
 // --- TypeCodes and anys ------------------------------------------------------
 

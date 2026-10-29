@@ -65,6 +65,15 @@ impl ObjectRef {
         }
     }
 
+    /// A reference to the same object (sharing its forward) whose call
+    /// timeout is its own, starting from this one's.
+    pub(crate) fn with_own_settings(&self) -> ObjectRef {
+        ObjectRef {
+            call_timeout: Arc::new(AtomicU64::new(self.call_timeout.load(Ordering::Relaxed))),
+            ..self.clone()
+        }
+    }
+
     /// The IOR the reference was created from.
     pub fn ior(&self) -> &Ior {
         &self.ior
@@ -158,6 +167,24 @@ impl ObjectRef {
         match outcome {
             Outcome::Located(here) => Ok(here),
             Outcome::Reply(_) => unreachable!("a locate request gives a locate outcome"),
+        }
+    }
+
+    /// `CORBA::Object::validate_connection`: binds the reference with a
+    /// `LocateRequest` (following forwards) and returns true. rustorb has
+    /// no policy that can forbid a call, so it never returns false. The
+    /// failure to bind raises its exception (`TRANSIENT`, `TIMEOUT`...),
+    /// and an object the server does not have `OBJECT_NOT_EXIST`.
+    pub fn validate_connection(&self) -> Result<bool, Exception> {
+        if self.locate()? {
+            Ok(true)
+        } else {
+            Err(SystemException::new(
+                SystemExceptionKind::OBJECT_NOT_EXIST,
+                minor::NO_SUCH_OBJECT,
+                CompletionStatus::No,
+            )
+            .into())
         }
     }
 

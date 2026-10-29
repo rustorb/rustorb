@@ -7,12 +7,13 @@ use std::time::Duration;
 /// A stored timeout that is not set, so the next default applies.
 pub(crate) const UNSET: u64 = u64::MAX;
 
-/// Stores a timeout in an atomic: 0 for no limit, else microseconds (at
-/// least 1).
+/// Stores a timeout in an atomic: 0 for no limit, else units of 100
+/// nanoseconds (at least 1), the unit of `TimeBase::TimeT`, so that a
+/// `RelativeRoundtripTimeoutPolicy` reads back the value it was set to.
 pub(crate) fn encode(timeout: Option<Duration>) -> u64 {
     match timeout {
         None => 0,
-        Some(t) => u64::try_from(t.as_micros())
+        Some(t) => u64::try_from(t.as_nanos() / 100)
             .unwrap_or(UNSET - 1)
             .clamp(1, UNSET - 1),
     }
@@ -20,7 +21,17 @@ pub(crate) fn encode(timeout: Option<Duration>) -> u64 {
 
 /// The timeout `encode` stored (not [`UNSET`]).
 pub(crate) fn decode(v: u64) -> Option<Duration> {
-    (v != 0).then(|| Duration::from_micros(v))
+    (v != 0).then(|| time_t_to_duration(v))
+}
+
+/// A `TimeBase::TimeT` (units of 100 nanoseconds) as a duration.
+pub(crate) fn time_t_to_duration(t: u64) -> Duration {
+    Duration::new(t / 10_000_000, (t % 10_000_000) as u32 * 100)
+}
+
+/// A duration as a `TimeBase::TimeT`, rounded down (saturating).
+pub(crate) fn duration_to_time_t(d: Duration) -> u64 {
+    u64::try_from(d.as_nanos() / 100).unwrap_or(u64::MAX)
 }
 
 thread_local! {

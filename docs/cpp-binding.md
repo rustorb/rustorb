@@ -127,6 +127,5 @@ C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP �
 ## 残り
 
 - `custom` の valuetype、`supports`、valuetype の操作と初期化子、abstract interface（#42、#43）、DynAny、`IDL::Fixed` の四則演算
-- `ORB::create_policy` などの残りの ORB 操作（呼び出しのタイムアウトは `rustorb::setClientCallTimeout` など、[timeouts.md](timeouts.md)）
 - IDL4-CPP の構文（アノテーションなど）
 - `run-wire-probe.sh` への C++ の rustorb の追加

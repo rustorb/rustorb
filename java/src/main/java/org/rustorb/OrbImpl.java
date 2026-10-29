@@ -87,7 +87,7 @@ public final class OrbImpl extends org.omg.CORBA_2_3.ORB {
         try {
             String[] names = Native.orbListInitialServices(handle());
             List<String> all = new ArrayList<>(java.util.Arrays.asList(names));
-            for (String local : new String[] {"RootPOA", "POACurrent"}) {
+            for (String local : LOCAL_SERVICES) {
                 if (!all.contains(local)) {
                     all.add(local);
                 }
@@ -95,6 +95,51 @@ public final class OrbImpl extends org.omg.CORBA_2_3.ORB {
             return all.toArray(new String[0]);
         } finally {
             Reference.reachabilityFence(this);
+        }
+    }
+
+    /** The names resolve_initial_references answers without the core. */
+    private static final String[] LOCAL_SERVICES = {
+        "RootPOA", "POACurrent", "ORBPolicyManager", "PolicyCurrent"
+    };
+
+    @Override
+    public void register_initial_reference(String id, org.omg.CORBA.Object obj)
+            throws InvalidName {
+        for (String local : LOCAL_SERVICES) {
+            if (local.equals(id)) {
+                throw new InvalidName();
+            }
+        }
+        try {
+            if (obj instanceof org.omg.CORBA.LocalObject) {
+                Native.orbRegisterLocalInitialReference(handle(), id, obj);
+                return;
+            }
+            ObjectDelegateImpl d = obj == null ? null : ObjectDelegateImpl.of(obj);
+            try {
+                Native.orbRegisterInitialReference(handle(), id, d == null ? 0 : d.handle());
+            } finally {
+                Reference.reachabilityFence(d);
+            }
+        } finally {
+            Reference.reachabilityFence(this);
+        }
+    }
+
+    @Override
+    public org.omg.CORBA.Policy create_policy(int type, org.omg.CORBA.Any val)
+            throws org.omg.CORBA.PolicyError {
+        if (!(val instanceof AnyImpl)) {
+            throw new org.omg.CORBA.BAD_PARAM("not an any of rustorb", 0,
+                    CompletionStatus.COMPLETED_NO);
+        }
+        AnyImpl any = (AnyImpl) val;
+        try {
+            return Policies.make(type, Native.orbCreatePolicy(handle(), type, any.handle()));
+        } finally {
+            Reference.reachabilityFence(this);
+            Reference.reachabilityFence(any);
         }
     }
 
@@ -110,6 +155,20 @@ public final class OrbImpl extends org.omg.CORBA_2_3.ORB {
         }
         if ("POACurrent".equals(object_name)) {
             return PoaCurrentImpl.INSTANCE;
+        }
+        if ("ORBPolicyManager".equals(object_name)) {
+            return new PolicyManagerImpl.OfOrb(this);
+        }
+        if ("PolicyCurrent".equals(object_name)) {
+            return PolicyManagerImpl.Current.INSTANCE;
+        }
+        try {
+            Object local = Native.orbResolveLocalInitialReference(handle(), object_name);
+            if (local != null) {
+                return (org.omg.CORBA.Object) local;
+            }
+        } finally {
+            Reference.reachabilityFence(this);
         }
         try {
             return ObjectStub.of(Native.orbResolveInitialReferences(handle(), object_name), this);

@@ -61,6 +61,32 @@ public abstract class ORB {
 
     public abstract Object string_to_object(String str);
 
+    /**
+     * Makes resolve_initial_references(id) return obj (a reference or a
+     * local object). InvalidName for an empty id or one that is already an
+     * initial reference, BAD_PARAM (minor 27) for null.
+     */
+    public void register_initial_reference(String id, Object obj)
+            throws org.omg.CORBA.ORBPackage.InvalidName {
+        throw new NO_IMPLEMENT();
+    }
+
+    /**
+     * A POA policy from its enumerator, or a
+     * Messaging::RelativeRoundtripTimeoutPolicy from an unsigned long long
+     * (TimeBase::TimeT, in units of 100 ns), in the any val.
+     */
+    public Policy create_policy(int type, Any val) throws PolicyError {
+        throw new NO_IMPLEMENT();
+    }
+
+    /** The ORB offers no services such as security: false. */
+    public boolean get_service_information(short service_type,
+            ServiceInformationHolder service_info) {
+        service_info.value = new ServiceInformation(new int[0], new ServiceDetail[0]);
+        return false;
+    }
+
     public void run() {
         throw new NO_IMPLEMENT();
     }

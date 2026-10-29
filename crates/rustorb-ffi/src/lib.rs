@@ -30,6 +30,7 @@ pub mod manager;
 pub mod object;
 pub mod orb;
 pub mod poa;
+pub mod policy;
 pub mod servant;
 pub mod stream;
 pub mod value;
@@ -73,6 +74,7 @@ pub mod local {
     pub const INVALID_NAME: u32 = 13;
     pub const TC_BAD_KIND: u32 = 14;
     pub const TC_BOUNDS: u32 = 15;
+    pub const POLICY_ERROR: u32 = 16;
 }
 
 /// `rorb_exception`.

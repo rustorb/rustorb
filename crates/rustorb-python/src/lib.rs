@@ -36,6 +36,8 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(register_value_type, m)?)?;
     m.add_function(wrap_pyfunction!(orb::set_thread_call_timeout, m)?)?;
     m.add_function(wrap_pyfunction!(orb::thread_call_timeout, m)?)?;
+    m.add_function(wrap_pyfunction!(orb::set_thread_policy_overrides, m)?)?;
+    m.add_function(wrap_pyfunction!(orb::thread_policy_overrides, m)?)?;
     m.add_function(wrap_pyfunction!(poa::current_poa, m)?)?;
     m.add_function(wrap_pyfunction!(poa::current_object_id, m)?)?;
     m.add_function(wrap_pyfunction!(poa::current_reference, m)?)?;

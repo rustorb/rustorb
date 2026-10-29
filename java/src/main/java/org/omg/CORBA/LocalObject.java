@@ -43,6 +43,31 @@ public class LocalObject implements Object {
         throw new NO_IMPLEMENT(4, CompletionStatus.COMPLETED_NO);
     }
 
+    @Override
+    public Policy _get_policy(int policy_type) {
+        throw new NO_IMPLEMENT(4, CompletionStatus.COMPLETED_NO);
+    }
+
+    @Override
+    public Object _set_policy_override(Policy[] policies, SetOverrideType set_add) {
+        throw new NO_IMPLEMENT(4, CompletionStatus.COMPLETED_NO);
+    }
+
+    @Override
+    public Policy _get_client_policy(int type) {
+        throw new NO_IMPLEMENT(4, CompletionStatus.COMPLETED_NO);
+    }
+
+    @Override
+    public Policy[] _get_policy_overrides(int[] types) {
+        throw new NO_IMPLEMENT(4, CompletionStatus.COMPLETED_NO);
+    }
+
+    @Override
+    public boolean _validate_connection(PolicyListHolder inconsistent_policies) {
+        throw new NO_IMPLEMENT(4, CompletionStatus.COMPLETED_NO);
+    }
+
     public ORB _orb() {
         throw new NO_IMPLEMENT(4, CompletionStatus.COMPLETED_NO);
     }

@@ -41,7 +41,8 @@ omniORB も同じ例外と完了状態だった。違いは次のとおりで、
 - `python/tests/test_timeouts.py`、`cpp/tests/test_timeout.cc`、`java/.../TimeoutTest.java`：各言語の API で同じ内容を、返事をしないサーバーに対して確かめる
 - `interop/run-timeout-probe.sh`：同じスクリプトを omniORBpy と rustorbpy（互換シム経由）で動かし、`interop/expected/timeout-probe-*.txt` と比べる。時間は設定した値のどれに近いかで出すので、マシンの速さに左右されない
 
+標準の `Messaging::RelativeRoundtripTimeoutPolicy`（`ORB::create_policy` で作り、参照の `_set_policy_overrides`、`ORBPolicyManager`、`PolicyCurrent` で設定する）は同じタイムアウトの別の書き方で、[orb-operations.md](orb-operations.md) にまとめた。
+
 ## 残り
 
 - `omniORB.setClientThreadCallDeadline`（絶対時刻の締め切り）と `installTimeoutExceptionHandler`（`TIMEOUT` での再試行）。使うアプリケーションが出てきたら入れる
-- 標準の `Messaging::RelativeRoundtripTimeoutPolicy`（`ORB::create_policy` と `_set_policy_overrides`、#39 の後）
