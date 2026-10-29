@@ -4,6 +4,7 @@
 
 #include "common.h"
 #include "anytest.h"
+#include "valuetest.h"
 
 using namespace InteropTest;
 
@@ -164,6 +165,24 @@ int main(int argc, char** argv) {
   Options opt = parse_args(argc, argv, orb_args);
   try {
     CORBA::ORB_var orb = orb_init(orb_args);
+    if (opt.suite == "value") {
+      // The valuetype suite: ValueTest::ValueEcho, which also stops the
+      // server.
+      valuetest::register_factories(orb);
+      PortableServer::POA_var poa = persistent_poa(orb, "ValueTest");
+      valuetest::ValueEchoImpl* servant = new valuetest::ValueEchoImpl(orb);
+      PortableServer::ObjectId_var oid = PortableServer::string_to_ObjectId("ValueEcho");
+      poa->activate_object_with_id(oid, servant);
+      servant->_remove_ref();
+      CORBA::Object_var obj = poa->id_to_reference(oid);
+      CosNaming::NamingContext_var root = root_context(orb, opt.timeout);
+      bind_name(root, opt.name, obj);
+      std::cout << "server ready: " << opt.name << std::endl;
+      orb->run();
+      orb->destroy();
+      std::cout << "server stopped" << std::endl;
+      return 0;
+    }
     if (opt.suite == "any") {
       // The stage 2 suite: AnyTest::AnyEcho, with an Echo object next to it
       // for the client to shut the server down.

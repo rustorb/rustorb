@@ -18,7 +18,8 @@
 # --out DIR  where logs and captures go (default: interop/out)
 # --suite SUITE  basic (default): the InteropTest.idl cases; any: the
 #            AnyTest.idl cases (Any and TypeCode), whose results go to
-#            <client>-to-<server>-any
+#            <client>-to-<server>-any; value: the ValueTest.idl cases
+#            (valuetypes), whose results go to <client>-to-<server>-value
 #
 # Implementations live in impls/<name>/ and provide `server` and `client`
 # executables that accept the options in README.md. To use an implementation
@@ -44,7 +45,7 @@ while [ $# -gt 0 ]; do
     --naming) naming="$2"; shift ;;
     --suite) suite="$2"; shift ;;
     --out) out="$(realpath -m "$2")"; shift ;;
-    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
     *:*) pairs+=("$1") ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -54,17 +55,23 @@ done
 case "$suite" in
   basic) export ECHO_NAME=interop/Echo ;;
   any) export ECHO_NAME=interop/AnyEcho ;;
+  value) export ECHO_NAME=interop/ValueEcho ;;
   *) echo "unknown suite: $suite" >&2; exit 2 ;;
 esac
 export SUITE="$suite"
 # JacORB's generated Helpers do not follow AnyTest.idl (see
 # docs/java-binding.md), so the any suite leaves it out unless asked for.
-if [ "$suite" = any ]; then
+# The value suite runs on the ORBs whose bindings have valuetypes.
+if [ "$suite" = any ] || [ "$suite" = value ]; then
   IMPLS="${IMPLS:-omniorbpy omniorb-cpp}"
 else
   IMPLS="${IMPLS:-omniorbpy omniorb-cpp jacorb}"
 fi
-rustorb_impls="rustorb rustorbpy rustorbcpp rustorbjava"
+if [ "$suite" = value ]; then
+  rustorb_impls="rustorb rustorbpy"
+else
+  rustorb_impls="rustorb rustorbpy rustorbcpp rustorbjava"
+fi
 CLIENT_IMPLS="${CLIENT_IMPLS:-$IMPLS $rustorb_impls}"
 SERVER_IMPLS="${SERVER_IMPLS:-$IMPLS $rustorb_impls}"
 

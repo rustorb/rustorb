@@ -58,3 +58,11 @@ jacorb * echo_value[5] JacORB unions keep one default discriminator
 # fragment large GIOP 1.1 requests; rustorb never fragments what it sends.
 giop=1.1 omniorb* jacorb echo_string[2] JacORB rejects GIOP 1.1 fragments
 giop=1.1 omniorb* jacorb echo_records[large] JacORB rejects GIOP 1.1 fragments
+# omniORB 4.3.4 C++ writes the state members of valuetype TypeCodes with
+# visibility 0 (PRIVATE_MEMBER) where the IDL says public; omniORBpy writes
+# 1 (PUBLIC_MEMBER). The omniORBpy server answers an any with the TypeCode
+# of its own stubs, which the C++ client then finds not equal() to its
+# own. (Seen in the captured messages.) The rustorb servers send back the
+# TypeCode they received, so those pairs pass.
+suite=value omniorb-cpp omniorbpy echo_any[ring] omniORB C++ valuetype TypeCodes have private members
+suite=value omniorb-cpp omniorbpy echo_any[derived] omniORB C++ valuetype TypeCodes have private members

@@ -12,6 +12,7 @@
 #include "common.h"
 #define ANYTEST_HIDDEN
 #include "anytest.h"
+#include "valuetest.h"
 
 using namespace InteropTest;
 
@@ -437,6 +438,38 @@ static int run_any(CORBA::ORB_ptr orb, CosNaming::NamingContext_ptr root, const 
   return r.failed().empty() ? 0 : 1;
 }
 
+// The valuetype suite (ValueTest.idl) against the ValueEcho object at
+// opt.name.
+static int run_value(CORBA::ORB_ptr orb, CosNaming::NamingContext_ptr root, const Options& opt) {
+  valuetest::register_factories(orb);
+  CosNaming::Name name = to_name(opt.name);
+  CORBA::Object_var obj = retry("the ValueEcho server", [&]() { return root->resolve(name); },
+                                opt.timeout);
+  ValueTest::ValueEcho_var echo = ValueTest::ValueEcho::_narrow(obj);
+  if (CORBA::is_nil(echo)) {
+    std::cout << opt.name << " is not a ValueTest::ValueEcho" << std::endl;
+    return 1;
+  }
+  retry("the ValueEcho server", [&]() { return echo->_non_existent(); }, opt.timeout);
+
+  Runner r;
+  valuetest::run_cases(r, echo, [](bool cond, const std::string& what) {
+    if (!cond) throw CheckFailed{what};
+  });
+
+  if (opt.shutdown_server) echo->shutdown();
+
+  std::cout << "\n" << r.passed() << " passed, " << r.failed().size() << " failed" << std::endl;
+  if (!r.failed().empty()) {
+    std::cout << "failed: ";
+    for (size_t i = 0; i < r.failed().size(); ++i)
+      std::cout << (i ? ", " : "") << r.failed()[i];
+    std::cout << std::endl;
+  }
+  orb->destroy();
+  return r.failed().empty() ? 0 : 1;
+}
+
 int main(int argc, char** argv) {
   std::vector<std::string> orb_args;
   Options opt = parse_args(argc, argv, orb_args);
@@ -446,6 +479,7 @@ int main(int argc, char** argv) {
 
     CosNaming::NamingContext_var root = root_context(orb, opt.timeout);
     if (opt.suite == "any") return run_any(orb, root, opt);
+    if (opt.suite == "value") return run_value(orb, root, opt);
     CosNaming::Name name = to_name(opt.name);
     CORBA::Object_var obj = retry("the Echo server", [&]() { return root->resolve(name); },
                                   opt.timeout);

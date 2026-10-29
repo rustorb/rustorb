@@ -29,7 +29,7 @@ def parse_args(description, extra=None):
                         help="fixed GIOP endpoint port (0: any)")
     parser.add_argument("--timeout", type=float, default=30.0,
                         help="seconds to wait for the naming service / server")
-    parser.add_argument("--suite", choices=("basic", "any"), default="basic",
+    parser.add_argument("--suite", choices=("basic", "any", "value"), default="basic",
                         help="the InteropTest cases (basic) or the AnyTest ones (any)")
     if extra:
         extra(parser)
