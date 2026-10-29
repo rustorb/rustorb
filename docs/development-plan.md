@@ -259,3 +259,8 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - [x] Java：`StreamableValue`、`ValueFactory`・`DefaultFactory`、`BoxedValueHelper`、CORBA_2_3 のストリームと ORB、`-bjava`
   - [x] 相互接続：rustorbcpp・rustorbjava・JacORB を加えた49組が GIOP 1.2 / 1.1 で通る（JacORB が Java 17 で Any の中の値を書けない3ケースは既知の失敗）
   - 残り：`custom`、abstract interface、`supports`（#42、#43）
+- [x] Rust の IDL 生成器 `rustorb-idl -brust`（[rust-mapping.md](rust-mapping.md)、[#37](https://github.com/rustorb/rustorb/issues/37)）
+  - コア：`rustorb_core::idl`（記述子のトレイト `IdlType` と基本型・無名の型の記述子、valuetype のハンドルと登録、value box、`Any::insert` / `extract`）と `Fixed`
+  - 生成器：名前の変換と衝突の検査、struct・enum・union・typedef・定数・例外・操作ごとのエラー型、スタブ・サーバントのトレイト・スケルトン、TypeCode、valuetype・value box。`-Wbextern` で別クレートの生成コードを参照する。`build.rs` 用の `rustorb_codegen::Config`
+  - テスト：`crates/rustorb-codegen/tests/rust_mapping.rs`（`RustMapping.idl`、TCP 越しの呼び出しを含む）と `test_rust_backend.py`
+  - 置き換え：`interop/impls/rustorb` のクライアント・サーバー・POA プローブと、`rustorb-naming` の CosNaming（クライアントと `rustorb-names`）を生成コードにした。相互接続マトリクス（basic / any / value、GIOP 1.2 / 1.1、omniNames・rustorb-names）、POA プローブ、naming check、OpenRTM の結果は置き換え前と同じ。CI で再生成の差分がないことを確かめる

@@ -64,6 +64,8 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
       - uses: Swatinem/rust-cache@v2
       - run: pip install mypy==1.13.0
       # The ORB tests (python/tests/test_orb.py) use the native module from
@@ -76,6 +78,13 @@ jobs:
       - run: python -m unittest discover -s crates/rustorb-codegen/python/tests -v
         env:
           PYTHONPATH: ${{ github.workspace }}/idl_parser
+      - name: Check that the committed code of rustorb-idl -brust is up to date
+        run: |
+          crates/rustorb-codegen/generate-rust.sh
+          git diff --exit-code -- crates interop/impls/rustorb
+          test -z "$(git status --porcelain -- crates interop/impls/rustorb)"
+        env:
+          IDL_PARSER_DIR: ${{ github.workspace }}/idl_parser
       - name: Build the wheel with maturin
         run: pip wheel ./python --no-deps -w dist
       - name: Build the wheel of the omniORBpy compatibility package
