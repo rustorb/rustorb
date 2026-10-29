@@ -836,9 +836,13 @@ fn stuck_listener() -> (TcpListener, Vec<TcpStream>, u16) {
         socket.listen(0).unwrap().into_std().unwrap()
     });
     let addr = listener.local_addr().unwrap();
-    let fillers = (0..4)
-        .filter_map(|_| TcpStream::connect_timeout(&addr, Duration::from_millis(100)).ok())
-        .collect();
+    // Fill the queue until a connection hangs; how many fit depends on
+    // the operating system (one on Linux, more on macOS).
+    let mut fillers = Vec::new();
+    while let Ok(c) = TcpStream::connect_timeout(&addr, Duration::from_millis(100)) {
+        fillers.push(c);
+        assert!(fillers.len() < 4096, "the accept queue does not fill");
+    }
     (listener, fillers, addr.port())
 }
 
