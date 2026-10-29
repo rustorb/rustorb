@@ -125,7 +125,10 @@ class CxxBackendTest(unittest.TestCase):
 
     def test_unsupported(self):
         cases = {
-            "valuetype": "module U { valuetype V { public long x; }; };",
+            "custom": "module U { custom valuetype V { public long x; }; };",
+            "value_ops": "module U { valuetype V { public long x; long f(); }; };",
+            "value_factory": "module U { valuetype V { public long x; factory make(in long x); }; };",
+            "supports": "module U { interface I {}; valuetype V supports I { public long x; }; };",
             "abstract": "module U { abstract interface A { void f(); }; };",
             "longdouble": "module U { struct S { long double d; }; };",
         }
@@ -145,6 +148,71 @@ class CxxBackendTest(unittest.TestCase):
         self.assertIn("::rustorb::cdr::type_code<::IDL::Fixed<31, 31>>::get()", source)
         path = write_idl("FixedRange.idl", "module U { typedef fixed<3, 1> F; const F C = 123.4d; };")
         self.assertEqual(cli.main(["-bc++11", "-C", OUT, path]), 1)
+
+    def test_valuetypes(self):
+        path = write_idl(
+            "Values.idl",
+            """
+            module Values {
+              valuetype Later;
+              abstract valuetype Named {};
+              valuetype Base { public long a; private string from; };
+              valuetype Derived : truncatable Base, Named {
+                struct In { long q; };
+                public In inner;
+                public Later later;
+              };
+              valuetype Later { public Later next; };
+              valuetype Box sequence<long>;
+              interface Store { Derived swap(in Base b, inout Box x, out Later l); };
+            };
+        """,
+        )
+        outdir = os.path.join(OUT, "values")
+        self.assertEqual(cli.main(["-bc++11", "-C", outdir, path]), 0)
+        header = read(os.path.join(outdir, "Values.hh"))
+        source = read(os.path.join(outdir, "Values.cc"))
+        self.assertIn(
+            "class Derived : public virtual ::Values::Base, public virtual ::Values::Named {", header
+        )
+        self.assertIn("virtual const ::Values::Derived::In& inner() const = 0;", header)
+        # Private members have protected accessors.
+        protected = header.index("protected:", header.index("class Base"))
+        self.assertGreater(header.index("virtual std::string& from() = 0;"), protected)
+        self.assertIn("namespace OBV_Values {", header)
+        self.assertIn(
+            "Derived(int32_t a, const std::string& from, const ::Values::Derived::In& inner,"
+            " ::IDL::traits<::Values::Later>::ref_type later)",
+            header,
+        )
+        self.assertIn("explicit Box(std::vector<int32_t> _v)", header)
+        self.assertIn(
+            '_ids{"IDL:Values/Derived:1.0", "IDL:Values/Base:1.0"};', source
+        )
+        self.assertIn('::rustorb::detail::tc_recursive("IDL:Values/Later:1.0")', source)
+        self.assertIn("::CORBA::VM_TRUNCATABLE, ::Values::_rorb_tc_Base()", source)
+        self.assertIn("::CORBA::VM_ABSTRACT, nullptr, {}", source)
+        self.assertIn(
+            'ValueRegistration _rorb_value_0("IDL:Values/Named:1.0", nullptr,', source
+        )
+        self.assertIn("DefaultValueFactory<::OBV_Values::Later>", source)
+        self.assertIn("DefaultValueFactory<::Values::Box>", source)
+        if CXX:
+            subprocess.run(
+                [
+                    CXX,
+                    "-std=c++17",
+                    "-fsyntax-only",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-I" + os.path.join(ROOT, "cpp", "include"),
+                    "-I" + os.path.join(ROOT, "crates", "rustorb-ffi", "include"),
+                    "-I" + outdir,
+                    os.path.join(outdir, "Values.cc"),
+                ],
+                check=True,
+            )
 
     @unittest.skipUnless(CXX, "no C++ compiler")
     def test_compiles(self):

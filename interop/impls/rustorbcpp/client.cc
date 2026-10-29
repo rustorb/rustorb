@@ -10,6 +10,7 @@
 #include "anytest.h"
 #include "cases.h"
 #include "common.h"
+#include "valuetest.h"
 
 // The stage 2 suite (AnyTest.idl) against the AnyEcho object at opt.name;
 // the server's Echo object is at opt.name + "-Echo".
@@ -39,6 +40,32 @@ static int run_any(IDL::traits<CORBA::ORB>::ref_type orb,
   return r.failed().empty() ? 0 : 1;
 }
 
+// The valuetype suite (ValueTest.idl) against the ValueEcho object at
+// opt.name.
+static int run_value(IDL::traits<CORBA::ORB>::ref_type orb,
+                     IDL::traits<CosNaming::NamingContext>::ref_type root, const Options& opt) {
+  valuetest::register_factories(orb);
+  CosNaming::Name name = to_name(opt.name);
+  auto obj = retry("the ValueEcho server", [&]() { return root->resolve(name); }, opt.timeout);
+  auto echo = IDL::traits<ValueTest::ValueEcho>::narrow(obj);
+  if (!echo) {
+    std::cout << opt.name << " is not a ValueTest::ValueEcho" << std::endl;
+    return 1;
+  }
+  retry("the ValueEcho server", [&]() { return echo->_non_existent(); }, opt.timeout);
+
+  Runner r;
+  valuetest::run_cases(r, echo, [](bool cond, const std::string& what) {
+    if (!cond) throw CheckFailed{what};
+  });
+
+  if (opt.shutdown_server) echo->shutdown();
+
+  r.summary();
+  orb->destroy();
+  return r.failed().empty() ? 0 : 1;
+}
+
 int main(int argc, char** argv) {
   std::vector<std::string> orb_args;
   Options opt = parse_args(argc, argv, orb_args);
@@ -48,6 +75,7 @@ int main(int argc, char** argv) {
 
     auto root = root_context(orb, opt.timeout);
     if (opt.suite == "any") return run_any(orb, root, opt);
+    if (opt.suite == "value") return run_value(orb, root, opt);
     CosNaming::Name name = to_name(opt.name);
     auto obj = retry("the Echo server", [&]() { return root->resolve(name); }, opt.timeout);
     auto echo = IDL::traits<InteropTest::Echo>::narrow(obj);

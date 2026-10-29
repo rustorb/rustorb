@@ -4,6 +4,7 @@
 #include "anytest.h"
 #include "common.h"
 #include "echo_impl.h"
+#include "valuetest.h"
 
 // Binds obj at path, creating intermediate contexts as needed.
 static void bind_name(IDL::traits<CosNaming::NamingContext>::ref_type root, const std::string& path,
@@ -26,6 +27,21 @@ int main(int argc, char** argv) {
   Options opt = parse_args(argc, argv, orb_args);
   try {
     auto orb = orb_init(orb_args);
+    if (opt.suite == "value") {
+      // The valuetype suite: ValueTest::ValueEcho, which also stops the
+      // server.
+      valuetest::register_factories(orb);
+      auto poa = persistent_poa(orb, "ValueTest");
+      auto oid = PortableServer::string_to_ObjectId("ValueEcho");
+      poa->activate_object_with_id(oid, CORBA::make_reference<valuetest::ValueEchoImpl>(orb));
+      auto root = root_context(orb, opt.timeout);
+      bind_name(root, opt.name, poa->id_to_reference(oid));
+      std::cout << "server ready: " << opt.name << std::endl;
+      orb->run();
+      orb->destroy();
+      std::cout << "server stopped" << std::endl;
+      return 0;
+    }
     if (opt.suite == "any") {
       // The stage 2 suite: AnyTest::AnyEcho, with an Echo object next to it
       // for the client to shut the server down.

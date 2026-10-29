@@ -268,6 +268,11 @@ pub struct In<'a, 'b> {
     /// The last string read, until the next call.
     text: String,
     wide: Vec<u16>,
+    /// The caller's valuetype instances read, by slot, for indirections
+    /// (`rorb_in_set_value`); released when the stream is dropped.
+    pub(crate) values: Vec<Option<crate::value::Held>>,
+    /// The repository ids of the last value header read.
+    pub(crate) value_ids: Vec<String>,
 }
 
 /// What a `rorb_in*` points to; the lifetimes are those of the callback.
@@ -282,6 +287,8 @@ impl<'a, 'b> In<'a, 'b> {
             error: None,
             text: String::new(),
             wide: Vec::new(),
+            values: Vec::new(),
+            value_ids: Vec::new(),
         }
     }
 
@@ -289,7 +296,7 @@ impl<'a, 'b> In<'a, 'b> {
         (self as *mut Self).cast()
     }
 
-    fn marshal(&self) -> SystemException {
+    pub(crate) fn marshal(&self) -> SystemException {
         sys(SystemExceptionKind::MARSHAL, 0, self.completed)
     }
 

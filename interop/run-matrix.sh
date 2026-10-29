@@ -68,7 +68,7 @@ else
   IMPLS="${IMPLS:-omniorbpy omniorb-cpp jacorb}"
 fi
 if [ "$suite" = value ]; then
-  rustorb_impls="rustorb rustorbpy"
+  rustorb_impls="rustorb rustorbpy rustorbcpp"
 else
   rustorb_impls="rustorb rustorbpy rustorbcpp rustorbjava"
 fi

@@ -20,7 +20,9 @@
 #include <cstring>
 #include <exception>
 #include <iostream>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -863,6 +865,129 @@ template <> struct traits<CORBA::TypeCode> {
 }  // namespace IDL
 
 // ---------------------------------------------------------------------------
+// Valuetypes: CORBA::ValueBase and value factories
+
+namespace CORBA {
+
+// The base of valuetypes and value boxes, which are shared through
+// IDL::traits<T>::ref_type (a CORBA::object_reference<T>, nullptr for
+// null): an instance passed twice in a call arrives as one instance, and
+// cycles are kept. The generated classes implement the _rorb_ functions.
+class ValueBase {
+ public:
+  virtual ~ValueBase() = default;
+
+  // A copy of the instance (its members copied, the values they refer to
+  // shared).
+  virtual object_reference<ValueBase> _copy_value() const = 0;
+
+  // The repository id of the type of the instance, then those of the
+  // bases it is truncatable to.
+  virtual const std::vector<const char*>& _rorb_ids() const = 0;
+  // Marshal the state: the members of the base types first.
+  virtual void _rorb_write_state(rorb_out* out) const = 0;
+  virtual void _rorb_read_state(rorb_in* in) = 0;
+
+ protected:
+  ValueBase() = default;
+  ValueBase(const ValueBase&) = default;
+  ValueBase& operator=(const ValueBase&) = default;
+};
+
+// Makes the instances of a valuetype that are read: the ORB looks the
+// factory up by the repository id received.
+class ValueFactoryBase {
+ public:
+  virtual ~ValueFactoryBase() = default;
+  virtual object_reference<ValueBase> create_for_unmarshal() = 0;
+};
+
+using ValueFactory = object_reference<ValueFactoryBase>;
+
+using ValueModifier = int16_t;
+inline constexpr ValueModifier VM_NONE = 0;
+inline constexpr ValueModifier VM_CUSTOM = 1;
+inline constexpr ValueModifier VM_ABSTRACT = 2;
+inline constexpr ValueModifier VM_TRUNCATABLE = 3;
+
+using Visibility = int16_t;
+inline constexpr Visibility PRIVATE_MEMBER = 0;
+inline constexpr Visibility PUBLIC_MEMBER = 1;
+
+// ORB::create_value_tc members. (The id, defined_in, version and type_def
+// members of the IDL struct, for the interface repository, are left out.)
+class ValueMember {
+ public:
+  ValueMember() = default;
+  ValueMember(std::string name, object_reference<TypeCode> type, Visibility access)
+      : name_(std::move(name)), type_(std::move(type)), access_(access) {}
+  const std::string& name() const { return name_; }
+  void name(const std::string& n) { name_ = n; }
+  const object_reference<TypeCode>& type() const { return type_; }
+  void type(const object_reference<TypeCode>& t) { type_ = t; }
+  Visibility access() const { return access_; }
+  void access(Visibility a) { access_ = a; }
+
+ private:
+  std::string name_;
+  object_reference<TypeCode> type_;
+  Visibility access_ = PUBLIC_MEMBER;
+};
+using ValueMemberSeq = std::vector<ValueMember>;
+
+}  // namespace CORBA
+
+namespace rustorb {
+namespace detail {
+
+// The value factories of the process, by repository id (shared by the
+// ORBs, as the core's valuetypes are).
+struct ValueFactories {
+  std::mutex lock;
+  std::map<std::string, CORBA::ValueFactory> by_id;
+};
+
+inline ValueFactories& value_factories() {
+  static ValueFactories f;
+  return f;
+}
+
+inline CORBA::ValueFactory register_value_factory(const std::string& id,
+                                                  const CORBA::ValueFactory& factory) {
+  auto& f = value_factories();
+  std::lock_guard<std::mutex> g(f.lock);
+  CORBA::ValueFactory& slot = f.by_id[id];
+  CORBA::ValueFactory old = slot;
+  slot = factory;
+  return old;
+}
+
+inline void unregister_value_factory(const std::string& id) {
+  auto& f = value_factories();
+  std::lock_guard<std::mutex> g(f.lock);
+  f.by_id.erase(id);
+}
+
+inline CORBA::ValueFactory lookup_value_factory(const std::string& id) {
+  auto& f = value_factories();
+  std::lock_guard<std::mutex> g(f.lock);
+  auto it = f.by_id.find(id);
+  return it == f.by_id.end() ? nullptr : it->second;
+}
+
+// The factory the generated code registers for a concrete valuetype or
+// value box T without operations.
+template <typename T> class DefaultValueFactory : public CORBA::ValueFactoryBase {
+ public:
+  CORBA::object_reference<CORBA::ValueBase> create_for_unmarshal() override {
+    return CORBA::object_reference<CORBA::ValueBase>(std::make_shared<T>());
+  }
+};
+
+}  // namespace detail
+}  // namespace rustorb
+
+// ---------------------------------------------------------------------------
 // CORBA::ORB
 
 namespace CORBA {
@@ -912,6 +1037,22 @@ class ORB : public LocalObject {
   TypeCode_ref create_sequence_tc(uint32_t bound, const TypeCode_ref& element_type);
   TypeCode_ref create_array_tc(uint32_t length, const TypeCode_ref& element_type);
   TypeCode_ref create_recursive_tc(const std::string& id);
+  TypeCode_ref create_value_tc(const std::string& id, const std::string& name,
+                               ValueModifier type_modifier, const TypeCode_ref& concrete_base,
+                               const ValueMemberSeq& members);
+
+  // Value factories, shared by the ORBs of the process. register returns
+  // the factory replaced (nullptr for none); lookup returns nullptr when
+  // there is none.
+  ValueFactory register_value_factory(const std::string& id, const ValueFactory& factory) {
+    return rustorb::detail::register_value_factory(id, factory);
+  }
+  void unregister_value_factory(const std::string& id) {
+    rustorb::detail::unregister_value_factory(id);
+  }
+  ValueFactory lookup_value_factory(const std::string& id) {
+    return rustorb::detail::lookup_value_factory(id);
+  }
 
   rorb_orb* _rorb_handle() const noexcept { return handle_; }
 
@@ -1646,6 +1787,33 @@ inline TypeCodeRef tc_struct(CORBA::TCKind kind, std::string_view id, std::strin
   });
 }
 
+struct TcValueMember {
+  std::string_view name;
+  TypeCodeRef type;
+  int16_t visibility;
+};
+
+// A valuetype; base is nullptr for none.
+inline TypeCodeRef tc_value(std::string_view id, std::string_view name, int16_t modifier,
+                            const TypeCodeRef& base, const std::vector<TcValueMember>& members) {
+  std::vector<const char*> names;
+  std::vector<size_t> lens;
+  std::vector<const rorb_typecode*> types;
+  std::vector<int16_t> visibilities;
+  for (const auto& m : members) {
+    names.push_back(m.name.data());
+    lens.push_back(m.name.size());
+    types.push_back(tc_handle(m.type));
+    visibilities.push_back(m.visibility);
+  }
+  return make_tc([&](rorb_typecode** out, rorb_exception* exc) {
+    return rorb_tc_value(static_cast<uint32_t>(CORBA::TCKind::tk_value), id.data(), id.size(),
+                         name.data(), name.size(), modifier, base ? base->_rorb_tc() : nullptr,
+                         members.size(), names.data(), lens.data(), types.data(),
+                         visibilities.data(), out, exc);
+  });
+}
+
 struct TcCase {
   uint64_t label;  // see rorb_tc_union
   std::string_view name;
@@ -1977,6 +2145,17 @@ inline ORB::TypeCode_ref ORB::create_sequence_tc(uint32_t bound,
 inline ORB::TypeCode_ref ORB::create_array_tc(uint32_t length,
                                               const TypeCode_ref& element_type) {
   return rustorb::detail::tc_array(element_type, length);
+}
+
+inline ORB::TypeCode_ref ORB::create_value_tc(const std::string& id, const std::string& name,
+                                              ValueModifier type_modifier,
+                                              const TypeCode_ref& concrete_base,
+                                              const ValueMemberSeq& members) {
+  std::vector<rustorb::detail::TcValueMember> m;
+  for (const auto& x : members) m.push_back({x.name(), x.type(), x.access()});
+  TypeCode_ref base = concrete_base;
+  if (base && base->kind() == TCKind::tk_null) base = nullptr;
+  return rustorb::detail::tc_value(id, name, type_modifier, base, m);
 }
 
 inline ORB::TypeCode_ref ORB::create_recursive_tc(const std::string& id) {

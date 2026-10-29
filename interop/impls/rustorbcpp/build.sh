@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the rustorb C++ client, server and POA probe server on the host,
 # into bin/: the stubs and skeletons of InteropTest.idl, AnyTest.idl,
-# AnyTestHidden.idl (the client only), CosNaming.idl and PoaProbe.idl (the
+# AnyTestHidden.idl (the client only), ValueTest.idl, CosNaming.idl and PoaProbe.idl (the
 # probe server only) from rustorb-idl -bc++11 (in gen/), linked with
 # librustorb_ffi statically. run-matrix.sh and run-poa-probe.sh run it; idl_parser must be importable, or IDL_PARSER_DIR set to a
 # checkout of it. CXX picks the compiler (default g++).
@@ -23,14 +23,15 @@ pythonpath="$root/crates/rustorb-codegen/python"
 PYTHONPATH="$pythonpath" python3 -m rustorb_idl -bc++11 -C "$here/gen" \
   "$root/interop/idl/InteropTest.idl" "$root/interop/idl/AnyTest.idl" \
   "$root/interop/idl/AnyTestHidden.idl" "$root/crates/rustorb-codegen/tests/idl/CosNaming.idl" \
-  "$root/interop/idl/PoaProbe.idl"
+  "$root/interop/idl/PoaProbe.idl" "$root/interop/idl/ValueTest.idl"
 
 flags=(-std=c++17 -O2 -Wall -Wextra -I"$root/cpp/include" -I"$root/crates/rustorb-ffi/include"
        -I"$here/gen" -I"$here")
-for f in InteropTest AnyTest AnyTestHidden CosNaming PoaProbe; do
+for f in InteropTest AnyTest AnyTestHidden CosNaming PoaProbe ValueTest; do
   "$cxx" "${flags[@]}" -c "$here/gen/$f.cc" -o "$here/gen/$f.o"
 done
-objs=("$here/gen/InteropTest.o" "$here/gen/AnyTest.o" "$here/gen/CosNaming.o")
+objs=("$here/gen/InteropTest.o" "$here/gen/AnyTest.o" "$here/gen/CosNaming.o"
+      "$here/gen/ValueTest.o")
 link() {
   local out=$1
   shift
