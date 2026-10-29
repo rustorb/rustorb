@@ -122,7 +122,7 @@ class Exception(_builtins.Exception):  # noqa: A001 - the name is fixed by the m
 class UserException(Exception):
     """Base of the exceptions declared in IDL."""
 
-    _NP_members = ()
+    _NP_members: tuple = ()
 
     def __init__(self, *args, **kw):
         _types._init_members(self, type(self).__name__, self._NP_members, args, kw)

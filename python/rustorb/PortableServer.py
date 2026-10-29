@@ -107,20 +107,20 @@ ServantRetentionPolicy = _policy_class("ServantRetentionPolicy", SERVANT_RETENTI
 RequestProcessingPolicy = _policy_class("RequestProcessingPolicy", REQUEST_PROCESSING_POLICY_ID)
 
 _POLICIES = {
-    THREAD_POLICY_ID: (ThreadPolicy, ThreadPolicyValue),
-    LIFESPAN_POLICY_ID: (LifespanPolicy, LifespanPolicyValue),
-    ID_UNIQUENESS_POLICY_ID: (IdUniquenessPolicy, IdUniquenessPolicyValue),
-    ID_ASSIGNMENT_POLICY_ID: (IdAssignmentPolicy, IdAssignmentPolicyValue),
-    IMPLICIT_ACTIVATION_POLICY_ID: (ImplicitActivationPolicy, ImplicitActivationPolicyValue),
-    SERVANT_RETENTION_POLICY_ID: (ServantRetentionPolicy, ServantRetentionPolicyValue),
-    REQUEST_PROCESSING_POLICY_ID: (RequestProcessingPolicy, RequestProcessingPolicyValue),
+    THREAD_POLICY_ID: (ThreadPolicy, "ThreadPolicyValue"),
+    LIFESPAN_POLICY_ID: (LifespanPolicy, "LifespanPolicyValue"),
+    ID_UNIQUENESS_POLICY_ID: (IdUniquenessPolicy, "IdUniquenessPolicyValue"),
+    ID_ASSIGNMENT_POLICY_ID: (IdAssignmentPolicy, "IdAssignmentPolicyValue"),
+    IMPLICIT_ACTIVATION_POLICY_ID: (ImplicitActivationPolicy, "ImplicitActivationPolicyValue"),
+    SERVANT_RETENTION_POLICY_ID: (ServantRetentionPolicy, "ServantRetentionPolicyValue"),
+    REQUEST_PROCESSING_POLICY_ID: (RequestProcessingPolicy, "RequestProcessingPolicyValue"),
 }
 
 
 def _make_policy(type, value):
     """The POA policy of a type and the number of its value."""
     cls, enum = _POLICIES[type]
-    return cls(enum._item(value))
+    return cls(globals()[enum]._item(value))
 
 # ---------------------------------------------------------------------------
 # Servants
