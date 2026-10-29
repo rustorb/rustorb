@@ -108,5 +108,5 @@ omniORB C++ の相互接続用プログラムは Any に omniidl の `-Wba`（�
 
 ## 残り
 
-- DynAny、`long double`（valuetype は [valuetype.md](valuetype.md)）
+- `long double`（valuetype は [valuetype.md](valuetype.md)、DynAny は [dynany.md](dynany.md)）
 - omniORBpy 互換シム（`omniORB.any` など）と OpenRTM-aist-Python の動作確認

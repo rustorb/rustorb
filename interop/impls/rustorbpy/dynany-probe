@@ -1,0 +1,563 @@
+#!/usr/bin/env python3
+"""The DynAny probe of impls/omniorb-cpp/dynany_probe.cc with rustorb's
+Python binding (rustorb.DynamicAny): the same cases, printed the same way.
+run-dynany-probe.sh compares the output with expected/dynany-probe-rustorb.txt,
+as the Rust probe's (the same core).
+
+Run it after build.sh, which puts the rustorb package in lib/.
+"""
+
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+
+from rustorb import CORBA, DynamicAny  # noqa: E402
+
+DA = DynamicAny.DynAny
+
+
+def case(name, f):
+    try:
+        out = f()
+        out = "" if out is None else out
+    except DA.TypeMismatch:
+        out = "TypeMismatch"
+    except DA.InvalidValue:
+        out = "InvalidValue"
+    except DynamicAny.DynAnyFactory.InconsistentTypeCode:
+        out = "InconsistentTypeCode"
+    except DynamicAny.MustTruncate:
+        out = "MustTruncate"
+    except CORBA.SystemException as e:
+        out = type(e).__name__
+    print("%s: %s" % (name, out))
+
+
+def b(v):
+    return "true" if v else "false"
+
+
+def q(s):
+    return '"%s"' % s
+
+
+def kind(k):
+    return str(k)
+
+
+def position(d):
+    """The current position, found by counting the components after it
+    (this moves the position to -1, so it comes last in a case)."""
+    if d.current_component() is None:
+        return -1
+    after = 0
+    while d.next():
+        after += 1
+    return d.component_count() - 1 - after
+
+
+orb = CORBA.ORB_init([sys.argv[0]])
+f = orb.resolve_initial_references("DynAnyFactory")
+new = f.create_dyn_any_from_type_code
+SM = CORBA.StructMember
+
+
+def UM(name, label, tc):
+    return CORBA.UnionMember(name, label, tc)
+
+
+long_ = CORBA.TC_long
+string = CORBA.TC_string
+count = orb.create_alias_tc("IDL:P/Count:1.0", "Count", long_)
+s_tc = orb.create_struct_tc("IDL:P/S:1.0", "S", [SM("a", long_), SM("b", string), SM("c", count)])
+e_tc = orb.create_exception_tc("IDL:P/E:1.0", "E", [])
+color = orb.create_enum_tc("IDL:P/Color:1.0", "Color", ["RED", "GREEN", "BLUE"])
+default = CORBA.Any(CORBA.TC_octet, 0)
+u_tc = orb.create_union_tc("IDL:P/U:1.0", "U", long_, [
+    UM("x", CORBA.Any(long_, 1), long_), UM("y", CORBA.Any(long_, 2), string),
+    UM("y", CORBA.Any(long_, 3), string), UM("z", default, CORBA.TC_boolean)])
+d_tc = orb.create_union_tc("IDL:P/D:1.0", "D", long_, [
+    UM("z", default, CORBA.TC_boolean), UM("x", CORBA.Any(long_, 0), long_)])
+short = CORBA.TC_short
+n_tc = orb.create_union_tc("IDL:P/N:1.0", "N", short, [
+    UM("x", CORBA.Any(short, 5), long_), UM("y", CORBA.Any(short, 2), string)])
+boolean = CORBA.TC_boolean
+b_tc = orb.create_union_tc("IDL:P/B:1.0", "B", boolean, [
+    UM("t", CORBA.Any(boolean, True), long_), UM("f", CORBA.Any(boolean, False), string)])
+seq_tc = orb.create_sequence_tc(0, long_)
+bseq_tc = orb.create_sequence_tc(2, long_)
+arr_tc = orb.create_array_tc(3, long_)
+money = orb.create_fixed_tc(5, 2)
+bstr = orb.create_string_tc(3)
+v_tc = orb.create_value_tc("IDL:P/V:1.0", "V", CORBA.VM_NONE, None,
+                           [CORBA.ValueMember("n", "", "", "", long_, None, CORBA.PUBLIC_MEMBER)])
+box_tc = orb.create_value_box_tc("IDL:P/LBox:1.0", "LBox", long_)
+
+
+def run(*steps):
+    """Calls each step; returns the last result."""
+    r = None
+    for s in steps:
+        r = s()
+    return r
+
+
+# -- creation from TypeCodes and positions
+case("long.count", lambda: str(new(long_).component_count()))
+case("long.get", lambda: str(new(long_).get_long()))
+case("long.seek0", lambda: b(new(long_).seek(0)))
+case("long.next", lambda: b(new(long_).next()))
+case("long.current_component", lambda: b(new(long_).current_component() is None))
+case("long.get_short", lambda: run(lambda: new(long_).get_short(), lambda: None))
+case("long.insert_short", lambda: new(long_).insert_short(1))
+
+
+def alias_insert():
+    d = new(count)
+    d.insert_long(7)
+    return str(d.get_long())
+
+
+case("alias.insert_long", alias_insert)
+case("alias.type", lambda: kind(new(count).type().kind()))
+case("string.get", lambda: q(new(string).get_string()))
+case("bstring.insert_long", lambda: new(bstr).insert_string("abcd"))
+case("bstring.insert_ok", lambda: run(lambda: new(bstr).insert_string("abc"), lambda: b(True)))
+case("typecode.get", lambda: kind(new(CORBA.TC_TypeCode).get_typecode().kind()))
+case("any.get", lambda: kind(new(CORBA.TC_any).get_any().typecode().kind()))
+case("any.count", lambda: str(new(CORBA.TC_any).component_count()))
+case("objref.get", lambda: b(new(CORBA.TC_Object).get_reference() is None))
+case("principal", lambda: kind(new(CORBA.TC_Principal).to_any().typecode().kind()))
+case("longdouble", lambda: kind(new(CORBA.TC_longdouble).to_any().typecode().kind()))
+
+
+def get_dyn_any_shared():
+    d = new(CORBA.TC_any)
+    d.insert_any(CORBA.Any(long_, 5))
+    d.get_dyn_any().insert_long(9)
+    return str(d.get_any().value())
+
+
+case("any.get_dyn_any_shared", get_dyn_any_shared)
+
+# -- struct
+case("struct.count", lambda: str(new(s_tc).component_count()))
+case("struct.position", lambda: str(position(new(s_tc))))
+
+
+def struct_insert_long():
+    d = new(s_tc)
+    d.insert_long(3)
+    return q(d.current_member_name())
+
+
+def struct_insert_long_moves():
+    d = new(s_tc)
+    d.insert_long(3)
+    return b(d.seek(0)) + str(d.current_component().get_long())
+
+
+case("struct.insert_long", struct_insert_long)
+case("struct.insert_long_moves", struct_insert_long_moves)
+case("struct.insert_string_at_0", lambda: new(s_tc).insert_string("x"))
+
+
+def seeked(tc, i):
+    d = new(tc)
+    d.seek(i)
+    return d
+
+
+case("struct.member_kind_alias", lambda: kind(seeked(s_tc, 2).current_member_kind()))
+case("struct.member_name_end", lambda: q(seeked(s_tc, 5).current_member_name()))
+case("struct.insert_at_end", lambda: seeked(s_tc, 5).insert_long(1))
+
+
+def next_past_end():
+    d = seeked(s_tc, 2)
+    s = b(d.next())
+    return s + b(d.current_component() is None)
+
+
+def next_from_minus1():
+    d = seeked(s_tc, -1)
+    s = b(d.next())
+    return s + str(position(d))
+
+
+case("struct.next_past_end", next_past_end)
+case("struct.next_from_minus1", next_from_minus1)
+case("struct.seek_minus1", lambda: b(new(s_tc).seek(-1)))
+
+
+def component_shared():
+    d = new(s_tc)
+    d.current_component().insert_long(11)
+    return str(d.get_members()[0].value.value())
+
+
+def members_as_dyn_any_shared():
+    d = new(s_tc)
+    d.get_members_as_dyn_any()[0].value.insert_long(12)
+    return str(d.current_component().get_long())
+
+
+case("struct.component_shared", component_shared)
+case("struct.members_as_dyn_any_shared", members_as_dyn_any_shared)
+
+
+def set_members(change, result=None):
+    def f():
+        d = new(s_tc)
+        m = d.get_members()
+        change(m)
+        d.set_members(m)
+        return result
+    return f
+
+
+def rename(m):
+    m[1].id = "zz"
+
+
+def empty_names(m):
+    for p in m:
+        p.id = ""
+
+
+case("struct.set_members_wrong_name", set_members(rename))
+case("struct.set_members_empty_names", set_members(empty_names, b(True)))
+case("struct.set_members_short", set_members(lambda m: m.pop()))
+case("struct.set_members_wrong_type",
+     set_members(lambda m: setattr(m[0], "value", CORBA.Any(short, 1))))
+case("struct.set_members_unaliased",
+     set_members(lambda m: setattr(m[2], "value", CORBA.Any(long_, 4)), b(True)))
+
+
+def set_members_position():
+    d = seeked(s_tc, 2)
+    d.set_members(d.get_members())
+    return str(position(d))
+
+
+def from_any_position():
+    d = new(s_tc)
+    a = d.to_any()
+    d.seek(2)
+    d.from_any(a)
+    return str(position(d))
+
+
+case("struct.set_members_position", set_members_position)
+case("struct.from_any_wrong", lambda: new(s_tc).from_any(CORBA.Any(long_, 1)))
+case("struct.from_any_position", from_any_position)
+case("struct.assign_wrong", lambda: new(s_tc).assign(new(long_)))
+
+
+def destroy_component():
+    c = new(s_tc).current_component()
+    c.destroy()
+    c.insert_long(2)
+    return str(c.get_long())
+
+
+def destroyed():
+    d = new(s_tc)
+    c = d.current_component()
+    d.destroy()
+    c.get_long()
+
+
+def destroyed_top():
+    d = new(s_tc)
+    d.destroy()
+    d.component_count()
+
+
+def copy_independent():
+    d = new(s_tc)
+    d.copy().insert_long(5)
+    return str(d.current_component().get_long())
+
+
+def equal():
+    d = new(s_tc)
+    e = d.copy()
+    s = b(d.equal(e))
+    e.insert_long(1)
+    return s + b(d.equal(e))
+
+
+case("struct.destroy_component", destroy_component)
+case("struct.destroyed", destroyed)
+case("struct.destroyed_top", destroyed_top)
+case("struct.copy_independent", copy_independent)
+case("struct.equal", equal)
+case("except.count", lambda: str(new(e_tc).component_count()))
+case("except.current_component", lambda: b(new(e_tc).current_component() is None))
+case("except.member_name", lambda: q(new(e_tc).current_member_name()))
+
+# -- enum
+case("enum.get", lambda: q(new(color).get_as_string()))
+case("enum.set_as_string_bad", lambda: new(color).set_as_string("PINK"))
+case("enum.set_as_ulong_bad", lambda: new(color).set_as_ulong(3))
+
+
+def enum_set():
+    d = new(color)
+    d.set_as_ulong(2)
+    return q(d.get_as_string())
+
+
+case("enum.set_as_ulong", enum_set)
+case("enum.current_component", lambda: b(new(color).current_component() is None))
+case("enum.count", lambda: str(new(color).component_count()))
+case("enum.insert_ulong", lambda: new(color).insert_ulong(1))
+
+
+# -- fixed
+def fixed(lit):
+    def f():
+        d = new(money)
+        exact = d.set_value(lit)
+        return b(exact) + q(d.get_value())
+    return f
+
+
+case("fixed.get", lambda: q(new(money).get_value()))
+case("fixed.set", fixed("-12.5"))
+case("fixed.set_d", fixed("1.25d"))
+case("fixed.set_blank", fixed(" 1.25 "))
+case("fixed.set_truncates", fixed("1.239"))
+case("fixed.set_zero_tail", lambda: b(new(money).set_value("1.230")))
+case("fixed.set_too_big", lambda: new(money).set_value("1234.5"))
+case("fixed.set_bad", lambda: new(money).set_value("abc"))
+case("fixed.set_int", fixed("7"))
+
+
+# -- union
+def disc_of(tc, v):
+    d = new(tc)
+    d.from_any(CORBA.Any(tc, v))
+    return d
+
+
+def union_initial():
+    d = new(u_tc)
+    return "%s %s %s" % (d.get_discriminator().get_long(), b(d.has_no_active_member()),
+                         q(d.member_name()))
+
+
+case("union.initial", union_initial)
+case("union.count", lambda: str(new(u_tc).component_count()))
+case("union.position", lambda: str(position(new(u_tc))))
+case("union.default_first",
+     lambda: "%s %s" % (new(d_tc).get_discriminator().get_long(), q(new(d_tc).member_name())))
+case("union.no_default_initial",
+     lambda: "%s %s" % (new(n_tc).get_discriminator().get_short(), q(new(n_tc).member_name())))
+
+
+def set_discriminator():
+    d = new(u_tc)
+    d.set_discriminator(disc_of(long_, 3))
+    return "%s %s" % (q(d.member_name()), position(d))
+
+
+def set_discriminator_keeps():
+    d = new(u_tc)
+    disc = disc_of(long_, 2)
+    d.set_discriminator(disc)
+    d.member().insert_string("kept")
+    disc.insert_long(3)
+    d.set_discriminator(disc)
+    return q(d.member().get_string())
+
+
+def set_discriminator_default():
+    d = new(u_tc)
+    d.set_discriminator(disc_of(long_, 42))
+    return q(d.member_name())
+
+
+def disc_component():
+    d = new(u_tc)
+    d.get_discriminator().insert_long(2)
+    return "%s %s" % (q(d.member_name()), d.component_count())
+
+
+def disc_component_to_none():
+    d = new(n_tc)
+    d.get_discriminator().insert_short(9)
+    return "%s %s" % (b(d.has_no_active_member()), d.component_count())
+
+
+def set_to_default_member():
+    d = new(u_tc)
+    d.set_to_default_member()
+    return "%s %s %s" % (q(d.member_name()), d.get_discriminator().get_long(), position(d))
+
+
+def set_to_no_active_member():
+    d = new(n_tc)
+    d.set_to_no_active_member()
+    return "%s %s %s %s" % (b(d.has_no_active_member()), d.get_discriminator().get_short(),
+                            d.component_count(), position(d))
+
+
+def no_member(op):
+    def f():
+        d = new(n_tc)
+        d.set_to_no_active_member()
+        getattr(d, op)()
+    return f
+
+
+def union_insert_long():
+    d = new(u_tc)
+    d.insert_long(1)
+    return str(position(d))
+
+
+case("union.set_discriminator", set_discriminator)
+case("union.set_discriminator_keeps", set_discriminator_keeps)
+case("union.set_discriminator_default", set_discriminator_default)
+case("union.set_discriminator_wrong", lambda: new(u_tc).set_discriminator(new(short)))
+case("union.disc_component", disc_component)
+case("union.disc_component_to_none", disc_component_to_none)
+case("union.set_to_default_member", set_to_default_member)
+case("union.set_to_default_member_none", lambda: new(n_tc).set_to_default_member())
+case("union.set_to_no_active_member", set_to_no_active_member)
+case("union.set_to_no_active_member_default", lambda: new(u_tc).set_to_no_active_member())
+case("union.set_to_no_active_member_full", lambda: new(b_tc).set_to_no_active_member())
+case("union.member_none", no_member("member"))
+case("union.member_name_none", no_member("member_name"))
+case("union.discriminator_kind", lambda: kind(new(n_tc).discriminator_kind()))
+case("union.member_kind", lambda: kind(new(u_tc).member_kind()))
+case("union.insert_long", union_insert_long)
+case("union.boolean_initial",
+     lambda: "%s %s" % (b(new(b_tc).get_discriminator().get_boolean()),
+                        q(new(b_tc).member_name())))
+
+
+# -- sequence and array
+def seq(*steps):
+    def f():
+        d = new(seq_tc)
+        r = None
+        for s in steps:
+            r = s(d)
+        return r
+    return f
+
+
+case("seq.count", lambda: str(new(seq_tc).component_count()))
+case("seq.current_component", lambda: b(new(seq_tc).current_component() is None))
+case("seq.insert_empty", lambda: new(seq_tc).insert_long(1))
+case("seq.grow_position", seq(lambda d: d.set_length(3), lambda d: str(position(d))))
+case("seq.grow_keeps_position", seq(
+    lambda d: d.set_length(2), lambda d: d.seek(1), lambda d: d.insert_long(4),
+    lambda d: d.set_length(4), lambda d: str(d.current_component().get_long())))
+
+
+def grow_from_minus1(d):
+    d.set_length(2)
+    d.seek(-1)
+    d.set_length(4)
+    s = b(d.current_component() is None)
+    d.insert_long(8)
+    e = d.copy()
+    e.seek(2)
+    return "%s %s" % (s, e.get_long())
+
+
+case("seq.grow_from_minus1", seq(grow_from_minus1))
+case("seq.shrink_position", seq(
+    lambda d: d.set_length(4), lambda d: d.seek(3), lambda d: d.set_length(2),
+    lambda d: b(d.current_component() is None)))
+case("seq.shrink_keeps", seq(
+    lambda d: d.set_length(4), lambda d: d.seek(1), lambda d: d.insert_long(6),
+    lambda d: d.set_length(2), lambda d: str(d.current_component().get_long())))
+case("seq.shrink_to_0", seq(
+    lambda d: d.set_length(4), lambda d: d.set_length(0),
+    lambda d: b(d.current_component() is None)))
+case("seq.bound", lambda: new(bseq_tc).set_length(3))
+
+
+def longs(n):
+    return [CORBA.Any(long_, i) for i in range(n)]
+
+
+case("seq.set_elements_bound", lambda: new(bseq_tc).set_elements(longs(3)))
+case("seq.set_elements_type", lambda: new(seq_tc).set_elements([CORBA.Any(short, 1)]))
+case("seq.set_elements_position",
+     seq(lambda d: d.set_elements(longs(2)), lambda d: str(position(d))))
+case("seq.insert_long_seq", seq(
+    lambda d: d.insert_long_seq([1, 2]),
+    lambda d: "%s %s" % (d.component_count(), position(d))))
+case("seq.get_long_seq", seq(lambda d: d.set_length(2), lambda d: str(len(d.get_long_seq()))))
+case("seq.insert_short_seq", lambda: new(seq_tc).insert_short_seq([1]))
+case("seq.insert_long_seq_bound", lambda: new(bseq_tc).insert_long_seq([0, 0, 0]))
+case("struct.insert_long_seq", lambda: new(s_tc).insert_long_seq([0]))
+
+
+def arr_count():
+    d = new(arr_tc)
+    return "%s %s" % (d.component_count(), position(d))
+
+
+case("arr.count", arr_count)
+case("arr.set_elements_count", lambda: new(arr_tc).set_elements(longs(2)))
+case("arr.insert_long_seq_count", lambda: new(arr_tc).insert_long_seq([0, 0]))
+
+
+# -- valuetypes
+def value_null():
+    d = new(v_tc)
+    return "%s %s" % (b(d.is_null()), d.component_count())
+
+
+def value_set_to_value():
+    d = new(v_tc)
+    d.set_to_value()
+    return "%s %s %s" % (b(d.is_null()), d.component_count(), position(d))
+
+
+def value_set_members():
+    d = new(v_tc)
+    d.set_members([DynamicAny.NameValuePair("n", CORBA.Any(long_, 3))])
+    return "%s %s" % (b(d.is_null()), d.current_component().get_long())
+
+
+case("value.null", value_null)
+case("value.set_to_value", value_set_to_value)
+case("value.get_members_null", lambda: str(len(new(v_tc).get_members())))
+case("value.member_name_null", lambda: q(new(v_tc).current_member_name()))
+case("value.current_component_null", lambda: b(new(v_tc).current_component() is None))
+case("value.set_members", value_set_members)
+
+
+def box_null():
+    d = new(box_tc)
+    return "%s %s" % (b(d.is_null()), d.component_count())
+
+
+def box_set():
+    d = new(box_tc)
+    d.set_boxed_value(CORBA.Any(long_, 4))
+    return "%s %s %s" % (b(d.is_null()), d.component_count(), position(d))
+
+
+def box_set_to_value():
+    d = new(box_tc)
+    d.set_to_value()
+    return str(d.current_component().get_long())
+
+
+case("box.null", box_null)
+case("box.get_null", lambda: new(box_tc).get_boxed_value())
+case("box.set", box_set)
+case("box.set_wrong", lambda: new(box_tc).set_boxed_value(CORBA.Any(short, 4)))
+case("box.set_to_value", box_set_to_value)
+
+orb.destroy()

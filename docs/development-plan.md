@@ -264,3 +264,8 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - 生成器：名前の変換と衝突の検査、struct・enum・union・typedef・定数・例外・操作ごとのエラー型、スタブ・サーバントのトレイト・スケルトン、TypeCode、valuetype・value box。`-Wbextern` で別クレートの生成コードを参照する。`build.rs` 用の `rustorb_codegen::Config`
   - テスト：`crates/rustorb-codegen/tests/rust_mapping.rs`（`RustMapping.idl`、TCP 越しの呼び出しを含む）と `test_rust_backend.py`
   - 置き換え：`interop/impls/rustorb` のクライアント・サーバー・POA プローブと、`rustorb-naming` の CosNaming（クライアントと `rustorb-names`）を生成コードにした。相互接続マトリクス（basic / any / value、GIOP 1.2 / 1.1、omniNames・rustorb-names）、POA プローブ、naming check、OpenRTM の結果は置き換え前と同じ。CI で再生成の差分がないことを確かめる
+- [ ] DynAny（[dynany.md](dynany.md)、[#40](https://github.com/rustorb/rustorb/issues/40)）
+  - [x] コア：`DynAnyFactory`・`DynAny`（`DynFixed`〜`DynValueBox` の操作をすべて持つ）。構成要素は親と状態を共有し、valuetype の共有と循環を保つ
+  - [x] Python：`rustorb.DynamicAny`、`resolve_initial_references("DynAnyFactory")`
+  - [x] 相互接続：`--suite any` の `dyn_check` / `dyn_make` / `dyn_echo`、omniORB C++ と比べるプローブ（`run-dynany-probe.sh`）
+  - [ ] C ABI と C++・Java

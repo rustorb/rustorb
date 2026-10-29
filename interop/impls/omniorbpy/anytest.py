@@ -131,6 +131,63 @@ def same_any(a, b):
     return a.typecode().equal(b.typecode()) and same(a.typecode(), a.value(), b.value())
 
 
+def dyn_any_factory():
+    """The DynAnyFactory of the ORB, None if it has none."""
+    try:
+        return CORBA.ORB_init().resolve_initial_references("DynAnyFactory")
+    except CORBA.ORB.InvalidName:
+        return None
+
+
+#: The get_/insert_ operations of the DynAnys without components, by kind.
+DYN_BASIC = {
+    CORBA.tk_short: "short", CORBA.tk_long: "long", CORBA.tk_ushort: "ushort",
+    CORBA.tk_ulong: "ulong", CORBA.tk_float: "float", CORBA.tk_double: "double",
+    CORBA.tk_boolean: "boolean", CORBA.tk_char: "char", CORBA.tk_octet: "octet",
+    CORBA.tk_TypeCode: "typecode", CORBA.tk_objref: "reference",
+    CORBA.tk_string: "string", CORBA.tk_longlong: "longlong",
+    CORBA.tk_ulonglong: "ulonglong", CORBA.tk_wchar: "wchar", CORBA.tk_wstring: "wstring",
+}
+
+
+def dyn_rebuild(factory, a):
+    """The any ``a`` taken apart with a DynAny and built again in a DynAny
+    made from its TypeCode alone, component by component."""
+    src = factory.create_dyn_any(a)
+    dst = factory.create_dyn_any_from_type_code(a.typecode())
+    dyn_copy(factory, src, dst)
+    rebuilt = dst.to_any()
+    src.destroy()
+    dst.destroy()
+    return rebuilt
+
+
+def dyn_copy(factory, src, dst):
+    tc = src.type()
+    while tc.kind() == CORBA.tk_alias:
+        tc = tc.content_type()
+    k = tc.kind()
+    if k in (CORBA.tk_struct, CORBA.tk_except, CORBA.tk_sequence, CORBA.tk_array):
+        if k == CORBA.tk_sequence:
+            dst.set_length(src.get_length())
+        for i in range(src.component_count()):
+            src.seek(i)
+            dst.seek(i)
+            dyn_copy(factory, src.current_component(), dst.current_component())
+    elif k == CORBA.tk_union:
+        dst.set_discriminator(src.get_discriminator())
+        if not src.has_no_active_member():
+            dyn_copy(factory, src.member(), dst.member())
+    elif k == CORBA.tk_enum:
+        dst.set_as_ulong(src.get_as_ulong())
+    elif k == CORBA.tk_fixed:
+        dst.set_value(src.get_value())
+    elif k == CORBA.tk_any:
+        dst.insert_any(dyn_rebuild(factory, src.get_any()))
+    elif k in DYN_BASIC:
+        getattr(dst, "insert_" + DYN_BASIC[k])(getattr(src, "get_" + DYN_BASIC[k])())
+
+
 class AnyEchoServant(AnyTest__POA.AnyEcho):
 
     def echo(self, a):
@@ -200,6 +257,18 @@ def run_cases(r, echo, check):
         r.case("describe[%s]" % n, lambda n=n: check(
             echo.describe(value(n, echo)) == HIDDEN_DESCRIPTION[n],
             echo.describe(value(n, echo))))
+    factory = dyn_any_factory()
+    if factory is not None:
+        # The values taken apart and built again with DynAny, from their
+        # TypeCodes alone (omniORBpy has no DynAny).
+        for n in NAMES:
+            r.case("dyn_check[%s]" % n, lambda n=n: check(
+                echo.check(n, dyn_rebuild(factory, value(n, echo))) is True))
+            r.case("dyn_make[%s]" % n,
+                   lambda n=n: expect(n, dyn_rebuild(factory, echo.make(n))))
+        for n in HIDDEN:
+            r.case("dyn_echo[%s]" % n, lambda n=n: expect(
+                n, echo.echo(dyn_rebuild(factory, value(n, echo)))))
     r.case("describe[long]", lambda: check(echo.describe(value("long", echo)) == "long "))
     r.case("describe[node]",
            lambda: check(echo.describe(value("node", echo)) == "struct IDL:AnyTest/Node:1.0"))

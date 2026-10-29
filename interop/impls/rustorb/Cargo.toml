@@ -24,6 +24,10 @@ name = "rustorb-poa-probe-server"
 path = "src/poa_probe_server.rs"
 
 [[bin]]
+name = "rustorb-dynany-probe"
+path = "src/dynany_probe.rs"
+
+[[bin]]
 name = "rustorb-naming-check"
 path = "src/naming_check.rs"
 

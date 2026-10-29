@@ -352,7 +352,7 @@ const VM_TRUNCATABLE: i16 = 3;
 
 /// The types of the state members of a valuetype, those of its base
 /// types first; the boxed type of a value box.
-fn state_types(tc: &TypeCode) -> Vec<TypeCode> {
+pub(crate) fn state_types(tc: &TypeCode) -> Vec<TypeCode> {
     if tc.kind() == TCKind::ValueBox {
         return tc.content_type().into_iter().collect();
     }
