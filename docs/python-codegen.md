@@ -18,7 +18,9 @@ pip install ./crates/rustorb-codegen/python
 rustorb-idl -bpython [-I DIR] [-D NAME[=VALUE]] [-C OUTDIR] FILE.idl...
 ```
 
-オプションは omniidl と同じ意味のものを同じ名前にした。`-Wbglobal=NAME`（モジュール外の定義を入れるパッケージ、既定 `_GlobalIDL`）、`-Wbno_stubs`（`.pyi` を書かない）、`--encoding` も受ける。
+オプションは omniidl と同じ意味のものを同じ名前にした。`-Wbglobal=NAME`（モジュール外の定義を入れるパッケージ、既定 `_GlobalIDL`）、`-Wbpackage=PKG`（すべてのモジュールをパッケージ `PKG` の下に置く。`-C DIR` の下の `PKG` のディレクトリに書き、まだない `__init__.py` は空で作る）、`-Wbno_stubs`（`.pyi` を書かない）、`--encoding` も受ける。
+
+`-Wbpackage` は、スタブを自分のパッケージの中に持つアプリケーションのためのもの。たとえば rtctree は `from rtctree.rtc import RTC` で、omniidl の `-Wbpackage=rtctree.rtc` の生成物を import する。生成コードの `__module__` や include したファイルの import もパッケージの下の名前になるので、同じ IDL をパッケージなしで生成したもの（OpenRTM-aist-Python のスタブなど）と同じプロセスに並べられる。
 
 ## 出力のレイアウト
 

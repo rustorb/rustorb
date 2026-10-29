@@ -133,6 +133,11 @@ class UserException(Exception):
     __hash__ = Exception.__hash__
 
 
+#: The IDL boolean constants of the Python mapping.
+TRUE = True
+FALSE = False
+
+
 _completion = _types.Enum(
     "IDL:omg.org/CORBA/completion_status:1.0",
     ("COMPLETED_YES", "COMPLETED_NO", "COMPLETED_MAYBE"),

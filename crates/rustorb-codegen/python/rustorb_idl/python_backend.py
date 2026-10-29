@@ -91,9 +91,11 @@ class Writer(object):
 
 
 class Options(object):
-    def __init__(self, global_module="_GlobalIDL", stubs=True):
+    def __init__(self, global_module="_GlobalIDL", stubs=True, package=""):
         self.global_module = global_module
         self.stubs = stubs
+        # Python package to put everything in (omniidl's -Wbpackage)
+        self.package = package
 
 
 class PythonBackend(object):
@@ -106,16 +108,22 @@ class PythonBackend(object):
 
     # -- names -----------------------------------------------------------
 
+    def in_package(self, name):
+        """``name`` inside the package of ``-Wbpackage``."""
+        return self.opt.package + "." + name if self.opt.package else name
+
     def py_module(self, modules):
         """Python module name of an IDL module (a tuple of names)."""
         if not modules:
-            return self.opt.global_module
-        return ".".join(py_name(m) for m in modules)
+            return self.in_package(self.opt.global_module)
+        return self.in_package(".".join(py_name(m) for m in modules))
 
     def poa_module(self, modules):
         if not modules:
-            return self.opt.global_module + "__POA"
-        return py_name(modules[0]) + "__POA" + "".join("." + py_name(m) for m in modules[1:])
+            return self.in_package(self.opt.global_module + "__POA")
+        return self.in_package(
+            py_name(modules[0]) + "__POA" + "".join("." + py_name(m) for m in modules[1:])
+        )
 
     def modvar(self, pymod):
         """The variable of a ``*_idl.py`` file that holds a module object."""
@@ -218,7 +226,7 @@ class PythonBackend(object):
         if included:
             w("# Files included by %s" % self.idl_name)
             for f in included:
-                w("import %s  # %s" % (module_of_file(f), os.path.basename(f)))
+                w("import %s  # %s" % (self.in_package(module_of_file(f)), os.path.basename(f)))
             w()
         for pymod, var in sorted(self._modvars.items(), key=lambda kv: kv[0]):
             w('%s = _0_rt.open_module("%s", __file__)' % (var, pymod))
@@ -758,7 +766,10 @@ def _read_lists(path):
     return files, subs
 
 
-def package_init(path, pkgname, file_module, subs):
+def package_init(path, idl_module, file_module, subs):
+    """The ``__init__.py`` of the package of the IDL module ``idl_module``
+    (``A::B``), which imports ``file_module`` (a full module name) among
+    the files already listed."""
     files, old_subs = _read_lists(path)
     if file_module not in files:
         files.append(file_module)
@@ -770,7 +781,7 @@ def package_init(path, pkgname, file_module, subs):
     w("#")
     w("# This file is not covered by the license of rustorb-idl.")
     w()
-    w('"""IDL module %s."""' % pkgname.replace("__POA", "").replace(".", "::"))
+    w('"""IDL module %s."""' % idl_module)
     w()
     w("import importlib as _0_importlib")
     w("import sys as _0_sys")
@@ -796,15 +807,27 @@ def write_outputs(backend, outdir):
     return the paths written."""
     written = []
     stub_text = backend.generate_stub_module()
-    path = os.path.join(outdir, backend.file_module + ".py")
+    top = outdir
+    if backend.opt.package:
+        # the packages of -Wbpackage (an existing __init__.py is kept)
+        for part in backend.opt.package.split("."):
+            top = os.path.join(top, part)
+            os.makedirs(top, exist_ok=True)
+            init = os.path.join(top, "__init__.py")
+            if not os.path.exists(init):
+                _write(init, "")
+                written.append(init)
+    path = os.path.join(top, backend.file_module + ".py")
     _write(path, stub_text)
     written.append(path)
+    file_module = backend.in_package(backend.file_module)
     for modules, poa in backend.packages():
         pkg = backend.package_name(modules, poa)
         d = os.path.join(outdir, *pkg.split("."))
         os.makedirs(d, exist_ok=True)
         init = os.path.join(d, "__init__.py")
-        text = package_init(init, pkg, backend.file_module, backend.sub_packages(modules, poa))
+        idl_module = "::".join(modules) or backend.opt.global_module
+        text = package_init(init, idl_module, file_module, backend.sub_packages(modules, poa))
         _write(init, text)
         written.append(init)
         if backend.opt.stubs:

@@ -9,6 +9,7 @@ The options follow omniidl where they mean the same thing:
   -D NAME[=VALUE]   define a preprocessor macro
   -C DIR            write the output under DIR (default: the current directory)
   -Wbglobal=NAME    the module for definitions outside modules (_GlobalIDL)
+  -Wbpackage=PKG    put the Python modules in the package PKG (python)
   -Wbno_stubs       do not write the .pyi type stubs (python)
   -Wbh=SUFFIX       the header suffix (c++11, default .hh)
   -Wbs=SUFFIX       the source suffix (c++11, default .cc)
@@ -58,6 +59,8 @@ def main(argv=None):
     for opt in args.backend_options:
         if backend is python_backend and opt.startswith("bglobal="):
             options.global_module = opt[len("bglobal=") :]
+        elif backend is python_backend and opt.startswith("bpackage="):
+            options.package = opt[len("bpackage=") :].strip(".")
         elif backend is python_backend and opt == "bno_stubs":
             options.stubs = False
         elif backend is cxx_backend and opt.startswith("bh="):

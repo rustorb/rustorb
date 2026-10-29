@@ -101,6 +101,20 @@ class ModuleTest(unittest.TestCase):
         import omniORB
 
         self.assertEqual(omniORB.COMM_FAILURE_WaitingForReply, 0x41540007)
+        self.assertEqual(omniORB.UNKNOWN_UserException, 0x4F4D0001)
+        # rtctree tells a dead object (a zombie) by this minor code
+        import socket
+
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()
+        obj = orb.string_to_object("corbaloc::127.0.0.1:%d/Nothing" % port)
+        with self.assertRaises(omniORB.CORBA.TRANSIENT) as cm:
+            obj._is_a("IDL:omg.org/CORBA/Object:1.0")
+        self.assertEqual(cm.exception.args[0], omniORB.TRANSIENT_ConnectFailed)
+        self.assertIs(omniORB.CORBA.TRUE, True)
+        self.assertIs(omniORB.CORBA.FALSE, False)
 
     def test_cosnaming(self):
         import CosNaming
