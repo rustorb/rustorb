@@ -5,9 +5,10 @@
 #                   [--suite SUITE] [CLIENT:SERVER ...]
 #
 # Without pairs, every client in $CLIENT_IMPLS is paired with every server in
-# $SERVER_IMPLS. Both default to $IMPLS plus rustorb, rustorbpy and rustorbcpp
-# (the Rust, the Python and the C++ client and server of rustorb), which are
-# built on the host.
+# $SERVER_IMPLS. Both default to $IMPLS (omniorbpy, omniorb-cpp and, but for
+# --suite any, jacorb, in the image) plus rustorb, rustorbpy, rustorbcpp and
+# rustorbjava (the Rust, the Python, the C++ and the Java client and server of
+# rustorb), which are built on the host.
 # --build    builds the omniORB image first
 # --capture  captures each client's traffic and splits it into GIOP messages
 # --giop VER limits the client to GIOP VER (e.g. 1.1); the results go to
@@ -26,7 +27,6 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-IMPLS="${IMPLS:-omniorbpy omniorb-cpp}"
 IMAGE="rustorb-interop-omniorb:latest"
 build=0
 capture=0
@@ -44,7 +44,7 @@ while [ $# -gt 0 ]; do
     --naming) naming="$2"; shift ;;
     --suite) suite="$2"; shift ;;
     --out) out="$(realpath -m "$2")"; shift ;;
-    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
     *:*) pairs+=("$1") ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -57,7 +57,14 @@ case "$suite" in
   *) echo "unknown suite: $suite" >&2; exit 2 ;;
 esac
 export SUITE="$suite"
-rustorb_impls="rustorb rustorbpy rustorbcpp"
+# JacORB's generated Helpers do not follow AnyTest.idl (see
+# docs/java-binding.md), so the any suite leaves it out unless asked for.
+if [ "$suite" = any ]; then
+  IMPLS="${IMPLS:-omniorbpy omniorb-cpp}"
+else
+  IMPLS="${IMPLS:-omniorbpy omniorb-cpp jacorb}"
+fi
+rustorb_impls="rustorb rustorbpy rustorbcpp rustorbjava"
 CLIENT_IMPLS="${CLIENT_IMPLS:-$IMPLS $rustorb_impls}"
 SERVER_IMPLS="${SERVER_IMPLS:-$IMPLS $rustorb_impls}"
 
@@ -113,14 +120,28 @@ for pair in "${pairs[@]}"; do
   fi
 done
 
-# Prints the cases listed in known-failures.txt for a client / server pair
-# and the GIOP version limit of the run ($giop, empty for none). The list is
-# for the basic suite: the any suite has no known failures.
+# The rustorb Java client and server, with stubs from rustorb-idl -bjava.
+for pair in "${pairs[@]}"; do
+  if [ "${pair%%:*}" = rustorbjava ] || [ "${pair##*:}" = rustorbjava ]; then
+    impls/rustorbjava/build.sh
+    break
+  fi
+done
+
+# Prints the cases listed in known-failures.txt for a client / server pair,
+# the suite of the run ($suite) and its GIOP version limit ($giop, empty for
+# none).
 known_failures() {
-  local client="$1" server="$2" c s case rest
-  [ "$suite" = basic ] || return 0
+  local client="$1" server="$2" c s case rest want
   while read -r c s case rest; do
     case "$c" in ''|'#'*) continue ;; esac
+    # A leading suite=SUITE applies the line to that suite instead of basic.
+    want=basic
+    if [[ "$c" == suite=* ]]; then
+      want="${c#suite=}"
+      read -r c s case rest <<< "$s $case $rest"
+    fi
+    [ "$want" = "$suite" ] || continue
     # A leading giop=VER applies the line only to runs with --giop VER.
     if [[ "$c" == giop=* ]]; then
       [ "${c#giop=}" = "$giop" ] || continue

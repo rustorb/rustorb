@@ -5,11 +5,13 @@ The options follow omniidl where they mean the same thing:
   -bpython          Python stubs and skeletons (standard Python mapping)
   -bc++11           C++ stubs and skeletons (IDL to C++11 mapping); also
                     -bcxx11
+  -bjava            Java stubs and skeletons (IDL to Java mapping)
   -I DIR            look for #include files in DIR
   -D NAME[=VALUE]   define a preprocessor macro
   -C DIR            write the output under DIR (default: the current directory)
   -Wbglobal=NAME    the module for definitions outside modules (_GlobalIDL)
-  -Wbpackage=PKG    put the Python modules in the package PKG (python)
+  -Wbpackage=PKG    put the Python modules in the package PKG (python), or
+                    every Java package under PKG (java)
   -Wbno_stubs       do not write the .pyi type stubs (python)
   -Wbh=SUFFIX       the header suffix (c++11, default .hh)
   -Wbs=SUFFIX       the source suffix (c++11, default .cc)
@@ -21,6 +23,7 @@ import sys
 from . import __version__
 from . import cxx_backend
 from . import frontend
+from . import java_backend
 from . import python_backend
 
 
@@ -33,7 +36,7 @@ def parse_args(argv):
         add_help=True,
     )
     ap.add_argument(
-        "-b", dest="backend", required=True, metavar="BACKEND", help="the backend: python or c++11"
+        "-b", dest="backend", required=True, metavar="BACKEND", help="the backend: python, c++11 or java"
     )
     ap.add_argument("-I", dest="include", action="append", default=[], metavar="DIR")
     ap.add_argument("-D", dest="define", action="append", default=[], metavar="NAME[=VALUE]")
@@ -51,15 +54,19 @@ def main(argv=None):
         backend, options = python_backend, python_backend.Options()
     elif args.backend in ("c++11", "cxx11"):
         backend, options = cxx_backend, cxx_backend.Options()
+    elif args.backend == "java":
+        backend, options = java_backend, java_backend.Options()
     else:
         sys.stderr.write(
-            "rustorb-idl: unknown backend %r (python and c++11 are available)\n" % args.backend
+            "rustorb-idl: unknown backend %r (python, c++11 and java are available)\n" % args.backend
         )
         return 2
     for opt in args.backend_options:
         if backend is python_backend and opt.startswith("bglobal="):
             options.global_module = opt[len("bglobal=") :]
         elif backend is python_backend and opt.startswith("bpackage="):
+            options.package = opt[len("bpackage=") :].strip(".")
+        elif backend is java_backend and opt.startswith("bpackage="):
             options.package = opt[len("bpackage=") :].strip(".")
         elif backend is python_backend and opt == "bno_stubs":
             options.stubs = False
@@ -80,6 +87,8 @@ def main(argv=None):
             spec = frontend.load(path, args.include, defines, args.encoding)
             if backend is python_backend:
                 generator = python_backend.PythonBackend(spec, options)
+            elif backend is java_backend:
+                generator = java_backend.JavaBackend(spec, options)
             else:
                 generator = cxx_backend.CxxBackend(spec, options)
             backend.write_outputs(generator, args.outdir)

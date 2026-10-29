@@ -1,0 +1,6 @@
+// AnyTest.idl and AnyTestHidden.idl for JacORB's IDL compiler (run with
+// -all, so that the included files are compiled too), with the orb.idl
+// next to this file.
+
+#include <orb.idl>
+#include "AnyTestHidden.idl"

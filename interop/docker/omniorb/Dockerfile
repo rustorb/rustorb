@@ -1,12 +1,13 @@
 # syntax=docker/dockerfile:1
 #
-# omniORB / omniORBpy / omniNames image for the rustorb interop tests.
+# omniORB / omniORBpy / omniNames (and JacORB) image for the rustorb interop tests.
 #
 # Build context: the interop/ directory.
 #   docker build -f interop/docker/omniorb/Dockerfile -t rustorb-interop-omniorb interop
 #
 # omniORBpy is not packaged for Ubuntu 24.04, so both omniORB and omniORBpy
 # are built from the upstream release tarballs, pinned by version and sha256.
+# JacORB comes from its release jars on Maven Central (the jacorb-build stage).
 
 ARG UBUNTU_VERSION=24.04
 
@@ -92,16 +93,62 @@ RUN mkdir /src/openrtm/build && cd /src/openrtm/build \
  && test -x /opt/openrtm/examples/MyServiceConsumerComp && ls /opt/openrtm/lib/libRTC2.so*
 
 # ---------------------------------------------------------------------------
+# JacORB (Java) for the jacorb client and server: the release jars from Maven
+# Central, pinned by version and sha256, with stubs from JacORB's own IDL
+# compiler and the Java sources shared with rustorbjava (impls/java).
+# JacORB 3.9 uses javax.rmi.CORBA, which Java 11 dropped, so the javax.rmi
+# API jar comes too.
+FROM ubuntu:${UBUNTU_VERSION} AS jacorb-build
+
+ARG JACORB_VERSION=3.9
+ARG MAVEN=https://repo1.maven.org/maven2
+
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      openjdk-17-jdk-headless \
+ && rm -rf /var/lib/apt/lists/*
+
+ADD --checksum=sha256:cb833df39c6e30caca29f2c244901c2d5566c8c6aac3ea59842024c5f5264ee2 \
+    ${MAVEN}/org/jacorb/jacorb/${JACORB_VERSION}/jacorb-${JACORB_VERSION}.jar /opt/jacorb/lib/
+ADD --checksum=sha256:247f565dfd4b0c1ee54b1e0a6288be84fc66ae961c34715171ca2867c6857447 \
+    ${MAVEN}/org/jacorb/jacorb-omgapi/${JACORB_VERSION}/jacorb-omgapi-${JACORB_VERSION}.jar /opt/jacorb/lib/
+ADD --checksum=sha256:b030a29e088dea60b07c7299d25f43cbd120502e10dcae3f382435ecd5de5ddd \
+    ${MAVEN}/org/slf4j/slf4j-api/1.7.14/slf4j-api-1.7.14.jar /opt/jacorb/lib/
+ADD --checksum=sha256:2983d6db3a53ab1496b24703763b9fcfea53caf6550dd2200066ab552cc9e69b \
+    ${MAVEN}/org/slf4j/slf4j-jdk14/1.7.14/slf4j-jdk14-1.7.14.jar /opt/jacorb/lib/
+ADD --checksum=sha256:07615653320a010a648d164e77751daddcfea5602148aa4da2f052bc6af0689e \
+    ${MAVEN}/org/jboss/spec/javax/rmi/jboss-rmi-api_1.0_spec/1.0.6.Final/jboss-rmi-api_1.0_spec-1.0.6.Final.jar \
+    /opt/jacorb/lib/
+ADD --checksum=sha256:cc2ff5b6751eb6767a5d3f4e05c330ff6791d04c12609e09cf25459bbba829d7 \
+    ${MAVEN}/org/jacorb/jacorb-idl-compiler/${JACORB_VERSION}/jacorb-idl-compiler-${JACORB_VERSION}.jar /src/jacorb-idl/
+ADD --checksum=sha256:e58a2604a85ab985fb94037c889bef90b0c2a862030c03b0e830aa54a4931037 \
+    ${MAVEN}/java_cup/java_cup/0.9e/java_cup-0.9e.jar /src/jacorb-idl/
+
+COPY idl /opt/interop/idl
+COPY impls/java /src/java
+COPY impls/jacorb/idl /src/jacorb-idl/idl
+RUN java -cp '/src/jacorb-idl/*' org.jacorb.idl.parser -d /src/jacorb-gen \
+      /opt/interop/idl/InteropTest.idl \
+ && java -cp '/src/jacorb-idl/*' org.jacorb.idl.parser -all -I/opt/interop/idl \
+      -I/src/jacorb-idl/idl -d /src/jacorb-gen /src/jacorb-idl/idl/AnyAll.idl \
+ && find /src/jacorb-gen /src/java -name '*.java' > /src/sources.txt \
+ && javac --release 11 -encoding UTF-8 -nowarn -cp '/opt/jacorb/lib/*' -d /opt/interop/impls/jacorb/classes \
+      @/src/sources.txt
+
+# ---------------------------------------------------------------------------
 FROM ubuntu:${UBUNTU_VERSION}
 
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      python3 libstdc++6 libuuid1 tcpdump iproute2 \
+      python3 libstdc++6 libuuid1 tcpdump iproute2 openjdk-17-jre-headless \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=omniorb-build /opt/omniorb /opt/omniorb
 COPY --from=impl-build /opt/interop /opt/interop
 COPY --from=openrtm-build /opt/openrtm /opt/openrtm
+COPY --from=jacorb-build /opt/jacorb /opt/jacorb
+COPY --from=jacorb-build /opt/interop/impls/jacorb /opt/interop/impls/jacorb
+COPY impls/jacorb/client impls/jacorb/server /opt/interop/impls/jacorb/
 COPY scripts /opt/interop/scripts
 
 ENV PATH=/opt/omniorb/bin:/opt/interop/scripts:$PATH \

@@ -6,6 +6,8 @@ Rust製のCORBA実装
 - [開発計画](docs/development-plan.md)
 - [Python生成器（rustorb-idl -bpython）](docs/python-codegen.md)
 - [Python バインディング（PyO3）](docs/python-binding.md)
+- [C++ バインディング（C ABI + IDL to C++11）](docs/cpp-binding.md)
+- [Java バインディング（JNI + IDL to Java）](docs/java-binding.md)
 
 ## クレート構成
 
@@ -17,7 +19,8 @@ Rust製のCORBA実装
 | `rustorb-naming` | CosNaming（Naming Service） | MIT OR Apache-2.0 |
 | `rustorb-python` | Python パッケージ `rustorb` のネイティブモジュール `rustorb._native`（PyO3、[docs/python-binding.md](docs/python-binding.md)） | MIT OR Apache-2.0 |
 | `rustorb-ffi` | C++・Javaバインディング向けの安定C ABI層 | MIT OR Apache-2.0 |
-| `rustorb-codegen` | IDLコード生成器（idl_parserのASTを入力）。`python/` に `rustorb-idl` コマンド（Python バックエンド、[docs/python-codegen.md](docs/python-codegen.md)） | GPL-3.0-or-later |
+| `rustorb-jni` | Java バインディングの JNI ライブラリ `librustorb_jni`（`rustorb-ffi` の C ABI の上、[docs/java-binding.md](docs/java-binding.md)） | MIT OR Apache-2.0 |
+| `rustorb-codegen` | IDLコード生成器（idl_parserのASTを入力）。`python/` に `rustorb-idl` コマンド（Python・C++11・Java のバックエンド、[docs/python-codegen.md](docs/python-codegen.md)） | GPL-3.0-or-later |
 
 Python パッケージ `rustorb`（`python/rustorb`）は、Python から使う rustorb です。IDL から `rustorb-idl -bpython` で生成したコードと、`from rustorb import CORBA, PortableServer` で使います。`pip install ./python` で maturin がネイティブモジュール（`crates/rustorb-python`）をビルドしてインストールします。
 
@@ -34,6 +37,13 @@ Python のテスト（ORB と生成器のテストには [idl_parser](https://gi
 python/build-native.sh
 PYTHONPATH=path/to/idl_parser python3 -m unittest discover -s python/tests
 PYTHONPATH=path/to/idl_parser python3 -m unittest discover -s crates/rustorb-codegen/python/tests
+```
+
+C++ と Java のテスト（CMake、Maven。どちらも cargo でネイティブライブラリをビルドし、rustorb-idl でテスト用の IDL からコードを生成する）：
+
+```sh
+cmake -S cpp -B build/cpp -DIDL_PARSER_DIR=path/to/idl_parser && cmake --build build/cpp && ctest --test-dir build/cpp
+mvn -f java/pom.xml -Didl.parser.dir=path/to/idl_parser verify
 ```
 
 ファジング（nightlyと [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) が必要）：

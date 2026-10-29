@@ -3,12 +3,12 @@
 # The implementation used by each role is chosen with environment variables,
 # so that rustorb can be plugged in later without changing this file:
 #
-#   SERVER_IMPL / CLIENT_IMPL   directory under impls/ (omniorbpy, omniorb-cpp, rustorb,
-#                               rustorbpy, rustorbcpp)
+#   SERVER_IMPL / CLIENT_IMPL   directory under impls/ (omniorbpy, omniorb-cpp, jacorb,
+#                               rustorb, rustorbpy, rustorbcpp, rustorbjava)
 #   *_IMAGE                     image that contains that implementation
 #   NAMING_CMD                  command that starts the naming service
 #                               (impls/rustorb/naming-service 2809 for rustorb)
-#   CLIENT_MAX_GIOP             highest GIOP version the client uses (omniORB)
+#   CLIENT_MAX_GIOP             highest GIOP version the client uses
 #   SUITE / ECHO_NAME           the test suite (basic: InteropTest.idl, any:
 #                               AnyTest.idl) and the name of its object
 #
@@ -35,6 +35,7 @@ services:
       - ./impls/rustorb:/opt/interop/impls/rustorb:ro
       - ./impls/rustorbpy:/opt/interop/impls/rustorbpy:ro
       - ./impls/rustorbcpp:/opt/interop/impls/rustorbcpp:ro
+      - ./impls/rustorbjava:/opt/interop/impls/rustorbjava:ro
     command:
       - impls/${SERVER_IMPL:-omniorbpy}/server
       - --naming
@@ -65,6 +66,7 @@ services:
       - ./impls/rustorb:/opt/interop/impls/rustorb:ro
       - ./impls/rustorbpy:/opt/interop/impls/rustorbpy:ro
       - ./impls/rustorbcpp:/opt/interop/impls/rustorbcpp:ro
+      - ./impls/rustorbjava:/opt/interop/impls/rustorbjava:ro
     command:
       - run-client
       - impls/${CLIENT_IMPL:-omniorbpy}/client
