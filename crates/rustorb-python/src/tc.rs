@@ -15,6 +15,9 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 use pyo3::prelude::*;
 use pyo3::types::{PyString, PyTuple};
 
+use rustorb_core::TypeCode;
+
+use crate::any::tc_from_py;
 use crate::error::{bad_typecode, sys_err};
 
 /// A compiled TypeCode, shared by the types that contain it.
@@ -62,6 +65,8 @@ mod kind {
     pub const WCHAR: u32 = 26;
     pub const WSTRING: u32 = 27;
     pub const FIXED: u32 = 28;
+    pub const VALUE: u32 = 29;
+    pub const VALUE_BOX: u32 = 30;
     pub const ABSTRACT_INTERFACE: u32 = 32;
     pub const LOCAL_INTERFACE: u32 = 33;
 }
@@ -125,6 +130,21 @@ pub(crate) enum Tc {
     /// interface is marshalled the same way).
     Objref {
         id: String,
+    },
+    /// A valuetype: its repository id, the class of its values (if it
+    /// has one), its core TypeCode, which marshals it, and its state
+    /// members, those of its base types first, with the names of their
+    /// Python attributes.
+    Value {
+        id: String,
+        class: Option<Py<PyAny>>,
+        core: TypeCode,
+        members: Vec<(Py<PyString>, TcRef)>,
+    },
+    /// A value box: its core TypeCode and the boxed type.
+    ValueBox {
+        core: TypeCode,
+        content: TcRef,
     },
     /// `any`.
     Any,
@@ -226,6 +246,47 @@ pub(crate) fn compile_op<'py>(op: &Bound<'py, PyAny>) -> PyResult<Bound<'py, Com
     )?;
     op.setattr("_native", &compiled)?;
     Ok(compiled)
+}
+
+/// Compiled valuetypes by repository id, for values whose type is not the
+/// declared one: those registered by generated code, and those found in
+/// `_rt.typecodes` when first met.
+static VALUE_TYPES: Mutex<Option<HashMap<String, TcRef>>> = Mutex::new(None);
+
+/// Registers the valuetype `tc` (a `CORBA.TypeCode`): values of it can be
+/// sent where a base type is declared, and read where one is expected.
+pub(crate) fn register_value_type(tc: &Bound<'_, PyAny>) -> PyResult<()> {
+    let core = tc_from_py(tc)?;
+    let mut c = Compiler::default();
+    let compiled = c.tc(tc)?;
+    c.commit();
+    let id: String = tc.getattr("_id")?.extract()?;
+    rustorb_core::register_value_type(&core);
+    VALUE_TYPES
+        .lock()
+        .unwrap()
+        .get_or_insert_with(HashMap::new)
+        .insert(id, compiled);
+    Ok(())
+}
+
+/// The compiled valuetype `id`: registered, or defined by generated code.
+pub(crate) fn value_type(py: Python<'_>, id: &str) -> PyResult<Option<TcRef>> {
+    if let Some(tc) = VALUE_TYPES.lock().unwrap().as_ref().and_then(|m| m.get(id)) {
+        return Ok(Some(Arc::clone(tc)));
+    }
+    let typecodes = crate::error::rt(py)?.getattr("typecodes")?;
+    let tc = typecodes.call_method1("get", (id,))?;
+    if tc.is_none() || tc.getattr("_k")?.getattr("_v")?.extract::<u32>()? != kind::VALUE {
+        return Ok(None);
+    }
+    register_value_type(&tc)?;
+    Ok(VALUE_TYPES
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|m| m.get(id))
+        .cloned())
 }
 
 /// Compiles TypeCodes, sharing the ones already compiled. The new ones go to
@@ -378,6 +439,42 @@ impl Compiler {
                     items: items.unbind(),
                 }
             }
+            kind::VALUE => {
+                let py = tc.py();
+                let core = tc_from_py(tc)?;
+                let class = tc.getattr("_class")?;
+                let class = (!class.is_none()).then(|| class.unbind());
+                let mut members = Vec::new();
+                let base = tc.getattr("_base")?;
+                if !base.is_none() && base.getattr("_k")?.getattr("_v")?.extract::<u32>()? == k {
+                    let base = self.tc(&base)?;
+                    if let Tc::Value { members: m, .. } = &**base {
+                        members.extend(m.iter().map(|(n, t)| (n.clone_ref(py), Arc::clone(t))));
+                    }
+                }
+                let iskeyword = py.import("keyword")?.getattr("iskeyword")?;
+                for m in tc.getattr("_members")?.try_iter()? {
+                    let m = m?;
+                    let name: String = m.get_item(0)?.extract()?;
+                    let attr = if iskeyword.call1((&name,))?.is_truthy()? {
+                        format!("_{name}")
+                    } else {
+                        name
+                    };
+                    let mtc = self.tc(&m.get_item(1)?)?;
+                    members.push((PyString::intern(py, &attr).unbind(), mtc));
+                }
+                Tc::Value {
+                    id: id()?,
+                    class,
+                    core,
+                    members,
+                }
+            }
+            kind::VALUE_BOX => Tc::ValueBox {
+                core: tc_from_py(tc)?,
+                content: self.tc(&tc.getattr("_content")?)?,
+            },
             kind::OBJREF | kind::ABSTRACT_INTERFACE | kind::LOCAL_INTERFACE => {
                 Tc::Objref { id: id()? }
             }

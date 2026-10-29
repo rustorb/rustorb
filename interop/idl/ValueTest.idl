@@ -1,0 +1,84 @@
+// Interop test IDL for valuetypes (the value suite).
+//
+// The comment on each operation is its specification: every server must
+// implement it exactly, and every client runs the same cases.
+
+#ifndef VALUE_TEST_IDL
+#define VALUE_TEST_IDL
+
+module ValueTest {
+  // A plain valuetype.
+  valuetype Point {
+    public long x;
+    public long y;
+  };
+
+  // A truncatable derived valuetype, sent chunked with the ids of both
+  // types; a private member.
+  valuetype Point3 : truncatable Point {
+    public long z;
+    private string label;
+  };
+
+  // A recursive valuetype: lists and cycles.
+  valuetype Node {
+    public long id;
+    public Node next;
+  };
+
+  // A valuetype with members of constructed types and of other
+  // valuetypes.
+  struct Pair {
+    Point first;
+    Point second;
+  };
+  typedef sequence<Point> PointSeq;
+  valuetype Shape {
+    public string name;
+    public PointSeq points;
+    public Point center;
+    public double area;
+  };
+
+  // Value boxes.
+  valuetype LongBox long;
+  valuetype StringBox string;
+  valuetype PairBox Pair;
+
+  interface ValueEcho {
+    // Returns p (null stays null).
+    Point echo_point(in Point p);
+
+    // Returns p, sharing preserved: when first and second are the same
+    // instance, so are those returned.
+    Pair echo_pair(in Pair p);
+
+    // Returns n with the nodes it reaches, cycles included.
+    Node echo_node(in Node n);
+
+    // Returns s.
+    Shape echo_shape(in Shape s);
+
+    // Returns s; elements that are one instance stay one.
+    PointSeq echo_points(in PointSeq s);
+
+    // Whether a and b arrived as the same instance.
+    boolean same(in Point a, in Point b);
+
+    // The number of nodes reachable from n, each counted once.
+    long count_nodes(in Node n);
+
+    // Returns b (null stays null).
+    LongBox echo_long_box(in LongBox b);
+    StringBox echo_string_box(in StringBox b);
+    PairBox echo_pair_box(in PairBox b);
+
+    // Returns a (an any that holds a valuetype).
+    any echo_any(in any a);
+
+    // Ends the server.
+    oneway void shutdown();
+  };
+};
+
+#endif

@@ -88,6 +88,10 @@ class StubWriter(object):
                 return "_EnumItem"
             if fe.is_interface(n):
                 return "Optional[%s]" % self.name_of(n)
+            if fe.is_valuetype(n):
+                if n.is_boxed:
+                    return "Optional[%s]" % self.hint(fe.type_of(n.boxed_type, n))
+                return "Optional[%s]" % self.name_of(n)
             if fe.is_native(n):
                 return "Any"
             return self.name_of(n)
@@ -164,6 +168,24 @@ class StubWriter(object):
                     w("_tc_%s: CORBA.TypeCode" % node.name)
                 return
             self.interface(node)
+        elif fe.is_valuetype(node):
+            if fe.is_forward(node):
+                w("_tc_%s: CORBA.TypeCode" % node.name)
+            elif node.is_boxed:
+                w("class %s:" % py_name(node.name))
+                w("    _NP_RepositoryId: str")
+                w("_tc_%s: CORBA.TypeCode" % node.name)
+            else:
+                bases = [self.name_of(b) for b in fe.value_bases(node)] or ["CORBA.ValueBase"]
+                w("class %s(%s):" % (py_name(node.name), ", ".join(bases)))
+                self.level += 1
+                w("_NP_RepositoryId: str")
+                for m in node.state_members:
+                    w("%s: %s" % (py_name(m.name), self.hint(fe.type_of(m.type, m))))
+                w("def __init__(self, *args: Any, **kw: Any) -> None: ...")
+                self.nested(node)
+                self.level -= 1
+                w("_tc_%s: CORBA.TypeCode" % node.name)
         elif fe.is_native(node):
             w("_tc_%s: CORBA.TypeCode" % node.name)
         elif fe.is_struct(node) or fe.is_union(node):

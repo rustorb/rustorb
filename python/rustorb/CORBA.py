@@ -10,6 +10,7 @@ it.
 import atexit as _atexit
 import builtins as _builtins
 import decimal as _decimal
+import reprlib as _reprlib
 import threading as _threading
 from typing import Optional
 
@@ -97,6 +98,16 @@ TCKind = _types.Enum("IDL:omg.org/CORBA/TCKind:1.0", _TCKIND_NAMES)
     tk_abstract_interface,
     tk_local_interface,
 ) = TCKind._items
+
+#: Type modifiers of valuetypes (``TypeCode.type_modifier``).
+VM_NONE = 0
+VM_CUSTOM = 1
+VM_ABSTRACT = 2
+VM_TRUNCATABLE = 3
+
+#: Visibility of valuetype state members (``TypeCode.member_visibility``).
+PRIVATE_MEMBER = 0
+PUBLIC_MEMBER = 1
 
 # ---------------------------------------------------------------------------
 # Exceptions
@@ -254,6 +265,9 @@ class TypeCode(object):
         self._digits = params.get("digits", 0)
         self._scale = params.get("scale", 0)
         self._class = params.get("cls")
+        # valuetypes: members are [(name, TypeCode, visibility)]
+        self._modifier = params.get("modifier", VM_NONE)
+        self._base = params.get("base")
 
     def __repr__(self):
         if self._id:
@@ -302,11 +316,11 @@ class TypeCode(object):
         return self._name
 
     def member_count(self):
-        self._need(tk_struct, tk_union, tk_enum, tk_except)
+        self._need(tk_struct, tk_union, tk_enum, tk_except, tk_value)
         return len(self._members)
 
     def _member(self, index):
-        self._need(tk_struct, tk_union, tk_enum, tk_except)
+        self._need(tk_struct, tk_union, tk_enum, tk_except, tk_value)
         if not 0 <= index < len(self._members):
             raise TypeCode.Bounds()
         return self._members[index]
@@ -316,8 +330,20 @@ class TypeCode(object):
         return m if self._k is tk_enum else m[0]
 
     def member_type(self, index):
-        self._need(tk_struct, tk_union, tk_except)
+        self._need(tk_struct, tk_union, tk_except, tk_value)
         return self._member(index)[1]
+
+    def member_visibility(self, index):
+        self._need(tk_value)
+        return self._member(index)[2]
+
+    def type_modifier(self):
+        self._need(tk_value)
+        return self._modifier
+
+    def concrete_base_type(self):
+        self._need(tk_value)
+        return self._base if self._base is not None else TC_null
 
     def member_label(self, index):
         self._need(tk_union)
@@ -394,12 +420,25 @@ def _tc_equal(a, b, seen, alias):
         tk_enum,
         tk_alias,
         tk_except,
+        tk_value,
+        tk_value_box,
         tk_native,
         tk_abstract_interface,
         tk_local_interface,
     ):
         if a._id != b._id or a._name != b._name:
             return False
+    if k is tk_value:
+        if a._modifier != b._modifier or len(a._members) != len(b._members):
+            return False
+        if (a._base is None) != (b._base is None):
+            return False
+        if a._base is not None and not _tc_equal(a._base, b._base, seen, alias):
+            return False
+        for (an, at, av), (bn, bt, bv) in zip(a._members, b._members):
+            if an != bn or av != bv or not _tc_equal(at, bt, seen, alias):
+                return False
+        return True
     if k is tk_enum:
         return list(a._members) == list(b._members)
     if k in (tk_struct, tk_except, tk_union):
@@ -562,6 +601,44 @@ class fixed(object):
 
 # ---------------------------------------------------------------------------
 # Object references
+
+
+class ValueBase(object):
+    """Base class of the classes of valuetypes.
+
+    ``_NP_members`` names the state members, those of the base valuetypes
+    first. An instance is made with all of them, by position or by name,
+    or with none, to set afterwards (as value factories do).
+    """
+
+    _NP_RepositoryId = "IDL:omg.org/CORBA/ValueBase:1.0"
+    _NP_members: tuple = ()
+
+    def __init__(self, *args, **kw):
+        if not args and not kw:
+            return
+        names = self._NP_members
+        if len(args) > len(names):
+            raise TypeError(
+                "%s takes %d state members, not %d" % (type(self).__name__, len(names), len(args))
+            )
+        values = dict(zip(names, args))
+        for k, v in kw.items():
+            if k not in names or k in values:
+                raise TypeError("%s: unexpected or repeated member %r" % (type(self).__name__, k))
+            values[k] = v
+        if len(values) != len(names):
+            missing = [n for n in names if n not in values]
+            raise TypeError("%s: missing members %s" % (type(self).__name__, ", ".join(missing)))
+        for k, v in values.items():
+            setattr(self, k, v)
+
+    @_reprlib.recursive_repr()
+    def __repr__(self):
+        return "%s(%s)" % (
+            type(self).__name__,
+            ", ".join("%s=%r" % (n, getattr(self, n, None)) for n in self._NP_members),
+        )
 
 
 class Object(object):
@@ -838,6 +915,50 @@ class ORB(object):
     def create_value_box_tc(self, id, name, boxed_type):
         return TypeCode(tk_value_box, id, name, content=boxed_type)
 
+    def create_value_tc(self, id, name, type_modifier, concrete_base, members):
+        """A valuetype TypeCode. ``members`` are :class:`ValueMember`
+        (or ``(name, type, access)`` tuples); ``concrete_base`` may be None
+        or ``TC_null``."""
+        from . import _rt
+
+        if concrete_base is not None and concrete_base._k is tk_null:
+            concrete_base = None
+        tc = TypeCode(
+            tk_value,
+            id,
+            name,
+            modifier=type_modifier,
+            base=concrete_base,
+            members=[
+                (m.name, m.type, m.access) if isinstance(m, ValueMember) else tuple(m)[:3]
+                for m in members
+            ],
+        )
+        _resolve_recursive(tc, id)
+        _rt.make_class(tc)
+        return tc
+
+    # -- value factories --
+
+    def register_value_factory(self, id, factory):
+        """Registers ``factory`` (a callable without arguments that
+        returns a new instance) for the valuetype ``id``; returns the
+        factory it replaces, or None."""
+        from . import _rt
+
+        return _rt.register_value_factory(id, factory)
+
+    def unregister_value_factory(self, id):
+        from . import _rt
+
+        if _rt.unregister_value_factory(id) is None:
+            raise BAD_PARAM(0, COMPLETED_NO)
+
+    def lookup_value_factory(self, id):
+        from . import _rt
+
+        return _rt.lookup_value_factory(id)
+
     def create_interface_tc(self, id, name):
         return TypeCode(tk_objref, id, name)
 
@@ -903,6 +1024,24 @@ class UnionMember(_types.Struct):
         self.type_def = type_def
 
 
+class ValueMember(_types.Struct):
+    """A member for ``ORB.create_value_tc``."""
+
+    _NP_RepositoryId = "IDL:omg.org/CORBA/ValueMember:1.0"
+    _NP_members = ("name", "id", "defined_in", "version", "type", "type_def", "access")
+
+    def __init__(
+        self, name, id, defined_in, version, type, type_def=None, access=PUBLIC_MEMBER
+    ):  # noqa: A002
+        self.name = name
+        self.id = id
+        self.defined_in = defined_in
+        self.version = version
+        self.type = type
+        self.type_def = type_def
+        self.access = access
+
+
 def _member_fields(m, n):
     """(name, type) of a StructMember, (name, label, type) of a
     UnionMember, or the same from a tuple."""
@@ -937,14 +1076,16 @@ def _resolve_recursive(tc, id):
             t._content = fix(t._content)
         if t._disc is not None:
             t._disc = fix(t._disc)
+        if t._base is not None:
+            t._base = fix(t._base)
         if t._members is not None and t._k is not tk_enum:
-            t._members = [(n, fix(mt)) for n, mt in t._members]
+            t._members = [(m[0], fix(m[1])) + tuple(m[2:]) for m in t._members]
         return t
 
     id_ = _builtins.id
     seen.add(id_(tc))
     if tc._members is not None:
-        tc._members = [(n, fix(mt)) for n, mt in tc._members]
+        tc._members = [(m[0], fix(m[1])) + tuple(m[2:]) for m in tc._members]
 
 
 def ORB_init(argv=None, orb_identifier=ORB_ID):
@@ -966,7 +1107,10 @@ def ORB_init(argv=None, orb_identifier=ORB_ID):
             argv[:] = rest
         orb = ORB(native, orb_identifier)
         _orbs[orb_identifier] = orb
-        return orb
+    from . import _rt
+
+    _rt.flush_values()
+    return orb
 
 
 def _default_orb():

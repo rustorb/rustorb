@@ -178,7 +178,7 @@ impl Value {
                     stack.extend(member.map(|(_, v)| *v));
                 }
                 Value::Any(a) => stack.push(a.value),
-                Value::Valuetype(Some(r)) => stack.extend(std::mem::take(&mut *r.lock())),
+                Value::Valuetype(Some(r)) => stack.extend(r.take_members()),
                 _ => {}
             }
         }
@@ -229,6 +229,11 @@ impl ValueRef {
     /// Replaces the values of the state members.
     pub fn set_members(&self, members: Vec<Value>) {
         *self.lock() = members;
+    }
+
+    /// Takes the values of the state members, leaving none.
+    pub fn take_members(&self) -> Vec<Value> {
+        std::mem::take(&mut *self.lock())
     }
 
     /// Whether both are the same instance.

@@ -7,19 +7,282 @@
 //! taking the GIL, and a servant thread holds the GIL only for the Python
 //! part of an upcall.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::ops::Deref;
 use std::sync::{Arc, Weak};
 
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyList, PyString, PyTuple};
 use rustorb_core::cdr::CdrEncode;
-use rustorb_core::{CompletionStatus, InStream, OutStream, SystemException};
+use rustorb_core::{CompletionStatus, InStream, OutStream, SystemException, ValueRef};
 
 use crate::any;
 use crate::error::{bad_param, corba, marshal, rt, sys_err};
 use crate::orb::ObjRef;
-use crate::tc::{Tc, TcCell};
+use crate::tc::{Tc, TcCell, TcRef, value_type};
 
 pub(crate) use rustorb_core::Value;
+
+// --- valuetypes ------------------------------------------------------------------
+
+/// The valuetypes converted while a scope is open, both ways, so that an
+/// instance met twice is converted once (and sent once, as an
+/// indirection), and cycles end.
+#[derive(Default)]
+struct Memo {
+    /// By the address of the Python object, which the entry keeps alive.
+    to_core: HashMap<usize, (Py<PyAny>, ValueRef)>,
+    /// By [`ValueRef::key`], with the instance, kept alive likewise.
+    to_py: HashMap<u64, (ValueRef, Py<PyAny>)>,
+}
+
+thread_local! {
+    static MEMO: RefCell<Option<Memo>> = const { RefCell::new(None) };
+}
+
+/// Where the values of one request or reply are converted (arguments,
+/// results, an exception). The outermost scope of a thread owns the memo;
+/// when it ends, the instances made from Python objects are emptied, so
+/// that cycles among them are freed.
+pub(crate) struct ValueScope {
+    owner: bool,
+    release: bool,
+}
+
+impl ValueScope {
+    /// Opens a scope whose values are not used after it ends.
+    pub(crate) fn enter() -> ValueScope {
+        ValueScope::open(true)
+    }
+
+    /// Opens a scope if none is, for a conversion outside any request.
+    fn ensure() -> ValueScope {
+        ValueScope::open(false)
+    }
+
+    fn open(release: bool) -> ValueScope {
+        let owner = MEMO.with(|m| {
+            let mut m = m.borrow_mut();
+            let owner = m.is_none();
+            if owner {
+                *m = Some(Memo::default());
+            }
+            owner
+        });
+        ValueScope { owner, release }
+    }
+}
+
+impl Drop for ValueScope {
+    fn drop(&mut self) {
+        if !self.owner {
+            return;
+        }
+        let Some(memo) = MEMO.with(|m| m.borrow_mut().take()) else {
+            return;
+        };
+        if self.release {
+            for (_, r) in memo.to_core.values() {
+                r.set_members(Vec::new());
+            }
+        }
+    }
+}
+
+fn with_memo<R>(f: impl FnOnce(&mut Memo) -> R) -> R {
+    MEMO.with(|m| f(m.borrow_mut().as_mut().expect("a value scope is open")))
+}
+
+/// A compiled valuetype: the declared one, or one found by repository id.
+enum ValueTc<'a> {
+    Borrowed(&'a Tc),
+    Owned(TcRef),
+}
+
+impl Deref for ValueTc<'_> {
+    type Target = Tc;
+
+    fn deref(&self) -> &Tc {
+        match self {
+            ValueTc::Borrowed(tc) => tc,
+            ValueTc::Owned(tc) => tc,
+        }
+    }
+}
+
+/// The valuetype `tc` stands for, through aliases and back references;
+/// `None` if it is another type.
+fn as_value_tc(tc: &Tc) -> Option<ValueTc<'_>> {
+    match tc {
+        Tc::Value { .. } => Some(ValueTc::Borrowed(tc)),
+        Tc::Alias(content) => as_value_tc(content),
+        Tc::Back(back) => {
+            let target = back.upgrade()?;
+            matches!(**target, Tc::Value { .. }).then_some(ValueTc::Owned(target))
+        }
+        _ => None,
+    }
+}
+
+/// [`as_value_tc`] for a member type, which the result shares.
+fn member_value_tc(tc: &TcRef) -> Option<ValueTc<'static>> {
+    match &***tc {
+        Tc::Value { .. } => Some(ValueTc::Owned(Arc::clone(tc))),
+        Tc::Alias(content) => member_value_tc(content),
+        Tc::Back(back) => {
+            let target = back.upgrade()?;
+            matches!(**target, Tc::Value { .. }).then_some(ValueTc::Owned(target))
+        }
+        _ => None,
+    }
+}
+
+/// The compiled type of a value of repository id `id` sent where `tc` is
+/// declared: `tc` itself, or the valuetype `id`.
+fn actual_type<'a>(py: Python<'_>, tc: ValueTc<'a>, id: &str) -> PyResult<Option<ValueTc<'a>>> {
+    match &*tc {
+        Tc::Value { id: declared, .. } if declared == id => Ok(Some(tc)),
+        _ => Ok(value_type(py, id)?.map(ValueTc::Owned)),
+    }
+}
+
+/// A Python valuetype instance (or the value of a value box) as a core
+/// value. `None` is the null value.
+///
+/// The instances it refers to are converted from a work list rather than
+/// by recursion, so that long chains (linked lists) do not exhaust the
+/// stack.
+fn value_from_py(tc: &Tc, obj: &Bound<'_, PyAny>) -> PyResult<Value> {
+    let py = obj.py();
+    if obj.is_none() {
+        return Ok(Value::Valuetype(None));
+    }
+    if let Tc::ValueBox { core, content } = tc {
+        let content = from_py(content, obj)?;
+        return Ok(Value::Valuetype(Some(ValueRef::new(
+            core.clone(),
+            vec![content],
+        ))));
+    }
+    let tc = as_value_tc(tc).ok_or_else(|| sys_err(py, &bad_param()))?;
+    let _scope = ValueScope::ensure();
+    let mut work = Vec::new();
+    let first = core_instance(tc, obj, &mut work)?;
+    while let Some((obj, r, tc)) = work.pop() {
+        let Tc::Value { members, .. } = &*tc else {
+            unreachable!("core_instance checks the type");
+        };
+        let mut values = Vec::with_capacity(members.len());
+        for (name, mtc) in members {
+            let member = obj.getattr(name.bind(py))?;
+            values.push(match member_value_tc(mtc) {
+                Some(vt) if !member.is_none() => {
+                    Value::Valuetype(Some(core_instance(vt, &member, &mut work)?))
+                }
+                _ => from_py(mtc, &member)?,
+            });
+        }
+        r.set_members(values);
+    }
+    Ok(Value::Valuetype(Some(first)))
+}
+
+/// The core instance for the Python instance `obj` declared as `tc`: the
+/// one made before, or a new one whose members are left for `work`.
+fn core_instance<'a, 'py>(
+    tc: ValueTc<'a>,
+    obj: &Bound<'py, PyAny>,
+    work: &mut Vec<(Bound<'py, PyAny>, ValueRef, ValueTc<'a>)>,
+) -> PyResult<ValueRef> {
+    let py = obj.py();
+    let key = obj.as_ptr() as usize;
+    if let Some(r) = with_memo(|m| m.to_core.get(&key).map(|(_, r)| r.clone())) {
+        return Ok(r);
+    }
+    let id: String = obj
+        .getattr("_NP_RepositoryId")
+        .and_then(|id| id.extract())
+        .map_err(|_| sys_err(py, &bad_param()))?;
+    let tc = actual_type(py, tc, &id)?.ok_or_else(|| sys_err(py, &bad_param()))?;
+    let Tc::Value { core, .. } = &*tc else {
+        return Err(sys_err(py, &bad_param()));
+    };
+    let r = ValueRef::new(core.clone(), Vec::new());
+    with_memo(|m| m.to_core.insert(key, (obj.clone().unbind(), r.clone())));
+    work.push((obj.clone(), r.clone(), tc));
+    Ok(r)
+}
+
+/// A core valuetype instance (or value box) as Python: an instance made
+/// by the value factory registered for its type (or, without one, of the
+/// class of its type), with its state members set. Like
+/// [`value_from_py`], it works from a list.
+fn value_to_py<'py>(py: Python<'py>, tc: &Tc, v: Option<ValueRef>) -> PyResult<Bound<'py, PyAny>> {
+    let Some(r) = v else {
+        return Ok(py.None().into_bound(py));
+    };
+    if let Tc::ValueBox { content, .. } = tc {
+        let mut members = r.members();
+        if members.len() != 1 {
+            return Err(sys_err(py, &bad_param()));
+        }
+        return to_py(py, content, members.remove(0));
+    }
+    let tc = as_value_tc(tc).ok_or_else(|| sys_err(py, &bad_param()))?;
+    let _scope = ValueScope::ensure();
+    let mut work = Vec::new();
+    let first = py_instance(py, tc, &r, &mut work)?;
+    while let Some((obj, values, tc)) = work.pop() {
+        let Tc::Value { members, .. } = &*tc else {
+            unreachable!("py_instance checks the type");
+        };
+        if values.len() != members.len() {
+            return Err(sys_err(py, &bad_param()));
+        }
+        for ((name, mtc), v) in members.iter().zip(values) {
+            let member = match (member_value_tc(mtc), v) {
+                (Some(vt), Value::Valuetype(Some(r))) => py_instance(py, vt, &r, &mut work)?,
+                (_, v) => to_py(py, mtc, v)?,
+            };
+            obj.setattr(name.bind(py), member)?;
+        }
+    }
+    Ok(first)
+}
+
+/// The Python instance for the core instance `r` declared as `tc`: the
+/// one made before, or a new one whose members are left for `work`.
+fn py_instance<'a, 'py>(
+    py: Python<'py>,
+    tc: ValueTc<'a>,
+    r: &ValueRef,
+    work: &mut Vec<(Bound<'py, PyAny>, Vec<Value>, ValueTc<'a>)>,
+) -> PyResult<Bound<'py, PyAny>> {
+    if let Some(obj) = with_memo(|m| m.to_py.get(&r.key()).map(|(_, o)| o.clone_ref(py))) {
+        return Ok(obj.into_bound(py));
+    }
+    let id = r.id().to_owned();
+    let no_factory = || sys_err(py, &marshal(CompletionStatus::No));
+    let tc = actual_type(py, tc, &id)?.ok_or_else(no_factory)?;
+    let Tc::Value { class, .. } = &*tc else {
+        return Err(sys_err(py, &bad_param()));
+    };
+    let factory = rt(py)?.call_method1("lookup_value_factory", (&id,))?;
+    let obj = if !factory.is_none() {
+        factory.call0()?
+    } else if let Some(class) = class {
+        let class = class.bind(py);
+        class.call_method1("__new__", (class,))?
+    } else {
+        return Err(no_factory());
+    };
+    with_memo(|m| m.to_py.insert(r.key(), (r.clone(), obj.clone().unbind())));
+    // The members are taken: what they refer to is converted once, and
+    // the core instances are freed even when they form a cycle.
+    work.push((obj.clone(), r.take_members(), tc));
+    Ok(obj)
+}
 
 /// The entry of a union TypeCode the discriminator selects.
 fn union_entry(labels: &[Option<i128>], default: Option<usize>, disc: &Value) -> Option<usize> {
@@ -135,6 +398,7 @@ pub(crate) fn from_py(tc: &Tc, obj: &Bound<'_, PyAny>) -> PyResult<Value> {
                 Value::Objref(Some(native.get().obj.clone()))
             }
         }
+        Tc::Value { .. } | Tc::ValueBox { .. } => value_from_py(tc, obj)?,
         Tc::Unsupported(kind) => return Err(unsupported(py, kind)),
     })
 }
@@ -311,6 +575,7 @@ pub(crate) fn to_py<'py>(py: Python<'py>, tc: &Tc, value: Value) -> PyResult<Bou
                 .getattr("make_objref")?
                 .call1((ObjRef { obj }, id.as_str()))?,
         },
+        (Tc::Value { .. } | Tc::ValueBox { .. }, Value::Valuetype(v)) => value_to_py(py, tc, v)?,
         (Tc::Unsupported(kind), _) => return Err(unsupported(py, kind)),
         _ => return Err(sys_err(py, &bad_param())),
     })
@@ -435,6 +700,7 @@ pub(crate) fn encode(
             out.write_octets(&bytes);
         }
         (Tc::Objref { .. }, Value::Objref(obj)) => out.write_object(obj.as_ref())?,
+        (Tc::Value { core, .. } | Tc::ValueBox { core, .. }, v) => out.write_value(core, v)?,
         _ => return Err(mismatch()),
     }
     Ok(())
@@ -545,6 +811,7 @@ pub(crate) fn decode(
             Value::Enum(v)
         }
         Tc::Objref { .. } => Value::Objref(input.read_object()?),
+        Tc::Value { core, .. } | Tc::ValueBox { core, .. } => input.read_value(core)?,
         Tc::Unsupported(_) => {
             return Err(SystemException::new(
                 rustorb_core::SystemExceptionKind::NO_IMPLEMENT,

@@ -56,6 +56,7 @@ def setUpModule():
         os.path.join(idl_dir, "InteropTest.idl"),
         os.path.join(idl_dir, "AnyTest.idl"),
         os.path.join(idl_dir, "AnyTestHidden.idl"),
+        os.path.join(idl_dir, "ValueTest.idl"),
         os.path.join(HERE, "idl", "NativeTest.idl"),
     ):
         if cli.main(["-bpython", "-C", OUT, "-I" + idl_dir, idl]) != 0:
@@ -599,6 +600,185 @@ class AnyTypeCodeTest(unittest.TestCase):
         declared = CORBA.TypeCode(CORBA.tk_struct, "IDL:Test/Never:1.0", "Never")
         with self.assertRaises(CORBA.BAD_TYPECODE):
             self.e.echo(CORBA.Any(declared, None))
+
+
+def make_value_servant():
+    import ValueTest__POA
+
+    class ValueEchoServant(ValueTest__POA.ValueEcho):
+        def echo_point(self, p):
+            return p
+
+        def echo_pair(self, p):
+            return p
+
+        def echo_node(self, n):
+            return n
+
+        def echo_shape(self, s):
+            return s
+
+        def echo_points(self, s):
+            return s
+
+        def same(self, a, b):
+            return a is b
+
+        def count_nodes(self, n):
+            seen = set()
+            while n is not None and id(n) not in seen:
+                seen.add(id(n))
+                n = n.next
+            return len(seen)
+
+        def echo_long_box(self, b):
+            return b
+
+        def echo_string_box(self, b):
+            return b
+
+        def echo_pair_box(self, b):
+            return b
+
+        def echo_any(self, a):
+            return a
+
+        def shutdown(self):
+            pass
+
+    return ValueEchoServant()
+
+
+class ValuetypeTest(unittest.TestCase):
+    """Valuetypes (interop/idl/ValueTest.idl)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import ValueTest
+
+        cls.V = ValueTest
+        poa = server_orb.resolve_initial_references("RootPOA")
+        oid = poa.activate_object(make_value_servant())
+        cls.e = remote(client_orb, poa.id_to_reference(oid), ValueTest.ValueEcho)
+
+    def test_plain_values_and_null(self):
+        V = self.V
+        p = self.e.echo_point(V.Point(1, -2))
+        self.assertIs(type(p), V.Point)
+        self.assertEqual((p.x, p.y), (1, -2))
+        self.assertIsNone(self.e.echo_point(None))
+        self.assertEqual(repr(p), "Point(x=1, y=-2)")
+
+    def test_derived_values_where_the_base_is_declared(self):
+        V = self.V
+        p = self.e.echo_point(V.Point3(1, 2, 3, "three"))
+        self.assertIs(type(p), V.Point3)
+        self.assertEqual((p.x, p.y, p.z, p.label), (1, 2, 3, "three"))
+
+    def test_sharing(self):
+        V = self.V
+        p = V.Point(5, 6)
+        got = self.e.echo_pair(V.Pair(p, p))
+        self.assertIs(got.first, got.second)
+        got = self.e.echo_pair(V.Pair(p, V.Point(5, 6)))
+        self.assertIsNot(got.first, got.second)
+        self.assertTrue(self.e.same(p, p))
+        self.assertFalse(self.e.same(p, V.Point(5, 6)))
+        q = V.Point3(0, 0, 0, "")
+        got = self.e.echo_points([p, q, p, None, q])
+        self.assertIs(got[0], got[2])
+        self.assertIs(got[1], got[4])
+        self.assertIsNone(got[3])
+
+    def test_cycles(self):
+        V = self.V
+        a = V.Node(1, None)
+        b = V.Node(2, a)
+        a.next = b
+        got = self.e.echo_node(a)
+        self.assertEqual((got.id, got.next.id), (1, 2))
+        self.assertIs(got.next.next, got)
+        self.assertEqual(self.e.count_nodes(a), 2)
+        chain = None
+        for i in range(100):
+            chain = V.Node(i, chain)
+        self.assertEqual(self.e.count_nodes(chain), 100)
+
+    def test_constructed_members(self):
+        V = self.V
+        c = V.Point(0, 0)
+        s = V.Shape("square", [V.Point(0, 0), V.Point(1, 1), c], c, 1.5)
+        got = self.e.echo_shape(s)
+        self.assertEqual(got.name, "square")
+        self.assertEqual([(p.x, p.y) for p in got.points], [(0, 0), (1, 1), (0, 0)])
+        self.assertIs(got.points[2], got.center)
+        self.assertEqual(got.area, 1.5)
+
+    def test_boxes(self):
+        V = self.V
+        self.assertEqual(self.e.echo_long_box(7), 7)
+        self.assertIsNone(self.e.echo_long_box(None))
+        self.assertEqual(self.e.echo_string_box("boxed"), "boxed")
+        self.assertIsNone(self.e.echo_string_box(None))
+        got = self.e.echo_pair_box(V.Pair(V.Point(1, 2), None))
+        self.assertEqual((got.first.x, got.first.y), (1, 2))
+        self.assertIsNone(got.second)
+
+    def test_values_in_anys(self):
+        V = self.V
+        n = V.Node(1, None)
+        n.next = n
+        got = self.e.echo_any(CORBA.Any(V._tc_Node, n))
+        self.assertTrue(got.typecode().equal(V._tc_Node))
+        self.assertIs(got.value().next, got.value())
+        got = self.e.echo_any(CORBA.Any(V._tc_Point, V.Point3(1, 2, 3, "x")))
+        self.assertEqual(got.value().label, "x")
+        got = self.e.echo_any(CORBA.Any(V._tc_LongBox, 3))
+        self.assertEqual(got.value(), 3)
+
+    def test_wrong_values_are_bad_param(self):
+        V = self.V
+        for bad in (V.Pair(None, None), 1, V.Node(1, None)):
+            with self.assertRaises(CORBA.BAD_PARAM):
+                self.e.echo_point(bad)
+
+    def test_value_factories(self):
+        V = self.V
+        made = []
+
+        class MyPoint(V.Point):
+            pass
+
+        def factory():
+            made.append(1)
+            return MyPoint()
+
+        orb = client_orb
+        old = orb.register_value_factory(V.Point._NP_RepositoryId, factory)
+        try:
+            self.assertIs(old, V.Point)
+            self.assertIs(orb.lookup_value_factory(V.Point._NP_RepositoryId), factory)
+            p = self.e.echo_point(V.Point(3, 4))
+            self.assertIs(type(p), MyPoint)
+            # Factories are per process, which both ORBs share: the
+            # server made one too.
+            self.assertEqual((p.x, p.y, len(made)), (3, 4, 2))
+        finally:
+            orb.register_value_factory(V.Point._NP_RepositoryId, old)
+
+    def test_typecodes(self):
+        V = self.V
+        tc = V._tc_Point3
+        self.assertIs(tc.kind(), CORBA.tk_value)
+        self.assertEqual(tc.type_modifier(), CORBA.VM_TRUNCATABLE)
+        self.assertTrue(tc.concrete_base_type().equal(V._tc_Point))
+        self.assertEqual(tc.member_count(), 2)
+        self.assertEqual(tc.member_name(1), "label")
+        self.assertEqual(tc.member_visibility(1), CORBA.PRIVATE_MEMBER)
+        self.assertIs(V._tc_Point.concrete_base_type().kind(), CORBA.tk_null)
+        # A TypeCode that comes back from the native module is the same.
+        a = self.e.echo_any(CORBA.Any(CORBA.TC_TypeCode, tc))
+        self.assertTrue(a.value().equal(tc))
 
 
 class LocalTest(unittest.TestCase):

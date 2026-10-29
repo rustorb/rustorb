@@ -24,7 +24,7 @@ use rustorb_core::{
 use crate::error::{corba, poa_err, portable_server, rt, sys, sys_err, sys_from_py};
 use crate::orb::{ObjRef, decode_all};
 use crate::tc::{CompiledOp, compile_op};
-use crate::value::{Value, encode, from_py, to_py};
+use crate::value::{Value, ValueScope, encode, from_py, to_py};
 
 // --- registry of the Rust side of Python objects ---------------------------------
 
@@ -176,6 +176,7 @@ impl Servant for PyServant {
                 .map_err(|e| sys_from_py(py, &e))
         })?;
         let op = op.get();
+        let _scope = ValueScope::enter();
         let args = decode_all(&op.in_types, input, CompletionStatus::No)?;
         let outcome = Python::attach(|py| self.call(py, op, args))?;
         match outcome {
