@@ -23,7 +23,7 @@ and [The rustorb C++ client and server](#the-rustorb-c-client-and-server).
 | `run-wire-probe.sh` | sends hand-built GIOP requests (`scripts/wire-probe`) to each server and compares the answers with `expected/wire-probe-*.txt` |
 | `run-poa-probe.sh` | starts the POA probe servers (`impls/omniorbpy/poa-probe-server`, `impls/omniorb-cpp/poa_probe_server`, `impls/rustorb/poa-probe-server`, IDL `idl/PoaProbe.idl`) and runs `scripts/poa-probe` against them, comparing the output with `expected/poa-probe-*.txt` |
 | `run-pymapping-check.sh` | generates Python code from `idl/InteropTest.idl`, `idl/PoaProbe.idl` and the IDL of `crates/rustorb-codegen/tests/idl/` with omniidl -bpython and with rustorb-idl, prints the public API of each (`scripts/pymapping-dump`) under omniORBpy and under the rustorb package, and compares the output with `expected/pymapping-*.txt` |
-| `run-openrtm.sh` | fetches OpenRTM-aist-Python at a pinned commit and runs its examples (`openrtm/scenarios.py`: data ports, a service port) with the RTCs on rustorb, through the omniORBpy compatibility package `python/omniorb-compat`, and on omniORBpy, in the four combinations; see [`docs/omniorb-compat.md`](../docs/omniorb-compat.md) |
+| `run-openrtm.sh` | fetches OpenRTM-aist-Python, rtshell and rtctree at pinned commits, runs the examples of OpenRTM-aist-Python (`openrtm/scenarios.py`: data ports, a service port) with the RTCs on rustorb, through the omniORBpy compatibility package `python/omniorb-compat`, on omniORBpy and in C++ (OpenRTM-aist, built in the omniORB image), and rtshell on rustorb and omniORBpy against them (`openrtm/rtshell.py`); `--naming rustorb` uses rustorb-names; see [`docs/omniorb-compat.md`](../docs/omniorb-compat.md) |
 | `known-failures.txt` | failures caused by the existing ORBs, treated as expected |
 | `scripts/giop-extract` | splits a pcap file into GIOP messages |
 | `scripts/golden-compare` | compares captured GIOP messages with `golden/*.json` |
@@ -351,15 +351,23 @@ specification on purpose:
 The unit tests of the generator compare the rustorb output with the
 expected file too, so a change of the generated API shows up without Docker.
 
-## OpenRTM-aist-Python
+## OpenRTM-aist
 
-`run-openrtm.sh` checks the omniORBpy compatibility package with a real
-application. It clones OpenRTM-aist-Python into `out/openrtm`, generates
-the stubs of its IDL with rustorb-idl on the host and with omniidl in the
-omniORB image, and runs `openrtm/scenarios.py` in the image: omniNames, and
-for each example two RTCs, each on rustorb or omniORBpy.
-`openrtm/connect.py` (on the ORB of the second RTC) connects their ports
-and activates them, and the output of the second RTC is checked.
+`run-openrtm.sh` checks the omniORBpy compatibility package with real
+applications. It clones OpenRTM-aist-Python, rtshell and rtctree into
+`out/openrtm`, generates the stubs of their IDL with rustorb-idl on the host
+and with omniidl in the omniORB image (rtctree's into a copy of rtctree,
+with `-Wbpackage=rtctree.rtc`), and runs two scripts in the image, where
+the examples of OpenRTM-aist (C++) are built on omniORB:
+
+- `openrtm/scenarios.py`: for each example two RTCs, each on rustorb or
+  omniORBpy (four combinations), or one in C++ and one on rustorb (both
+  ways). `openrtm/connect.py` (on a Python RTC's ORB) connects their ports
+  and activates them, and the output of the second RTC is checked.
+- `openrtm/rtshell.py`: rtls, rtcat, rtconf, rtcon, rtact, rtdeact, rtdis
+  and rtexit on the SimpleIO RTCs, and a zombie in rtls after a kill; RTCs
+  on rustorb, omniORBpy or in C++ with rtshell on rustorb, and RTCs on
+  rustorb with rtshell on omniORBpy.
 
 | Scenario | Example | What goes through |
 | --- | --- | --- |
@@ -369,16 +377,20 @@ and activates them, and the output of the second RTC is checked.
 
 ```sh
 IDL_PARSER_DIR=path/to/idl_parser interop/run-openrtm.sh
-interop/run-openrtm.sh --only simpleio
-# Without Docker: omniidl and omniNames on the PATH
-OMNIORBPY_DIR=/path/to/site-packages PYTHON=python3.12 interop/run-openrtm.sh --local
+interop/run-openrtm.sh --naming rustorb    # rustorb-names in place of omniNames
+interop/run-openrtm.sh --only simpleio     # scenarios.py only
+# Without Docker: omniidl and omniNames on the PATH; without
+# OPENRTM_CXX_EXAMPLES the C++ RTCs are left out
+OMNIORBPY_DIR=/path/to/site-packages PYTHON=python3.12 \
+  OPENRTM_CXX_EXAMPLES=/path/to/examples interop/run-openrtm.sh --local
 ```
 
-The logs of each RTC are in `out/openrtm/logs`; `--log-level DEBUG` of
-`openrtm/scenarios.py` adds OpenRTM-aist's own log to them. OpenRTM-aist
-RTCs rebind their names in the naming service now and then, so RTCs left
-running from other runs on the same naming service port take over the
-names; the scenarios need a naming service of their own.
+The logs of each RTC and of the rtshell commands are in
+`out/openrtm/<naming>/logs`; `--log-level DEBUG` of `openrtm/scenarios.py`
+adds OpenRTM-aist's own log to them. OpenRTM-aist RTCs rebind their names
+in the naming service now and then, so RTCs left running from other runs
+on the same naming service port take over the names; the scenarios need a
+naming service of their own.
 
 ## Known issues in omniORB found by these tests
 

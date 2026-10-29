@@ -13,7 +13,7 @@ jobs:
   omniorb:
     name: omniORB / omniORBpy matrix
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       # rustorb-idl generates the stubs of the rustorb Python client and
       # server (impls/rustorbpy/build.sh) and the code of
@@ -88,9 +88,13 @@ jobs:
         run: interop/run-pymapping-check.sh
 
       # OpenRTM-aist-Python on rustorb through the omniORBpy compatibility
-      # package, connected with RTCs on omniORBpy.
-      - name: Run OpenRTM-aist-Python examples
+      # package, connected with RTCs on omniORBpy and OpenRTM-aist (C++), and
+      # rtshell on rustorb and on omniORBpy.
+      - name: Run OpenRTM-aist examples and rtshell
         run: interop/run-openrtm.sh
+
+      - name: Run OpenRTM-aist examples and rtshell with rustorb-names
+        run: interop/run-openrtm.sh --naming rustorb
 
       - name: Compare GIOP captures with the golden files
         run: interop/scripts/golden-compare --all interop/out interop/golden

@@ -1,10 +1,11 @@
 """Connects the ports of two RTCs and activates both RTCs in their first
 execution context.
 
-    connect.py NAMESERVER A.rtc B.rtc [PORT_A:PORT_B]...
+    connect.py NAMESERVER A.rtc B.rtc [PORT_A:PORT_B]... [KEY=VALUE]...
 
 Without port pairs, the ports that have the same name (after the instance
-name) are connected.
+name) are connected. KEY=VALUE adds a property to the connector profiles,
+such as the mapping of a consumer's interface to a provider's.
 
 Runs on either ORB: ``from omniORB import CORBA`` is omniORBpy or the
 rustorb compatibility package. Waits for each name to refer to a live
@@ -38,7 +39,8 @@ def short(port):
 
 def main():
     nameserver, name_a, name_b = sys.argv[1:4]
-    pairs = dict(arg.split(":", 1) for arg in sys.argv[4:])
+    pairs = dict(arg.split(":", 1) for arg in sys.argv[4:] if "=" not in arg)
+    props = [arg.split("=", 1) for arg in sys.argv[4:] if "=" in arg]
     orb = CORBA.ORB_init([sys.argv[0]])
     naming = OpenRTM_aist.CorbaNaming(orb, nameserver)
     a, b = resolve(naming, name_a), resolve(naming, name_b)
@@ -53,6 +55,8 @@ def main():
         prop.setProperty("dataport.interface_type", "corba_cdr")
         prop.setProperty("dataport.dataflow_type", "push")
         prop.setProperty("dataport.subscription_type", "flush")
+        for k, v in props:
+            prop.setProperty(k, v)
         rc = util.connect("connector%d" % n, prop, p, q)
         print("connect", short(p), rc)
         if rc != RTC.RTC_OK:

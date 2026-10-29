@@ -2,13 +2,13 @@
 
 Oct 28, 2026 · @ysuga · M5 の次
 
-omniORBpy 向けに書いたアプリケーションを、書き換えずに rustorb 上で動かすための互換パッケージ `rustorb-omniorb-compat`（`python/omniorb-compat`）をまとめる。この段階の完了条件は「OpenRTM-aist-Python の RTC が互換シム経由で rustorb 上で動き、omniORB 上の RTC とデータポート・サービスポートで両方向に接続できること」（[development-plan.md](development-plan.md) の第2段階）。今回は OpenRTM-aist-Python 同士（rustorb と omniORBpy）の組み合わせまでを確かめた。
+omniORBpy 向けに書いたアプリケーションを、書き換えずに rustorb 上で動かすための互換パッケージ `rustorb-omniorb-compat`（`python/omniorb-compat`）をまとめる。この段階の完了条件は「OpenRTM-aist-Python の RTC が互換シム経由で rustorb 上で動き、omniORB 上の RTC とデータポート・サービスポートで両方向に接続できること」（[development-plan.md](development-plan.md) の第2段階）。OpenRTM-aist-Python 同士（rustorb と omniORBpy）、OpenRTM-aist（C++）の RTC との組み合わせ、rtshell からの操作を確かめた。
 
 ## 構成
 
 | 場所 | 内容 |
 | --- | --- |
-| `python/omniorb-compat/omniORB/__init__.py` | `omniORB` パッケージ。`CORBA`・`PortableServer` は rustorb のモジュールそのもの。`cdrMarshal` / `cdrUnmarshal`、`findType`、`COMM_FAILURE_WaitingForReply` |
+| `python/omniorb-compat/omniORB/__init__.py` | `omniORB` パッケージ。`CORBA`・`PortableServer` は rustorb のモジュールそのもの。`cdrMarshal` / `cdrUnmarshal`、`findType`、マイナーコードの定数 |
 | `python/omniorb-compat/omniORB/any.py` | `to_any` / `from_any` |
 | `python/omniorb-compat/omniORB/tcInternal.py` | `findType` の型記述子の種類番号（`tv_*`） |
 | `python/omniorb-compat/CORBA.py` など | omniORBpy がトップレベルに置く `CORBA`・`PortableServer`・`PortableServer__POA`（rustorb のモジュールを返す） |
@@ -16,7 +16,7 @@ omniORBpy 向けに書いたアプリケーションを、書き換えずに rus
 | `crates/rustorb-python/src/orb.rs` | `Orb.cdr_marshal` / `cdr_unmarshal`、`register_object_key` |
 | `python/rustorb/CORBA.py`、`PortableServer.py` | `omniINSPOA`、文字列の ObjectId、`CORBA.Object._nil` |
 | `python/tests/test_omniorb_compat.py` | 単体テスト（期待値は omniORBpy 4.3 で同じ呼び出しを実測した値） |
-| `interop/run-openrtm.sh`、`interop/openrtm/` | OpenRTM-aist-Python の例を両方の ORB で動かす相互接続テスト |
+| `interop/run-openrtm.sh`、`interop/openrtm/` | OpenRTM-aist-Python の例を両方の ORB で動かし、OpenRTM-aist（C++）の例ともつなぐ相互接続テストと、rtshell のテスト |
 
 ライセンスは rustorb 本体と同じ MIT OR Apache-2.0。本物の omniORBpy と同じ名前（`omniORB`、`CORBA`、`CosNaming`）を持つので、rustorb 本体とは別のパッケージにして、使うときだけ入れる。
 
@@ -48,6 +48,16 @@ OpenRTM-aist-Python（[OpenRTM/OpenRTM-aist-Python](https://github.com/OpenRTM/O
 | `activate_object_with_id("文字列", servant)` | INS POA への登録 | rustorb の POA が str を UTF-8 で受け付ける |
 | `-ORBendPointPublish all(addr)` | `corba.endpoints: all`（既定値） | rustorb のコアが受け付ける |
 
+rtshell（[OpenRTM/rtshell](https://github.com/OpenRTM/rtshell) の d35459c）とそれが使う rtctree（[OpenRTM/rtctree](https://github.com/OpenRTM/rtctree) の 9803b6b）からも同じように洗い出した。
+
+| API | 使う場所 | 互換シム |
+| --- | --- | --- |
+| `TRANSIENT_ConnectFailed` | 接続できない RTC をゾンビとして扱う（rtctree）、マネージャのアドレスの誤り（rtmgr） | 定数（下記） |
+| `UNKNOWN_UserException` | マネージャのモジュール読み込みの失敗（rtctree） | 定数（標準のマイナーコード） |
+| `CORBA.TRUE` / `CORBA.FALSE` | `orb.shutdown(wait_for_completion=CORBA.FALSE)` | rustorb の `CORBA` に追加（Python マッピングの定数） |
+| `from rtctree.rtc import RTC` | rtctree のスタブ（omniidl の `-Wbpackage=rtctree.rtc` の生成物） | `rustorb-idl -Wbpackage` を追加 |
+
+`sslTP` / `httpTP` は SSL・HTTP の設定があるときだけ読むので入れていない。
 入れなかったもの：`omniORB.URI`（`examples/AutoTest` だけ）、`sslTP` / `httpTP`（SSL・HTTP トランスポートの拡張）、`setClientCallTimeout` などのタイムアウト関数・例外ハンドラ登録（OpenRTM-aist-Python は使わず、タイムアウトは `-ORBclientCallTimeOutPeriod` で渡す）。
 
 ## 実装
@@ -98,11 +108,15 @@ rustorb では `resolve_initial_references("omniINSPOA")` で同じ性質の POA
 
 - **文字列の ObjectId**：POA の操作に str の ObjectId を渡すと UTF-8 にする（omniORBpy の実測と同じ）
 - **`COMM_FAILURE_WaitingForReply`**：omniORB のマイナーコード（0x41540007）。rustorb は自分のマイナーコードで例外を上げるので、この定数と比べても一致しない。OpenRTM-aist はこれを「1回再送する」判定に使うだけで、一致しなければ通常のエラー処理に進む
+- **`TRANSIENT_ConnectFailed`**：接続できなかったときの `TRANSIENT` のマイナーコード。omniORB の値（0x41540002）ではなく、rustorb が上げる値（0）にした。rtctree はこれと一致する `TRANSIENT` を「名前は残っているがプロセスがない RTC（ゾンビ）」と判定し、一致しなければ例外をそのまま上げて rtls などが止まるため。rustorb が同じマイナーコード 0 で上げる他の `TRANSIENT`（転送の回数超過など）もゾンビ扱いになるが、どちらもその RTC と通信できないことに変わりはない。呼び出しのタイムアウトは `TIMEOUT` なので混ざらない
+- **`UNKNOWN_UserException`**：CORBA の標準のマイナーコード（`OMG_VMCID | 1`）で、omniORB も rustorb も同じ値を上げる
 - **`-ORBendPointPublish all(addr)`**：omniORB の「ホストのすべてのアドレスを公開する」指定。rustorb はもともとホスト名を公開するので、既定の公開と同じに扱う
 
 ## 相互接続
 
-`interop/run-openrtm.sh` が OpenRTM-aist-Python（固定のコミット）を取得し、例の RTC を rustorb（互換シム経由）と omniORBpy のそれぞれで動かして、4通りの組み合わせで接続する。
+`interop/run-openrtm.sh` が OpenRTM-aist-Python・rtshell・rtctree（固定のコミット）を取得し、次の2つを omniORB のイメージで動かす。イメージには OpenRTM-aist（C++、[OpenRTM/OpenRTM-aist](https://github.com/OpenRTM/OpenRTM-aist) の 7e08ae0）の例を omniORB 4.3 でビルドして入れてある。
+
+### 例の RTC の接続（`openrtm/scenarios.py`）
 
 | シナリオ | 例 | 確かめること |
 | --- | --- | --- |
@@ -110,14 +124,34 @@ rustorb では `resolve_initial_references("omniINSPOA")` で同じ性質の POA
 | `seqio` | `SeqIO`（SeqOut → SeqIn） | 基本型と sequence の10本のデータポート |
 | `simpleservice` | `SimpleService`（MyServiceProvider ← MyServiceConsumer） | サービスポート（`set_value`、`get_value_history`、非同期の `echo` など） |
 
-接続と activate は `interop/openrtm/connect.py`（B 側の ORB で動かす）、名前は omniNames。rustorb・omniORBpy の4通りすべてで12シナリオが通る。
+それぞれを、Python の RTC（rustorb・omniORBpy）の4通りと、C++ の RTC と rustorb 上の Python の RTC の両方向（C++ → rustorb、rustorb → C++）の計6通りで動かす。接続と activate は `interop/openrtm/connect.py`（Python の側の ORB で動かす）。
+
+C++ と Python の `SimpleService` は、同じ IDL（`SimpleService::MyService`）でもサービスポートのインターフェースの名前が違う（C++ は型名 `SimpleService::MyService`・インスタンス名 `myservice`、Python は `MyService`・`myservice0`）。そのため名前の一致では対応が付かず、コネクタのプロパティでコンシューマのインターフェースをプロバイダのものに対応付けて接続する（`<コンシューマ>.port.MyService.required.<型>.<名前>` = `<プロバイダ>.port.MyService.provided.<型>.<名前>`。OpenRTM-aist の CorbaPort の仕組み）。また C++ のプロバイダの `set_value` は10秒かかり、Python のコンシューマは同期で呼ぶので、このシナリオでは OpenRTM-aist の既定の呼び出しタイムアウト（10秒）を30秒にする。
+
+### rtshell（`openrtm/rtshell.py`）
+
+`SimpleIO` の2つの RTC に対して rtshell のコマンドを順に実行し、出力と RTC の状態を確かめる。
+
+1. `rtls` に2つの名前が出る。`rtcat` がプロファイルとポートを出す。`rtconf ... list` が `default` を出す
+2. `rtcon` で接続し、`rtcat -l` のポートに接続先が出る
+3. `rtact` で2つとも Active になり（`rtls -l`）、ConsoleOut にデータが届く。`rtdeact` で Inactive に戻る
+4. `rtdis` で接続が消える。`rtexit` で ConsoleOut のプロセスが終わる
+5. ConsoleIn を SIGKILL で止めると、`rtls` がゾンビ（`*ConsoleIn0.rtc`）として表示する
+
+組み合わせは、RTC が rustorb・omniORBpy・C++ のそれぞれで rtshell が rustorb のものと、RTC が rustorb で rtshell が omniORBpy のもの。C++ の ConsoleIn は deactivate でエラー状態になる（omniORBpy の rtshell でも同じ）ので、そこだけ Error も受け付ける。
+
+rtshell と rtctree は pip で入れず、ソースツリーを `PYTHONPATH` に置いて動かす。rtctree は自分のスタブを `rtctree.rtc` パッケージから import するので、rtctree のコピーに `rustorb-idl -Wbpackage=rtctree.rtc`（omniORBpy 側は `omniidl -bpython -Wbpackage=rtctree.rtc`）でスタブを生成する。
+
+### ネーミング
+
+既定は omniNames。`--naming rustorb` で rustorb-names に替えて、同じシナリオと rtshell を動かす。CI は両方を動かす。
 
 ```sh
 interop/run-openrtm.sh                     # omniORB のイメージで
-OMNIORBPY_DIR=... interop/run-openrtm.sh --local
+interop/run-openrtm.sh --naming rustorb    # rustorb-names で
+OMNIORBPY_DIR=... OPENRTM_CXX_EXAMPLES=... interop/run-openrtm.sh --local
 ```
 
 ## 残り
 
-- omniORB C++ 上の OpenRTM-aist（C++）の RTC との接続、rtshell からの状態遷移、rustorb の Naming Service での確認
 - `omniORB.URI`、タイムアウト関数など、使うアプリケーションが出てきたものの追加

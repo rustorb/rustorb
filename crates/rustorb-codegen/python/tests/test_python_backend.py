@@ -491,6 +491,59 @@ class GeneratorTest(unittest.TestCase):
         self.assertTrue(issubclass(Shared__POA.BigStore, Shared__POA.Store))
         self.assertEqual(Shared.Item(4).id, 4)
 
+    def test_package(self):
+        # -Wbpackage puts the modules in a package; the same IDL can also be
+        # generated without it (rtctree's stubs and OpenRTM-aist's)
+        base = write_idl(
+            "PkgBase.idl",
+            """
+            module PkgMod {
+              struct Item { long id; };
+              interface Store { Item get(); };
+            };
+        """,
+        )
+        top = write_idl(
+            "PkgTop.idl",
+            """
+            #include "PkgBase.idl"
+            module PkgMod {
+              module Inner { typedef sequence<Item> ItemSeq; };
+              interface BigStore : Store { Inner::ItemSeq all(); };
+            };
+        """,
+        )
+        for path in (base, top):
+            self.assertEqual(cli.main(["-bpython", "-Wbpackage=pkgout.stubs", "-C", OUT, path]), 0)
+        generate(base)
+        d = os.path.join(OUT, "pkgout", "stubs")
+        self.assertTrue(os.path.exists(os.path.join(OUT, "pkgout", "__init__.py")))
+        self.assertTrue(os.path.exists(os.path.join(d, "PkgMod", "Inner", "__init__.py")))
+        with open(os.path.join(d, "PkgTop_idl.py")) as f:
+            self.assertIn("import pkgout.stubs.PkgBase_idl", f.read())
+        with open(os.path.join(d, "PkgMod", "__init__.py")) as f:
+            self.assertIn("import pkgout.stubs.PkgTop_idl", f.read())
+        # an existing package __init__.py is kept
+        with open(os.path.join(OUT, "pkgout", "__init__.py"), "w") as f:
+            f.write("KEPT = 1\n")
+        self.assertEqual(cli.main(["-bpython", "-Wbpackage=pkgout.stubs", "-C", OUT, base]), 0)
+        with open(os.path.join(OUT, "pkgout", "__init__.py")) as f:
+            self.assertEqual(f.read(), "KEPT = 1\n")
+
+        from pkgout.stubs import PkgMod, PkgMod__POA
+        import pkgout.stubs.PkgMod.Inner
+        import PkgMod as TopPkgMod
+
+        self.assertEqual(PkgMod.Item.__module__, "pkgout.stubs.PkgMod")
+        self.assertEqual(PkgMod.BigStore.__module__, "pkgout.stubs.PkgMod")
+        self.assertEqual(PkgMod__POA.BigStore.__module__, "pkgout.stubs.PkgMod__POA")
+        self.assertIs(pkgout.stubs.PkgMod.Inner, PkgMod.Inner)
+        self.assertIs(PkgMod.Inner._tc_ItemSeq.content_type().content_type(), PkgMod._tc_Item)
+        self.assertTrue(issubclass(PkgMod__POA.BigStore, PkgMod__POA.Store))
+        self.assertIsNot(PkgMod.Item, TopPkgMod.Item)
+        self.assertEqual(PkgMod.Item(3).id, 3)
+        self.assertEqual(TopPkgMod.Item(4).id, 4)
+
     def test_unsupported(self):
         path = write_idl(
             "Unsupported.idl",

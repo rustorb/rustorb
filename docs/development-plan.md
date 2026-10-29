@@ -219,7 +219,10 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 - [x] omniORBpy 互換シム（`from omniORB import ...` を通す別パッケージ `python/omniorb-compat`）。対象 API は OpenRTM-aist-Python の利用箇所から決めた（[omniorb-compat.md](omniorb-compat.md)）
   - `cdrMarshal` / `cdrUnmarshal`（ネイティブ、omniORB と同じ ISO 8859-1 / UTF-16）、`omniORB.any`、`findType` と `tcInternal`、`omniINSPOA`（コアの `register_object_key`）、`CosNaming` のスタブ
   - 相互接続：`interop/run-openrtm.sh` が OpenRTM-aist-Python の SimpleIO・SeqIO・SimpleService を rustorb と omniORBpy で動かし、4通りの組み合わせで12シナリオが通る
-- [ ] OpenRTM-aist（C++、omniORB）の RTC との接続と rtshell（第2段階の残り）
+- [x] OpenRTM-aist（C++、omniORB）の RTC との接続と rtshell（第2段階の完了。[omniorb-compat.md](omniorb-compat.md#相互接続)）
+  - `interop/run-openrtm.sh` が OpenRTM-aist（C++）の例を omniORB のイメージでビルドし、C++ の RTC と rustorb 上の Python の RTC を SimpleIO・SeqIO・SimpleService で両方向につなぐ（Python 同士の4通りと合わせて18シナリオ）
+  - rtshell（rtls・rtcat・rtcon・rtact・rtdeact・rtdis・rtconf・rtexit、ゾンビの表示）を rustorb 上と omniORBpy 上で、rustorb・omniORBpy・C++ の RTC に対して動かす（`interop/openrtm/rtshell.py`）。rtctree のスタブのために `rustorb-idl -Wbpackage` を追加した
+  - ネーミングは omniNames と rustorb-names の両方で、すべて通る
 - [x] C++ バインディング（M4）：`rustorb-ffi` の C ABI、IDL to C++11 のヘッダオンリーのランタイム（`cpp/include/rustorb`）、`rustorb-idl -bc++11` の生成器を作り、C++ の rustorb を相互接続マトリクスに入れる（[cpp-binding.md](cpp-binding.md)）
   - C ABI：不透明ハンドルと `rorb_status` / `rorb_exception`、コールバックの中だけ有効でエラーが貼り付く CDR ストリーム、関数表で表すサーバント（同じ C++ オブジェクトには同じコア側サーバント、循環参照なし）、POA・POAManager・Current
   - C++ 側：`IDL::traits<T>::ref_type`、`CORBA::servant_traits<T>::base_type`、`CORBA::make_reference`、40種のシステム例外、`PortableServer` の POA 操作。struct・union・例外は取得・設定関数のクラス、enum は `enum class`、上限付きの型は `IDL::bounded_*`

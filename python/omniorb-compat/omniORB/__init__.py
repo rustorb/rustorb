@@ -31,6 +31,16 @@ from . import tcInternal  # noqa: E402
 #: the application takes its general path.
 COMM_FAILURE_WaitingForReply = 0x41540007
 
+#: The minor code of the ``TRANSIENT`` raised when no connection to the
+#: target could be made. omniORB has its own code (0x41540002); rustorb
+#: raises minor 0, so that applications that check for it (rtctree marks
+#: such an object as a zombie) see the failure.
+TRANSIENT_ConnectFailed = 0
+
+#: ``UNKNOWN``: the target raised a user exception the operation does not
+#: declare (the standard minor code, which rustorb also raises).
+UNKNOWN_UserException = 0x4F4D0001
+
 
 def _orb():
     # The first ORB initialised, as for omniORBpy's single ORB:

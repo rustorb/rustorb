@@ -64,19 +64,48 @@ RUN mkdir -p /opt/interop/impls/omniorbpy/stubs \
       /opt/interop/idl/AnyTest.idl /opt/interop/idl/AnyTestHidden.idl
 
 # ---------------------------------------------------------------------------
+# OpenRTM-aist (C++) on omniORB: the example RTCs that run-openrtm.sh connects
+# with RTCs on rustorb. Pinned by commit; only the examples it uses are built.
+FROM omniorb-build AS openrtm-build
+
+ARG OPENRTM_REF=7e08ae03dcf613689aeef81ee32ceab763206a74
+
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      cmake git ca-certificates uuid-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN git init -q /src/openrtm \
+ && git -C /src/openrtm fetch -q --depth 1 https://github.com/OpenRTM/OpenRTM-aist.git "${OPENRTM_REF}" \
+ && git -C /src/openrtm checkout -q FETCH_HEAD
+
+RUN mkdir /src/openrtm/build && cd /src/openrtm/build \
+ && PKG_CONFIG_PATH=/opt/omniorb/lib/pkgconfig cmake .. -DCMAKE_BUILD_TYPE=Release \
+      -DFLUENTBIT_ENABLE=OFF -DSSL_ENABLE=OFF -DOBSERVER_ENABLE=OFF \
+ && make -j"$(nproc)" ConsoleInComp ConsoleOutComp SeqInComp SeqOutComp \
+      MyServiceProviderComp MyServiceConsumerComp \
+ && mkdir -p /opt/openrtm/examples /opt/openrtm/lib \
+ && find . -name 'libRTC2.so*' -exec cp -P {} /opt/openrtm/lib/ \; \
+ && for c in ConsoleIn ConsoleOut SeqIn SeqOut MyServiceProvider MyServiceConsumer; do \
+      cp "$(find . -name "${c}Comp" -type f -perm -u+x | head -n1)" /opt/openrtm/examples/; \
+    done \
+ && test -x /opt/openrtm/examples/MyServiceConsumerComp && ls /opt/openrtm/lib/libRTC2.so*
+
+# ---------------------------------------------------------------------------
 FROM ubuntu:${UBUNTU_VERSION}
 
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      python3 libstdc++6 tcpdump iproute2 \
+      python3 libstdc++6 libuuid1 tcpdump iproute2 \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=omniorb-build /opt/omniorb /opt/omniorb
 COPY --from=impl-build /opt/interop /opt/interop
+COPY --from=openrtm-build /opt/openrtm /opt/openrtm
 COPY scripts /opt/interop/scripts
 
 ENV PATH=/opt/omniorb/bin:/opt/interop/scripts:$PATH \
-    LD_LIBRARY_PATH=/opt/omniorb/lib \
+    LD_LIBRARY_PATH=/opt/omniorb/lib:/opt/openrtm/lib \
     PYTHONPATH=/opt/omniorb/python \
     PYTHONUNBUFFERED=1
 
