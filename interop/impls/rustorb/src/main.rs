@@ -15,6 +15,7 @@
 
 mod anytest;
 mod idl;
+mod valuetest;
 
 use std::fmt;
 use std::process::ExitCode;
@@ -446,6 +447,8 @@ struct Args {
     shutdown_server: bool,
     /// The AnyTest suite (`--suite any`) instead of InteropTest.
     any: bool,
+    /// The ValueTest suite (`--suite value`).
+    value: bool,
 }
 
 fn parse_args(mut args: Vec<String>) -> Result<(Args, Vec<String>), String> {
@@ -456,6 +459,7 @@ fn parse_args(mut args: Vec<String>) -> Result<(Args, Vec<String>), String> {
     let mut timeout = Duration::from_secs(30);
     let mut shutdown_server = false;
     let mut any = false;
+    let mut value_suite = false;
     let mut rest = Vec::new();
     let mut iter = args.drain(..);
     while let Some(arg) = iter.next() {
@@ -471,9 +475,10 @@ fn parse_args(mut args: Vec<String>) -> Result<(Args, Vec<String>), String> {
             "--port" => port = value("--port")?.parse().map_err(|_| "bad --port")?,
             "--shutdown-server" => shutdown_server = true,
             "--suite" => {
-                any = match value("--suite")?.as_str() {
-                    "basic" => false,
-                    "any" => true,
+                (any, value_suite) = match value("--suite")?.as_str() {
+                    "basic" => (false, false),
+                    "any" => (true, false),
+                    "value" => (false, true),
                     other => return Err(format!("bad --suite {other}")),
                 }
             }
@@ -489,6 +494,7 @@ fn parse_args(mut args: Vec<String>) -> Result<(Args, Vec<String>), String> {
             timeout,
             shutdown_server,
             any,
+            value: value_suite,
         },
         rest,
     ))
@@ -527,6 +533,9 @@ fn run() -> Result<bool, String> {
     };
     if args.any {
         return run_any(&orb, &root, &args, bound);
+    }
+    if args.value {
+        return run_value(&orb, &root, &args, bound);
     }
     let echo = retry("the Echo server", args.timeout, bound, || {
         root.resolve(&name)?.ok_or_else(|| {
@@ -603,6 +612,51 @@ fn run_any(
             .ok_or("nil Echo")?;
         server
             .request("shutdown")
+            .send_oneway()
+            .map_err(|e| format!("shutdown: {e}"))?;
+    }
+    println!("\n{} passed, {} failed", r.passed, r.failed.len());
+    if !r.failed.is_empty() {
+        println!("failed: {}", r.failed.join(", "));
+    }
+    let _ = orb.shutdown(true);
+    Ok(r.failed.is_empty())
+}
+
+/// The ValueTest suite against the ValueEcho object at `--name`.
+fn run_value(
+    orb: &Orb,
+    root: &NamingContext,
+    args: &Args,
+    bound: impl Fn(&NamingError) -> bool,
+) -> Result<bool, String> {
+    let name = to_name(&args.name).map_err(|e| format!("--name {}: {e}", args.name))?;
+    let echo = retry("the ValueEcho server", args.timeout, bound, || {
+        root.resolve(&name)?.ok_or_else(|| {
+            SystemException::new(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No).into()
+        })
+    })?;
+    let is_echo = echo
+        .is_a(valuetest::VALUE_ECHO_ID)
+        .map_err(|e| format!("_is_a: {e}"))?;
+    if !is_echo {
+        return Err(format!("{} is not a ValueTest::ValueEcho", args.name));
+    }
+    let reachable = |e: &Exception| e.as_system().is_some_and(starting);
+    retry("the ValueEcho server", args.timeout, reachable, || {
+        echo.non_existent()
+    })?;
+
+    let mut r = Runner {
+        passed: 0,
+        failed: Vec::new(),
+    };
+    for (case, f) in valuetest::cases(&echo) {
+        r.case(&case, f);
+    }
+
+    if args.shutdown_server {
+        echo.request("shutdown")
             .send_oneway()
             .map_err(|e| format!("shutdown: {e}"))?;
     }

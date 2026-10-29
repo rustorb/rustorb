@@ -153,6 +153,19 @@ def main():
         root_poa.create_lifespan_policy(PortableServer.PERSISTENT),
         root_poa.create_id_assignment_policy(PortableServer.USER_ID),
     ]
+    if args.suite == "value":
+        # The valuetype suite: ValueTest::ValueEcho, which also stops the
+        # server.
+        import valuetest
+        poa = root_poa.create_POA("ValueTest", root_poa._get_the_POAManager(), policies)
+        poa.activate_object_with_id(b"ValueEcho", valuetest.ValueEchoServant(orb))
+        root_poa._get_the_POAManager().activate()
+        bind(root_context(orb, args.timeout), args.name, poa.id_to_reference(b"ValueEcho"))
+        print("server ready: %s" % args.name, flush=True)
+        orb.run()
+        orb.destroy()
+        print("server stopped", flush=True)
+        return 0
     if args.suite == "any":
         # The stage 2 suite: AnyTest::AnyEcho, plus an Echo object through
         # which the client stops the server.

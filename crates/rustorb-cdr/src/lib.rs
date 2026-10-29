@@ -16,16 +16,24 @@
 //! UTF-16. Negotiating other code sets is left to the ORB core.
 //! `any`, `TypeCode` and `fixed` are in the ORB core, which knows the
 //! types; `long double` is not implemented.
+//!
+//! Valuetypes are written and read in pieces: [`Encoder::begin_value`] /
+//! [`Encoder::end_value`] and [`Decoder::read_value_header`] /
+//! [`Decoder::end_value`] handle the value tags, sharing (indirections)
+//! and chunking, and the caller writes or reads the state members in
+//! between.
 
 mod decoder;
 mod encoder;
 mod error;
 mod traits;
+mod value;
 
 pub use decoder::{Decoder, Segment};
 pub use encoder::Encoder;
 pub use error::{Error, Result};
 pub use traits::{CdrDecode, CdrEncode};
+pub use value::ValueHeader;
 
 /// Byte order of a CDR stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

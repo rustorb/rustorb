@@ -17,6 +17,14 @@ mod value;
 
 use pyo3::prelude::*;
 
+/// Makes the valuetype `tc` (a `CORBA.TypeCode`) known: its values can
+/// be sent and received where a base type of it is declared. Generated
+/// code registers the valuetypes it defines.
+#[pyfunction]
+fn register_value_type(tc: &Bound<'_, PyAny>) -> PyResult<()> {
+    tc::register_value_type(tc)
+}
+
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<orb::Orb>()?;
@@ -25,6 +33,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<poa::PoaManager>()?;
     m.add_class::<tc::CompiledOp>()?;
     m.add_class::<any::NativeTypeCode>()?;
+    m.add_function(wrap_pyfunction!(register_value_type, m)?)?;
     m.add_function(wrap_pyfunction!(poa::current_poa, m)?)?;
     m.add_function(wrap_pyfunction!(poa::current_object_id, m)?)?;
     m.add_function(wrap_pyfunction!(poa::current_reference, m)?)?;

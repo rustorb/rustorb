@@ -21,7 +21,7 @@ and [The rustorb C++ client and server](#the-rustorb-c-client-and-server).
 | `impls/rustorbjava/` | the Java client and server on the rustorb Java binding, with stubs from rustorb-idl -bjava (`build.sh`), and its POA probe server (`probe/`) |
 | `docker/omniorb/Dockerfile` | omniORB 4.3.4 and omniORBpy 4.3.4 built from source, JacORB 3.9 from its release jars, with the implementations above |
 | `compose.yaml` | naming service, server and client containers |
-| `run-matrix.sh` | runs every client / server combination, with omniNames or (`--naming rustorb`) the rustorb naming service; `--suite any` runs the Any / TypeCode suite (`idl/AnyTest.idl`, `idl/AnyTestHidden.idl`, `anytest.*` in each implementation) instead of the Echo one |
+| `run-matrix.sh` | runs every client / server combination, with omniNames or (`--naming rustorb`) the rustorb naming service; `--suite any` runs the Any / TypeCode suite (`idl/AnyTest.idl`, `idl/AnyTestHidden.idl`, `anytest.*` in each implementation) instead of the Echo one, and `--suite value` the valuetype suite (`idl/ValueTest.idl`, `valuetest.*`; omniORB C++, omniORBpy, rustorb and rustorbpy, see [`docs/valuetype.md`](../docs/valuetype.md)) |
 | `run-naming-check.sh` | runs a fixed CosNaming operation sequence (and `corbaname:` URLs) with the omniORBpy and rustorb clients against omniNames or (`--naming rustorb`) the rustorb naming service, and compares the output with `expected/naming-check.txt`; for rustorb, also restarts the service and compares with `expected/naming-restart.txt` |
 | `run-wire-probe.sh` | sends hand-built GIOP requests (`scripts/wire-probe`) to each server and compares the answers with `expected/wire-probe-*.txt` |
 | `run-poa-probe.sh` | starts the POA probe servers (`impls/omniorbpy/poa-probe-server`, `impls/omniorb-cpp/poa_probe_server`, `impls/rustorb/poa-probe-server`, `impls/rustorbcpp/poa-probe-server`, `impls/rustorbjava/poa-probe-server`, IDL `idl/PoaProbe.idl`) and runs `scripts/poa-probe` against them, comparing the output with `expected/poa-probe-*.txt` (the C++ and Java servers with the Rust one's) |
@@ -45,6 +45,7 @@ interop/run-naming-check.sh
 interop/run-naming-check.sh --naming rustorb   # against rustorb-names, with a restart
 interop/run-matrix.sh --naming rustorb         # all pairs, rustorb-names instead of omniNames
 interop/run-matrix.sh --suite any              # Any / TypeCode suite
+interop/run-matrix.sh --suite value            # valuetype suite
 interop/run-wire-probe.sh
 interop/run-poa-probe.sh
 IDL_PARSER_DIR=path/to/idl_parser interop/run-pymapping-check.sh
@@ -53,7 +54,7 @@ interop/scripts/golden-compare --all interop/out interop/golden
 ```
 
 Logs and captures go to `interop/out/<client>-to-<server>/` (with
-`-giop1.1` appended for `--giop 1.1` and `-any` for `--suite any`):
+`-giop1.1` appended for `--giop 1.1`, `-any` for `--suite any` and `-value` for `--suite value`):
 `client.log`, `server.log`, `naming.log`, and with `--capture`,
 `capture/capture.pcap` and `capture/messages/` (one `.bin` file per GIOP
 message, header included, and a `messages.json` index).

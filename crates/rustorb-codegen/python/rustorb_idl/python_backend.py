@@ -265,6 +265,13 @@ class PythonBackend(object):
                 self.forward_interface(node)
             else:
                 self.interface(node)
+        elif fe.is_valuetype(node):
+            if fe.is_forward(node):
+                self.forward_value(node)
+            elif node.is_boxed:
+                self.value_box(node)
+            else:
+                self.valuetype(node)
         elif fe.is_native(node):
             self.w("# native %s" % node.name)
             self.w(
@@ -501,6 +508,76 @@ class PythonBackend(object):
                     return v
             return _NONE
         raise fe.GeneratorError("unsupported union discriminator type %r" % disc)
+
+    # -- valuetypes ------------------------------------------------------
+
+    def forward_value(self, node):
+        self.w("# forward declaration of valuetype %s" % node.name)
+        self.w(
+            '%s = _0_rt.declare_value("%s", "%s")'
+            % (self.tc_ref(node), fe.repository_id(node), node.name)
+        )
+        self.w()
+
+    def value_box(self, node):
+        # The value of a box is the boxed value itself (None for null);
+        # the class only names the type.
+        w = self.w
+        t = fe.type_of(node.boxed_type, node)
+        w("# valuetype %s (boxed)" % node.name)
+        self.class_header(node, ["_0_rt.Typedef"])
+        self.assign_class(node)
+        w(
+            '%s = _0_rt.tc_value_box("%s", "%s", %s)'
+            % (self.tc_ref(node), fe.repository_id(node), node.name, self.tc(t))
+        )
+        w()
+
+    def valuetype(self, node):
+        w = self.w
+        if node.supports:
+            raise fe.GeneratorError("valuetypes that support interfaces are not supported yet", node)
+        bases = fe.value_bases(node)
+        base = fe.concrete_base(node)
+        if node.is_abstract:
+            modifier = "VM_ABSTRACT"
+        elif node.is_custom:
+            modifier = "VM_CUSTOM"
+        elif node.is_truncatable:
+            modifier = "VM_TRUNCATABLE"
+        else:
+            modifier = "VM_NONE"
+        members = [(m.name, fe.type_of(m.type, m), m.is_public) for m in node.state_members]
+        w("# valuetype %s" % node.name)
+        w(
+            '%s = _0_rt.declare_value("%s", "%s")'
+            % (self.tc_ref(node), fe.repository_id(node), node.name)
+        )
+        self.class_header(node, [self.ref(b) for b in bases] or ["_0_CORBA.ValueBase"])
+        names = [py_name(n) for n in fe.state_member_names(node)]
+        w("_NP_members = %s" % py_tuple('"%s"' % n for n in names))
+        self.assign_class(node)
+        w()
+        self.nested(node)
+        w(
+            "_0_rt.define_value(%s, %s, _0_CORBA.%s, %s, [%s])"
+            % (
+                self.tc_ref(node),
+                self.ref(node),
+                modifier,
+                self.tc_ref(base) if base is not None else "None",
+                ", ".join(
+                    '("%s", %s, _0_CORBA.%s)'
+                    % (n, self.tc(t), "PUBLIC_MEMBER" if public else "PRIVATE_MEMBER")
+                    for n, t, public in members
+                ),
+            )
+        )
+        # A valuetype with operations or initializers needs an
+        # implementation, which the application registers a factory for.
+        own_factory = not node.is_abstract and not fe.has_behaviour(node)
+        w("_0_rt.register_value(%s%s)" % (self.tc_ref(node), "" if own_factory else ", False"))
+        w()
 
     # -- interfaces ------------------------------------------------------
 

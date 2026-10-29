@@ -29,4 +29,5 @@ pythonpath="$root/crates/rustorb-codegen/python"
 [ -n "${IDL_PARSER_DIR:-}" ] && pythonpath="$IDL_PARSER_DIR:$pythonpath"
 PYTHONPATH="$pythonpath" python3 -m rustorb_idl -bpython -C "$here/stubs" -I"$root/interop/idl" \
   "$root/interop/idl/InteropTest.idl" "$root/interop/idl/AnyTest.idl" \
-  "$root/interop/idl/AnyTestHidden.idl" "$root/crates/rustorb-codegen/tests/idl/CosNaming.idl"
+  "$root/interop/idl/AnyTestHidden.idl" "$root/interop/idl/ValueTest.idl" \
+  "$root/crates/rustorb-codegen/tests/idl/CosNaming.idl"

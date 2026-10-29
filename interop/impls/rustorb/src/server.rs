@@ -10,6 +10,7 @@
 
 mod anytest;
 mod idl;
+mod valuetest;
 
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -213,8 +214,9 @@ struct Args {
     host: Option<String>,
     port: u16,
     timeout: Duration,
-    /// The AnyTest suite (`--suite any`) instead of InteropTest.
-    any: bool,
+    /// The suite: `basic` (InteropTest), `any` (AnyTest) or `value`
+    /// (ValueTest).
+    suite: String,
 }
 
 fn parse_args(args: Vec<String>) -> Result<(Args, Vec<String>), String> {
@@ -223,7 +225,7 @@ fn parse_args(args: Vec<String>) -> Result<(Args, Vec<String>), String> {
     let mut host = None;
     let mut port = 0;
     let mut timeout = Duration::from_secs(30);
-    let mut any = false;
+    let mut suite = "basic".to_owned();
     let mut rest = Vec::new();
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
@@ -237,7 +239,12 @@ fn parse_args(args: Vec<String>) -> Result<(Args, Vec<String>), String> {
                 let v = value("--timeout")?;
                 timeout = Duration::from_secs_f64(v.parse().map_err(|_| "bad --timeout")?);
             }
-            "--suite" => any = suite_is_any(&value("--suite")?)?,
+            "--suite" => {
+                suite = value("--suite")?;
+                if !matches!(suite.as_str(), "basic" | "any" | "value") {
+                    return Err(format!("bad --suite {suite}"));
+                }
+            }
             _ => rest.push(arg),
         }
     }
@@ -248,18 +255,10 @@ fn parse_args(args: Vec<String>) -> Result<(Args, Vec<String>), String> {
             host,
             port,
             timeout,
-            any,
+            suite,
         },
         rest,
     ))
-}
-
-fn suite_is_any(suite: &str) -> Result<bool, String> {
-    match suite {
-        "basic" => Ok(false),
-        "any" => Ok(true),
-        _ => Err(format!("bad --suite {suite}")),
-    }
 }
 
 /// Binds `obj` at `path`, creating the intermediate contexts.
@@ -298,7 +297,11 @@ fn run() -> Result<(), String> {
     let manager = root_poa.the_poa_manager();
     let poa = root_poa
         .create_poa(
-            if args.any { "AnyTest" } else { "InteropTest" },
+            match args.suite.as_str() {
+                "any" => "AnyTest",
+                "value" => "ValueTest",
+                _ => "InteropTest",
+            },
             Some(&manager),
             &[
                 Policy::Lifespan(Lifespan::Persistent),
@@ -320,7 +323,19 @@ fn run() -> Result<(), String> {
     // The AnyTest suite serves AnyEcho at --name, and Echo next to it (at
     // NAME-Echo) for the client to shut the server down.
     let mut bindings = vec![(args.name.clone(), obj.clone())];
-    if args.any {
+    if args.suite == "value" {
+        // ValueEcho stops the server itself.
+        poa.activate_object_with_id(
+            b"ValueEcho",
+            Arc::new(valuetest::ValueEcho { orb: orb.clone() }),
+        )
+        .map_err(|e| format!("activate_object_with_id: {e}"))?;
+        let value_obj = poa
+            .id_to_reference(b"ValueEcho")
+            .map_err(|e| format!("id_to_reference: {e}"))?;
+        bindings = vec![(args.name.clone(), value_obj)];
+    }
+    if args.suite == "any" {
         let any_echo = Arc::new(anytest::AnyEcho::default());
         poa.activate_object_with_id(b"AnyEcho", any_echo.clone())
             .map_err(|e| format!("activate_object_with_id: {e}"))?;

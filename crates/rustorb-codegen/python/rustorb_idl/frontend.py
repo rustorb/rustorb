@@ -351,19 +351,53 @@ def type_of(t, where=None):
         ),
     ):
         if is_interface(t) and is_forward(t):
-            full = _full_definition(t)
+            full = full_definition(t)
             if full is not None:
                 t = full
         return Type("named", node=t)
     raise GeneratorError("the type %s is not supported yet" % getattr(t, "name", t), where)
 
 
-def _full_definition(fwd):
-    """The full definition of a forward-declared interface, if there is one."""
+def full_definition(fwd):
+    """The full definition of a forward-declared interface or valuetype,
+    if there is one."""
+    kind = is_valuetype if is_valuetype(fwd) else is_interface
     for d in fwd.parent.definitions:
-        if is_interface(d) and d.name == fwd.name and not is_forward(d):
+        if kind(d) and d.name == fwd.name and not is_forward(d):
             return d
     return None
+
+
+def value_bases(node):
+    """The base valuetypes of a valuetype (abstract and concrete), as
+    definition nodes."""
+    return [b if is_valuetype(b) else b.obj for b in node.inheritances]
+
+
+def concrete_base(node):
+    """The concrete (stateful) base valuetype of a valuetype, or None."""
+    concrete = [b for b in value_bases(node) if not b.is_abstract]
+    if len(concrete) > 1:
+        raise GeneratorError("a valuetype can inherit from one concrete valuetype only", node)
+    return concrete[0] if concrete else None
+
+
+def state_member_names(node):
+    """The names of the state members of a valuetype, those of its
+    concrete base valuetypes first."""
+    base = concrete_base(node)
+    names = state_member_names(base) if base is not None else []
+    return names + [m.name for m in node.state_members]
+
+
+def has_behaviour(node):
+    """Whether a valuetype or one of its bases has operations, attributes
+    or initializers, which an implementation must provide."""
+    if node.factories or any(
+        is_operation(d) or is_attribute(d) for d in node.methods + node.attributes
+    ):
+        return True
+    return any(has_behaviour(b) for b in value_bases(node))
 
 
 def repository_id(node):

@@ -22,6 +22,9 @@ ANY_SRC = gen/AnyTestSK.cc gen/AnyTestDynSK.cc
 ANY_HDR = gen/AnyTest.hh
 HIDDEN_SRC = gen/AnyTestHiddenSK.cc gen/AnyTestHiddenDynSK.cc
 HIDDEN_HDR = gen/AnyTestHidden.hh
+# The valuetype suite.
+VALUE_SRC = gen/ValueTestSK.cc gen/ValueTestDynSK.cc
+VALUE_HDR = gen/ValueTest.hh
 
 all: server client poa_probe_server
 
@@ -41,11 +44,15 @@ $(HIDDEN_SRC) $(HIDDEN_HDR): $(IDLDIR)/AnyTestHidden.idl $(ANY_HDR)
 	mkdir -p gen
 	$(OMNIIDL) -bcxx -Wba -Wbh=.hh -Wbs=SK.cc -Wbd=DynSK.cc -C gen -I$(IDLDIR) $<
 
-server: server.cc common.h anytest.h $(STUB_SRC) $(STUB_HDR) $(ANY_SRC) $(ANY_HDR)
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -o $@ server.cc $(STUB_SRC) $(ANY_SRC) $(LDLIBS)
+$(VALUE_SRC) $(VALUE_HDR): $(IDLDIR)/ValueTest.idl
+	mkdir -p gen
+	$(OMNIIDL) -bcxx -Wba -Wbh=.hh -Wbs=SK.cc -Wbd=DynSK.cc -C gen -I$(IDLDIR) $<
 
-client: client.cc common.h anytest.h $(STUB_SRC) $(STUB_HDR) $(ANY_SRC) $(ANY_HDR) $(HIDDEN_SRC) $(HIDDEN_HDR)
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -o $@ client.cc $(STUB_SRC) $(ANY_SRC) $(HIDDEN_SRC) $(LDLIBS)
+server: server.cc common.h anytest.h valuetest.h $(STUB_SRC) $(STUB_HDR) $(ANY_SRC) $(ANY_HDR) $(VALUE_SRC) $(VALUE_HDR)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -o $@ server.cc $(STUB_SRC) $(ANY_SRC) $(VALUE_SRC) $(LDLIBS)
+
+client: client.cc common.h anytest.h valuetest.h $(STUB_SRC) $(STUB_HDR) $(ANY_SRC) $(ANY_HDR) $(HIDDEN_SRC) $(HIDDEN_HDR) $(VALUE_SRC) $(VALUE_HDR)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -o $@ client.cc $(STUB_SRC) $(ANY_SRC) $(HIDDEN_SRC) $(VALUE_SRC) $(LDLIBS)
 
 poa_probe_server: poa_probe_server.cc $(PROBE_SRC) $(PROBE_HDR)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -o $@ poa_probe_server.cc $(PROBE_SRC) $(LDLIBS)

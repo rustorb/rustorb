@@ -50,6 +50,10 @@ pub enum Error {
     /// writing side, a TypeCode that cannot be written (an unresolved
     /// recursive placeholder).
     InvalidTypeCode(&'static str),
+    /// A valuetype was malformed: a bad value tag, chunk or end tag, or an
+    /// indirection that points nowhere. On the writing side, an
+    /// `end_value` without its `begin_value`.
+    InvalidValue(&'static str),
 }
 
 impl fmt::Display for Error {
@@ -77,6 +81,7 @@ impl fmt::Display for Error {
             Error::EmptyEncapsulation => f.write_str("encapsulation has no byte order octet"),
             Error::InvalidEnumValue(v) => write!(f, "invalid enum value {v}"),
             Error::InvalidTypeCode(why) => write!(f, "invalid TypeCode: {why}"),
+            Error::InvalidValue(why) => write!(f, "invalid valuetype: {why}"),
         }
     }
 }

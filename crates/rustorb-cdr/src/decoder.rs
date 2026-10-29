@@ -8,13 +8,16 @@ use crate::{ByteOrder, CdrVersion, Error, Result};
 /// for data joined from several messages.
 #[derive(Debug, Clone)]
 pub struct Decoder<'a> {
-    buf: &'a [u8],
-    pos: usize,
-    order: ByteOrder,
+    pub(crate) buf: &'a [u8],
+    pub(crate) pos: usize,
+    pub(crate) order: ByteOrder,
     version: CdrVersion,
     base: usize,
     segments: &'a [Segment],
     wstring_default_order: ByteOrder,
+    /// What the valuetypes read so far need (indirections, chunks);
+    /// made with the first value.
+    pub(crate) values: Option<Box<crate::value::ReadState>>,
 }
 
 /// A point in a decoder's buffer from which the stream offset restarts.
@@ -68,6 +71,7 @@ impl<'a> Decoder<'a> {
             base,
             segments: &[],
             wstring_default_order: ByteOrder::Big,
+            values: None,
         }
     }
 
@@ -134,12 +138,24 @@ impl<'a> Decoder<'a> {
     }
 
     /// Skips padding until the stream offset is a multiple of `align`.
+    ///
+    /// Inside a chunked valuetype, a chunk that ends here is followed by
+    /// the next one: its length is read and the data aligned in it.
     pub fn align(&mut self, align: usize) -> Result<()> {
-        let rem = self.position() % align;
-        if rem != 0 {
-            self.skip(align - rem)?;
+        loop {
+            self.chunk_boundary()?;
+            let rem = self.position() % align;
+            if rem == 0 {
+                return Ok(());
+            }
+            // Padding that runs past the end of a chunk continues in the
+            // next one, after its length.
+            let mut pad = align - rem;
+            if let Some(end) = self.chunk_end() {
+                pad = pad.min(end - self.pos);
+            }
+            self.read_octets_raw(pad)?;
         }
-        Ok(())
     }
 
     /// Skips `n` bytes.
@@ -149,6 +165,37 @@ impl<'a> Decoder<'a> {
 
     /// Reads `n` raw octets without alignment.
     pub fn read_octets(&mut self, n: usize) -> Result<&'a [u8]> {
+        if n > 0 {
+            self.chunk_boundary()?;
+            self.check_in_chunk(n)?;
+        }
+        self.read_octets_raw(n)
+    }
+
+    /// Skips padding, ignoring chunks.
+    pub(crate) fn align_raw(&mut self, align: usize) -> Result<()> {
+        let rem = self.position() % align;
+        if rem != 0 {
+            self.read_octets_raw(align - rem)?;
+        }
+        Ok(())
+    }
+
+    /// Reads an aligned `unsigned long`, ignoring chunks.
+    pub(crate) fn read_u32_raw(&mut self) -> Result<u32> {
+        self.align_raw(4)?;
+        let bytes: [u8; 4] = self
+            .read_octets_raw(4)?
+            .try_into()
+            .expect("read_octets_raw returned 4 bytes");
+        Ok(match self.order {
+            ByteOrder::Big => u32::from_be_bytes(bytes),
+            ByteOrder::Little => u32::from_le_bytes(bytes),
+        })
+    }
+
+    /// Reads `n` octets, ignoring chunks.
+    pub(crate) fn read_octets_raw(&mut self, n: usize) -> Result<&'a [u8]> {
         let remaining = self.remaining();
         if n > remaining {
             return Err(Error::UnexpectedEof {

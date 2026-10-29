@@ -16,7 +16,7 @@ use rustorb_core::{
 use crate::error::{marshal, marshal_err, sys_err};
 use crate::poa::Poa;
 use crate::tc::{CompiledOp, TcRef, compile_op, compile_tc};
-use crate::value::{Value, decode, encode, from_py, to_py};
+use crate::value::{Value, ValueScope, decode, encode, from_py, to_py};
 
 /// An ORB (`CORBA.ORB` in Python wraps it).
 #[pyclass(frozen, module = "rustorb._native")]
@@ -140,6 +140,7 @@ impl Orb {
         little_endian: Option<bool>,
     ) -> PyResult<Bound<'py, PyBytes>> {
         let compiled = compile_tc(tc)?;
+        let _scope = ValueScope::enter();
         let value = from_py(&compiled, value).map_err(|e| marshal_err(py, e))?;
         let mut enc = match little_endian {
             None => Encoder::encapsulation(host_order(), CdrVersion::Giop1_2),
@@ -163,6 +164,7 @@ impl Orb {
         little_endian: Option<bool>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let compiled = compile_tc(tc)?;
+        let _scope = ValueScope::enter();
         let dec = match little_endian {
             None => Decoder::encapsulation(data, CdrVersion::Giop1_2)
                 .map_err(|_| sys_err(py, &marshal(CompletionStatus::No)))?,
@@ -240,6 +242,7 @@ impl ObjRef {
                 &SystemException::new(SystemExceptionKind::BAD_PARAM, 0, CompletionStatus::No),
             ));
         }
+        let _scope = ValueScope::enter();
         let mut values = Vec::with_capacity(args.len());
         for (tc, arg) in op.in_types.iter().zip(args.iter()) {
             values.push(from_py(tc, &arg).map_err(|e| marshal_err(py, e))?);

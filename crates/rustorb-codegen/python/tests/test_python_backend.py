@@ -445,6 +445,55 @@ class GeneratorTest(unittest.TestCase):
         self.assertEqual(Edge.WithType(inn=Edge.WithType.In(2)).inn.q, 2)
         self.assertIs(Edge.C_OTHER, Edge.Other.E2)
 
+    def test_valuetypes(self):
+        path = write_idl(
+            "Values.idl",
+            """
+            module Values {
+              valuetype Later;
+              abstract valuetype Named { string get_name(); };
+              valuetype Base { public long a; private string from; };
+              valuetype Derived : truncatable Base, Named {
+                struct In { long q; };
+                public In inner;
+                public Later later;
+              };
+              valuetype Later { public Later next; };
+              valuetype Made { public long v; factory create(in long v); };
+              custom valuetype Custom { public long c; };
+              valuetype Box sequence<long>;
+            };
+        """,
+        )
+        generate(path)
+        import Values
+
+        self.assertTrue(issubclass(Values.Base, CORBA.ValueBase))
+        self.assertTrue(issubclass(Values.Derived, Values.Base))
+        self.assertTrue(issubclass(Values.Derived, Values.Named))
+        self.assertEqual(Values.Derived._NP_members, ("a", "_from", "inner", "later"))
+        d = Values.Derived(1, "x", Values.Derived.In(2), None)
+        self.assertEqual((d.a, d._from, d.inner.q, d.later), (1, "x", 2, None))
+        d = Values.Derived(a=1, _from="", inner=None, later=None)
+        self.assertEqual(d.a, 1)
+        with self.assertRaises(TypeError):
+            Values.Base(1)
+        tc = Values._tc_Derived
+        self.assertEqual(tc.type_modifier(), CORBA.VM_TRUNCATABLE)
+        self.assertIs(tc.concrete_base_type(), Values._tc_Base)
+        self.assertEqual(tc.member_name(0), "inner")
+        self.assertEqual(Values._tc_Base.member_visibility(1), CORBA.PRIVATE_MEMBER)
+        self.assertEqual(Values._tc_Named.type_modifier(), CORBA.VM_ABSTRACT)
+        self.assertEqual(Values._tc_Custom.type_modifier(), CORBA.VM_CUSTOM)
+        self.assertIs(Values._tc_Later.member_type(0), Values._tc_Later)
+        self.assertIs(Values._tc_Box.kind(), CORBA.tk_value_box)
+        # Classes without operations or initializers are their own value
+        # factories; the others need one from the application.
+        self.assertIs(_rt.lookup_value_factory(Values.Base._NP_RepositoryId), Values.Base)
+        self.assertIsNone(_rt.lookup_value_factory(Values.Derived._NP_RepositoryId))
+        self.assertIsNone(_rt.lookup_value_factory(Values.Made._NP_RepositoryId))
+        self.assertIsNone(_rt.lookup_value_factory(Values.Named._NP_RepositoryId))
+
     def test_includes_and_shared_modules(self):
         base = write_idl(
             "SharedBase.idl",
@@ -548,7 +597,10 @@ class GeneratorTest(unittest.TestCase):
         path = write_idl(
             "Unsupported.idl",
             """
-            module Unsup { valuetype V { public long x; }; };
+            module Unsup {
+              interface I { void f(); };
+              valuetype V supports I { public long x; };
+            };
         """,
         )
         self.assertEqual(cli.main(["-bpython", "-C", OUT, path]), 1)

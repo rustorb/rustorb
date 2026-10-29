@@ -10,7 +10,8 @@
 #                               (impls/rustorb/naming-service 2809 for rustorb)
 #   CLIENT_MAX_GIOP             highest GIOP version the client uses
 #   SUITE / ECHO_NAME           the test suite (basic: InteropTest.idl, any:
-#                               AnyTest.idl) and the name of its object
+#                               AnyTest.idl, value: ValueTest.idl) and the
+#                               name of its object
 #
 # Use run-matrix.sh rather than calling docker compose directly.
 

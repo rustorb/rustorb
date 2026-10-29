@@ -84,4 +84,6 @@ pub use servant::{
 };
 pub use stream::{InStream, OutStream};
 pub use typecode::{TCKind, TypeCode, TypeCodeError};
-pub use value::{Any, Value};
+pub use value::{
+    Any, Value, ValueRef, lookup_value_type, register_value_type, unregister_value_type,
+};

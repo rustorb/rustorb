@@ -5,7 +5,11 @@
 //! says, and the other way when reading. An [`Any`] is a TypeCode with a
 //! value of that type.
 
-use rustorb_cdr::CdrEncode;
+use std::collections::BTreeMap;
+use std::fmt;
+use std::sync::{Arc, Mutex, MutexGuard, RwLock};
+
+use rustorb_cdr::{CdrEncode, ValueHeader};
 
 use crate::typecode::{TCKind, TypeCode};
 use crate::{
@@ -33,9 +37,11 @@ const MAX_DEPTH: usize = 256;
 /// | object reference | `Objref`, `None` for nil |
 /// | `TypeCode` | `TypeCode` |
 /// | `any` | `Any` |
+/// | valuetype, value box | `Valuetype`: a shared [`ValueRef`], `None` for `null` |
 ///
-/// Aliases take the value of the type they stand for. Valuetypes, abstract
-/// interfaces and `long double` are not supported (`NO_IMPLEMENT`).
+/// Aliases take the value of the type they stand for. Custom valuetypes,
+/// abstract interfaces and `long double` are not supported
+/// (`NO_IMPLEMENT`).
 #[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub enum Value {
@@ -68,6 +74,7 @@ pub enum Value {
     Objref(Option<ObjectRef>),
     TypeCode(TypeCode),
     Any(Box<Any>),
+    Valuetype(Option<ValueRef>),
 }
 
 impl Value {
@@ -147,9 +154,235 @@ impl PartialEq for Value {
             },
             (TypeCode(a), TypeCode(b)) => a.equal(b),
             (Any(a), Any(b)) => a == b,
+            (Valuetype(a), Valuetype(b)) => match (a, b) {
+                (None, None) => true,
+                (Some(a), Some(b)) => a.same_state(b),
+                _ => false,
+            },
             _ => false,
         }
     }
+}
+
+impl Value {
+    /// Breaks the reference cycles that valuetypes in this value may
+    /// form, so that they are freed: the state of every [`ValueRef`] in it
+    /// is emptied. For a binding that is done with a value it made.
+    pub fn break_cycles(self) {
+        let mut stack = vec![self];
+        while let Some(v) = stack.pop() {
+            match v {
+                Value::List(items) => stack.extend(items),
+                Value::Union { disc, member } => {
+                    stack.push(*disc);
+                    stack.extend(member.map(|(_, v)| *v));
+                }
+                Value::Any(a) => stack.push(a.value),
+                Value::Valuetype(Some(r)) => stack.extend(r.take_members()),
+                _ => {}
+            }
+        }
+    }
+}
+
+/// An instance of a valuetype or a value box: its type and its state.
+///
+/// Clones share the instance, as references do in the language
+/// mappings: an instance written twice in a message is sent once, then as
+/// an indirection to it, and is read back as one instance. Instances may
+/// refer to each other in cycles; [`Value::break_cycles`] frees them.
+#[derive(Clone)]
+pub struct ValueRef(Arc<ValueObj>);
+
+struct ValueObj {
+    tc: TypeCode,
+    members: Mutex<Vec<Value>>,
+}
+
+impl ValueRef {
+    /// An instance of the valuetype `tc` (the most derived type) with the
+    /// values of its state members: those of its base types first, then
+    /// its own, in the order of the TypeCodes. An instance of a value box
+    /// has the boxed value as its one member.
+    pub fn new(tc: TypeCode, members: Vec<Value>) -> ValueRef {
+        ValueRef(Arc::new(ValueObj {
+            tc,
+            members: Mutex::new(members),
+        }))
+    }
+
+    /// The type of the instance.
+    pub fn typecode(&self) -> &TypeCode {
+        &self.0.tc
+    }
+
+    /// The repository id of the type of the instance.
+    pub fn id(&self) -> &str {
+        self.0.tc.id().unwrap_or_default()
+    }
+
+    /// The values of the state members.
+    pub fn members(&self) -> Vec<Value> {
+        self.lock().clone()
+    }
+
+    /// Replaces the values of the state members.
+    pub fn set_members(&self, members: Vec<Value>) {
+        *self.lock() = members;
+    }
+
+    /// Takes the values of the state members, leaving none.
+    pub fn take_members(&self) -> Vec<Value> {
+        std::mem::take(&mut *self.lock())
+    }
+
+    /// Whether both are the same instance.
+    pub fn ptr_eq(&self, other: &ValueRef) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+
+    /// A number that identifies the instance while it is alive.
+    pub fn key(&self) -> u64 {
+        Arc::as_ptr(&self.0) as usize as u64
+    }
+
+    fn lock(&self) -> MutexGuard<'_, Vec<Value>> {
+        self.0.members.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Whether both have the same type and equal state, the same instance
+    /// being equal to itself however it is reached (for cycles).
+    fn same_state(&self, other: &ValueRef) -> bool {
+        thread_local! {
+            static COMPARING: std::cell::RefCell<Vec<(u64, u64)>> =
+                const { std::cell::RefCell::new(Vec::new()) };
+        }
+        if self.ptr_eq(other) {
+            return true;
+        }
+        if !self.typecode().equal(other.typecode()) {
+            return false;
+        }
+        let pair = (self.key(), other.key());
+        if COMPARING.with(|c| c.borrow().contains(&pair)) {
+            return true;
+        }
+        COMPARING.with(|c| c.borrow_mut().push(pair));
+        // Copies, so that no lock is held while comparing nested values.
+        let equal = self.members() == other.members();
+        COMPARING.with(|c| c.borrow_mut().retain(|p| *p != pair));
+        equal
+    }
+}
+
+impl fmt::Debug for ValueRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Not the state, which may refer back to this instance.
+        write!(f, "ValueRef({} @ {:#x})", self.id(), self.key())
+    }
+}
+
+/// The valuetypes known to the readers, by repository id.
+static VALUE_TYPES: RwLock<BTreeMap<String, TypeCode>> = RwLock::new(BTreeMap::new());
+
+/// Makes the valuetype `tc` known to every ORB of the process, so that a
+/// value of it can be read where a base type of it is expected.
+///
+/// A value whose type is neither the expected type nor registered is read
+/// as the first of its truncatable base types that is, and is `MARSHAL`
+/// if there is none.
+pub fn register_value_type(tc: &TypeCode) {
+    let tc = tc.unaliased();
+    if let Ok(id) = tc.id() {
+        let id = id.to_owned();
+        VALUE_TYPES
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id, tc);
+    }
+}
+
+/// The valuetype registered with [`register_value_type`] for `id`.
+pub fn lookup_value_type(id: &str) -> Option<TypeCode> {
+    VALUE_TYPES
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(id)
+        .cloned()
+}
+
+/// Forgets the valuetype registered for `id`.
+pub fn unregister_value_type(id: &str) {
+    VALUE_TYPES
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(id);
+}
+
+const VM_CUSTOM: i16 = 1;
+const VM_ABSTRACT: i16 = 2;
+const VM_TRUNCATABLE: i16 = 3;
+
+/// The types of the state members of a valuetype, those of its base
+/// types first; the boxed type of a value box.
+fn state_types(tc: &TypeCode) -> Vec<TypeCode> {
+    if tc.kind() == TCKind::ValueBox {
+        return tc.content_type().into_iter().collect();
+    }
+    let mut chain = vec![tc.clone()];
+    while let Some(Some(base)) = chain.last().map(|t| t.concrete_base_type().ok().flatten()) {
+        if chain.len() > MAX_DEPTH {
+            break;
+        }
+        chain.push(base.unaliased());
+    }
+    chain
+        .iter()
+        .rev()
+        .flat_map(|t| (0..t.member_count().unwrap_or(0)).map(move |i| member(t, i)))
+        .collect()
+}
+
+/// Whether a value of type `actual` may stand where `expected` is.
+fn is_assignable(actual: &TypeCode, expected: &TypeCode) -> bool {
+    let id = expected.id().unwrap_or_default();
+    if actual.kind() == TCKind::ValueBox || expected.kind() == TCKind::ValueBox {
+        return actual.kind() == expected.kind() && actual.id().unwrap_or_default() == id;
+    }
+    // Abstract valuetypes are not in the base chain of a TypeCode.
+    if expected.type_modifier() == Ok(VM_ABSTRACT) {
+        return true;
+    }
+    let mut t = Some(actual.clone());
+    let mut n = 0;
+    while let Some(tc) = t {
+        if tc.id().unwrap_or_default() == id {
+            return true;
+        }
+        n += 1;
+        if n > MAX_DEPTH {
+            break;
+        }
+        t = tc.concrete_base_type().ok().flatten();
+    }
+    false
+}
+
+/// The repository ids a value of type `tc` is sent with: its own, then
+/// those of the base types it is truncatable to.
+fn sent_ids(tc: &TypeCode) -> Vec<String> {
+    let mut ids = vec![tc.id().unwrap_or_default().to_owned()];
+    let mut t = tc.clone();
+    while t.type_modifier() == Ok(VM_TRUNCATABLE) && ids.len() <= MAX_DEPTH {
+        match t.concrete_base_type() {
+            Ok(Some(base)) => {
+                ids.push(base.id().unwrap_or_default().to_owned());
+                t = base;
+            }
+            _ => break,
+        }
+    }
+    ids
 }
 
 /// A value with its type (`CORBA::Any`). The default is an empty Any, of
@@ -324,19 +557,55 @@ pub(crate) fn write(
         }
         (TCKind::TypeCode, Value::TypeCode(t)) => out.write_typecode(t)?,
         (TCKind::Any, Value::Any(a)) => out.write_any(a)?,
-        (
-            TCKind::Value
-            | TCKind::ValueBox
-            | TCKind::Event
-            | TCKind::AbstractInterface
-            | TCKind::LongDouble
-            | TCKind::Native,
-            _,
-        ) => {
+        (TCKind::Value | TCKind::ValueBox | TCKind::Event, Value::Valuetype(v)) => {
+            write_valuetype(out, &tc, v.as_ref())?
+        }
+        (TCKind::AbstractInterface | TCKind::LongDouble | TCKind::Native, _) => {
             return Err(sys(SystemExceptionKind::NO_IMPLEMENT, CompletionStatus::No));
         }
         _ => return Err(bad_param()),
     }
+    Ok(())
+}
+
+fn write_valuetype(
+    out: &mut OutStream<'_>,
+    expected: &TypeCode,
+    v: Option<&ValueRef>,
+) -> Result<(), SystemException> {
+    let Some(v) = v else {
+        out.write_null_value();
+        return Ok(());
+    };
+    let tc = v.typecode().unaliased();
+    if !matches!(tc.kind(), TCKind::Value | TCKind::ValueBox | TCKind::Event)
+        || !is_assignable(&tc, expected)
+    {
+        return Err(bad_param());
+    }
+    match tc.type_modifier() {
+        Ok(VM_CUSTOM) => {
+            return Err(sys(SystemExceptionKind::NO_IMPLEMENT, CompletionStatus::No));
+        }
+        Ok(VM_ABSTRACT) => return Err(bad_param()),
+        _ => {}
+    }
+    let ids = sent_ids(&tc);
+    let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+    // A value of a truncatable type is chunked, so that a receiver can
+    // skip what it does not know.
+    if !out.begin_value(v.key(), &ids, ids.len() > 1)? {
+        return Ok(());
+    }
+    let types = state_types(&tc);
+    let members = v.members();
+    if members.len() != types.len() {
+        return Err(bad_param());
+    }
+    for (t, m) in types.iter().zip(&members) {
+        write(out, t, m)?;
+    }
+    out.end_value()?;
     Ok(())
 }
 
@@ -533,11 +802,54 @@ impl Reader {
                 let v = self.read(input, &inner)?;
                 Value::Any(Box::new(Any::new(inner, v)))
             }
+            TCKind::Value | TCKind::ValueBox | TCKind::Event => {
+                Value::Valuetype(self.read_valuetype(input, &tc)?)
+            }
             TCKind::LocalInterface => return Err(input.marshal_error()),
             _ => {
                 return Err(sys(SystemExceptionKind::NO_IMPLEMENT, input.completed));
             }
         })
+    }
+
+    fn read_valuetype(
+        &mut self,
+        input: &mut InStream<'_>,
+        expected: &TypeCode,
+    ) -> Result<Option<ValueRef>, SystemException> {
+        let header = input
+            .read_value_header()
+            .map_err(|_| input.marshal_error())?;
+        let (slot, ids) = match header {
+            ValueHeader::Null => return Ok(None),
+            ValueHeader::Indirection(slot) => {
+                return match input.values.get(slot) {
+                    Some(Some(v)) => Ok(Some(v.clone())),
+                    _ => Err(input.marshal_error()),
+                };
+            }
+            ValueHeader::Value { slot, ids, .. } => (slot, ids),
+        };
+        let tc = known_type(expected, &ids).ok_or_else(|| input.marshal_error())?;
+        match tc.type_modifier() {
+            Ok(VM_CUSTOM) => {
+                return Err(sys(SystemExceptionKind::NO_IMPLEMENT, input.completed));
+            }
+            Ok(VM_ABSTRACT) => return Err(input.marshal_error()),
+            _ => {}
+        }
+        let v = ValueRef::new(tc.clone(), Vec::new());
+        if input.values.len() <= slot {
+            input.values.resize(slot + 1, None);
+        }
+        input.values[slot] = Some(v.clone());
+        let mut members = Vec::new();
+        for t in state_types(&tc) {
+            members.push(self.read(input, &t)?);
+        }
+        v.set_members(members);
+        input.end_value().map_err(|_| input.marshal_error())?;
+        Ok(Some(v))
     }
 
     fn check_bound(
@@ -585,6 +897,23 @@ impl Reader {
     }
 }
 
+/// The type to read a value sent with the repository ids `ids` as: the
+/// first of them that is `expected` or a registered valuetype, or
+/// `expected` when no id was sent.
+fn known_type(expected: &TypeCode, ids: &[String]) -> Option<TypeCode> {
+    if ids.is_empty() {
+        return Some(expected.clone());
+    }
+    let expected_id = expected.id().unwrap_or_default();
+    ids.iter().find_map(|id| {
+        if id == expected_id {
+            Some(expected.clone())
+        } else {
+            lookup_value_type(id).filter(|t| is_assignable(t, expected))
+        }
+    })
+}
+
 /// The smallest size of a value on the wire, to check sequence lengths
 /// before allocating.
 fn min_size(tc: &TypeCode, depth: usize) -> usize {
@@ -605,7 +934,10 @@ fn min_size(tc: &TypeCode, depth: usize) -> usize {
         | TCKind::Objref
         | TCKind::TypeCode
         | TCKind::Any
-        | TCKind::Principal => 4,
+        | TCKind::Principal
+        | TCKind::Value
+        | TCKind::ValueBox
+        | TCKind::Event => 4,
         TCKind::LongLong | TCKind::ULongLong | TCKind::Double => 8,
         TCKind::Fixed => (tc.fixed_digits().unwrap_or(0) as usize + 2) / 2,
         TCKind::Array => {

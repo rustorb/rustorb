@@ -40,7 +40,7 @@ TypeCode は不変の値で、`Arc` で共有するノードの配列（アリ�
 
 `Value` は TypeCode に従う値の表現で、Python バインディングもこれを使う。struct・例外・配列・sequence は `List`、octet の sequence は `Octets`、char の sequence は `Chars`、union は判別子と選ばれたメンバー（番号と値）、enum は番号、`fixed` は数字列と符号、オブジェクト参照は `ObjectRef`、入れ子の `any` / `TypeCode` はそのまま入る。
 
-`Any` は TypeCode と値の組で、`Any::new(tc, value)` で作る。値が TypeCode に合わなければ書き出しのときに `BAD_PARAM`（COMPLETED_NO）。valuetype・`long double`・`native` の値は `NO_IMPLEMENT`。
+`Any` は TypeCode と値の組で、`Any::new(tc, value)` で作る。値が TypeCode に合わなければ書き出しのときに `BAD_PARAM`（COMPLETED_NO）。`long double`・`native` の値は `NO_IMPLEMENT`。valuetype は [valuetype.md](valuetype.md) を参照。
 
 ```rust
 let point = TypeCode::struct_tc(
@@ -108,5 +108,5 @@ omniORB C++ の相互接続用プログラムは Any に omniidl の `-Wba`（�
 
 ## 残り
 
-- DynAny、valuetype の値、`long double`
+- DynAny、`long double`（valuetype は [valuetype.md](valuetype.md)）
 - omniORBpy 互換シム（`omniORB.any` など）と OpenRTM-aist-Python の動作確認

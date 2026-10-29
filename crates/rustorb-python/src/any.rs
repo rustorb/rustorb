@@ -156,6 +156,33 @@ impl ToCore {
                     TypeCode::exception(&id, &name()?, &converted).map_err(&err)?
                 }
             }
+            TCKind::Value | TCKind::Event => {
+                let members = obj.getattr("_members")?;
+                if members.is_none() {
+                    return Err(sys_err(py, &bad_typecode()));
+                }
+                let id = id()?;
+                let modifier: i16 = obj.getattr("_modifier")?.extract()?;
+                let base = obj.getattr("_base")?;
+                let base = if base.is_none() {
+                    None
+                } else {
+                    Some(self.convert(&base)?)
+                };
+                self.open.insert(key, id.clone());
+                let mut converted = Vec::new();
+                let result = (|| -> PyResult<()> {
+                    for m in members.try_iter()? {
+                        let (n, t, v): (String, Bound<'_, PyAny>, i16) = m?.extract()?;
+                        converted.push((n, self.convert(&t)?, v));
+                    }
+                    Ok(())
+                })();
+                self.open.remove(&key);
+                result?;
+                TypeCode::value_tc(kind, &id, &name()?, modifier, base.as_ref(), &converted)
+                    .map_err(&err)?
+            }
             TCKind::Union => {
                 let members = obj.getattr("_members")?;
                 if members.is_none() {
@@ -288,8 +315,25 @@ impl<'py> ToPy<'py> {
                 let default = tc.default_index().map_err(&err)?;
                 (k, id()?, name()?, disc, default, members).into_pyobject(py)?
             }
-            // Interfaces, native and the types the binding does not
-            // marshal (valuetypes) keep their id and name.
+            TCKind::Value | TCKind::Event => {
+                let base = match tc.concrete_base_type().map_err(&err)? {
+                    Some(base) => Some(self.node(&base)?),
+                    None => None,
+                };
+                let count = tc.member_count().map_err(&err)?;
+                let mut members = Vec::new();
+                for m in 0..count {
+                    let mt = self.node(&tc.member_type(m).map_err(&err)?)?;
+                    members.push((
+                        tc.member_name(m).map_err(&err)?.to_owned(),
+                        mt,
+                        tc.member_visibility(m).map_err(&err)?,
+                    ));
+                }
+                let modifier = tc.type_modifier().map_err(&err)?;
+                (k, id()?, name()?, modifier, base, members).into_pyobject(py)?
+            }
+            // Interfaces and native keep their id and name.
             _ => (k, id().unwrap_or_default(), name().unwrap_or_default()).into_pyobject(py)?,
         };
         self.nodes[i] = Some(tuple);

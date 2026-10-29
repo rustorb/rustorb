@@ -235,6 +235,8 @@ def main():
     root = root_context(orb, args.timeout)
     if args.suite == "any":
         return run_any(orb, root, args)
+    if args.suite == "value":
+        return run_value(orb, root, args)
     name = to_name(args.name)
     echo = retry("the Echo server", lambda: root.resolve(name), args.timeout)
     echo = echo._narrow(InteropTest.Echo)
@@ -274,6 +276,31 @@ def run_any(orb, root, args):
     if args.shutdown_server:
         server = root.resolve(to_name(args.name + "-Echo"))._narrow(InteropTest.Echo)
         server.shutdown()
+
+    print("\n%d passed, %d failed" % (r.passed, len(r.failed)))
+    if r.failed:
+        print("failed: " + ", ".join(r.failed))
+    orb.destroy()
+    return 1 if r.failed else 0
+
+
+def run_value(orb, root, args):
+    """The valuetype suite (ValueTest.idl) against the ValueEcho object at
+    args.name."""
+    import ValueTest
+    import valuetest
+    echo = retry("the ValueEcho server", lambda: root.resolve(to_name(args.name)), args.timeout)
+    echo = echo._narrow(ValueTest.ValueEcho)
+    if echo is None:
+        print("%s is not a ValueTest::ValueEcho" % args.name)
+        return 1
+    retry("the ValueEcho server", echo._non_existent, args.timeout)
+
+    r = Runner()
+    valuetest.run_cases(r, echo, check)
+
+    if args.shutdown_server:
+        echo.shutdown()
 
     print("\n%d passed, %d failed" % (r.passed, len(r.failed)))
     if r.failed:

@@ -239,7 +239,7 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - 生成器：標準マッピングのクラス群（Helper・Holder・Operations・Stub・POA・POATie、`<Name>Package`、予約語の `_`）と、モジュールの外の定義のための `-Wbpackage`
   - 相互接続：`interop/impls/java` のクライアント・サーバーを、`rustorbjava`（rustorb-idl のスタブ）と `jacorb`（JacORB 3.9 のリリース jar と IDL コンパイラ）で共有する。`rustorbjava` は basic（omniNames・rustorb-names、GIOP 1.2 / 1.1）と any（GIOP 1.2 / 1.1）ですべての相手と通る。JacORB との失敗は JacORB の生成コードと GIOP 1.1 の Fragment の扱いによるもので、`known-failures.txt` に載せた。JacORB はソースを読まず、生成されたクラスを呼んだ結果だけを使った
   - Java のテスト（`java/`、Maven と JUnit）：CxxMapping.idl の往復（2つの ORB の間と同一 ORB 内）、相互接続の78ケースと any の178ケース。CI は Linux（Java 11 / 21）・macOS・Windows
-  - 残り：ストリームによる Any の操作、DII / DSI、valuetype
+  - 残り：ストリームによる Any の操作、DII / DSI、valuetype（Python までは下記）
 - [x] C++ と Java の servant manager（`ServantActivator`・`ServantLocator`）と `AdapterActivator`（[cpp-binding.md](cpp-binding.md#poa-の範囲)、[java-binding.md](java-binding.md#poa-の範囲)）
   - C ABI：`rorb_poa_set_servant_activator` / `_locator`・`rorb_poa_get_servant_manager`・`rorb_poa_set_the_activator` / `rorb_poa_the_activator` と関数表。`incarnate` / `preinvoke` の `ForwardRequest` とシステム例外は `rorb_manager_error_*` で伝える
   - C++ は `PortableServer::ServantActivator` などのローカルインターフェースと `ForwardRequest`、Java は `org.omg.PortableServer` の同名のインターフェースと `CookieHolder`（`rustorb-jni` 経由）
@@ -249,3 +249,10 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - C++：`IDL::Fixed<D, S>`（収まらない値は `DATA_CONVERSION`、文字列・整数・`double` との変換と比較）、`-bc++11` の型・定数・TypeCode・Any
   - Java：`java.math.BigDecimal`、`read_fixed(D, S)` / `write_fixed(v, D, S)`、`FixedHolder`、`Any.insert_fixed` / `extract_fixed`、`-bjava` の Helper・定数
   - 相互接続：`AnyTest.idl` に `money`（別名 `Money`、`fixed<5, 2>`）と `fixed`（`fixed<31, 4>`）を加え、`--suite any` で omniORB C++・omniORBpy と rustorb（Rust・Python・C++・Java）のすべての組で確かめる
+- [ ] valuetype（[valuetype.md](valuetype.md)）
+  - [x] CDR：値のタグ、null、間接参照（インスタンスとリポジトリ ID）、チャンクと終了タグ、truncatable の切り捨て
+  - [x] コア：`Value::Valuetype` と共有インスタンスの `ValueRef`（循環も可）、valuetype の登録と代入可能な派生型の受け取り、value box
+  - [x] Python：`CORBA.ValueBase`、値ファクトリ、`ORB.create_value_tc`、`rustorb-idl -bpython` の valuetype・value box
+  - [x] 相互接続：`run-matrix.sh --suite value`（`ValueTest.idl`、23ケース）。rustorb（Rust・Python）を含む16組が GIOP 1.2 / 1.1 で通る
+  - [ ] C++ と Java のバインディング
+  - 残り：`custom`、abstract interface、`supports`

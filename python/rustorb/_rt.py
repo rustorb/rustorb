@@ -161,6 +161,80 @@ def define_struct(tc, cls, members):
 define_except = define_struct
 
 
+def declare_value(repoId, name):
+    """The TypeCode of a valuetype, before it is defined (see
+    :func:`define_value`)."""
+    return _named(CORBA.tk_value, repoId, name, members=None)
+
+
+def define_value(tc, cls, modifier, base, members):
+    """Fill the TypeCode of a valuetype: its type modifier, its concrete
+    base type (a TypeCode or None) and its own state members, ``[(name,
+    TypeCode, visibility)]``."""
+    tc._modifier = modifier
+    tc._base = base
+    tc._members = list(members)
+    tc._class = cls
+    return tc
+
+
+def tc_value_box(repoId, name, content):
+    return _named(CORBA.tk_value_box, repoId, name, content=content)
+
+
+# ---------------------------------------------------------------------------
+# Valuetypes
+#
+# A valuetype received is made by the value factory registered for its
+# repository ID, a callable without arguments (``ORB.register_value_factory``);
+# then its state members are set. Generated code registers the class of a
+# valuetype without operations or initializers as its own factory.
+
+#: Repository ID -> value factory.
+value_factories: dict = {}
+#: Valuetype TypeCodes not yet registered with the native module (it is
+#: not loaded, or a type they use is not defined yet).
+_pending_values: list = []
+
+
+def register_value_factory(repoId, factory):
+    old = value_factories.get(repoId)
+    value_factories[repoId] = factory
+    return old
+
+
+def unregister_value_factory(repoId):
+    return value_factories.pop(repoId, None)
+
+
+def lookup_value_factory(repoId):
+    return value_factories.get(repoId)
+
+
+def register_value(tc, factory=True):
+    """Make the valuetype ``tc`` known to the ORB, so that its values can
+    be sent and received where a base type is declared; with ``factory``,
+    register its class as its value factory too."""
+    if factory and tc._id not in value_factories:
+        value_factories[tc._id] = tc._class
+    _pending_values.append(tc)
+    flush_values()
+
+
+def flush_values():
+    """Register the valuetypes that could not be registered yet."""
+    native = CORBA._native
+    if native is None:
+        return
+    pending = list(_pending_values)
+    del _pending_values[:]
+    for tc in pending:
+        try:
+            native.register_value_type(tc)
+        except CORBA.SystemException:
+            _pending_values.append(tc)
+
+
 def define_union(tc, cls, discriminator, cases, default_index):
     """Fill the TypeCode of a union. ``cases`` is ``[(label, name,
     TypeCode)]``, one entry for each label as in the TypeCode (the label of
@@ -222,9 +296,25 @@ def make_class(tc):
         tc._class = type(_class_name(tc, "Struct"), (base,), attrs)
     elif k is CORBA.tk_union:
         tc._class = _union_class(tc)
+    elif k is CORBA.tk_value:
+        tc._class = _value_class(tc)
     if tc._id:
         dynamic_types[tc._id] = tc
     return tc._class
+
+
+def _value_class(tc):
+    base = tc._base
+    if base is not None and base._k is CORBA.tk_value:
+        base_cls = base._class or make_class(base)
+    else:
+        base_cls = CORBA.ValueBase
+    attrs = {
+        "_NP_RepositoryId": tc._id,
+        "_NP_members": tuple(base_cls._NP_members)
+        + tuple(_py_name(m[0]) for m in tc._members),
+    }
+    return type(_class_name(tc, "Value"), (base_cls,), attrs)
 
 
 def _union_class(tc):
@@ -293,12 +383,13 @@ _NAMED = (
     CORBA.tk_enum,
     CORBA.tk_alias,
     CORBA.tk_except,
+    CORBA.tk_value,
     CORBA.tk_value_box,
     CORBA.tk_native,
     CORBA.tk_abstract_interface,
     CORBA.tk_local_interface,
 )
-_WITH_CLASS = (CORBA.tk_struct, CORBA.tk_union, CORBA.tk_except, CORBA.tk_enum)
+_WITH_CLASS = (CORBA.tk_struct, CORBA.tk_union, CORBA.tk_except, CORBA.tk_enum, CORBA.tk_value)
 
 
 def typecode_from_nodes(nodes):
@@ -338,6 +429,10 @@ def typecode_from_nodes(nodes):
         elif k in (CORBA.tk_struct, CORBA.tk_except):
             tc._id, tc._name = node[1], node[2]
             tc._members = [(m, final[t]) for m, t in node[3]]
+        elif k is CORBA.tk_value:
+            tc._id, tc._name, tc._modifier = node[1], node[2], node[3]
+            tc._base = None if node[4] is None else final[node[4]]
+            tc._members = [(m, final[t], v) for m, t, v in node[5]]
         elif k is CORBA.tk_union:
             tc._id, tc._name = node[1], node[2]
             tc._disc = final[node[3]]
@@ -372,7 +467,7 @@ def typecode_from_nodes(nodes):
             fill(i)
     for i in fresh:
         tc = final[i]
-        if tc is tcs[i] and tc._k in _WITH_CLASS and tc._k is not CORBA.tk_enum:
+        if tc is tcs[i] and tc._k in _WITH_CLASS and tc._k is not CORBA.tk_enum and tc._class is None:
             make_class(tc)
     return final[0]
 
