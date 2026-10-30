@@ -262,6 +262,9 @@ pub(crate) fn register_value_type(tc: &Bound<'_, PyAny>) -> PyResult<()> {
     c.commit();
     let id: String = tc.getattr("_id")?.extract()?;
     rustorb_core::register_value_type(&core);
+    if crate::value::is_custom(&core) {
+        crate::value::register_custom(&id);
+    }
     VALUE_TYPES
         .lock()
         .unwrap()

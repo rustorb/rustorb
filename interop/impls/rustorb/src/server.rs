@@ -9,6 +9,7 @@
 //! [--timeout S]`, plus ORB options.
 
 mod anytest;
+mod customtest;
 mod idl;
 mod valuetest;
 
@@ -241,7 +242,7 @@ struct Args {
     host: Option<String>,
     port: u16,
     timeout: Duration,
-    /// The suite: `basic` (InteropTest), `any` (AnyTest) or `value`
+    /// The suite: `basic` (InteropTest), `any` (AnyTest), `value`
     /// (ValueTest).
     suite: String,
 }
@@ -268,7 +269,7 @@ fn parse_args(args: Vec<String>) -> Result<(Args, Vec<String>), String> {
             }
             "--suite" => {
                 suite = value("--suite")?;
-                if !matches!(suite.as_str(), "basic" | "any" | "value") {
+                if !matches!(suite.as_str(), "basic" | "any" | "value" | "custom") {
                     return Err(format!("bad --suite {suite}"));
                 }
             }
@@ -327,6 +328,7 @@ fn run() -> Result<(), String> {
             match args.suite.as_str() {
                 "any" => "AnyTest",
                 "value" => "ValueTest",
+                "custom" => "CustomTest",
                 _ => "InteropTest",
             },
             Some(&manager),
@@ -358,6 +360,18 @@ fn run() -> Result<(), String> {
                 .activate_with_id(&poa, b"ValueEcho")
                 .map_err(|e| format!("activate_object_with_id: {e}"))?;
         bindings = vec![(args.name.clone(), value_echo.into_object())];
+    }
+    if args.suite == "custom" {
+        // Point3 arrives where Point is declared.
+        idl::register_value_types();
+        idl::custom::register_value_types();
+        // CustomEcho stops the server itself.
+        let custom_echo = idl::custom::custom_test::CustomEchoPoa(customtest::CustomEchoImpl {
+            orb: orb.clone(),
+        })
+        .activate_with_id(&poa, b"CustomEcho")
+        .map_err(|e| format!("activate_object_with_id: {e}"))?;
+        bindings = vec![(args.name.clone(), custom_echo.into_object())];
     }
     if args.suite == "any" {
         let this = Arc::new(OnceLock::new());

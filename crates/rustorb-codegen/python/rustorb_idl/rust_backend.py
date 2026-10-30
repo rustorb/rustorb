@@ -279,7 +279,16 @@ class RustBackend(object):
             )
 
     def check_value(self, node):
-        cxx_backend.CxxBackend.check_value(self, node)
+        if node.supports:
+            raise fe.GeneratorError(
+                "valuetypes that support interfaces are not supported by the Rust backend yet", node
+            )
+        if fe.has_behaviour(node):
+            raise fe.GeneratorError(
+                "valuetype operations, attributes and initializers are not supported by the Rust"
+                " backend yet",
+                node,
+            )
         if node.is_abstract:
             raise fe.GeneratorError(
                 "abstract valuetypes are not supported by the Rust backend yet", node
@@ -1260,21 +1269,28 @@ class RustBackend(object):
         w()
         w("fn write_state(&self, out: &mut %s::OutStream<'_>) -> %s::Sys<()> {" % (R, I))
         w.indent()
-        if base is not None:
+        if node.is_custom:
+            # The application implements CustomMarshal for the state.
+            w("%s::CustomMarshal::marshal(self, &mut %s::DataOutputStream::new(out))" % (I, I))
+        elif base is not None:
             w("%s::ValueState::write_state(&self.base, out)?;" % I)
-        for f, (m, t, _) in zip(fields, members):
-            w("%s(&self.%s, out)?;" % (self.call(t, cur, "write", node), f))
-        w("Ok(())")
+        if not node.is_custom:
+            for f, (m, t, _) in zip(fields, members):
+                w("%s(&self.%s, out)?;" % (self.call(t, cur, "write", node), f))
+            w("Ok(())")
         w.dedent()
         w("}")
         w()
         w("fn read_state(&mut self, input: &mut %s::InStream<'_>) -> %s::Sys<()> {" % (R, I))
         w.indent()
-        if base is not None:
-            w("%s::ValueState::read_state(&mut self.base, input)?;" % I)
-        for f, (m, t, _) in zip(fields, members):
-            w("self.%s = %s(input)?;" % (f, self.call(t, cur, "read", node)))
-        w("Ok(())")
+        if node.is_custom:
+            w("%s::CustomMarshal::unmarshal(self, &mut %s::DataInputStream::new(input))" % (I, I))
+        else:
+            if base is not None:
+                w("%s::ValueState::read_state(&mut self.base, input)?;" % I)
+            for f, (m, t, _) in zip(fields, members):
+                w("self.%s = %s(input)?;" % (f, self.call(t, cur, "read", node)))
+            w("Ok(())")
         w.dedent()
         w("}")
         w()
@@ -1366,6 +1382,7 @@ class RustBackend(object):
         w("    id: %s::REPOSITORY_ID," % name)
         w("    sent_ids: &[%s]," % ", ".join('"%s"' % i for i in self.sent_ids(node)))
         w("    ancestors: &[%s]," % ", ".join('"%s"' % fe.repository_id(n) for n in chain))
+        w("    custom: %s," % ("true" if node.is_custom else "false"))
         w("    make: || %s::ValueHandle::new(%s::default())," % (I, state))
         w("    type_code: <%s as %s>::type_code," % (name, self.T))
         w("};")

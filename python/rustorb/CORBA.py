@@ -641,6 +641,156 @@ class ValueBase(object):
         )
 
 
+TC_ValueBase = TypeCode(tk_value, ValueBase._NP_RepositoryId, "ValueBase", members=[], cls=ValueBase)
+_tc_ValueBase = TC_ValueBase
+
+
+class CustomMarshal(object):
+    """Base class of the classes of custom valuetypes (``custom
+    valuetype``): the implementation writes the state of an instance in
+    :meth:`marshal` and reads it back in :meth:`unmarshal`, in the same
+    order. A value factory registered for the type makes the instances
+    to unmarshal."""
+
+    def marshal(self, os):
+        """Write the state to ``os``, a :class:`DataOutputStream`."""
+        raise NO_IMPLEMENT(0, COMPLETED_NO)
+
+    def unmarshal(self, is_):
+        """Read the state from ``is_``, a :class:`DataInputStream`."""
+        raise NO_IMPLEMENT(0, COMPLETED_NO)
+
+
+def _data_types():
+    return [
+        ("any", TC_any),
+        ("boolean", TC_boolean),
+        ("char", TC_char),
+        ("wchar", TC_wchar),
+        ("octet", TC_octet),
+        ("short", TC_short),
+        ("ushort", TC_ushort),
+        ("long", TC_long),
+        ("ulong", TC_ulong),
+        ("longlong", TC_longlong),
+        ("ulonglong", TC_ulonglong),
+        ("float", TC_float),
+        ("double", TC_double),
+    ]
+
+
+class DataOutputStream(object):
+    """What :meth:`CustomMarshal.marshal` writes to (``CORBA::
+    DataOutputStream``): each ``write_<type>`` writes one item as CDR, and
+    ``write_<type>_array(seq, offset, length)`` writes ``length`` elements
+    of ``seq`` from ``offset``, without a length. Values written with
+    :meth:`write_Value` keep their sharing with the rest of the message."""
+
+    def __init__(self):
+        #: [(TypeCode, value)] written so far.
+        self._items = []
+
+    def _write(self, tc, value):
+        self._items.append((tc, value))
+
+    def _write_array(self, tc, seq, offset, length):
+        if offset < 0 or length < 0 or offset + length > len(seq):
+            raise BAD_PARAM(0, COMPLETED_NO)
+        for v in seq[offset:offset + length]:
+            self._write(tc, v)
+
+    def write_string(self, value):
+        self._write(TC_string, value)
+
+    def write_wstring(self, value):
+        self._write(TC_wstring, value)
+
+    def write_Object(self, value):
+        self._write(TC_Object, value)
+
+    def write_Value(self, value):
+        self._write(TC_ValueBase, value)
+
+    def write_Abstract(self, value):
+        # Abstract interfaces are not supported yet.
+        raise NO_IMPLEMENT(0, COMPLETED_NO)
+
+    def write_TypeCode(self, value):
+        self._write(TC_TypeCode, value)
+
+    def write_longdouble(self, value):
+        raise NO_IMPLEMENT(0, COMPLETED_NO)
+
+
+class DataInputStream(object):
+    """What :meth:`CustomMarshal.unmarshal` reads from (``CORBA::
+    DataInputStream``): each ``read_<type>()`` reads one item, and
+    ``read_<type>_array(seq, offset, length)`` reads ``length`` elements
+    into ``seq`` from ``offset`` and returns the sequence (``seq`` is an
+    inout parameter)."""
+
+    def __init__(self, native):
+        self._n = native
+
+    def _read_array(self, tc, seq, offset, length):
+        if offset < 0 or length < 0:
+            raise BAD_PARAM(0, COMPLETED_NO)
+        values = [self._n.read(tc) for _ in range(length)]
+        if isinstance(seq, (bytes, str)):
+            join = bytes(values) if isinstance(seq, bytes) else "".join(values)
+            pad = seq[:0] + (b"\0" if isinstance(seq, bytes) else "\0") * max(0, offset - len(seq))
+            return seq[:offset] + pad + join + seq[offset + length:]
+        seq = list(seq)
+        if len(seq) < offset:
+            seq.extend([None] * (offset - len(seq)))
+        seq[offset:offset + length] = values
+        return seq
+
+    def read_string(self):
+        return self._n.read(TC_string)
+
+    def read_wstring(self):
+        return self._n.read(TC_wstring)
+
+    def read_Object(self):
+        return self._n.read(TC_Object)
+
+    def read_Value(self):
+        return self._n.read(TC_ValueBase)
+
+    def read_Abstract(self):
+        raise NO_IMPLEMENT(0, COMPLETED_NO)
+
+    def read_TypeCode(self):
+        return self._n.read(TC_TypeCode)
+
+    def read_longdouble(self):
+        raise NO_IMPLEMENT(0, COMPLETED_NO)
+
+
+def _data_methods():
+    def writer(tc):
+        return lambda self, value: self._write(tc, value)
+
+    def array_writer(tc):
+        return lambda self, seq, offset, length: self._write_array(tc, seq, offset, length)
+
+    def reader(tc):
+        return lambda self: self._n.read(tc)
+
+    def array_reader(tc):
+        return lambda self, seq, offset, length: self._read_array(tc, seq, offset, length)
+
+    for name, tc in _data_types():
+        setattr(DataOutputStream, "write_" + name, writer(tc))
+        setattr(DataOutputStream, "write_%s_array" % name, array_writer(tc))
+        setattr(DataInputStream, "read_" + name, reader(tc))
+        setattr(DataInputStream, "read_%s_array" % name, array_reader(tc))
+
+
+_data_methods()
+
+
 class Object(object):
     """Base of object references. A nil reference is ``None``.
 

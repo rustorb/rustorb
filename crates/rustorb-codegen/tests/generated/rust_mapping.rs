@@ -3491,6 +3491,7 @@ pub mod rust_mapping {
                 id: Shape::REPOSITORY_ID,
                 sent_ids: &["IDL:rustorb.org/RustMapping/Shape:1.0"],
                 ancestors: &["IDL:rustorb.org/RustMapping/Shape:1.0"],
+                custom: false,
                 make: || ::rustorb_core::idl::ValueHandle::new(ShapeState::default()),
                 type_code: <Shape as ::rustorb_core::idl::IdlType>::type_code,
             };
@@ -3653,6 +3654,7 @@ pub mod rust_mapping {
                     "IDL:rustorb.org/RustMapping/Circle:1.0",
                     "IDL:rustorb.org/RustMapping/Shape:1.0",
                 ],
+                custom: false,
                 make: || ::rustorb_core::idl::ValueHandle::new(CircleState::default()),
                 type_code: <Circle as ::rustorb_core::idl::IdlType>::type_code,
             };
@@ -3833,6 +3835,7 @@ pub mod rust_mapping {
                 id: Link::REPOSITORY_ID,
                 sent_ids: &["IDL:rustorb.org/RustMapping/Link:1.0"],
                 ancestors: &["IDL:rustorb.org/RustMapping/Link:1.0"],
+                custom: false,
                 make: || ::rustorb_core::idl::ValueHandle::new(LinkState::default()),
                 type_code: <Link as ::rustorb_core::idl::IdlType>::type_code,
             };

@@ -553,7 +553,10 @@ class PythonBackend(object):
             '%s = _0_rt.declare_value("%s", "%s")'
             % (self.tc_ref(node), fe.repository_id(node), node.name)
         )
-        self.class_header(node, [self.ref(b) for b in bases] or ["_0_CORBA.ValueBase"])
+        cls_bases = [self.ref(b) for b in bases] or ["_0_CORBA.ValueBase"]
+        if node.is_custom:
+            cls_bases.append("_0_CORBA.CustomMarshal")
+        self.class_header(node, cls_bases)
         names = [py_name(n) for n in fe.state_member_names(node)]
         w("_NP_members = %s" % py_tuple('"%s"' % n for n in names))
         self.assign_class(node)
@@ -575,7 +578,8 @@ class PythonBackend(object):
         )
         # A valuetype with operations or initializers needs an
         # implementation, which the application registers a factory for.
-        own_factory = not node.is_abstract and not fe.has_behaviour(node)
+        # So does a custom one, for marshal and unmarshal.
+        own_factory = not node.is_abstract and not node.is_custom and not fe.has_behaviour(node)
         w("_0_rt.register_value(%s%s)" % (self.tc_ref(node), "" if own_factory else ", False"))
         w()
 

@@ -30,6 +30,9 @@ pub struct ValueInfo {
     /// The repository ids of the type and of all its concrete base types:
     /// where a value of this type may stand.
     pub ancestors: &'static [&'static str],
+    /// Whether the type is custom marshaled: its state is written by
+    /// [`CustomMarshal`], and is always chunked.
+    pub custom: bool,
     /// Makes an instance with the default state, which is then read.
     pub make: fn() -> ValueHandle,
     /// The TypeCode.
@@ -135,7 +138,7 @@ impl ValueHandle {
         let ids = v.0.info.sent_ids;
         // The key is checked before the state is locked, so that an
         // instance that refers to itself is written as an indirection.
-        if !out.begin_value(v.key(), ids, ids.len() > 1)? {
+        if !out.begin_value(v.key(), ids, ids.len() > 1 || v.0.info.custom)? {
             return Ok(());
         }
         v.lock().write_state(out)?;
@@ -263,5 +266,94 @@ pub fn read_box<T: IdlType>(input: &mut InStream<'_>, id: &str) -> Sys<Option<Ar
             input.end_value().map_err(|_| e)?;
             Ok(Some(v))
         }
+    }
+}
+
+/// The marshaling of a custom valuetype (`CORBA::CustomMarshal`), which
+/// the application implements for the state struct the generator makes
+/// for it: the generated code calls it to write and read the state.
+///
+/// ```ignore
+/// impl CustomMarshal for BlobState {
+///     fn marshal(&self, os: &mut DataOutputStream<'_, '_>) -> Sys<()> {
+///         os.write::<Long>(&self.n)?;
+///         os.write::<Point>(&self.pt)
+///     }
+///     fn unmarshal(&mut self, is: &mut DataInputStream<'_, '_>) -> Sys<()> {
+///         self.n = is.read::<Long>()?;
+///         self.pt = is.read::<Point>()?;
+///         Ok(())
+///     }
+/// }
+/// ```
+pub trait CustomMarshal {
+    /// Writes the state.
+    fn marshal(&self, os: &mut DataOutputStream<'_, '_>) -> Sys<()>;
+    /// Reads the state, in the order [`CustomMarshal::marshal`] writes it.
+    fn unmarshal(&mut self, is: &mut DataInputStream<'_, '_>) -> Sys<()>;
+}
+
+/// What a custom valuetype writes its state to (`CORBA::DataOutputStream`):
+/// items of IDL types, each written as CDR. Valuetypes written keep their
+/// sharing with the rest of the message.
+#[derive(Debug)]
+pub struct DataOutputStream<'s, 'a> {
+    out: &'s mut OutStream<'a>,
+}
+
+impl<'s, 'a> DataOutputStream<'s, 'a> {
+    /// A stream over `out`, for generated code.
+    pub fn new(out: &'s mut OutStream<'a>) -> Self {
+        DataOutputStream { out }
+    }
+
+    /// Writes a value of the IDL type `T` (`write_long` is
+    /// `write::<Long>`, `write_Value` of a `Point` is `write::<Point>`).
+    pub fn write<T: IdlType>(&mut self, v: &T::Borrowed) -> Sys<()> {
+        T::write(v, self.out)
+    }
+
+    /// Writes the elements of `items`, without a length
+    /// (`write_long_array(seq, offset, length)` is
+    /// `write_array::<Long>(&seq[offset..offset + length])`).
+    pub fn write_array<T: IdlType>(&mut self, items: &[T::Rust]) -> Sys<()> {
+        T::write_items(items, self.out)
+    }
+
+    /// The stream, for what the methods above do not cover.
+    pub fn stream(&mut self) -> &mut OutStream<'a> {
+        self.out
+    }
+}
+
+/// What a custom valuetype reads its state from (`CORBA::DataInputStream`).
+#[derive(Debug)]
+pub struct DataInputStream<'s, 'a> {
+    input: &'s mut InStream<'a>,
+}
+
+impl<'s, 'a> DataInputStream<'s, 'a> {
+    /// A stream over `input`, for generated code.
+    pub fn new(input: &'s mut InStream<'a>) -> Self {
+        DataInputStream { input }
+    }
+
+    /// Reads a value of the IDL type `T`.
+    pub fn read<T: IdlType>(&mut self) -> Sys<T::Rust> {
+        T::read(self.input)
+    }
+
+    /// Reads `len` elements of the IDL type `T`, written without a length.
+    pub fn read_array<T: IdlType>(&mut self, len: usize) -> Sys<Vec<T::Rust>> {
+        let e = self.input.marshal_error();
+        if len.saturating_mul(T::MIN_SIZE) > self.input.remaining() {
+            return Err(e);
+        }
+        T::read_items(len, self.input)
+    }
+
+    /// The stream, for what the methods above do not cover.
+    pub fn stream(&mut self) -> &mut InStream<'a> {
+        self.input
     }
 }

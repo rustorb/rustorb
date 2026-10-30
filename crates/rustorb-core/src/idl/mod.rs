@@ -25,7 +25,10 @@ use crate::{
 
 mod value;
 
-pub use value::{ValueHandle, ValueInfo, ValueState, read_box, register_value, write_box};
+pub use value::{
+    CustomMarshal, DataInputStream, DataOutputStream, ValueHandle, ValueInfo, ValueState, read_box,
+    register_value, write_box,
+};
 
 /// Referred to by every generated file: a generator that writes code for
 /// another version of this runtime fails to compile.

@@ -39,8 +39,10 @@ const MAX_DEPTH: usize = 256;
 /// | `any` | `Any` |
 /// | valuetype, value box | `Valuetype`: a shared [`ValueRef`], `None` for `null` |
 ///
-/// Aliases take the value of the type they stand for. Custom valuetypes,
-/// abstract interfaces and `long double` are not supported
+/// Aliases take the value of the type they stand for. The state of a
+/// custom valuetype is the items its marshaling code writes, each a
+/// `Value::Any` of the item's type and value (see [`register_custom_reader`]).
+/// Abstract interfaces and `long double` are not supported
 /// (`NO_IMPLEMENT`).
 #[derive(Debug, Clone)]
 #[allow(missing_docs)]
@@ -178,7 +180,10 @@ impl Value {
                     stack.extend(member.map(|(_, v)| *v));
                 }
                 Value::Any(a) => stack.push(a.value),
-                Value::Valuetype(Some(r)) => stack.extend(r.take_members()),
+                Value::Valuetype(Some(r)) => {
+                    r.set_native(None);
+                    stack.extend(r.take_members());
+                }
                 _ => {}
             }
         }
@@ -197,7 +202,11 @@ pub struct ValueRef(Arc<ValueObj>);
 struct ValueObj {
     tc: TypeCode,
     members: Mutex<Vec<Value>>,
+    native: Mutex<Option<Native>>,
 }
+
+/// An object of a language binding that stands for a [`ValueRef`].
+pub type Native = Arc<dyn std::any::Any + Send + Sync>;
 
 impl ValueRef {
     /// An instance of the valuetype `tc` (the most derived type) with the
@@ -208,7 +217,21 @@ impl ValueRef {
         ValueRef(Arc::new(ValueObj {
             tc,
             members: Mutex::new(members),
+            native: Mutex::new(None),
         }))
+    }
+
+    /// The object of a language binding set with [`ValueRef::set_native`].
+    pub fn native(&self) -> Option<Native> {
+        self.0.native.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Sets (or, with `None`, removes) the object of a language binding
+    /// that stands for this instance: a custom reader
+    /// ([`register_custom_reader`]) sets the instance it made, so that
+    /// the binding finds it again when it converts the value.
+    pub fn set_native(&self, native: Option<Native>) {
+        *self.0.native.lock().unwrap_or_else(|e| e.into_inner()) = native;
     }
 
     /// The type of the instance.
@@ -346,6 +369,52 @@ pub fn unregister_value_type(id: &str) {
         .remove(id);
 }
 
+/// Reads the state of a custom valuetype from `input`, into `value`, a new
+/// instance of the type: what the value's marshaling code wrote, read with
+/// [`InStream::read_value`] item by item. The reader sets the state of
+/// `value` to the items read (each a `Value::Any`) so that it can be
+/// written again, and may set an object of its own with
+/// [`ValueRef::set_native`].
+pub type CustomReader =
+    dyn Fn(&ValueRef, &mut InStream<'_>) -> Result<(), SystemException> + Send + Sync;
+
+/// The custom readers, by repository id.
+static CUSTOM_READERS: RwLock<BTreeMap<String, Arc<CustomReader>>> = RwLock::new(BTreeMap::new());
+
+/// Sets the reader of the custom valuetype `id` (`VM_CUSTOM`), the
+/// unmarshaling half of `CORBA::CustomMarshal`. A value of a custom type
+/// without a reader is read as `MARSHAL`, as when no value factory is
+/// registered.
+///
+/// A custom value is written from its state: the items in it, each a
+/// `Value::Any`, are written one after the other with their types, the
+/// way its marshaling code writes them (`CORBA::DataOutputStream`).
+pub fn register_custom_reader(id: &str, reader: Arc<CustomReader>) {
+    CUSTOM_READERS
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(id.to_owned(), reader);
+}
+
+/// Forgets the reader of the custom valuetype `id`.
+pub fn unregister_custom_reader(id: &str) {
+    CUSTOM_READERS
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(id);
+}
+
+fn custom_reader(id: &str) -> Option<Arc<CustomReader>> {
+    CUSTOM_READERS
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(id)
+        .cloned()
+}
+
+/// The repository id of `ValueBase`, which every valuetype may stand for.
+pub(crate) const VALUE_BASE_ID: &str = "IDL:omg.org/CORBA/ValueBase:1.0";
+
 const VM_CUSTOM: i16 = 1;
 const VM_ABSTRACT: i16 = 2;
 const VM_TRUNCATABLE: i16 = 3;
@@ -377,7 +446,7 @@ fn is_assignable(actual: &TypeCode, expected: &TypeCode) -> bool {
         return actual.kind() == expected.kind() && actual.id().unwrap_or_default() == id;
     }
     // Abstract valuetypes are not in the base chain of a TypeCode.
-    if expected.type_modifier() == Ok(VM_ABSTRACT) {
+    if expected.type_modifier() == Ok(VM_ABSTRACT) || id == VALUE_BASE_ID {
         return true;
     }
     let mut t = Some(actual.clone());
@@ -611,9 +680,7 @@ fn write_valuetype(
         return Err(bad_param());
     }
     match tc.type_modifier() {
-        Ok(VM_CUSTOM) => {
-            return Err(sys(SystemExceptionKind::NO_IMPLEMENT, CompletionStatus::No));
-        }
+        Ok(VM_CUSTOM) => return write_custom(out, &tc, v),
         Ok(VM_ABSTRACT) => return Err(bad_param()),
         _ => {}
     }
@@ -631,6 +698,22 @@ fn write_valuetype(
     }
     for (t, m) in types.iter().zip(&members) {
         write(out, t, m)?;
+    }
+    out.end_value()?;
+    Ok(())
+}
+
+/// Writes a custom value: always chunked (CORBA 3.4 part 2, 9.3.4.6), with
+/// its repository id, and the items of its state with their types.
+fn write_custom(out: &mut OutStream<'_>, tc: &TypeCode, v: &ValueRef) -> Result<(), SystemException> {
+    if !out.begin_value(v.key(), &[tc.id().unwrap_or_default()], true)? {
+        return Ok(());
+    }
+    for item in v.members() {
+        let Value::Any(item) = item else {
+            return Err(bad_param());
+        };
+        write(out, item.typecode(), item.value())?;
     }
     out.end_value()?;
     Ok(())
@@ -859,18 +942,24 @@ impl Reader {
             ValueHeader::Value { slot, ids, .. } => (slot, ids),
         };
         let tc = known_type(expected, &ids).ok_or_else(|| input.marshal_error())?;
-        match tc.type_modifier() {
+        let custom = match tc.type_modifier() {
             Ok(VM_CUSTOM) => {
-                return Err(sys(SystemExceptionKind::NO_IMPLEMENT, input.completed));
+                let id = tc.id().unwrap_or_default();
+                Some(custom_reader(id).ok_or_else(|| input.marshal_error())?)
             }
             Ok(VM_ABSTRACT) => return Err(input.marshal_error()),
-            _ => {}
-        }
+            _ => None,
+        };
         let v = ValueRef::new(tc.clone(), Vec::new());
         if input.values.len() <= slot {
             input.values.resize(slot + 1, None);
         }
         input.values[slot] = Some(v.clone());
+        if let Some(reader) = custom {
+            reader(&v, input)?;
+            input.end_value().map_err(|_| input.marshal_error())?;
+            return Ok(Some(v));
+        }
         let mut members = Vec::new();
         for t in state_types(&tc) {
             members.push(self.read(input, &t)?);
@@ -926,12 +1015,13 @@ impl Reader {
 
 /// The type to read a value sent with the repository ids `ids` as: the
 /// first of them that is `expected` or a registered valuetype, or
-/// `expected` when no id was sent.
+/// `expected` when no id was sent (but not `ValueBase`, which has no
+/// state of its own).
 fn known_type(expected: &TypeCode, ids: &[String]) -> Option<TypeCode> {
-    if ids.is_empty() {
-        return Some(expected.clone());
-    }
     let expected_id = expected.id().unwrap_or_default();
+    if ids.is_empty() {
+        return (expected_id != VALUE_BASE_ID).then(|| expected.clone());
+    }
     ids.iter().find_map(|id| {
         if id == expected_id {
             Some(expected.clone())

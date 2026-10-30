@@ -116,6 +116,7 @@ pub mod value_test {
                 id: Point::REPOSITORY_ID,
                 sent_ids: &["IDL:ValueTest/Point:1.0"],
                 ancestors: &["IDL:ValueTest/Point:1.0"],
+                custom: false,
                 make: || ::rustorb_core::idl::ValueHandle::new(PointState::default()),
                 type_code: <Point as ::rustorb_core::idl::IdlType>::type_code,
             };
@@ -296,6 +297,7 @@ pub mod value_test {
                 id: Point3::REPOSITORY_ID,
                 sent_ids: &["IDL:ValueTest/Point3:1.0", "IDL:ValueTest/Point:1.0"],
                 ancestors: &["IDL:ValueTest/Point3:1.0", "IDL:ValueTest/Point:1.0"],
+                custom: false,
                 make: || ::rustorb_core::idl::ValueHandle::new(Point3State::default()),
                 type_code: <Point3 as ::rustorb_core::idl::IdlType>::type_code,
             };
@@ -462,6 +464,7 @@ pub mod value_test {
                 id: Node::REPOSITORY_ID,
                 sent_ids: &["IDL:ValueTest/Node:1.0"],
                 ancestors: &["IDL:ValueTest/Node:1.0"],
+                custom: false,
                 make: || ::rustorb_core::idl::ValueHandle::new(NodeState::default()),
                 type_code: <Node as ::rustorb_core::idl::IdlType>::type_code,
             };
@@ -715,6 +718,7 @@ pub mod value_test {
                 id: Shape::REPOSITORY_ID,
                 sent_ids: &["IDL:ValueTest/Shape:1.0"],
                 ancestors: &["IDL:ValueTest/Shape:1.0"],
+                custom: false,
                 make: || ::rustorb_core::idl::ValueHandle::new(ShapeState::default()),
                 type_code: <Shape as ::rustorb_core::idl::IdlType>::type_code,
             };

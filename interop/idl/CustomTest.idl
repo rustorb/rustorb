@@ -1,0 +1,51 @@
+// Interop test IDL for custom marshaled valuetypes (the custom suite).
+//
+// The comment on each operation is its specification: every server must
+// implement it exactly, and every client runs the same cases. omniORB
+// 4.3 supports custom valuetypes neither in C++ (omniidl -bcxx rejects
+// them) nor in Python (marshalling one is NO_IMPLEMENT), so the suite runs
+// the rustorb bindings and JacORB.
+
+#ifndef CUSTOM_TEST_IDL
+#define CUSTOM_TEST_IDL
+
+#include "ValueTest.idl"
+
+module CustomTest {
+  typedef sequence<long> LongSeq;
+
+  // A custom marshaled valuetype. Its marshal writes, with the
+  // DataOutputStream: write_long(n), write_string(label), write_Value(pt)
+  // (a ValueTest::Point, a value of a type derived from it, or null),
+  // write_ulong(the length of values) and write_long_array(values, 0,
+  // that length); its unmarshal reads them back in the same order.
+  custom valuetype Blob {
+    public long n;
+    public string label;
+    public ValueTest::Point pt;
+    public LongSeq values;
+  };
+
+  struct BlobPair {
+    Blob blob;
+    ValueTest::Point pt;
+  };
+  typedef sequence<Blob> BlobSeq;
+
+  interface CustomEcho {
+    // Returns b (null stays null).
+    Blob echo_blob(in Blob b);
+
+    // Returns p, sharing preserved: when p.blob.pt and p.pt are the
+    // same instance, so are those returned.
+    BlobPair echo_blob_pair(in BlobPair p);
+
+    // Returns s; elements that are one instance stay one.
+    BlobSeq echo_blobs(in BlobSeq s);
+
+    // Ends the server.
+    oneway void shutdown();
+  };
+};
+
+#endif

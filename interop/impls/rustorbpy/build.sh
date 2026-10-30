@@ -33,5 +33,6 @@ pythonpath="$root/crates/rustorb-codegen/python"
 PYTHONPATH="$pythonpath" python3 -m rustorb_idl -bpython -C "$here/stubs" -I"$root/interop/idl" \
   "$root/interop/idl/InteropTest.idl" "$root/interop/idl/AnyTest.idl" \
   "$root/interop/idl/AnyTestHidden.idl" "$root/interop/idl/ValueTest.idl" \
+  "$root/interop/idl/CustomTest.idl" \
   "$root/interop/idl/PoaProbe.idl" \
   "$root/crates/rustorb-codegen/tests/idl/CosNaming.idl"
