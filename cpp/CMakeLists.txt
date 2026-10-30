@@ -80,6 +80,15 @@ function(rustorb_idl_generate var)
   set(${var} ${sources} PARENT_SCOPE)
 endfunction()
 
+# -DRUSTORB_SANITIZE=address builds the tests with AddressSanitizer, whose
+# LeakSanitizer reports at exit what the C++ runtime and librustorb_ffi did
+# not free (both allocate with the same malloc).
+set(RUSTORB_SANITIZE "" CACHE STRING "sanitizers for the tests (-fsanitize=...)")
+if(RUSTORB_SANITIZE)
+  add_compile_options(-fsanitize=${RUSTORB_SANITIZE} -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=${RUSTORB_SANITIZE})
+endif()
+
 if(MSVC)
   set(RUSTORB_WARNINGS /W4)
 else()
@@ -147,4 +156,18 @@ add_executable(test_orb_ops tests/test_orb_ops.cc)
 target_link_libraries(test_orb_ops PRIVATE rustorb)
 target_compile_options(test_orb_ops PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME orb_ops COMMAND test_orb_ops)
-set_tests_properties(mapping poa interop any value dynany orb_ops PROPERTIES TIMEOUT 120)
+# Servants, references, exceptions, TypeCodes and anys made and dropped
+# many times; with RUSTORB_SANITIZE=address, LeakSanitizer checks the rest.
+add_executable(test_leak tests/test_leak.cc ${INTEROP_SOURCES} ${ANY_SOURCES})
+target_include_directories(test_leak PRIVATE
+  "${CMAKE_CURRENT_BINARY_DIR}/idl" "${RUSTORB_ROOT}/interop/impls/rustorbcpp")
+target_link_libraries(test_leak PRIVATE rustorb)
+target_compile_options(test_leak PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME leak COMMAND test_leak)
+set_tests_properties(mapping poa interop any value dynany orb_ops leak PROPERTIES TIMEOUT 120)
+if(RUSTORB_SANITIZE MATCHES "address")
+  # These two make valuetype graphs with cycles on purpose, which neither
+  # the shared_ptr based mapping nor the Arc based values of the core free
+  # (docs/valuetype.md); they still run with AddressSanitizer.
+  set_tests_properties(value dynany PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0")
+endif()

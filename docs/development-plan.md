@@ -78,7 +78,7 @@ M0〜M3の約4〜7か月でMVPに到達し、その後C++とJavaを順に追加�
 3. **相互接続マトリクス**：自作ORBとomniORB / omniORBpy / JacORB を、クライアント・サーバーの両方向で組み合わせて実行
 4. **Naming Service互換**：omniNamesと同じ操作列（bind、rebind、resolve、list、unbind）を両方に流して結果を比較
 5. **ファジング**：cargo-fuzzでGIOPメッセージ・CDRデコーダを常時ファジング
-6. **負荷・長時間試験**：同時接続数、リクエストレート、接続断と再接続、メモリリーク
+6. **負荷・長時間試験**：同時接続数、リクエストレート、接続断と再接続、メモリリーク（[load-testing.md](load-testing.md)）
 
 相互接続テストはDockerで各ORBの環境を用意し、GitHub Actionsで毎回回す。
 

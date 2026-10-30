@@ -25,7 +25,8 @@ issue #38。呼び出しのタイムアウトを Rust・Python・C++・Java の 
 | 切れたところ | 例外 | rustorb がサーバーに送るもの |
 | --- | --- | --- |
 | 接続中 | `TIMEOUT`、COMPLETED_NO | なし（ほかのアドレスも試さない） |
-| リクエストを送った後 | `TIMEOUT`、COMPLETED_MAYBE | `CancelRequest`。接続はそのまま使う |
+| リクエストを送り終える前（相手が読まず、送信が詰まった） | `TIMEOUT`、COMPLETED_NO | なし。書きかけのメッセージがあれば接続を閉じる（次の呼び出しは新しい接続）。書き始める前なら接続はそのまま |
+| リクエストを送った後 | `TIMEOUT`、COMPLETED_MAYBE | `CancelRequest`（最大 100 ms で送れなければ諦める）。接続はそのまま使う |
 
 omniORB も同じ例外と完了状態だった。違いは次のとおりで、どちらも rustorb の選択として期待値ファイルに残している。
 

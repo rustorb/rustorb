@@ -10,6 +10,7 @@
 package org.rustorb;
 
 import java.lang.ref.Cleaner;
+import java.util.concurrent.atomic.AtomicLong;
 
 final class Owned implements Runnable {
     interface Releaser {
@@ -17,6 +18,9 @@ final class Owned implements Runnable {
     }
 
     private static final Cleaner CLEANER = Cleaner.create();
+
+    /** Handles registered and not yet released (Diagnostics.liveHandles). */
+    static final AtomicLong LIVE = new AtomicLong();
 
     /** The handle; replaced by set(). */
     private volatile long value;
@@ -29,6 +33,9 @@ final class Owned implements Runnable {
 
     static Owned register(Object owner, long handle, Releaser releaser) {
         Owned o = new Owned(handle, releaser);
+        if (handle != 0) {
+            LIVE.incrementAndGet();
+        }
         CLEANER.register(owner, o);
         return o;
     }
@@ -41,7 +48,14 @@ final class Owned implements Runnable {
     synchronized void set(long handle) {
         long old = value;
         value = handle;
-        if (old != 0 && old != handle) {
+        if (old == handle) {
+            return;
+        }
+        if (handle != 0) {
+            LIVE.incrementAndGet();
+        }
+        if (old != 0) {
+            LIVE.decrementAndGet();
             releaser.release(old);
         }
     }
@@ -51,6 +65,7 @@ final class Owned implements Runnable {
         long v = value;
         value = 0;
         if (v != 0) {
+            LIVE.decrementAndGet();
             releaser.release(v);
         }
     }

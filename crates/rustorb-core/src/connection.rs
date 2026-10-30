@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::io;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use rustorb_cdr::ByteOrder;
 use rustorb_giop::{
@@ -29,6 +30,19 @@ pub(crate) enum Closed {
     Orderly,
     /// The stream failed, or a message could not be read.
     Failed(String),
+}
+
+/// How long [`Connection::close`] waits to write `CloseConnection`.
+const CLOSE_TIME: Duration = Duration::from_secs(2);
+
+/// Why [`Connection::send`] did not write a message. Either way the
+/// server cannot have read the whole of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SendError {
+    /// The deadline passed first.
+    TimedOut,
+    /// The stream failed; the connection is closed.
+    Failed,
 }
 
 /// What a waiting caller receives.
@@ -122,25 +136,68 @@ impl Connection {
         self.pending.lock().unwrap().waiters.remove(&request_id);
     }
 
-    /// Writes one whole message.
-    pub(crate) async fn send(&self, msg: &[u8]) -> io::Result<()> {
-        let mut writer = self.writer.lock().await;
-        let result = writer.write_all(msg).await;
-        if let Err(e) = &result {
-            drop(writer);
-            self.fail(Closed::Failed(format!("write failed: {e}")));
+    /// Writes one whole message, giving up at `deadline`. A message cut
+    /// short by the deadline leaves the stream unusable, so the connection
+    /// is then closed; one not started leaves it as it was.
+    pub(crate) async fn send(
+        &self,
+        msg: &[u8],
+        deadline: Option<Instant>,
+    ) -> Result<(), SendError> {
+        let mut writer = match deadline {
+            Some(at) => match tokio::time::timeout_at(at.into(), self.writer.lock()).await {
+                Ok(writer) => writer,
+                Err(_) => return Err(SendError::TimedOut),
+            },
+            None => self.writer.lock().await,
+        };
+        let mut written = 0;
+        while written < msg.len() {
+            let write = writer.write(&msg[written..]);
+            let result = match deadline {
+                Some(at) => match tokio::time::timeout_at(at.into(), write).await {
+                    Ok(result) => result,
+                    Err(_) if written == 0 => return Err(SendError::TimedOut),
+                    Err(_) => {
+                        let _ = writer.shutdown().await;
+                        drop(writer);
+                        self.fail(Closed::Failed("write timed out".into()));
+                        return Err(SendError::TimedOut);
+                    }
+                },
+                None => write.await,
+            };
+            match result {
+                Ok(0) => {
+                    drop(writer);
+                    self.fail(Closed::Failed("write failed: stream closed".into()));
+                    return Err(SendError::Failed);
+                }
+                Ok(n) => written += n,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => {
+                    drop(writer);
+                    self.fail(Closed::Failed(format!("write failed: {e}")));
+                    return Err(SendError::Failed);
+                }
+            }
         }
-        result
+        Ok(())
     }
 
     /// Sends `CloseConnection` if nothing is outstanding and shuts the
     /// stream down. Requests issued afterwards use a new connection.
+    /// A peer that stopped reading gets [`CLOSE_TIME`] before the stream
+    /// is dropped without it.
     pub(crate) async fn close(&self, version: Version, order: ByteOrder) {
         self.closing.store(true, Ordering::Release);
         if let Ok(msg) = MessageEncoder::close_connection(version, order) {
-            let mut writer = self.writer.lock().await;
-            let _ = writer.write_all(&msg).await;
-            let _ = writer.shutdown().await;
+            let _ = tokio::time::timeout(CLOSE_TIME, async {
+                let mut writer = self.writer.lock().await;
+                let _ = writer.write_all(&msg).await;
+                let _ = writer.shutdown().await;
+            })
+            .await;
         }
     }
 

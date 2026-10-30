@@ -135,6 +135,12 @@ jobs:
       - name: Run OpenRTM-aist examples and rtshell with rustorb-names
         run: interop/run-openrtm.sh --naming rustorb
 
+      # Many threads, many connections and 1 MiB messages from rustorb and
+      # omniORBpy clients against omniORB and rustorb servers; the rates go
+      # to out/load.md (the long run is in soak.yml).
+      - name: Put load on each server
+        run: interop/run-load.sh --seconds 2
+
       - name: Compare GIOP captures with the golden files
         run: interop/scripts/golden-compare --all interop/out interop/golden
 

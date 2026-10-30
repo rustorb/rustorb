@@ -11,7 +11,7 @@ use rustorb_giop::{
     component_tag, decode_message, response_flags,
 };
 
-use crate::connection::{Closed, Connection};
+use crate::connection::{Closed, Connection, SendError};
 use crate::server::Server;
 use crate::stream::{InStream, OutStream, marshal};
 use crate::{
@@ -459,6 +459,9 @@ fn invoke(
     }
 }
 
+/// How long a `CancelRequest` after a timeout may take to go out.
+const CANCEL_SEND_TIME: Duration = Duration::from_millis(100);
+
 /// Sends the request to one endpoint. A `CloseConnection` before the reply
 /// means the server did not process it, so it is sent once more on a new
 /// connection.
@@ -583,14 +586,31 @@ async fn attempt_on(
     } else {
         None
     };
-    if conn.send(&msg).await.is_err() {
-        conn.forget(request_id);
-        orb.discard(conn);
-        return Ok(Attempt::NotSent(sys(
-            SystemExceptionKind::COMM_FAILURE,
-            0,
-            CompletionStatus::No,
-        )));
+    match conn.send(&msg, deadline).await {
+        Ok(()) => {}
+        // Out of time before the whole request went out (a peer that
+        // stopped reading, say): the server did not get it.
+        Err(SendError::TimedOut) => {
+            conn.forget(request_id);
+            if !conn.is_usable() {
+                orb.discard(conn);
+            }
+            return Ok(Attempt::Done(Err(sys(
+                SystemExceptionKind::TIMEOUT,
+                0,
+                CompletionStatus::No,
+            )
+            .into())));
+        }
+        Err(SendError::Failed) => {
+            conn.forget(request_id);
+            orb.discard(conn);
+            return Ok(Attempt::NotSent(sys(
+                SystemExceptionKind::COMM_FAILURE,
+                0,
+                CompletionStatus::No,
+            )));
+        }
     }
     let Some(rx) = rx else {
         return Ok(Attempt::Done(Ok(Outcome::Reply(None))));
@@ -606,7 +626,10 @@ async fn attempt_on(
                     order,
                     &CancelRequestHeader { request_id },
                 ) {
-                    let _ = conn.send(&cancel).await;
+                    // The caller is out of time already, and the connection
+                    // may be the reason: a short wait at most.
+                    let at = Instant::now() + CANCEL_SEND_TIME;
+                    let _ = conn.send(&cancel, Some(at)).await;
                 }
                 return Ok(Attempt::Done(Err(sys(
                     SystemExceptionKind::TIMEOUT,
