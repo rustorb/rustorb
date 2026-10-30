@@ -3,7 +3,7 @@
 # naming check on the host:
 # librustorb_jni (in lib/) and, in classes/, the rustorb Java runtime
 # (java/), the stubs and skeletons of InteropTest.idl, AnyTest.idl,
-# AnyTestHidden.idl, ValueTest.idl, CustomTest.idl and PoaProbe.idl from rustorb-idl -bjava (in gen/), the
+# AnyTestHidden.idl, ValueTest.idl, CustomTest.idl, AbstractTest.idl and PoaProbe.idl from rustorb-idl -bjava (in gen/), the
 # Java sources shared with the jacorb implementation (impls/java) and the
 # probes (probe/). run-matrix.sh, run-poa-probe.sh, run-dynany-probe.sh and
 # run-naming-check.sh run it;
@@ -26,7 +26,8 @@ pythonpath="$root/crates/rustorb-codegen/python"
 PYTHONPATH="$pythonpath" python3 -m rustorb_idl -bjava -I "$root/interop/idl" -C "$here/gen" \
   "$root/interop/idl/InteropTest.idl" "$root/interop/idl/AnyTest.idl" \
   "$root/interop/idl/AnyTestHidden.idl" "$root/interop/idl/ValueTest.idl" \
-  "$root/interop/idl/CustomTest.idl" "$root/interop/idl/PoaProbe.idl"
+  "$root/interop/idl/CustomTest.idl" "$root/interop/idl/AbstractTest.idl" \
+  "$root/interop/idl/PoaProbe.idl"
 find "$root/java/src/main/java" "$here/gen" "$here/../java" "$here/probe" -name '*.java' \
   > "$here/gen/sources.txt"
 javac --release 11 -encoding UTF-8 -nowarn -d "$here/classes" @"$here/gen/sources.txt"

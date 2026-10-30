@@ -4,6 +4,7 @@
 
 #include "common.h"
 #include "anytest.h"
+#include "abstracttest.h"
 #include "valuetest.h"
 
 using namespace InteropTest;
@@ -172,6 +173,24 @@ int main(int argc, char** argv) {
       PortableServer::POA_var poa = persistent_poa(orb, "ValueTest");
       valuetest::ValueEchoImpl* servant = new valuetest::ValueEchoImpl(orb);
       PortableServer::ObjectId_var oid = PortableServer::string_to_ObjectId("ValueEcho");
+      poa->activate_object_with_id(oid, servant);
+      servant->_remove_ref();
+      CORBA::Object_var obj = poa->id_to_reference(oid);
+      CosNaming::NamingContext_var root = root_context(orb, opt.timeout);
+      bind_name(root, opt.name, obj);
+      std::cout << "server ready: " << opt.name << std::endl;
+      orb->run();
+      orb->destroy();
+      std::cout << "server stopped" << std::endl;
+      return 0;
+    }
+    if (opt.suite == "abstract") {
+      // The abstract interface suite: AbstractTest::AbstractEcho, which
+      // also stops the server.
+      abstracttest::register_factories(orb);
+      PortableServer::POA_var poa = persistent_poa(orb, "AbstractTest");
+      abstracttest::AbstractEchoImpl* servant = new abstracttest::AbstractEchoImpl(orb);
+      PortableServer::ObjectId_var oid = PortableServer::string_to_ObjectId("AbstractEcho");
       poa->activate_object_with_id(oid, servant);
       servant->_remove_ref();
       CORBA::Object_var obj = poa->id_to_reference(oid);

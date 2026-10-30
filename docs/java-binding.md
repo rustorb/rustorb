@@ -83,7 +83,7 @@ orb.run();
 | 定数 | モジュールの定数は `value` を持つインターフェース、インターフェースの定数はそのフィールド |
 | 型の中の型 | `<Name>Package` パッケージ |
 
-`Helper` は `insert`・`extract`・`type`・`id`・`read`・`write` を持つ。`type()` は再帰型を `create_recursive_tc` で作り、別名の `insert` は別名の TypeCode を付ける。Java の予約語と `java.lang.Object` のメソッド名（`notify`、`wait` など）と同じ識別子には `_` が付く（GIOP 上の操作名は IDL のまま）。`long double` と abstract interface はまだ生成できず、rustorb-idl がエラーにする。`custom` の valuetype（`CustomValue`）、`supports`（`IOperations` と `IPOATie`）、valuetype の操作（抽象メソッド）と初期化子（`<名前>ValueFactory`）は [valuetype.md](valuetype.md) のとおり。
+`Helper` は `insert`・`extract`・`type`・`id`・`read`・`write` を持つ。`type()` は再帰型を `create_recursive_tc` で作り、別名の `insert` は別名の TypeCode を付ける。Java の予約語と `java.lang.Object` のメソッド名（`notify`、`wait` など）と同じ識別子には `_` が付く（GIOP 上の操作名は IDL のまま）。`long double` はまだ生成できず、rustorb-idl がエラーにする。abstract interface は [valuetype.md](valuetype.md#abstract-interface) のとおり。`custom` の valuetype（`CustomValue`）、`supports`（`IOperations` と `IPOATie`）、valuetype の操作（抽象メソッド）と初期化子（`<名前>ValueFactory`）は [valuetype.md](valuetype.md) のとおり。
 
 `fixed<D, S>` の値は `BigDecimal` で、生成コードは `write_fixed(v, D, S)` / `read_fixed(D, S)` で読み書きする。読んだ値の scale はいつも S。小数が S 桁を超える（0 でない桁がある）値や整数部が D − S 桁を超える値は送信時に `BAD_PARAM`（Python と同じ。丸めない）。パック10進の読み書きは `org.omg.CORBA.portable.OutputStream` / `InputStream` 自身が `write_octet_array` / `read_octet_array` の上で行う。桁数を取らない `write_fixed(v)` は v の桁数と scale で書き、`read_fixed()` は符号の半オクテットまで読んで整数（scale 0）を返す。`Any.insert_fixed(v)` は v 自身の桁数と scale の `tk_fixed` を、`insert_fixed(v, tc)` は tc（別名も可。`tk_fixed` でなければ `BAD_INV_ORDER`）を付け、`extract_fixed()` は TypeCode の scale の値を返す。`fixed` の定数は `BigDecimal` で、scale は型のもの（`const fixed C = 12.50d;` は `new BigDecimal("12.50")`）。
 
@@ -154,5 +154,4 @@ JacORB は、UTF-8 に決まった `char` のデータ（rustorb とはどちら
 ## 残り
 
 - DII / DSI（#44）
-- abstract interface（#43）
 - Java 22 以降の FFM API への置き換えの検討

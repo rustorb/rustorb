@@ -255,16 +255,8 @@ class JavaBackend(object):
                 return self.jtype(fe.type_of(n.type, n), where)
             if fe.is_valuetype(n) and n.is_boxed and not self.box_class(n):
                 return self.jtype(fe.type_of(n.boxed_type, n), where)
-            if fe.is_interface(n):
-                self.check_interface(n)
             return self.scoped(n)
         raise fe.GeneratorError("no Java type for %r" % t, where)
-
-    def check_interface(self, n):
-        if getattr(n, "is_abstract", False):
-            raise fe.GeneratorError(
-                "abstract interfaces are not supported by the Java backend yet", n
-            )
 
     def holder(self, t, where=None):
         """The Holder class of a type, for out and inout parameters."""
@@ -470,7 +462,9 @@ class JavaBackend(object):
         r = t.resolved()
         if r.kind in MIN_SIZE:
             return MIN_SIZE[r.kind]
-        if r.kind == "named" and (fe.is_enum(r.node) or fe.is_interface(r.node)):
+        if r.kind == "named" and fe.is_enum(r.node):
+            return 4
+        if r.kind == "named" and fe.is_interface(r.node) and not self.is_abstract(r.node):
             return 4
         return 1
 
@@ -540,7 +534,6 @@ class JavaBackend(object):
             if not fe.is_forward(node):
                 self.union(node)
         elif fe.is_interface(node):
-            self.check_interface(node)
             if not fe.is_forward(node):
                 self.interface(node)
         elif fe.is_native(node):
@@ -992,8 +985,12 @@ class JavaBackend(object):
 
     def supported_operations(self, node):
         """The operations interfaces of the interfaces a valuetype supports,
-        which its class implements (its servant is their tie)."""
-        return [self.scoped(i, "Operations") for i in fe.supported_interfaces(node)]
+        which its class implements (its servant is their tie), and the
+        abstract interfaces it supports, whose values it is."""
+        return [
+            self.scoped(i) if i.is_abstract else self.scoped(i, "Operations")
+            for i in fe.supported_interfaces(node)
+        ]
 
     def value_methods(self, w, node, prefix="public abstract "):
         """The operations and attributes of a valuetype, as abstract methods
@@ -1459,15 +1456,24 @@ class JavaBackend(object):
             throws,
         )
 
+    def is_abstract(self, node):
+        return bool(getattr(self.full_iface(node), "is_abstract", False))
+
     def interface(self, node):
+        if self.is_abstract(node):
+            self.abstract_interface(node)
+            return
         name = java_name(node.name)
         bases = [self.full_iface(b) for b in self.bases(node)]
         local = bool(getattr(node, "is_local", False))
         ops = self.operations(node)
 
-        # IOperations
+        # IOperations: it extends the abstract interfaces the interface
+        # inherits, which have no operations interface.
         w = Writer()
-        ext = ", ".join(self.scoped(b, "Operations") for b in bases)
+        ext = ", ".join(
+            self.scoped(b) if self.is_abstract(b) else self.scoped(b, "Operations") for b in bases
+        )
         w("public interface %sOperations%s {" % (name, (" extends " + ext) if ext else ""))
         w.indent()
         for opname, method, ret, params, excs, oneway, d in ops:
@@ -1484,8 +1490,9 @@ class JavaBackend(object):
         # I
         w = Writer()
         ext = [name + "Operations"]
-        if bases:
-            ext += [self.scoped(b) for b in bases]
+        concrete = [b for b in bases if not self.is_abstract(b)]
+        if concrete:
+            ext += [self.scoped(b) for b in concrete]
         else:
             ext.append("org.omg.CORBA.Object")
         ext.append("org.omg.CORBA.portable.IDLEntity")
@@ -1551,6 +1558,85 @@ class JavaBackend(object):
             self.stub(node)
             self.skeleton(node)
             self.tie(node)
+        self.nested(node)
+
+    def abstract_interface(self, node):
+        """An abstract interface: a Java interface with the operations,
+        which objects (stubs, _AStub for references received as A) and
+        values (of valuetypes that support it) implement."""
+        name = java_name(node.name)
+        bases = [self.full_iface(b) for b in self.bases(node)]
+        w = Writer()
+        ext = [self.scoped(b) for b in bases] + ["org.omg.CORBA.portable.IDLEntity"]
+        w("public interface %s extends %s {" % (name, ", ".join(ext)))
+        w.indent()
+        for d in fe.members_of(node):
+            if fe.is_const(d):
+                t = fe.type_of(d.type, d)
+                w("%s %s = %s;" % (self.jtype(t, d), java_name(d.name), self.literal(d.value, t)))
+                w()
+        for opname, method, ret, params, excs, oneway, d in self.operations(node):
+            if opname.startswith("_set_"):
+                t = params[0][1]
+                w("void %s(%s value);" % (java_name(method), self.jtype(t, d)))
+            else:
+                w("%s;" % self.signature(method, ret, params, excs, d))
+            w()
+        w.dedent()
+        w("}")
+        self.add(node, name, w.text())
+
+        scoped = self.scoped(node)
+        stub = ".".join(self.package_of(node) + ("_%sStub" % name,))
+
+        def tc(w):
+            w('__typeCode = %s.create_abstract_interface_tc(_id, "%s");' % (ORB, node.name))
+
+        def write_body(w):
+            w("((org.omg.CORBA_2_3.portable.OutputStream) $out).write_abstract_interface(value);")
+
+        def read_body(w):
+            w(
+                "return unchecked_narrow("
+                "((org.omg.CORBA_2_3.portable.InputStream) $in).read_abstract_interface());"
+            )
+
+        def narrow(w):
+            # An object or a value: a reference becomes a stub, a value
+            # must implement the interface.
+            for checked in (True, False):
+                w(
+                    "public static %s %s(java.lang.Object obj) {"
+                    % (scoped, "narrow" if checked else "unchecked_narrow")
+                )
+                w.indent()
+                w("if (obj == null) {")
+                w("    return null;")
+                w("}")
+                w("if (obj instanceof %s) {" % scoped)
+                w("    return (%s) obj;" % scoped)
+                w("}")
+                w("if (!(obj instanceof org.omg.CORBA.portable.ObjectImpl)) {")
+                w("    throw new org.omg.CORBA.BAD_PARAM();")
+                w("}")
+                if checked:
+                    w("if (!((org.omg.CORBA.Object) obj)._is_a(id())) {")
+                    w("    throw new org.omg.CORBA.BAD_PARAM();")
+                    w("}")
+                w("%s $stub = new %s();" % (stub, stub))
+                w(
+                    "$stub._set_delegate(((org.omg.CORBA.portable.ObjectImpl) obj)"
+                    "._get_delegate());"
+                )
+                w("return $stub;")
+                w.dedent()
+                w("}")
+                if checked:
+                    w()
+
+        self.helper(node, scoped, tc, write_body, read_body, extra=narrow)
+        self.holder_class(node, scoped)
+        self.stub(node)
         self.nested(node)
 
     def full_iface(self, b):

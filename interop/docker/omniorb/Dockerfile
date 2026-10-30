@@ -133,7 +133,7 @@ COPY impls/java /src/java
 COPY impls/jacorb/idl /src/jacorb-idl/idl
 RUN java -cp '/src/jacorb-idl/*' org.jacorb.idl.parser -I/opt/interop/idl -d /src/jacorb-gen \
       /opt/interop/idl/InteropTest.idl /opt/interop/idl/ValueTest.idl \
-      /opt/interop/idl/CustomTest.idl \
+      /opt/interop/idl/CustomTest.idl /opt/interop/idl/AbstractTest.idl \
  && java -cp '/src/jacorb-idl/*' org.jacorb.idl.parser -all -I/opt/interop/idl \
       -I/src/jacorb-idl/idl -d /src/jacorb-gen /src/jacorb-idl/idl/AnyAll.idl \
  && find /src/jacorb-gen /src/java -name '*.java' > /src/sources.txt \

@@ -1,6 +1,7 @@
 // Valuetypes: the value interop cases (interop/impls/java ValueTests) in one
 // process, over IIOP on the loopback interface, then the generated default
-// factories, truncation, unknown types and ORB.create_value_tc.
+// factories, truncation, unknown types and ORB.create_value_tc; then the
+// abstract interface cases (AbstractTests) and narrowing.
 
 package org.rustorb.test;
 
@@ -14,6 +15,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Collections;
 
+import AbstractTest.AbstractEcho;
+import AbstractTest.AbstractEchoHelper;
+import AbstractTest.Named;
+import AbstractTest.NamedHelper;
+import AbstractTest.Person;
+import AbstractTest.PersonHelper;
 import ValueTest.LongBox;
 import ValueTest.LongBoxHelper;
 import ValueTest.Node;
@@ -26,6 +33,7 @@ import ValueTest.PointHelper;
 import ValueTest.ShapeHelper;
 import ValueTest.ValueEcho;
 import ValueTest.ValueEchoHelper;
+import interop.AbstractTests;
 import interop.Cases;
 import interop.ValueTests;
 import org.junit.jupiter.api.Test;
@@ -168,6 +176,31 @@ class ValuetypeTest {
             assertEquals(PRIVATE_MEMBER.value, t3.member_visibility(1));
             assertEquals(TCKind.tk_value_box, LongBoxHelper.type().kind());
             assertFalse(point(1, 2) instanceof Point3);
+        }
+    }
+
+    @Test
+    void abstractInterfaces() throws Exception {
+        try (Orbs orbs = new Orbs()) {
+            AbstractTests.registerFactories(orbs.server);
+            String ior = orbs.server.object_to_string(orbs.serverPoa.servant_to_reference(
+                    new AbstractTests.AbstractEchoImpl(orbs.server)));
+            AbstractEcho echo = AbstractEchoHelper.narrow(orbs.client.string_to_object(ior));
+            Cases.Runner r = new Cases.Runner();
+            AbstractTests.run(r, orbs.client, echo);
+            r.summary();
+            assertEquals(Collections.emptyList(), r.failed());
+            // A reference received as Named is a stub of Named, which
+            // narrows on to Person; a plain reference narrows to Named.
+            Person bob = echo.make_person("bob");
+            Named n = echo.echo_named(bob);
+            assertTrue(n instanceof org.omg.CORBA.Object);
+            assertEquals(42, PersonHelper.narrow((org.omg.CORBA.Object) n).age());
+            org.omg.CORBA.Object obj = orbs.client.string_to_object(orbs.client.object_to_string(bob));
+            assertEquals("bob", NamedHelper.narrow(obj).name());
+            assertThrows(org.omg.CORBA.BAD_PARAM.class, () -> NamedHelper.narrow(echo));
+            assertThrows(org.omg.CORBA.BAD_PARAM.class, () -> NamedHelper.narrow("not a Named"));
+            assertEquals(TCKind.tk_abstract_interface, NamedHelper.type().kind());
         }
     }
 }

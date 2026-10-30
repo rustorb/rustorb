@@ -262,12 +262,8 @@ fn codebase_urls_are_skipped() {
 
 #[test]
 fn abstract_interfaces_are_a_reference_or_a_value() {
-    let named = TypeCode::interface(
-        TCKind::AbstractInterface,
-        "IDL:test/Named:1.0",
-        "Named",
-    )
-    .unwrap();
+    let named =
+        TypeCode::interface(TCKind::AbstractInterface, "IDL:test/Named:1.0", "Named").unwrap();
     let base = base_tc("IDL:test/Abstract/Base:1.0", 0);
     rustorb_core::register_value_type(&base);
     let shared = ValueRef::new(base.clone(), vec![Value::Long(3)]);
@@ -280,7 +276,9 @@ fn abstract_interfaces_are_a_reference_or_a_value() {
     ]);
     let back = roundtrip(ByteOrder::Big, &seq, &v);
     rustorb_core::unregister_value_type("IDL:test/Abstract/Base:1.0");
-    let Value::List(items) = back.unwrap() else { panic!() };
+    let Value::List(items) = back.unwrap() else {
+        panic!()
+    };
     assert_eq!(get(&items[0]).members(), vec![Value::Long(3)]);
     assert!(get(&items[0]).ptr_eq(&get(&items[3])));
     assert!(matches!(items[1], Value::Objref(None)));

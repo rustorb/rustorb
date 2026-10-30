@@ -423,8 +423,15 @@ pub(crate) const VALUE_BASE_ID: &str = "IDL:omg.org/CORBA/ValueBase:1.0";
 pub(crate) fn value_base_tc() -> &'static TypeCode {
     static TC: std::sync::OnceLock<TypeCode> = std::sync::OnceLock::new();
     TC.get_or_init(|| {
-        TypeCode::value_tc(TCKind::Value, VALUE_BASE_ID, "ValueBase", 0, None, &[] as &[(&str, TypeCode, i16)])
-            .expect("a valid TypeCode")
+        TypeCode::value_tc(
+            TCKind::Value,
+            VALUE_BASE_ID,
+            "ValueBase",
+            0,
+            None,
+            &[] as &[(&str, TypeCode, i16)],
+        )
+        .expect("a valid TypeCode")
     })
 }
 
@@ -1073,7 +1080,11 @@ fn min_size(tc: &TypeCode, depth: usize) -> usize {
     }
     let tc = tc.unaliased();
     match tc.kind() {
-        TCKind::Boolean | TCKind::Char | TCKind::Octet | TCKind::WChar | TCKind::AbstractInterface => 1,
+        TCKind::Boolean
+        | TCKind::Char
+        | TCKind::Octet
+        | TCKind::WChar
+        | TCKind::AbstractInterface => 1,
         TCKind::Short | TCKind::UShort => 2,
         TCKind::Long
         | TCKind::ULong

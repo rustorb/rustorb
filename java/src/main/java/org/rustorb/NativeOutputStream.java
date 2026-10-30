@@ -242,6 +242,11 @@ final class NativeOutputStream extends org.omg.CORBA_2_3.portable.OutputStream {
     }
 
     @Override
+    public void write_abstract_interface(java.lang.Object obj) {
+        Stubs.writeAbstract(this, obj);
+    }
+
+    @Override
     public void write_TypeCode(org.omg.CORBA.TypeCode value) {
         TypeCodeImpl tc = TypeCodeImpl.cast(value);
         try {

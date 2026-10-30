@@ -58,6 +58,7 @@ def setUpModule():
         os.path.join(idl_dir, "AnyTestHidden.idl"),
         os.path.join(idl_dir, "ValueTest.idl"),
         os.path.join(idl_dir, "CustomTest.idl"),
+        os.path.join(idl_dir, "AbstractTest.idl"),
         os.path.join(HERE, "idl", "NativeTest.idl"),
     ):
         if cli.main(["-bpython", "-C", OUT, "-I" + idl_dir, idl]) != 0:
@@ -891,6 +892,94 @@ class CustomValueTest(unittest.TestCase):
             poa.deactivate_object(oid)
         finally:
             client_orb.unregister_value_factory(C.Blob._NP_RepositoryId)
+
+
+class AbstractInterfaceTest(unittest.TestCase):
+    """Abstract interfaces (interop/idl/AbstractTest.idl): references and
+    values of AbstractTest::Named."""
+
+    def test_references_and_values(self):
+        import AbstractTest as A
+        import AbstractTest__POA
+
+        class Person(AbstractTest__POA.Person):
+            def __init__(self, name):
+                self._name = name
+
+            def name(self):
+                return self._name
+
+            def age(self):
+                return 42
+
+        class CardImpl(A.Card):
+            def name(self):
+                return self.title
+
+        class Servant(AbstractTest__POA.AbstractEcho):
+            def echo_named(self, n):
+                return n
+
+            def name_of(self, n):
+                return n.name()
+
+            def is_object(self, n):
+                return isinstance(n, CORBA.Object)
+
+            def echo_pair(self, p):
+                return p
+
+            def echo_seq(self, s):
+                return s
+
+            def make_person(self, name):
+                poa = server_orb.resolve_initial_references("RootPOA")
+                return poa.id_to_reference(poa.activate_object(Person(name)))
+
+            def echo_any(self, a):
+                return a
+
+            def shutdown(self):
+                pass
+
+        client_orb.register_value_factory(A.Card._NP_RepositoryId, CardImpl)
+        spoa = server_orb.resolve_initial_references("RootPOA")
+        cpoa = client_orb.resolve_initial_references("RootPOA")
+        oid = spoa.activate_object(Servant())
+        alice_oid = cpoa.activate_object(Person("alice"))
+        try:
+            e = remote(client_orb, spoa.id_to_reference(oid), A.AbstractEcho)
+            alice = cpoa.id_to_reference(alice_oid)
+            got = e.echo_named(alice)
+            self.assertIsInstance(got, A._objref_Named)
+            self.assertEqual(got.name(), "alice")
+            card = e.echo_named(CardImpl("ace"))
+            self.assertIs(type(card), CardImpl)
+            self.assertEqual(card.title, "ace")
+            self.assertIsNone(e.echo_named(None))
+            self.assertEqual(e.name_of(CardImpl("king")), "king")
+            self.assertTrue(e.is_object(alice))
+            self.assertFalse(e.is_object(CardImpl("ace")))
+            c = CardImpl("jack")
+            seq = e.echo_seq([c, alice, None, c])
+            self.assertIs(seq[0], seq[3])
+            self.assertEqual(seq[1].name(), "alice")
+            self.assertIsNone(seq[2])
+            bob = e.make_person("bob")
+            self.assertEqual((bob.name(), bob.age()), ("bob", 42))
+            # A reference received as Named narrows to Person.
+            self.assertEqual(e.echo_named(bob)._narrow(A.Person).age(), 42)
+            a = e.echo_any(CORBA.Any(A._tc_Named, CardImpl("joker")))
+            self.assertTrue(a.typecode().equal(A._tc_Named))
+            self.assertEqual(a.value().title, "joker")
+            self.assertIs(A._tc_Named.kind(), CORBA.tk_abstract_interface)
+            # Neither a reference nor a value.
+            with self.assertRaises(CORBA.BAD_PARAM):
+                e.echo_named(42)
+        finally:
+            cpoa.deactivate_object(alice_oid)
+            spoa.deactivate_object(oid)
+            client_orb.unregister_value_factory(A.Card._NP_RepositoryId)
 
 
 class LocalTest(unittest.TestCase):

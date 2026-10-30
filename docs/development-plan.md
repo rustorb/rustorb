@@ -259,7 +259,7 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - [x] Java：`StreamableValue`、`ValueFactory`・`DefaultFactory`、`BoxedValueHelper`、CORBA_2_3 のストリームと ORB、`-bjava`
   - [x] 相互接続：rustorbcpp・rustorbjava・JacORB を加えた49組が GIOP 1.2 / 1.1 で通る（JacORB が Java 17 で Any の中の値を書けない3ケースは既知の失敗）
   - [x] `custom`、`supports`、valuetype の操作と初期化子（#42）
-  - 残り：abstract interface（#43）
+  - [x] abstract interface（#43、[valuetype.md](valuetype.md#abstract-interface)）：コア、Python・C++・Java、`run-matrix.sh --suite abstract`
 - [x] Java の portable stub とストリーム（[java-binding.md](java-binding.md#portable-stub-とストリーム)、[#45](https://github.com/rustorb/rustorb/issues/45)）
   - C ABI：呼び出しの後も有効な入力ストリーム（`rorb_object_invoke_stream`、`rorb_in_new`、`rorb_any_input`、`rorb_in_release`）、型を指定した Any の値の読み書き
   - Java：`ObjectImpl._request` / `_invoke` / `_releaseReply` と `ApplicationException`、`ORB.create_output_stream`、Any の `create_output_stream` / `create_input_stream` / `read_value` / `write_value` / `insert_Value` / `extract_Value`。出力は書き込みの列として持ち、送るときに本物のストリームに書き直す

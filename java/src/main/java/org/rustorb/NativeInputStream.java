@@ -214,6 +214,19 @@ class NativeInputStream extends org.omg.CORBA_2_3.portable.InputStream {
     }
 
     @Override
+    public java.lang.Object read_abstract_interface() {
+        return Stubs.readAbstract(this);
+    }
+
+    @Override
+    public java.lang.Object read_abstract_interface(Class<?> clz) {
+        if (!read_boolean()) {
+            return read_value(clz);
+        }
+        return read_Object(clz);
+    }
+
+    @Override
     public org.omg.CORBA.TypeCode read_TypeCode() {
         TypeCodeImpl tc = TypeCodeImpl.of(Native.inTypeCode(in()));
         // After an error (reported when the callback returns).

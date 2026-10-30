@@ -250,6 +250,11 @@ class PortableOutputStream extends OutputStream {
     }
 
     @Override
+    public void write_abstract_interface(java.lang.Object obj) {
+        Stubs.writeAbstract(this, obj);
+    }
+
+    @Override
     public void write_TypeCode(org.omg.CORBA.TypeCode value) {
         TypeCodeImpl tc = TypeCodeImpl.cast(value);
         record(o -> o.write_TypeCode(tc));

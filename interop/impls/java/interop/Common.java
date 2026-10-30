@@ -67,7 +67,8 @@ public final class Common {
                 case "--suite":
                     opt.suite = value(argv, ++i, a);
                     if (!opt.suite.equals("basic") && !opt.suite.equals("any")
-                            && !opt.suite.equals("value") && !opt.suite.equals("custom")) {
+                            && !opt.suite.equals("value") && !opt.suite.equals("custom")
+                            && !opt.suite.equals("abstract")) {
                         System.err.println("unknown suite " + opt.suite);
                         System.exit(2);
                     }
@@ -80,7 +81,7 @@ public final class Common {
         if (opt.naming == null || opt.name == null) {
             System.err.println("usage: " + prog
                     + " --naming CORBALOC --name PATH [--host H] [--port N] [--timeout S]"
-                    + " [--shutdown-server] [--suite basic|any|value|custom] [ORB options]");
+                    + " [--shutdown-server] [--suite basic|any|value|custom|abstract] [ORB options]");
             System.exit(2);
         }
         return opt;

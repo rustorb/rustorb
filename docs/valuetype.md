@@ -105,7 +105,7 @@ IDL to C++11 のマッピングに従う。
 - 値ファクトリは `CORBA::ValueFactoryBase` の派生クラスで、`create_for_unmarshal()` が空のインスタンスを返す。`ORB::register_value_factory`（前のファクトリを返す）・`unregister_value_factory`・`lookup_value_factory` で、表はプロセスに1つ。生成コードは、操作も初期化子もない valuetype の `OBV_` クラスと value box の既定のファクトリ（`rustorb::detail::DefaultValueFactory<T>`）を、静的初期化で登録する（コアにも型を登録する）
 - 受け取った値は、受け取った ID の順に最初にファクトリのある型で作る（ID がなければ宣言された型）。ファクトリがなければ `MARSHAL`
 - Any には `<<=` / `>>=` で入る。`ORB::create_value_tc`、`CORBA::ValueMember`・`ValueMemberSeq`、`VM_*`、`PRIVATE_MEMBER` / `PUBLIC_MEMBER`
-- 生成器：`valuetype`、value box、前方宣言、`custom`、`supports`、操作と初期化子。abstract・local interface を `supports` するとエラー
+- 生成器：`valuetype`、value box、前方宣言、`custom`、`supports`（abstract interface も。[abstract interface](#abstract-interface)）、操作と初期化子。local interface を `supports` するとエラー
 
 ```cpp
 auto p = CORBA::make_reference<OBV_ValueTest::Point>(5, 6);
@@ -173,8 +173,28 @@ custom の値は `interop/idl/CustomTest.idl` の `CustomEcho`（7ケース：�
 - JacORB の `DataOutputStream.write_Value` も、Any と同じく `javax.rmi.CORBA` で RMI のリポジトリ ID を作ろうとして Java 17 で止まる（`INTEROP_TRACE=1` で Java のクライアントがスタックトレースを出す）。Blob は中に Point を `write_Value` で書くので、JacORB の組は null と空以外の5ケースを `known-failures.txt` に載せた
 - IDL の識別子は大文字小文字だけが違うと衝突する（omniidl も JacORB も、メンバー `blob` と型 `Blob` をエラーにする）
 
+## abstract interface
+
+`abstract interface A` の値は、オブジェクト参照か valuetype の値のどちらか。CDR では boolean の判別子のあとに、TRUE ならオブジェクト参照（IOR）、FALSE なら値を書く。TypeCode は `tk_abstract_interface`。コアの `Value` は `Objref` か `Valuetype` で、ほかの値は `BAD_PARAM` になる。rustorb は nil をオブジェクト参照の nil（TRUE と空の IOR）で書き、読むときは null の値（FALSE と `0`）も受け付ける。
+
+| | 型 | オブジェクト | 値（`valuetype V supports A`） |
+| --- | --- | --- | --- |
+| Python | `A`（普通のクラス）と `_objref_A`。`A` の型の引数にはオブジェクト参照・値・`None` を渡す | `interface I : A` のオブジェクト参照。受け取った参照は `_objref_A` | 値のクラスが `A` を継承する |
+| C++ | `class A : public virtual CORBA::AbstractBase`（純粋仮想の操作）。`IDL::traits<A>::ref_type` に参照も値も入る。`CORBA::Object` と `CORBA::ValueBase` は `AbstractBase` を仮想継承する | `interface I : A` のスタブは `A` と `CORBA::Object` を継承し、`A` の操作も持つ。`A` の型で受け取った参照は入れ子のスタブ `A::_rorb_stub`。`IDL::traits<I>::narrow` で `I` に、`dynamic_pointer_cast` で値か参照かを見分ける | 値のクラスが `A` を継承する |
+| Java | `interface A extends IDLEntity`（操作を直接持ち、`AOperations` はない）、`_AStub`、`AHelper`（`narrow(java.lang.Object)`）、`AHolder` | `IOperations` が `A` を継承する。`A` の型で受け取った参照は `_AStub` | 値のクラスが `A` を実装する |
+
+abstract interface にはスケルトンがなく、それを継承する最初の具象インターフェースのスケルトン（C++ の `POA_I`、Java の `IPOA`）が `A` の操作を受ける。`supports` できる具象インターフェースは一つだけで、abstract interface はいくつでもよい。Java のストリームは `write_abstract_interface` / `read_abstract_interface`、C++ と Java の `DataOutputStream` / `DataInputStream` は `write_Abstract` / `read_Abstract` を持つ。Rust の生成器は abstract interface を扱わない（[rust-mapping.md](rust-mapping.md)）。
+
+相互接続は `interop/idl/AbstractTest.idl` の `AbstractEcho`（13ケース：参照・値・nil の往復、参照と値それぞれへの操作の呼び出し、参照か値かの判定、struct と sequence の中の共有と混在、`interface Person : Named` を返す操作、Any の中の値と参照）で、`run-matrix.sh --suite abstract` で回す。Rust を除く6つの実装の36組が通る（失敗は `known-failures.txt` の範囲だけ）。
+
+### 実測で分かったこと（abstract interface）
+
+- 生成コードの形は omniidl（`-bpython`、`-bcxx`）と JacORB の IDL コンパイラの出力に合わせた。omniORBpy は `Named` が普通のクラスで `_objref_Named` を登録し、値のクラスが `Named` を継承する。omniORB C++ は `Named` が `CORBA::AbstractBase` を仮想継承し、値のクラスが `ValueBase` と `Named` を継承する。JacORB は `Named` が操作を直接持つインターフェースで、`PersonOperations` が `Named` を継承し、Helper は `read_abstract_interface` / `write_abstract_interface` を使う
+- omniORB C++ の生成コードは nil を null の値（FALSE と `0`）で書き、受け取った nil の参照は nil のオブジェクト参照（null ポインタではない）になる。rustorb は nil の参照で書くが、どちらの実装も両方の書き方を受け付けるので、すべての組で nil が往復する
+- JacORB 3.9 は abstract interface の値も `javax.rmi.CORBA` で書こうとして Java 17 で止まる（サーバーのログに `sun.reflect.ReflectionFactory`）。JacORB は値を受け取れるが送れないので、値を送るケースを JacORB の組で `known-failures.txt` に載せた。参照はすべて通る
+- JacORB の `NamedHelper.insert` は、オブジェクトを参照の型の TypeCode（`tk_objref`）で Any に入れる。このため JacORB のクライアントの `echo_any[object]` は TypeCode が `Named` にならない
+
 ## 残り
 
-- abstract interface と abstract interface の `supports`（#43）
 - コードベース URL の利用（読み飛ばすだけ）
 - Rust の custom の値を Any に入れること

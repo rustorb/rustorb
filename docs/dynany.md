@@ -137,4 +137,4 @@ interop/run-dynany-probe.sh               # omniorb-cpp、rustorb、rustorbpy、
 
 ## 残り
 
-- `long double`（#41）、抽象インターフェース（#43）
+- `long double`（#41）、抽象インターフェース（DynAny の中身にできない）

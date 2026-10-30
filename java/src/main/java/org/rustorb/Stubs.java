@@ -63,6 +63,28 @@ public final class Stubs {
 
     /** obj as an instance of clz (a stub class or an interface whose stub
      * is _NameStub in the same package), without asking the object. */
+    /**
+     * Writes obj as an abstract interface: true and an object reference
+     * (null too), or false and a value.
+     */
+    static void writeAbstract(org.omg.CORBA_2_3.portable.OutputStream out, java.lang.Object obj) {
+        if (obj == null || obj instanceof org.omg.CORBA.Object) {
+            out.write_boolean(true);
+            out.write_Object((org.omg.CORBA.Object) obj);
+        } else if (obj instanceof java.io.Serializable) {
+            out.write_boolean(false);
+            out.write_value((java.io.Serializable) obj);
+        } else {
+            throw new BAD_PARAM("neither an object nor a value: " + obj.getClass().getName(), 0,
+                    CompletionStatus.COMPLETED_NO);
+        }
+    }
+
+    /** Reads an abstract interface: an object reference or a value. */
+    static java.lang.Object readAbstract(org.omg.CORBA_2_3.portable.InputStream in) {
+        return in.read_boolean() ? in.read_Object() : in.read_value();
+    }
+
     static org.omg.CORBA.Object narrowTo(org.omg.CORBA.Object obj, Class<?> clz) {
         if (clz.isInstance(obj)) {
             return obj;
