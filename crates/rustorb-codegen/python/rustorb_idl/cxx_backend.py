@@ -928,6 +928,8 @@ class CxxBackend(object):
     def value_modifier(self, node):
         if node.is_abstract:
             return "VM_ABSTRACT"
+        if node.is_custom:
+            return "VM_CUSTOM"
         if node.is_truncatable:
             return "VM_TRUNCATABLE"
         return "VM_NONE"
@@ -945,8 +947,6 @@ class CxxBackend(object):
 
     def check_value(self, node):
         backend = "the %s backend" % self.LANGUAGE
-        if node.is_custom:
-            raise fe.GeneratorError("custom valuetypes are not supported by %s yet" % backend, node)
         if node.supports:
             raise fe.GeneratorError(
                 "valuetypes that support interfaces are not supported by %s yet" % backend, node
@@ -980,6 +980,8 @@ class CxxBackend(object):
             base_list = ", ".join("public virtual %s" % self.scoped(self.full(b)) for b in bases)
         else:
             base_list = "public virtual ::CORBA::ValueBase"
+        if node.is_custom:
+            base_list += ", public virtual ::CORBA::CustomMarshal"
         w("class %s : %s {" % (name, base_list))
         w(" public:")
         w.indent()
@@ -1047,6 +1049,12 @@ class CxxBackend(object):
     def has_obv(self, node):
         return not node.is_boxed and not node.is_abstract
 
+    def is_concrete(self, node):
+        """Whether the ``OBV_`` class of a valuetype is concrete: the
+        application implements custom marshaling, operations and
+        initializers in a class derived from it."""
+        return self.has_obv(node) and not node.is_custom and not fe.has_behaviour(node)
+
     def obv_classes(self, w):
         for node in self.values:
             if not self.has_obv(node):
@@ -1078,14 +1086,15 @@ class CxxBackend(object):
             for m, t, public in members:
                 if public:
                     self.obv_accessors(w, m, t, node)
-            w(
-                "::IDL::traits<::CORBA::ValueBase>::ref_type _copy_value() const override {"
-            )
-            w(
-                "  return ::IDL::traits<::CORBA::ValueBase>::ref_type(std::make_shared<%s>(*this));"
-                % cls
-            )
-            w("}")
+            if self.is_concrete(node):
+                w(
+                    "::IDL::traits<::CORBA::ValueBase>::ref_type _copy_value() const override {"
+                )
+                w(
+                    "  return ::IDL::traits<::CORBA::ValueBase>::ref_type(std::make_shared<%s>(*this));"
+                    % cls
+                )
+                w("}")
             w.dedent()
             w()
             w(" protected:")
@@ -1167,6 +1176,20 @@ class CxxBackend(object):
             w("}")
             w()
             return
+        if node.is_custom:
+            # The implementation's marshal and unmarshal write the whole
+            # state.
+            w("void %s::_rorb_write_state(rorb_out* out) const {" % cls[2:])
+            w("  ::CORBA::DataOutputStream _os(out);")
+            w("  marshal(_os);")
+            w("}")
+            w()
+            w("void %s::_rorb_read_state(rorb_in* in) {" % cls[2:])
+            w("  ::CORBA::DataInputStream _is(in);")
+            w("  unmarshal(_is);")
+            w("}")
+            w()
+            return
         base = fe.concrete_base(node)
         members = self.state_members(node)
         w("void %s::_rorb_write_state(rorb_out* out) const {" % cls[2:])
@@ -1197,7 +1220,7 @@ class CxxBackend(object):
                 factory = "std::make_shared<::rustorb::detail::DefaultValueFactory<%s>>()" % (
                     self.scoped(node)
                 )
-            elif self.has_obv(node):
+            elif self.is_concrete(node):
                 factory = "std::make_shared<::rustorb::detail::DefaultValueFactory<%s>>()" % (
                     self.obv_scoped(node)
                 )

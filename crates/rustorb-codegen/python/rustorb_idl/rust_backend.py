@@ -572,7 +572,7 @@ class RustBackend(object):
                 '("%s", %s, %d)' % (m, self.tc_expr(t, cur, node, inner), 1 if public else 0)
                 for m, t, public in self.state_members(node)
             )
-            modifier = {"VM_NONE": 0, "VM_TRUNCATABLE": 3}[self.value_modifier(node)]
+            modifier = {"VM_NONE": 0, "VM_CUSTOM": 1, "VM_TRUNCATABLE": 3}[self.value_modifier(node)]
             base_expr = (
                 "Some(&%s)" % self.tc_expr(fe.Type("named", node=base), cur, node, inner)
                 if base is not None

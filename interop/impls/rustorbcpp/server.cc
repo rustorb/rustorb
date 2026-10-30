@@ -3,6 +3,7 @@
 
 #include "anytest.h"
 #include "common.h"
+#include "customtest.h"
 #include "echo_impl.h"
 #include "valuetest.h"
 
@@ -34,6 +35,21 @@ int main(int argc, char** argv) {
       auto poa = persistent_poa(orb, "ValueTest");
       auto oid = PortableServer::string_to_ObjectId("ValueEcho");
       poa->activate_object_with_id(oid, CORBA::make_reference<valuetest::ValueEchoImpl>(orb));
+      auto root = root_context(orb, opt.timeout);
+      bind_name(root, opt.name, poa->id_to_reference(oid));
+      std::cout << "server ready: " << opt.name << std::endl;
+      orb->run();
+      orb->destroy();
+      std::cout << "server stopped" << std::endl;
+      return 0;
+    }
+    if (opt.suite == "custom") {
+      // The custom valuetype suite: CustomTest::CustomEcho, which also
+      // stops the server.
+      customtest::register_factories(orb);
+      auto poa = persistent_poa(orb, "CustomTest");
+      auto oid = PortableServer::string_to_ObjectId("CustomEcho");
+      poa->activate_object_with_id(oid, CORBA::make_reference<customtest::CustomEchoImpl>(orb));
       auto root = root_context(orb, opt.timeout);
       bind_name(root, opt.name, poa->id_to_reference(oid));
       std::cout << "server ready: " << opt.name << std::endl;

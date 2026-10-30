@@ -945,11 +945,31 @@ class ValueBase {
   // Marshal the state: the members of the base types first.
   virtual void _rorb_write_state(rorb_out* out) const = 0;
   virtual void _rorb_read_state(rorb_in* in) = 0;
+  // Whether the state is sent chunked: for truncatable and custom types.
+  virtual bool _rorb_chunked() const { return _rorb_ids().size() > 1; }
 
  protected:
   ValueBase() = default;
   ValueBase(const ValueBase&) = default;
   ValueBase& operator=(const ValueBase&) = default;
+};
+
+class DataOutputStream;
+class DataInputStream;
+
+// The base of custom valuetypes (custom valuetype V): the implementation
+// writes the state in marshal and reads it back in unmarshal, in the same
+// order, with the streams of <rustorb/cdr.h>. Instances that are read are
+// made by the value factory registered for the type.
+class CustomMarshal : public virtual ValueBase {
+ public:
+  virtual void marshal(DataOutputStream& os) const = 0;
+  virtual void unmarshal(DataInputStream& is) = 0;
+
+  bool _rorb_chunked() const override { return true; }
+
+ protected:
+  CustomMarshal() = default;
 };
 
 // Makes the instances of a valuetype that are read: the ORB looks the

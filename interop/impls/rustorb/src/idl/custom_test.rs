@@ -147,7 +147,7 @@ pub mod custom_test {
         fn type_code() -> ::rustorb_core::TypeCode {
             static TC: ::std::sync::OnceLock<::rustorb_core::TypeCode> =
                 ::std::sync::OnceLock::new();
-            TC.get_or_init(|| ::rustorb_core::idl::tc(::rustorb_core::TypeCode::value_tc::<&str>(::rustorb_core::TCKind::Value, "IDL:CustomTest/Blob:1.0", "Blob", 0, None, &[("n", <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::type_code(), 1), ("label", <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::type_code(), 1), ("pt", <crate::idl::value_test::Point as ::rustorb_core::idl::IdlType>::type_code(), 1), ("values", <alias::LongSeq as ::rustorb_core::idl::IdlType>::type_code(), 1)]))).clone()
+            TC.get_or_init(|| ::rustorb_core::idl::tc(::rustorb_core::TypeCode::value_tc::<&str>(::rustorb_core::TCKind::Value, "IDL:CustomTest/Blob:1.0", "Blob", 1, None, &[("n", <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::type_code(), 1), ("label", <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::type_code(), 1), ("pt", <crate::idl::value_test::Point as ::rustorb_core::idl::IdlType>::type_code(), 1), ("values", <alias::LongSeq as ::rustorb_core::idl::IdlType>::type_code(), 1)]))).clone()
         }
 
         fn write(

@@ -259,7 +259,7 @@ inline void write_value(rorb_out* out, const CORBA::ValueBase* v) {
   for (const char* id : ids) lens.push_back(std::strlen(id));
   // The address of the whole instance names it, whichever base v is.
   auto key = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(dynamic_cast<const void*>(v)));
-  if (rorb_out_begin_value(out, key, ids.size(), ids.data(), lens.data(), ids.size() > 1 ? 1 : 0)) {
+  if (rorb_out_begin_value(out, key, ids.size(), ids.data(), lens.data(), v->_rorb_chunked() ? 1 : 0)) {
     v->_rorb_write_state(out);
     rorb_out_end_value(out);
   }
@@ -693,6 +693,124 @@ RUSTORB_POLICY_VALUE_TYPE(RequestProcessingPolicyValue, "USE_ACTIVE_OBJECT_MAP_O
 
 }  // namespace cdr
 }  // namespace rustorb
+
+namespace CORBA {
+
+// What a custom valuetype writes its state to (CORBA::DataOutputStream):
+// each write_<type> writes one item as CDR; write_<type>_array(seq,
+// offset, length) writes length elements of seq from offset, without a
+// length. Valuetypes written keep their sharing with the rest of the
+// message.
+class DataOutputStream {
+ public:
+  explicit DataOutputStream(rorb_out* out) : out_(out) {}
+
+  // Writes a value of any IDL type, as an operation parameter of that
+  // type is written.
+  template <typename T> void write(const T& v) { ::rustorb::cdr::codec<T>::write(out_, v); }
+
+#define RUSTORB_DATA_WRITE(NAME, TYPE)                                                    \
+  void write_##NAME(TYPE v) { write<TYPE>(v); }                                         \
+  void write_##NAME##_array(const std::vector<TYPE>& seq, uint32_t offset, uint32_t length) { \
+    write_array(seq, offset, length);                                                     \
+  }
+  RUSTORB_DATA_WRITE(boolean, bool)
+  RUSTORB_DATA_WRITE(char, char)
+  RUSTORB_DATA_WRITE(wchar, wchar_t)
+  RUSTORB_DATA_WRITE(octet, uint8_t)
+  RUSTORB_DATA_WRITE(short, int16_t)
+  RUSTORB_DATA_WRITE(ushort, uint16_t)
+  RUSTORB_DATA_WRITE(long, int32_t)
+  RUSTORB_DATA_WRITE(ulong, uint32_t)
+  RUSTORB_DATA_WRITE(longlong, int64_t)
+  RUSTORB_DATA_WRITE(ulonglong, uint64_t)
+  RUSTORB_DATA_WRITE(float, float)
+  RUSTORB_DATA_WRITE(double, double)
+#undef RUSTORB_DATA_WRITE
+
+  void write_any(const Any& v) { write(v); }
+  void write_any_array(const std::vector<Any>& seq, uint32_t offset, uint32_t length) {
+    write_array(seq, offset, length);
+  }
+  void write_string(const std::string& v) { write(v); }
+  void write_wstring(const std::wstring& v) { write(v); }
+  void write_Object(const object_reference<Object>& v) { write(v); }
+  void write_Value(const object_reference<ValueBase>& v) {
+    ::rustorb::cdr::write_value(out_, ::rustorb::detail::get_pointer(v));
+  }
+  void write_TypeCode(const object_reference<TypeCode>& v) { write(v); }
+
+  // The stream, for what the methods above do not cover.
+  rorb_out* stream() const { return out_; }
+
+ private:
+  template <typename T>
+  void write_array(const std::vector<T>& seq, uint32_t offset, uint32_t length) {
+    if (offset > seq.size() || length > seq.size() - offset) {
+      throw BAD_PARAM(0, CompletionStatus::COMPLETED_NO);
+    }
+    for (uint32_t i = offset; i < offset + length; ++i) write<T>(seq[i]);
+  }
+
+  rorb_out* out_;
+};
+
+// What a custom valuetype reads its state from (CORBA::DataInputStream).
+// read_<type>_array(seq, offset, length) reads length elements into seq
+// from offset, growing it as needed. A malformed stream fails the call
+// that reads it (MARSHAL) once unmarshal returns.
+class DataInputStream {
+ public:
+  explicit DataInputStream(rorb_in* in) : in_(in) {}
+
+  // Reads a value of any IDL type.
+  template <typename T> T read() {
+    T v{};
+    ::rustorb::cdr::codec<T>::read(in_, v);
+    return v;
+  }
+
+#define RUSTORB_DATA_READ(NAME, TYPE)                                                 \
+  TYPE read_##NAME() { return read<TYPE>(); }                                       \
+  void read_##NAME##_array(std::vector<TYPE>& seq, uint32_t offset, uint32_t length) { \
+    read_array(seq, offset, length);                                                  \
+  }
+  RUSTORB_DATA_READ(boolean, bool)
+  RUSTORB_DATA_READ(char, char)
+  RUSTORB_DATA_READ(wchar, wchar_t)
+  RUSTORB_DATA_READ(octet, uint8_t)
+  RUSTORB_DATA_READ(short, int16_t)
+  RUSTORB_DATA_READ(ushort, uint16_t)
+  RUSTORB_DATA_READ(long, int32_t)
+  RUSTORB_DATA_READ(ulong, uint32_t)
+  RUSTORB_DATA_READ(longlong, int64_t)
+  RUSTORB_DATA_READ(ulonglong, uint64_t)
+  RUSTORB_DATA_READ(float, float)
+  RUSTORB_DATA_READ(double, double)
+  RUSTORB_DATA_READ(any, Any)
+#undef RUSTORB_DATA_READ
+
+  std::string read_string() { return read<std::string>(); }
+  std::wstring read_wstring() { return read<std::wstring>(); }
+  object_reference<Object> read_Object() { return read<object_reference<Object>>(); }
+  object_reference<ValueBase> read_Value() {
+    return ::rustorb::cdr::read_value(in_, "IDL:omg.org/CORBA/ValueBase:1.0");
+  }
+  object_reference<TypeCode> read_TypeCode() { return read<object_reference<TypeCode>>(); }
+
+  // The stream, for what the methods above do not cover.
+  rorb_in* stream() const { return in_; }
+
+ private:
+  template <typename T> void read_array(std::vector<T>& seq, uint32_t offset, uint32_t length) {
+    if (seq.size() < size_t(offset) + length) seq.resize(size_t(offset) + length);
+    for (uint32_t i = offset; i < offset + length; ++i) seq[i] = read<T>();
+  }
+
+  rorb_in* in_;
+};
+
+}  // namespace CORBA
 
 // DynamicAny is part of the runtime (resolve_initial_references("DynAnyFactory")).
 #include <rustorb/dynany.h>
