@@ -38,12 +38,12 @@ const MAX_DEPTH: usize = 256;
 /// | `TypeCode` | `TypeCode` |
 /// | `any` | `Any` |
 /// | valuetype, value box | `Valuetype`: a shared [`ValueRef`], `None` for `null` |
+/// | abstract interface | `Objref` (sent as a reference) or `Valuetype` (sent as a value) |
 ///
 /// Aliases take the value of the type they stand for. The state of a
 /// custom valuetype is the items its marshaling code writes, each a
 /// `Value::Any` of the item's type and value (see [`register_custom_reader`]).
-/// Abstract interfaces and `long double` are not supported
-/// (`NO_IMPLEMENT`).
+/// `long double` is not supported (`NO_IMPLEMENT`).
 #[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub enum Value {
@@ -419,6 +419,15 @@ fn custom_reader(id: &str) -> Option<Arc<CustomReader>> {
 /// The repository id of `ValueBase`, which every valuetype may stand for.
 pub(crate) const VALUE_BASE_ID: &str = "IDL:omg.org/CORBA/ValueBase:1.0";
 
+/// The TypeCode of `ValueBase`: any value of a known type.
+pub(crate) fn value_base_tc() -> &'static TypeCode {
+    static TC: std::sync::OnceLock<TypeCode> = std::sync::OnceLock::new();
+    TC.get_or_init(|| {
+        TypeCode::value_tc(TCKind::Value, VALUE_BASE_ID, "ValueBase", 0, None, &[] as &[(&str, TypeCode, i16)])
+            .expect("a valid TypeCode")
+    })
+}
+
 const VM_CUSTOM: i16 = 1;
 const VM_ABSTRACT: i16 = 2;
 const VM_TRUNCATABLE: i16 = 3;
@@ -660,7 +669,17 @@ pub(crate) fn write(
         (TCKind::Value | TCKind::ValueBox | TCKind::Event, Value::Valuetype(v)) => {
             write_valuetype(out, &tc, v.as_ref())?
         }
-        (TCKind::AbstractInterface | TCKind::LongDouble | TCKind::Native, _) => {
+        // An abstract interface is a union on a boolean: TRUE and an object
+        // reference, or FALSE and a value (CORBA 3.4 part 2, 9.3.7).
+        (TCKind::AbstractInterface, Value::Objref(obj)) => {
+            out.write_bool(true);
+            out.write_object(obj.as_ref())?
+        }
+        (TCKind::AbstractInterface, Value::Valuetype(v)) => {
+            out.write_bool(false);
+            write_valuetype(out, value_base_tc(), v.as_ref())?
+        }
+        (TCKind::LongDouble | TCKind::Native, _) => {
             return Err(sys(SystemExceptionKind::NO_IMPLEMENT, CompletionStatus::No));
         }
         _ => return Err(bad_param()),
@@ -924,6 +943,13 @@ impl Reader {
             TCKind::Value | TCKind::ValueBox | TCKind::Event => {
                 Value::Valuetype(self.read_valuetype(input, &tc)?)
             }
+            TCKind::AbstractInterface => {
+                if input.read_bool()? {
+                    Value::Objref(input.read_object()?)
+                } else {
+                    Value::Valuetype(self.read_valuetype(input, value_base_tc())?)
+                }
+            }
             TCKind::LocalInterface => return Err(input.marshal_error()),
             _ => {
                 return Err(sys(SystemExceptionKind::NO_IMPLEMENT, input.completed));
@@ -1047,7 +1073,7 @@ fn min_size(tc: &TypeCode, depth: usize) -> usize {
     }
     let tc = tc.unaliased();
     match tc.kind() {
-        TCKind::Boolean | TCKind::Char | TCKind::Octet | TCKind::WChar => 1,
+        TCKind::Boolean | TCKind::Char | TCKind::Octet | TCKind::WChar | TCKind::AbstractInterface => 1,
         TCKind::Short | TCKind::UShort => 2,
         TCKind::Long
         | TCKind::ULong

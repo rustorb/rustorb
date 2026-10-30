@@ -591,6 +591,20 @@ pub(crate) fn from_py(tc: &Tc, obj: &Bound<'_, PyAny>) -> PyResult<Value> {
             }
         }
         Tc::Value { .. } | Tc::ValueBox { .. } => value_from_py(tc, obj)?,
+        Tc::Abstract { value, .. } => {
+            // A reference (a stub of CORBA.Object) or a value; None is a
+            // nil reference.
+            if obj.is_none() {
+                Value::Objref(None)
+            } else if let Ok(native) = obj.getattr("_obj") {
+                let native = native
+                    .cast::<ObjRef>()
+                    .map_err(|_| sys_err(py, &bad_param()))?;
+                Value::Objref(Some(native.get().obj.clone()))
+            } else {
+                value_from_py(value, obj)?
+            }
+        }
         Tc::Unsupported(kind) => return Err(unsupported(py, kind)),
     })
 }
@@ -768,6 +782,13 @@ pub(crate) fn to_py<'py>(py: Python<'py>, tc: &Tc, value: Value) -> PyResult<Bou
                 .call1((ObjRef { obj }, id.as_str()))?,
         },
         (Tc::Value { .. } | Tc::ValueBox { .. }, Value::Valuetype(v)) => value_to_py(py, tc, v)?,
+        (Tc::Abstract { id, .. }, Value::Objref(obj)) => match obj {
+            None => py.None().into_bound(py),
+            Some(obj) => rt(py)?
+                .getattr("make_objref")?
+                .call1((ObjRef { obj }, id.as_str()))?,
+        },
+        (Tc::Abstract { value, .. }, Value::Valuetype(v)) => value_to_py(py, value, v)?,
         (Tc::Unsupported(kind), _) => return Err(unsupported(py, kind)),
         _ => return Err(sys_err(py, &bad_param())),
     })
@@ -892,7 +913,9 @@ pub(crate) fn encode(
             out.write_octets(&bytes);
         }
         (Tc::Objref { .. }, Value::Objref(obj)) => out.write_object(obj.as_ref())?,
-        (Tc::Value { core, .. } | Tc::ValueBox { core, .. }, v) => out.write_value(core, v)?,
+        (Tc::Value { core, .. } | Tc::ValueBox { core, .. } | Tc::Abstract { core, .. }, v) => {
+            out.write_value(core, v)?
+        }
         _ => return Err(mismatch()),
     }
     Ok(())
@@ -1003,7 +1026,9 @@ pub(crate) fn decode(
             Value::Enum(v)
         }
         Tc::Objref { .. } => Value::Objref(input.read_object()?),
-        Tc::Value { core, .. } | Tc::ValueBox { core, .. } => input.read_value(core)?,
+        Tc::Value { core, .. } | Tc::ValueBox { core, .. } | Tc::Abstract { core, .. } => {
+            input.read_value(core)?
+        }
         Tc::Unsupported(_) => {
             return Err(SystemException::new(
                 rustorb_core::SystemExceptionKind::NO_IMPLEMENT,

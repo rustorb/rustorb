@@ -63,7 +63,7 @@ RUN mkdir -p /opt/interop/impls/omniorbpy/stubs \
  && omniidl -bpython -C /opt/interop/impls/omniorbpy/stubs \
       -I/opt/interop/idl /opt/interop/idl/InteropTest.idl /opt/interop/idl/PoaProbe.idl \
       /opt/interop/idl/AnyTest.idl /opt/interop/idl/AnyTestHidden.idl \
-      /opt/interop/idl/ValueTest.idl
+      /opt/interop/idl/ValueTest.idl /opt/interop/idl/AbstractTest.idl
 
 # ---------------------------------------------------------------------------
 # OpenRTM-aist (C++) on omniORB: the example RTCs that run-openrtm.sh connects

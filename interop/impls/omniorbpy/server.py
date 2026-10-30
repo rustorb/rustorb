@@ -152,6 +152,20 @@ def main():
         root_poa.create_lifespan_policy(PortableServer.PERSISTENT),
         root_poa.create_id_assignment_policy(PortableServer.USER_ID),
     ]
+    if args.suite == "abstract":
+        # The abstract interface suite: AbstractTest::AbstractEcho, which
+        # also stops the server.
+        import abstracttest
+        abstracttest.register(orb)
+        poa = root_poa.create_POA("AbstractTest", root_poa._get_the_POAManager(), policies)
+        poa.activate_object_with_id(b"AbstractEcho", abstracttest.AbstractEchoServant(orb))
+        root_poa._get_the_POAManager().activate()
+        bind(root_context(orb, args.timeout), args.name, poa.id_to_reference(b"AbstractEcho"))
+        print("server ready: %s" % args.name, flush=True)
+        orb.run()
+        orb.destroy()
+        print("server stopped", flush=True)
+        return 0
     if args.suite == "value":
         # The valuetype suite: ValueTest::ValueEcho, which also stops the
         # server.

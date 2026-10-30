@@ -538,10 +538,8 @@ class PythonBackend(object):
         bases = fe.value_bases(node)
         supported = fe.supported_interfaces(node)
         for i in supported:
-            if i.is_abstract or i.is_local:
-                raise fe.GeneratorError(
-                    "a valuetype can only support a non-abstract, non-local interface", node
-                )
+            if i.is_local:
+                raise fe.GeneratorError("a valuetype cannot support a local interface", node)
         base = fe.concrete_base(node)
         if node.is_abstract:
             modifier = "VM_ABSTRACT"

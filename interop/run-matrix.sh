@@ -24,7 +24,9 @@
 #            (valuetypes), whose results go to <client>-to-<server>-value;
 #            custom: the CustomTest.idl cases (custom valuetypes, which
 #            omniORB does not support: of the image's implementations only
-#            jacorb runs), whose results go to <client>-to-<server>-custom
+#            jacorb runs), whose results go to <client>-to-<server>-custom;
+#            abstract: the AbstractTest.idl cases (abstract interfaces),
+#            whose results go to <client>-to-<server>-abstract
 #
 # Implementations live in impls/<name>/ and provide `server` and `client`
 # executables that accept the options in README.md. To use an implementation
@@ -50,7 +52,7 @@ while [ $# -gt 0 ]; do
     --naming) naming="$2"; shift ;;
     --suite) suite="$2"; shift ;;
     --out) out="$(realpath -m "$2")"; shift ;;
-    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
     *:*) pairs+=("$1") ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -62,6 +64,7 @@ case "$suite" in
   any) export ECHO_NAME=interop/AnyEcho ;;
   value) export ECHO_NAME=interop/ValueEcho ;;
   custom) export ECHO_NAME=interop/CustomEcho ;;
+  abstract) export ECHO_NAME=interop/AbstractEcho ;;
   *) echo "unknown suite: $suite" >&2; exit 2 ;;
 esac
 export SUITE="$suite"
