@@ -6,8 +6,9 @@
 #
 # --update        rewrites expected/naming-check.txt with the output of the
 #                 omniorbpy client
-# --client IMPL   runs only this client (omniorbpy, rustorb); may be repeated.
-#                 Default: CLIENT_IMPLS, or "omniorbpy rustorb"
+# --client IMPL   runs only this client (omniorbpy, rustorb (Rust), rustorbpy
+#                 (Python), rustorbcpp (C++) or rustorbjava (Java)); may be
+#                 repeated. Default: CLIENT_IMPLS, or all of them
 # --naming IMPL   the naming service: omninames (default) or rustorb. The
 #                 output of each must match the same expected file. With
 #                 rustorb, the service is also restarted after the sequence,
@@ -15,8 +16,9 @@
 #                 references handed out before the restart still work
 #                 (expected/naming-restart.txt).
 #
-# The rustorb client and naming service are built with cargo on the host and
-# mounted into the containers, as in run-matrix.sh.
+# The rustorb clients and naming service are built on the host and mounted
+# into the containers, as in run-matrix.sh. The clients of every binding print
+# the same lines as the omniORBpy one, so all compare with one expected file.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -34,7 +36,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 if [ ${#clients[@]} -eq 0 ]; then
-  read -r -a clients <<< "${CLIENT_IMPLS:-omniorbpy rustorb}"
+  read -r -a clients <<< "${CLIENT_IMPLS:-omniorbpy rustorb rustorbpy rustorbcpp rustorbjava}"
 fi
 if [ $update -eq 1 ]; then
   clients=(omniorbpy)
@@ -55,11 +57,14 @@ case "$naming" in
 esac
 
 for client in "${clients[@]}"; do
-  if [ "$client" = rustorb ]; then
-    cargo build --release --locked -p rustorb-interop --manifest-path ../Cargo.toml
-    mkdir -p impls/rustorb/bin
-    cp ../target/release/rustorb-naming-check impls/rustorb/bin/
-  fi
+  case "$client" in
+    rustorb)
+      cargo build --release --locked -p rustorb-interop --manifest-path ../Cargo.toml
+      mkdir -p impls/rustorb/bin
+      cp ../target/release/rustorb-naming-check impls/rustorb/bin/
+      ;;
+    rustorbpy | rustorbcpp | rustorbjava) "impls/$client/build.sh" ;;
+  esac
 done
 
 mkdir -p out

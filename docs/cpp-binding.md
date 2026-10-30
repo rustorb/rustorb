@@ -124,9 +124,9 @@ C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP �
 - `crates/rustorb-codegen/python/tests/test_cxx_backend.py`：コマンドライン、生成物の形、対応しない構文のエラー、生成コードのコンパイル
 - 相互接続：`interop/impls/rustorbcpp` を omniORB C++・omniORBpy・rustorb（Rust・Python）とすべての組み合わせで、omniNames と rustorb-names の両方、GIOP 1.1 でも回す。失敗は既存の `known-failures.txt`（omniORB 側の wchar）の範囲だけ
 - POA プローブ：`interop/impls/rustorbcpp/poa_probe_server.cc`（servant manager・AdapterActivator・デフォルトサーバント・スレッドモデルを含む）で `run-poa-probe.sh` を回し、Rust のプローブサーバーと同じ期待出力（`expected/poa-probe-rustorb.txt`）と一致する
+- naming check と wire probe：`interop/impls/rustorbcpp/naming_check.cc`（生成した CosNaming のスタブ）で `run-naming-check.sh`（omniNames と rustorb-names）を、C++ のサーバーに `run-wire-probe.sh` を回し、Rust と同じ期待出力と一致する
 
 ## 残り
 
 - `custom` の valuetype、`supports`、valuetype の操作と初期化子、abstract interface（#42、#43）、`IDL::Fixed` の四則演算
 - IDL4-CPP の構文（アノテーションなど）
-- `run-wire-probe.sh` への C++ の rustorb の追加

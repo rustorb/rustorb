@@ -134,6 +134,7 @@ servant manager と adapter activator は `org.omg.CORBA.LocalObject` を継承�
   - any：JacORB 自身の組と同じく Helper の違いで多くの `make` / `check` が失敗するので、CI では回さない。相手ごとの失敗するケースは `jacorb` の組と一致する。違いは2種類で、`jacorb` のクライアントだけが失敗する DynAny の16ケース（JacORB の DynAny の問題）と、`rustorbjava-portable` のクライアントだけが失敗する `dyn_make[count]`（`CountHelper.insert` が別名を落とした比較用の値に対し、rustorb の DynAny は受け取った別名の TypeCode を保つ）
   - `Any.insert_Object(o)` の TypeCode の名前を、空からリポジトリIDの最後の名前（`IDL:AnyTest/AnyEcho:1.0` なら `AnyEcho`）に変えた。JacORB の `AnyEchoHelper.insert` はこれを使い、Helper の `type()` と `equal()` で比べられる
 - POA プローブ：`interop/impls/rustorbjava/probe/interop/PoaProbeServer.java` で `run-poa-probe.sh` を回し、Rust のプローブサーバーと同じ期待出力（`expected/poa-probe-rustorb.txt`）と一致する
+- naming check と wire probe：`interop/impls/rustorbjava/probe/interop/NamingCheck.java`（ランタイムの CosNaming のスタブ）で `run-naming-check.sh`（omniNames と rustorb-names）を、Java のサーバーに `run-wire-probe.sh` を回し、Rust と同じ期待出力と一致する
 
 ## JacORB の実測
 

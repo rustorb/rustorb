@@ -96,6 +96,7 @@ jobs:
           interop/run-matrix.sh --giop 1.1 $pairs
           interop/run-matrix.sh --suite value $pairs
 
+      # omniORBpy and the rustorb clients (Rust, Python, C++, Java).
       - name: Run the naming service check
         run: interop/run-naming-check.sh
 

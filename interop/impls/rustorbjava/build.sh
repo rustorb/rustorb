@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Builds the rustorb Java client, server, POA probe server and DynAny probe on
-# the host:
+# Builds the rustorb Java client, server, POA probe server, DynAny probe and
+# naming check on the host:
 # librustorb_jni (in lib/) and, in classes/, the rustorb Java runtime
 # (java/), the stubs and skeletons of InteropTest.idl, AnyTest.idl,
 # AnyTestHidden.idl, ValueTest.idl and PoaProbe.idl from rustorb-idl -bjava (in gen/), the
 # Java sources shared with the jacorb implementation (impls/java) and the
-# probes (probe/). run-matrix.sh, run-poa-probe.sh and run-dynany-probe.sh run it;
+# probes (probe/). run-matrix.sh, run-poa-probe.sh, run-dynany-probe.sh and
+# run-naming-check.sh run it;
 # idl_parser must be importable, or IDL_PARSER_DIR set to a checkout of it.
 # The classes are for Java 11, and the interop image has a Java 17 runtime.
 #
