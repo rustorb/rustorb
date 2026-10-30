@@ -958,12 +958,13 @@ class CxxBackend(object):
     def value_operations(self, node):
         """The operations of a valuetype that its implementation provides:
         its own and those of the interfaces it supports (with their bases),
-        as :meth:`operations` lists them."""
+        as :meth:`operations` lists them. Those of abstract interfaces are
+        left out: the class inherits them from the interface's class."""
         ops = list(self.operations(node))
         seen = []
         for i in fe.supported_interfaces(node):
             for n in [i] + self.ancestors(i):
-                if not any(n is m for m in seen):
+                if not self.is_abstract(n) and not any(n is m for m in seen):
                     seen.append(n)
                     ops.extend(self.operations(n))
         return ops
