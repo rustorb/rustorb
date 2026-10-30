@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels the run of the previous one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   omniorb:
     name: omniORB / omniORBpy / JacORB matrix
@@ -19,6 +24,8 @@ jobs:
       # server (impls/rustorbpy/build.sh) and the code of
       # run-pymapping-check.sh.
       IDL_PARSER_DIR: ${{ github.workspace }}/idl_parser
+      # run-matrix.sh runs this many client / server pairs at a time.
+      INTEROP_JOBS: "4"
     steps:
       - uses: actions/checkout@v4
 
@@ -58,6 +65,16 @@ jobs:
           load: true
           cache-from: type=gha,scope=interop-omniorb
           cache-to: type=gha,scope=interop-omniorb,mode=max
+
+      # Every rustorb client and server once; the scripts below would build
+      # them again each time without INTEROP_PREBUILT.
+      - name: Build the rustorb implementations
+        run: |
+          interop/impls/rustorbpy/build.sh
+          interop/impls/rustorbcpp/build.sh
+          interop/impls/rustorbjava/build.sh
+          IMAGE=rustorb-interop-omniorb:latest interop/impls/rustorbjava-portable/build.sh
+          echo INTEROP_PREBUILT=1 >> "$GITHUB_ENV"
 
       - name: Run the client / server matrix
         run: interop/run-matrix.sh --capture

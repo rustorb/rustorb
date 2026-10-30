@@ -12,6 +12,10 @@
 # on the host, for Java 11; the image runs them on Java 17.
 set -euo pipefail
 
+# Built already (interop.yml builds every implementation once, then sets
+# INTEROP_PREBUILT for the steps that run the scripts).
+[ -n "${INTEROP_PREBUILT:-}" ] && exit 0
+
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$here/../../.."
 image="${IMAGE:-rustorb-interop-omniorb:latest}"
