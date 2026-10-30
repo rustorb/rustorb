@@ -26,7 +26,7 @@ use rustorb_cdr::ByteOrder;
 use rustorb_giop::{
     AlternateIiopAddress, Body, CodeSetComponent, CodeSetComponentInfo, CodeSetContext,
     IiopProfile, Ior, LocateReplyHeader, LocateRequestHeader, LocateStatus, Message,
-    MessageEncoder, RequestHeader, ServiceContext, TargetAddress, Version,
+    MessageEncoder, OutMessage, RequestHeader, ServiceContext, TargetAddress, Version,
 };
 use tokio::io::AsyncWriteExt;
 use tokio::net::tcp::OwnedWriteHalf;
@@ -683,7 +683,7 @@ impl Server {
             if let Ok(msg) = MessageEncoder::locate_reply(version, order, &reply)
                 .and_then(MessageEncoder::finish)
             {
-                conn.send(msg);
+                conn.send(msg.into());
             }
         };
         let Some(key) = target_key(&header.target) else {
@@ -915,6 +915,10 @@ impl Server {
     }
 }
 
+/// At most this many pieces go into one vectored write (the usual
+/// `IOV_MAX` is 1024).
+const MAX_SLICES: usize = 64;
+
 /// How long an upcall thread waits for the next request of the connection
 /// it answered (see [`Server::follow`]). A client calling one request after
 /// another sends the next within a round trip.
@@ -1070,7 +1074,7 @@ struct OutState {
     stream: Option<OwnedWriteHalf>,
     /// Messages for the writer task, each with how much of it was
     /// written already.
-    queue: VecDeque<(Vec<u8>, usize)>,
+    queue: VecDeque<(OutMessage, usize)>,
     /// No more messages are taken: the writer task writes the queue,
     /// shuts the stream down and ends.
     closing: bool,
@@ -1092,7 +1096,7 @@ impl Outbox {
     }
 
     /// Writes `msg`, or queues what the socket does not take now.
-    fn send(&self, msg: Vec<u8>) {
+    fn send(&self, msg: OutMessage) {
         let mut state = self.state.lock().unwrap();
         if state.closing || state.failed {
             return;
@@ -1100,7 +1104,7 @@ impl Outbox {
         let mut written = 0;
         if let (true, Some(stream)) = (state.queue.is_empty(), &state.stream) {
             while written < msg.len() {
-                match stream.try_write(&msg[written..]) {
+                match stream.try_write_vectored(&msg.slices_from(written, MAX_SLICES)) {
                     Ok(0) => break,
                     Ok(n) => written += n,
                     Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
@@ -1126,7 +1130,7 @@ impl Outbox {
             return;
         }
         if !last.is_empty() {
-            state.queue.push_back((last, 0));
+            state.queue.push_back((last.into(), 0));
         }
         state.closing = true;
         drop(state);
@@ -1163,7 +1167,7 @@ struct Requests {
 }
 
 impl ServerConn {
-    fn send(&self, msg: Vec<u8>) {
+    fn send(&self, msg: OutMessage) {
         self.out.send(msg);
     }
 
@@ -1295,7 +1299,7 @@ impl ReplyTo {
     }
 
     /// Queues the reply, unless the request was oneway or cancelled.
-    fn send(mut self, msg: Vec<u8>) {
+    fn send(mut self, msg: OutMessage) {
         match self.sink.take() {
             Some(Sink::Conn(conn)) => {
                 let cancelled = conn.end(self.request_id);
@@ -1304,7 +1308,7 @@ impl ReplyTo {
                 }
             }
             Some(Sink::Local(tx)) if self.response => {
-                let _ = tx.send(msg);
+                let _ = tx.send(msg.into_vec());
             }
             Some(Sink::Local(_)) | None => {}
         }
@@ -1316,7 +1320,7 @@ impl ReplyTo {
             return;
         }
         match location_forward_reply(self.version, self.order, self.request_id, ior) {
-            Some(msg) => self.send(msg),
+            Some(msg) => self.send(msg.into()),
             None => drop(self),
         }
     }
@@ -1326,7 +1330,7 @@ impl ReplyTo {
             return;
         }
         match system_exception_reply(self.version, self.order, self.request_id, e) {
-            Some(msg) => self.send(msg),
+            Some(msg) => self.send(msg.into()),
             None => drop(self),
         }
     }
@@ -1391,7 +1395,7 @@ async fn serve(server: Arc<Server>, stream: TcpStream) {
 /// outbox is closed (by `close`, or when the connection is dropped).
 async fn write_loop(out: Arc<Outbox>) {
     enum Step {
-        Write(OwnedWriteHalf, VecDeque<(Vec<u8>, usize)>),
+        Write(OwnedWriteHalf, VecDeque<(OutMessage, usize)>),
         Wait,
         Shutdown(Option<OwnedWriteHalf>),
         End,
@@ -1413,13 +1417,28 @@ async fn write_loop(out: Arc<Outbox>) {
             }
         };
         match step {
-            Step::Write(mut stream, batch) => {
-                for (msg, written) in batch {
-                    if stream.write_all(&msg[written..]).await.is_err() {
-                        let mut state = out.state.lock().unwrap();
-                        state.failed = true;
-                        state.queue.clear();
-                        return;
+            Step::Write(mut stream, mut batch) => {
+                // Everything queued, in as few writes as the socket takes.
+                while !batch.is_empty() {
+                    let result = {
+                        let mut slices = Vec::new();
+                        for (msg, written) in &batch {
+                            if slices.len() == MAX_SLICES {
+                                break;
+                            }
+                            slices.extend(msg.slices_from(*written, MAX_SLICES - slices.len()));
+                        }
+                        stream.write_vectored(&slices).await
+                    };
+                    match result {
+                        Ok(n) if n > 0 => advance(&mut batch, n),
+                        Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                        _ => {
+                            let mut state = out.state.lock().unwrap();
+                            state.failed = true;
+                            state.queue.clear();
+                            return;
+                        }
                     }
                 }
                 out.state.lock().unwrap().stream = Some(stream);
@@ -1433,6 +1452,22 @@ async fn write_loop(out: Arc<Outbox>) {
             }
             Step::End => return,
         }
+    }
+}
+
+/// Drops the first `n` bytes of the queued messages.
+fn advance(batch: &mut VecDeque<(OutMessage, usize)>, mut n: usize) {
+    while n > 0 {
+        let Some((msg, written)) = batch.front_mut() else {
+            return;
+        };
+        let left = msg.len() - *written;
+        if n < left {
+            *written += n;
+            return;
+        }
+        n -= left;
+        batch.pop_front();
     }
 }
 

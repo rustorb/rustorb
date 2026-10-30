@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use rustorb_cdr::ByteOrder;
-use rustorb_giop::{Message, MessageEncoder, Version};
+use rustorb_giop::{Message, MessageEncoder, OutMessage, Version};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::net::tcp::OwnedWriteHalf;
@@ -31,6 +31,9 @@ pub(crate) enum Closed {
     /// The stream failed, or a message could not be read.
     Failed(String),
 }
+
+/// At most this many pieces go into one vectored write.
+const MAX_SLICES: usize = 64;
 
 /// How long [`Connection::close`] waits to write `CloseConnection`.
 const CLOSE_TIME: Duration = Duration::from_secs(2);
@@ -204,7 +207,7 @@ impl Connection {
     /// is then closed; one not started leaves it as it was.
     pub(crate) async fn send(
         &self,
-        msg: &[u8],
+        msg: &OutMessage,
         deadline: Option<Instant>,
     ) -> Result<(), SendError> {
         let mut writer = match deadline {
@@ -216,7 +219,8 @@ impl Connection {
         };
         let mut written = 0;
         while written < msg.len() {
-            let write = writer.write(&msg[written..]);
+            let slices = msg.slices_from(written, MAX_SLICES);
+            let write = writer.write_vectored(&slices);
             let result = match deadline {
                 Some(at) => match tokio::time::timeout_at(at.into(), write).await {
                     Ok(result) => result,

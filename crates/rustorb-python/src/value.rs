@@ -422,7 +422,7 @@ fn list_from_py(
                 obj.extract()?
             };
             check_len(bytes.len())?;
-            Value::Octets(bytes)
+            Value::Octets(bytes.into())
         }
         Tc::Char => {
             let s: String = if let Ok(b) = obj.cast::<PyBytes>() {
@@ -645,7 +645,7 @@ pub(crate) fn encode(
         (_, Value::WChar(c)) => out.write_wchar(*c)?,
         (Tc::String(_), Value::String(s)) => out.write_string(s)?,
         (Tc::WString(_), Value::String(s)) => out.write_wstring(s)?,
-        (Tc::Sequence { .. }, Value::Octets(b)) => out.write_octet_seq(b)?,
+        (Tc::Sequence { .. }, Value::Octets(b)) => out.write_octet_seq_shared(b)?,
         (Tc::Array { .. }, Value::Octets(b)) => out.write_octets(b),
         (Tc::Sequence { .. } | Tc::Array { .. }, Value::Chars(s)) => {
             let bytes = out.code_sets().encode_string(s)?;
@@ -830,7 +830,7 @@ fn decode_items(
 ) -> Result<Value, SystemException> {
     let m = |_| marshal(completed);
     Ok(match content.unaliased() {
-        Tc::Octet => Value::Octets(input.read_octets(len).map_err(m)?.to_vec()),
+        Tc::Octet => Value::Octets(input.read_octets_shared(len).map_err(m)?),
         Tc::Char => {
             let bytes = input.read_octets(len).map_err(m)?;
             Value::Chars(input.code_sets().decode_string(bytes).map_err(|mut e| {

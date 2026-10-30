@@ -6,7 +6,9 @@ use std::fmt;
 use std::sync::Arc;
 
 use rustorb_cdr::{ByteOrder, CdrEncode};
-use rustorb_giop::{Ior, MessageEncoder, ReplyHeader, ReplyStatus, SystemExceptionBody, Version};
+use rustorb_giop::{
+    Ior, MessageEncoder, OutMessage, ReplyHeader, ReplyStatus, SystemExceptionBody, Version,
+};
 
 use crate::stream::{InStream, OutStream};
 use crate::{CodeSets, CompletionStatus, ObjectRef, Poa, SystemException, SystemExceptionKind};
@@ -231,8 +233,10 @@ impl ServerReply {
         self.status
     }
 
-    pub(crate) fn finish(self) -> Result<Vec<u8>, SystemException> {
-        self.msg.finish().map_err(|_| internal())
+    /// The whole reply; large octet sequences written with
+    /// `write_octet_seq_shared` are not copied into it.
+    pub(crate) fn finish(self) -> Result<OutMessage, SystemException> {
+        self.msg.finish_shared().map_err(|_| internal())
     }
 }
 

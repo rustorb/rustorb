@@ -6,9 +6,9 @@ use std::time::{Duration, Instant};
 use rustorb_cdr::CdrDecode;
 use rustorb_giop::{
     AddressingDisposition, AlternateIiopAddress, Body, CancelRequestHeader, CodeSetComponentInfo,
-    Ior, LocateRequestHeader, LocateStatus, Message, MessageEncoder, ReplyStatus, RequestHeader,
-    SystemExceptionBody, TAG_INTERNET_IOP, TAG_MULTIPLE_COMPONENTS, TargetAddress, Version,
-    component_tag, decode_message, response_flags,
+    Ior, LocateRequestHeader, LocateStatus, Message, MessageEncoder, OutMessage, ReplyStatus,
+    RequestHeader, SystemExceptionBody, TAG_INTERNET_IOP, TAG_MULTIPLE_COMPONENTS, TargetAddress,
+    Version, component_tag, decode_message, response_flags,
 };
 
 use crate::connection::{Closed, Connection, SendError};
@@ -557,7 +557,7 @@ async fn attempt_on(
             order,
             &LocateRequestHeader { request_id, target },
         ) {
-            Ok(msg) => msg,
+            Ok(msg) => msg.into(),
             Err(_) => {
                 return Ok(Attempt::Done(Err(sys(
                     SystemExceptionKind::MARSHAL,
@@ -636,7 +636,7 @@ async fn attempt_on(
                 // The caller is out of time already, and the connection
                 // may be the reason: a short wait at most.
                 let at = Instant::now() + CANCEL_SEND_TIME;
-                let _ = conn.send(&cancel, Some(at)).await;
+                let _ = conn.send(&cancel.into(), Some(at)).await;
             }
             return Ok(Attempt::Done(Err(sys(
                 SystemExceptionKind::TIMEOUT,
@@ -719,7 +719,7 @@ fn encode_request(
     header: &RequestHeader,
     args: Option<&ArgsFn<'_>>,
     code_sets: CodeSets,
-) -> Result<Vec<u8>, Exception> {
+) -> Result<OutMessage, Exception> {
     let marshal = || sys(SystemExceptionKind::MARSHAL, 0, CompletionStatus::No).into();
     let mut m = MessageEncoder::request(version, order, header).map_err(|_| marshal())?;
     if let Some(args) = args {
@@ -730,7 +730,7 @@ fn encode_request(
         };
         args(&mut out)?;
     }
-    m.finish().map_err(|_| marshal())
+    m.finish_shared().map_err(|_| marshal())
 }
 
 /// Makes a request to an object of the ORB's own server side, without the
@@ -774,7 +774,7 @@ fn attempt_local(
     };
     let header = request_header(0, response, target, operation, context);
     let msg = match encode_request(version, order, &header, args, code_sets) {
-        Ok(msg) => msg,
+        Ok(msg) => msg.into_vec(),
         Err(e) => return Attempt::Done(Err(e)),
     };
     let internal = || sys(SystemExceptionKind::INTERNAL, 0, CompletionStatus::Maybe).into();

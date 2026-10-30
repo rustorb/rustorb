@@ -45,4 +45,4 @@ pub use message::{
     RequestHeader, SystemExceptionBody, TargetAddress, decode_message, response_flags,
 };
 pub use service_context::{CodeSetContext, ServiceContext, code_set, service_id};
-pub use writer::MessageEncoder;
+pub use writer::{MessageEncoder, OutMessage};

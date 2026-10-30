@@ -331,6 +331,7 @@ impl Body {
         let mut dec =
             Decoder::with_offset(self.as_bytes(), self.byte_order, self.version, self.offset);
         dec.set_segments(&self.segments);
+        dec.set_shared(&self.buf);
         dec
     }
 }

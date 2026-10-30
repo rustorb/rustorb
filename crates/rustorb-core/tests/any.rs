@@ -169,7 +169,7 @@ fn values() -> Vec<Any> {
                 Value::List(vec![Value::Long(-2), Value::Double(2.0)]),
             ]),
         ),
-        Any::new(octet_seq, Value::Octets(vec![0, 1, 255])),
+        Any::new(octet_seq, Value::Octets(vec![0, 1, 255].into())),
         Any::new(char_array, Value::Chars("abc".into())),
         Any::new(
             node_tc(),
