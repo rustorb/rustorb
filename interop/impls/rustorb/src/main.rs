@@ -14,6 +14,7 @@
 //! endpoint of the callback object.
 
 mod anytest;
+mod customtest;
 mod idl;
 mod valuetest;
 
@@ -413,6 +414,8 @@ struct Args {
     any: bool,
     /// The ValueTest suite (`--suite value`).
     value: bool,
+    /// The CustomTest suite (`--suite custom`).
+    custom: bool,
 }
 
 fn parse_args(mut args: Vec<String>) -> Result<(Args, Vec<String>), String> {
@@ -424,6 +427,7 @@ fn parse_args(mut args: Vec<String>) -> Result<(Args, Vec<String>), String> {
     let mut shutdown_server = false;
     let mut any = false;
     let mut value_suite = false;
+    let mut custom = false;
     let mut rest = Vec::new();
     let mut iter = args.drain(..);
     while let Some(arg) = iter.next() {
@@ -439,10 +443,11 @@ fn parse_args(mut args: Vec<String>) -> Result<(Args, Vec<String>), String> {
             "--port" => port = value("--port")?.parse().map_err(|_| "bad --port")?,
             "--shutdown-server" => shutdown_server = true,
             "--suite" => {
-                (any, value_suite) = match value("--suite")?.as_str() {
-                    "basic" => (false, false),
-                    "any" => (true, false),
-                    "value" => (false, true),
+                (any, value_suite, custom) = match value("--suite")?.as_str() {
+                    "basic" => (false, false, false),
+                    "any" => (true, false, false),
+                    "value" => (false, true, false),
+                    "custom" => (false, false, true),
                     other => return Err(format!("bad --suite {other}")),
                 }
             }
@@ -459,6 +464,7 @@ fn parse_args(mut args: Vec<String>) -> Result<(Args, Vec<String>), String> {
             shutdown_server,
             any,
             value: value_suite,
+            custom,
         },
         rest,
     ))
@@ -485,6 +491,7 @@ fn run() -> Result<bool, String> {
     }
     // Point3 arrives where Point is declared.
     idl::register_value_types();
+    idl::custom::register_value_types();
     let root = orb
         .string_to_object(&args.naming)
         .map_err(|e| format!("{}: {e}", args.naming))?
@@ -502,6 +509,9 @@ fn run() -> Result<bool, String> {
     }
     if args.value {
         return run_value(&orb, &root, &args, bound);
+    }
+    if args.custom {
+        return run_custom(&orb, &root, &args, bound);
     }
     let echo = retry("the Echo server", args.timeout, bound, || {
         root.resolve(&name)?.ok_or_else(|| {
@@ -620,7 +630,56 @@ fn run_value(
         failed: Vec::new(),
     };
     let echo = idl::value_test::ValueEcho::unchecked_narrow(echo);
-    for (case, f) in valuetest::cases(&echo) {
+    let poa = orb.root_poa().map_err(|e| format!("RootPOA: {e}"))?;
+    poa.the_poa_manager()
+        .activate()
+        .map_err(|e| format!("activate: {e}"))?;
+    for (case, f) in valuetest::cases(&echo, &poa) {
+        r.case(&case, f);
+    }
+
+    if args.shutdown_server {
+        echo.shutdown().map_err(|e| format!("shutdown: {e}"))?;
+    }
+    println!("\n{} passed, {} failed", r.passed, r.failed.len());
+    if !r.failed.is_empty() {
+        println!("failed: {}", r.failed.join(", "));
+    }
+    let _ = orb.shutdown(true);
+    Ok(r.failed.is_empty())
+}
+
+/// The CustomTest suite against the CustomEcho object at `--name`.
+fn run_custom(
+    orb: &Orb,
+    root: &NamingContext,
+    args: &Args,
+    bound: impl Fn(&NamingError) -> bool,
+) -> Result<bool, String> {
+    use idl::custom::custom_test::CustomEcho;
+    let name = to_name(&args.name).map_err(|e| format!("--name {}: {e}", args.name))?;
+    let echo = retry("the CustomEcho server", args.timeout, bound, || {
+        root.resolve(&name)?.ok_or_else(|| {
+            SystemException::new(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No).into()
+        })
+    })?;
+    let is_echo = echo
+        .is_a(CustomEcho::REPOSITORY_ID)
+        .map_err(|e| format!("_is_a: {e}"))?;
+    if !is_echo {
+        return Err(format!("{} is not a CustomTest::CustomEcho", args.name));
+    }
+    let reachable = |e: &Exception| e.as_system().is_some_and(starting);
+    retry("the CustomEcho server", args.timeout, reachable, || {
+        echo.non_existent()
+    })?;
+
+    let mut r = Runner {
+        passed: 0,
+        failed: Vec::new(),
+    };
+    let echo = CustomEcho::unchecked_narrow(echo);
+    for (case, f) in customtest::cases(&echo) {
         r.case(&case, f);
     }
 

@@ -24,9 +24,13 @@ A valuetype ``V`` is the class ``V`` (a ``StreamableValue``, abstract for
 an abstract valuetype, which is an interface), ``VHelper``, ``VHolder`` and
 ``VDefaultFactory``, which the ORB finds by name. A value box of a basic
 type is a class with a public ``value``; a box of another type is that
-type itself, and its Helper is a ``BoxedValueHelper``. Custom valuetypes,
-``supports``, valuetype operations and abstract interfaces are not mapped
-yet.
+type itself, and its Helper is a ``BoxedValueHelper``. A custom valuetype
+is an abstract class implementing ``CustomValue``. A valuetype with
+operations or attributes, or that supports interfaces, is an abstract class
+(implementing the ``IOperations`` of the interfaces, so that its servant is
+their tie) without a default factory; one with initializers has a
+``VValueFactory`` interface for the application's factory. Abstract
+interfaces are not mapped yet.
 
 ``-Wbpackage=PKG`` puts every package under ``PKG`` (and the definitions
 outside modules in ``PKG``).
@@ -561,6 +565,8 @@ class JavaBackend(object):
                 continue
             if hasattr(d, "is_public"):  # a state member of a valuetype
                 continue
+            if d in getattr(scope, "factories", ()):  # an initializer
+                continue
             self.definition(d)
 
     # constants
@@ -857,14 +863,23 @@ class JavaBackend(object):
         w = Writer()
         if node.is_abstract:
             ext = [self.scoped(b) for b in abstract_bases] or ["org.omg.CORBA.portable.ValueBase"]
+            ext += self.supported_operations(node)
             w("public interface %s extends %s {" % (name, ", ".join(ext)))
+            w.indent()
+            self.value_methods(w, node, "")
+            w.dedent()
             w("}")
             self.add(node, name, w.text())
+        elif node.is_custom:
+            self.custom_value(node, name, base, abstract_bases, members)
         else:
-            impl = ["org.omg.CORBA.portable.StreamableValue"] + [
-                self.scoped(b) for b in abstract_bases
-            ]
-            head = "public class %s" % name
+            behaviour = fe.has_behaviour(node)
+            impl = (
+                ["org.omg.CORBA.portable.StreamableValue"]
+                + [self.scoped(b) for b in abstract_bases]
+                + self.supported_operations(node)
+            )
+            head = "public %sclass %s" % ("abstract " if behaviour else "", name)
             if base is not None:
                 head += " extends %s" % self.scoped(self.full(base))
             w("%s implements %s {" % (head, ", ".join(impl)))
@@ -881,6 +896,7 @@ class JavaBackend(object):
                 w()
             w("public %s() {}" % name)
             w()
+            self.value_methods(w, node)
             w("@Override")
             w("public String[] _truncatable_ids() {")
             w("    return _rorb_truncatable_ids;")
@@ -914,6 +930,9 @@ class JavaBackend(object):
             w("}")
             self.add(node, name, w.text())
 
+        if node.factories:
+            self.value_factory(node, name)
+        if not node.is_abstract and not node.is_custom and not fe.has_behaviour(node):
             # the default factory, found by the ORB by its name
             w = Writer()
             w(
@@ -970,6 +989,79 @@ class JavaBackend(object):
         self.helper(node, scoped, tc, write_body, read_body, extra=self.prefix_registration)
         self.holder_class(node, scoped)
         self.nested(node)
+
+    def supported_operations(self, node):
+        """The operations interfaces of the interfaces a valuetype supports,
+        which its class implements (its servant is their tie)."""
+        return [self.scoped(i, "Operations") for i in fe.supported_interfaces(node)]
+
+    def value_methods(self, w, node, prefix="public abstract "):
+        """The operations and attributes of a valuetype, as abstract methods
+        of its class (or methods of its interface)."""
+        for opname, method, ret, params, excs, _, d in self.operations(node):
+            if opname.startswith("_set_"):
+                t = params[0][1]
+                w("%svoid %s(%s value);" % (prefix, java_name(method), self.jtype(t, d)))
+            else:
+                w("%s%s;" % (prefix, self.signature(method, ret, params, excs, d)))
+            w()
+
+    def value_factory(self, node, name):
+        """VValueFactory, the factory of a valuetype with initializers: the
+        application implements it and registers it."""
+        w = Writer()
+        w(
+            "public interface %sValueFactory extends org.omg.CORBA.portable.ValueFactory {"
+            % name
+        )
+        w.indent()
+        for f in node.factories:
+            params = [(a.name, fe.type_of(a.type, a), "in") for a in f.arguments]
+            w(
+                "%s;"
+                % self.signature(f.name, fe.Type("named", node=node), params, [], node)
+            )
+        w.dedent()
+        w("}")
+        self.add(node, name + "ValueFactory", w.text())
+
+    def custom_value(self, node, name, base, abstract_bases, members):
+        """A custom valuetype: an abstract class with the state members,
+        whose implementation provides marshal and unmarshal and registers a
+        value factory."""
+        impl = (
+            ["org.omg.CORBA.portable.CustomValue"]
+            + [self.scoped(b) for b in abstract_bases]
+            + self.supported_operations(node)
+        )
+        head = "public abstract class %s" % name
+        if base is not None:
+            head += " extends %s" % self.scoped(self.full(base))
+        w = Writer()
+        w("%s implements %s {" % (head, ", ".join(impl)))
+        w.indent()
+        w("private static final long serialVersionUID = 1L;")
+        w(
+            "private static final String[] _rorb_truncatable_ids = {%s};"
+            % ", ".join('"%s"' % i for i in cxx_backend.CxxBackend.sent_ids(self, node))
+        )
+        w()
+        for m, t, public in members:
+            w("%s %s %s;" % ("public" if public else "protected", self.jtype(t, node), java_name(m)))
+        if members:
+            w()
+        self.value_methods(w, node)
+        w("@Override")
+        w("public String[] _truncatable_ids() {")
+        w("    return _rorb_truncatable_ids;")
+        w("}")
+        w()
+        w("public org.omg.CORBA.TypeCode _type() {")
+        w("    return %sHelper.type();" % name)
+        w("}")
+        w.dedent()
+        w("}")
+        self.add(node, name, w.text())
 
     def value_box(self, node):
         name = java_name(node.name)

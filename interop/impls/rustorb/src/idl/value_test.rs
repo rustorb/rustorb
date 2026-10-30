@@ -116,6 +116,7 @@ pub mod value_test {
                 id: Point::REPOSITORY_ID,
                 sent_ids: &["IDL:ValueTest/Point:1.0"],
                 ancestors: &["IDL:ValueTest/Point:1.0"],
+                custom: false,
                 make: || ::rustorb_core::idl::ValueHandle::new(PointState::default()),
                 type_code: <Point as ::rustorb_core::idl::IdlType>::type_code,
             };
@@ -296,6 +297,7 @@ pub mod value_test {
                 id: Point3::REPOSITORY_ID,
                 sent_ids: &["IDL:ValueTest/Point3:1.0", "IDL:ValueTest/Point:1.0"],
                 ancestors: &["IDL:ValueTest/Point3:1.0", "IDL:ValueTest/Point:1.0"],
+                custom: false,
                 make: || ::rustorb_core::idl::ValueHandle::new(Point3State::default()),
                 type_code: <Point3 as ::rustorb_core::idl::IdlType>::type_code,
             };
@@ -462,6 +464,7 @@ pub mod value_test {
                 id: Node::REPOSITORY_ID,
                 sent_ids: &["IDL:ValueTest/Node:1.0"],
                 ancestors: &["IDL:ValueTest/Node:1.0"],
+                custom: false,
                 make: || ::rustorb_core::idl::ValueHandle::new(NodeState::default()),
                 type_code: <Node as ::rustorb_core::idl::IdlType>::type_code,
             };
@@ -715,6 +718,7 @@ pub mod value_test {
                 id: Shape::REPOSITORY_ID,
                 sent_ids: &["IDL:ValueTest/Shape:1.0"],
                 ancestors: &["IDL:ValueTest/Shape:1.0"],
+                custom: false,
                 make: || ::rustorb_core::idl::ValueHandle::new(ShapeState::default()),
                 type_code: <Shape as ::rustorb_core::idl::IdlType>::type_code,
             };
@@ -971,6 +975,537 @@ pub mod value_test {
         }
     }
 
+    /// A reference to an object of the IDL interface `ValueTest::Counter`.
+    ///
+    /// `==` compares the IORs ([`ObjectRef::is_equivalent`](::rustorb_core::ObjectRef::is_equivalent)).
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct Counter(::rustorb_core::ObjectRef);
+
+    impl AsRef<::rustorb_core::ObjectRef> for Counter {
+        fn as_ref(&self) -> &::rustorb_core::ObjectRef {
+            &self.0
+        }
+    }
+
+    impl Counter {
+        pub const REPOSITORY_ID: &'static str = "IDL:ValueTest/Counter:1.0";
+
+        /// `obj` as a reference to this interface, if the object supports it
+        /// (from the type id of its IOR, else by asking it with `_is_a`).
+        pub fn narrow(
+            obj: &::rustorb_core::ObjectRef,
+        ) -> ::rustorb_core::idl::Sys<Option<Counter>> {
+            Ok(if ::rustorb_core::idl::is_a(obj, Self::REPOSITORY_ID)? {
+                Some(Counter(obj.clone()))
+            } else {
+                None
+            })
+        }
+
+        /// `obj` as a reference to this interface, unchecked.
+        pub fn unchecked_narrow(obj: ::rustorb_core::ObjectRef) -> Counter {
+            Counter(obj)
+        }
+
+        /// The object reference.
+        pub fn object(&self) -> &::rustorb_core::ObjectRef {
+            &self.0
+        }
+
+        /// The object reference.
+        pub fn into_object(self) -> ::rustorb_core::ObjectRef {
+            self.0
+        }
+
+        #[doc(hidden)]
+        pub fn _write(
+            v: Option<&Counter>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            out.write_object(v.map(|v| &v.0))
+        }
+
+        /// `count`.
+        #[allow(clippy::type_complexity)]
+        pub fn count(&self) -> Result<i32, ::rustorb_core::SystemException> {
+            let request = self.0.request("count");
+            let reply = request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+    }
+
+    impl ::rustorb_core::idl::IdlType for Counter {
+        type Rust = Option<Counter>;
+        type Borrowed = Option<Counter>;
+        const MIN_SIZE: usize = 4;
+
+        fn type_code() -> ::rustorb_core::TypeCode {
+            static TC: ::std::sync::OnceLock<::rustorb_core::TypeCode> =
+                ::std::sync::OnceLock::new();
+            TC.get_or_init(|| {
+                ::rustorb_core::idl::tc(::rustorb_core::TypeCode::objref(
+                    "IDL:ValueTest/Counter:1.0",
+                    "Counter",
+                ))
+            })
+            .clone()
+        }
+
+        fn write(
+            v: &Option<Counter>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            Self::_write(v.as_ref(), out)
+        }
+
+        fn read(
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<Option<Counter>> {
+            Ok(input.read_object()?.map(Counter))
+        }
+    }
+
+    /// The implementation of the IDL interface `ValueTest::Counter`.
+    pub trait CounterServant: Send + Sync {
+        /// `count`.
+        #[allow(clippy::type_complexity)]
+        fn count(&self) -> Result<i32, ::rustorb_core::SystemException>;
+    }
+
+    /// The skeleton of `Counter`: makes a `CounterServant` a servant.
+    pub struct CounterPoa<T>(pub T);
+
+    impl<T> ::std::fmt::Debug for CounterPoa<T> {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            f.write_str("CounterPoa")
+        }
+    }
+
+    impl<T: CounterServant + 'static> CounterPoa<T> {
+        /// Activates the servant in `poa` (with an id the POA assigns) and
+        /// returns its id and reference.
+        pub fn activate(
+            self,
+            poa: &::rustorb_core::Poa,
+        ) -> Result<(::rustorb_core::ObjectId, Counter), ::rustorb_core::PoaError> {
+            let servant: ::std::sync::Arc<dyn ::rustorb_core::Servant> =
+                ::std::sync::Arc::new(self);
+            let id = poa.activate_object(servant)?;
+            let obj = poa.id_to_reference(&id)?;
+            Ok((id, Counter(obj)))
+        }
+
+        /// Activates the servant in `poa` with the id `id` (a USER_ID POA)
+        /// and returns its reference.
+        pub fn activate_with_id(
+            self,
+            poa: &::rustorb_core::Poa,
+            id: &[u8],
+        ) -> Result<Counter, ::rustorb_core::PoaError> {
+            let servant: ::std::sync::Arc<dyn ::rustorb_core::Servant> =
+                ::std::sync::Arc::new(self);
+            poa.activate_object_with_id(id, servant)?;
+            Ok(Counter(poa.id_to_reference(id)?))
+        }
+    }
+
+    impl<T: CounterServant> ::rustorb_core::Servant for CounterPoa<T> {
+        fn repository_id(&self) -> &str {
+            Counter::REPOSITORY_ID
+        }
+
+        fn is_a(&self, repository_id: &str) -> bool {
+            matches!(repository_id, "IDL:ValueTest/Counter:1.0")
+        }
+
+        #[allow(unused_variables)]
+        fn dispatch(
+            &self,
+            operation: &str,
+            input: &mut ::rustorb_core::InStream<'_>,
+            reply: &mut ::rustorb_core::ServerReply,
+        ) -> Result<(), ::rustorb_core::SystemException> {
+            match operation {
+                "count" => {
+                    let ret = self.0.count()?;
+                    let mut out = reply.output();
+                    <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(
+                        &ret, &mut out,
+                    )?;
+                    Ok(())
+                }
+                _ => Err(::rustorb_core::idl::unknown_operation()),
+            }
+        }
+    }
+
+    /// The state of the IDL valuetype `ValueTest::Tally`.
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+    pub struct TallyState {
+        pub n: i32,
+    }
+
+    impl ::rustorb_core::idl::ValueState for TallyState {
+        fn info(&self) -> &'static ::rustorb_core::idl::ValueInfo {
+            Tally::_info()
+        }
+
+        fn write_state(
+            &self,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&self.n, out)?;
+            Ok(())
+        }
+
+        fn read_state(
+            &mut self,
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            self.n = <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(input)?;
+            Ok(())
+        }
+
+        fn view(&self, ty: ::std::any::TypeId) -> Option<&dyn ::std::any::Any> {
+            if ty == ::std::any::TypeId::of::<Self>() {
+                return Some(self);
+            }
+            None
+        }
+
+        fn view_mut(&mut self, ty: ::std::any::TypeId) -> Option<&mut dyn ::std::any::Any> {
+            if ty == ::std::any::TypeId::of::<Self>() {
+                return Some(self);
+            }
+            None
+        }
+    }
+
+    /// The IDL valuetype `ValueTest::Tally`: a shared reference to an instance of it
+    /// or of a type derived from it.
+    #[derive(Clone)]
+    pub struct Tally(::rustorb_core::idl::ValueHandle);
+
+    impl ::std::fmt::Debug for Tally {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            self.0.fmt(f)
+        }
+    }
+
+    impl Tally {
+        pub const REPOSITORY_ID: &'static str = "IDL:ValueTest/Tally:1.0";
+
+        /// A new instance with the state `state`.
+        pub fn new(state: TallyState) -> Tally {
+            Tally(::rustorb_core::idl::ValueHandle::new(state))
+        }
+
+        /// A copy of the state (of this type, for an instance of a derived
+        /// type).
+        pub fn get(&self) -> TallyState {
+            self.0.with(|s: &TallyState| s.clone())
+        }
+
+        /// Replaces the state.
+        pub fn set(&self, state: TallyState) {
+            self.0.with_mut(|s: &mut TallyState| *s = state)
+        }
+
+        /// Runs `f` on the state. Touching the same instance in `f`
+        /// deadlocks.
+        pub fn with<T>(&self, f: impl FnOnce(&TallyState) -> T) -> T {
+            self.0.with(f)
+        }
+
+        /// Runs `f` on the state, to change it.
+        pub fn with_mut<T>(&self, f: impl FnOnce(&mut TallyState) -> T) -> T {
+            self.0.with_mut(f)
+        }
+
+        /// Whether both are the same instance.
+        pub fn ptr_eq(&self, other: &Tally) -> bool {
+            self.0.ptr_eq(&other.0)
+        }
+
+        /// The untyped handle.
+        pub fn handle(&self) -> &::rustorb_core::idl::ValueHandle {
+            &self.0
+        }
+
+        /// The instance of `h`, if it is of this type or a derived one.
+        pub fn from_handle(h: ::rustorb_core::idl::ValueHandle) -> Option<Tally> {
+            if h.is_a(Self::REPOSITORY_ID) {
+                Some(Tally(h))
+            } else {
+                None
+            }
+        }
+
+        #[doc(hidden)]
+        pub fn _info() -> &'static ::rustorb_core::idl::ValueInfo {
+            static INFO: ::rustorb_core::idl::ValueInfo = ::rustorb_core::idl::ValueInfo {
+                id: Tally::REPOSITORY_ID,
+                sent_ids: &["IDL:ValueTest/Tally:1.0"],
+                ancestors: &["IDL:ValueTest/Tally:1.0"],
+                custom: false,
+                make: || ::rustorb_core::idl::ValueHandle::new(TallyState::default()),
+                type_code: <Tally as ::rustorb_core::idl::IdlType>::type_code,
+            };
+            &INFO
+        }
+
+        #[doc(hidden)]
+        pub fn _write(
+            v: Option<&Tally>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            ::rustorb_core::idl::ValueHandle::write(v.map(|v| &v.0), out)
+        }
+    }
+
+    impl ::rustorb_core::idl::IdlType for Tally {
+        type Rust = Option<Tally>;
+        type Borrowed = Option<Tally>;
+        const MIN_SIZE: usize = 4;
+
+        fn type_code() -> ::rustorb_core::TypeCode {
+            static TC: ::std::sync::OnceLock<::rustorb_core::TypeCode> =
+                ::std::sync::OnceLock::new();
+            TC.get_or_init(|| {
+                ::rustorb_core::idl::tc(::rustorb_core::TypeCode::value_tc::<&str>(
+                    ::rustorb_core::TCKind::Value,
+                    "IDL:ValueTest/Tally:1.0",
+                    "Tally",
+                    0,
+                    None,
+                    &[(
+                        "n",
+                        <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::type_code(),
+                        1,
+                    )],
+                ))
+            })
+            .clone()
+        }
+
+        fn write(
+            v: &Option<Tally>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            Self::_write(v.as_ref(), out)
+        }
+
+        fn read(
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<Option<Tally>> {
+            Ok(::rustorb_core::idl::ValueHandle::read(input, Self::_info())?.map(Tally))
+        }
+    }
+
+    /// The operations of the IDL valuetype `ValueTest::Tally`, which the application
+    /// implements for its state. They run with the state locked: touching
+    /// the same instance in them deadlocks.
+    pub trait TallyOperations {
+        /// `count`.
+        #[allow(clippy::type_complexity)]
+        fn count(&mut self) -> Result<i32, ::rustorb_core::SystemException>;
+    }
+
+    impl CounterServant for Tally {
+        #[allow(clippy::type_complexity)]
+        fn count(&self) -> Result<i32, ::rustorb_core::SystemException> {
+            self.0
+                .with_mut(|s: &mut TallyState| TallyOperations::count(s))
+        }
+    }
+
+    /// The state of the IDL valuetype `ValueTest::Account`.
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+    pub struct AccountState {
+        pub balance: i32,
+    }
+
+    impl ::rustorb_core::idl::ValueState for AccountState {
+        fn info(&self) -> &'static ::rustorb_core::idl::ValueInfo {
+            Account::_info()
+        }
+
+        fn write_state(
+            &self,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&self.balance, out)?;
+            Ok(())
+        }
+
+        fn read_state(
+            &mut self,
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            self.balance =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(input)?;
+            Ok(())
+        }
+
+        fn view(&self, ty: ::std::any::TypeId) -> Option<&dyn ::std::any::Any> {
+            if ty == ::std::any::TypeId::of::<Self>() {
+                return Some(self);
+            }
+            None
+        }
+
+        fn view_mut(&mut self, ty: ::std::any::TypeId) -> Option<&mut dyn ::std::any::Any> {
+            if ty == ::std::any::TypeId::of::<Self>() {
+                return Some(self);
+            }
+            None
+        }
+    }
+
+    /// The IDL valuetype `ValueTest::Account`: a shared reference to an instance of it
+    /// or of a type derived from it.
+    #[derive(Clone)]
+    pub struct Account(::rustorb_core::idl::ValueHandle);
+
+    impl ::std::fmt::Debug for Account {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            self.0.fmt(f)
+        }
+    }
+
+    impl Account {
+        pub const REPOSITORY_ID: &'static str = "IDL:ValueTest/Account:1.0";
+
+        /// A new instance with the state `state`.
+        pub fn new(state: AccountState) -> Account {
+            Account(::rustorb_core::idl::ValueHandle::new(state))
+        }
+
+        /// A copy of the state (of this type, for an instance of a derived
+        /// type).
+        pub fn get(&self) -> AccountState {
+            self.0.with(|s: &AccountState| s.clone())
+        }
+
+        /// Replaces the state.
+        pub fn set(&self, state: AccountState) {
+            self.0.with_mut(|s: &mut AccountState| *s = state)
+        }
+
+        /// Runs `f` on the state. Touching the same instance in `f`
+        /// deadlocks.
+        pub fn with<T>(&self, f: impl FnOnce(&AccountState) -> T) -> T {
+            self.0.with(f)
+        }
+
+        /// Runs `f` on the state, to change it.
+        pub fn with_mut<T>(&self, f: impl FnOnce(&mut AccountState) -> T) -> T {
+            self.0.with_mut(f)
+        }
+
+        /// Whether both are the same instance.
+        pub fn ptr_eq(&self, other: &Account) -> bool {
+            self.0.ptr_eq(&other.0)
+        }
+
+        /// The untyped handle.
+        pub fn handle(&self) -> &::rustorb_core::idl::ValueHandle {
+            &self.0
+        }
+
+        /// The instance of `h`, if it is of this type or a derived one.
+        pub fn from_handle(h: ::rustorb_core::idl::ValueHandle) -> Option<Account> {
+            if h.is_a(Self::REPOSITORY_ID) {
+                Some(Account(h))
+            } else {
+                None
+            }
+        }
+
+        #[doc(hidden)]
+        pub fn _info() -> &'static ::rustorb_core::idl::ValueInfo {
+            static INFO: ::rustorb_core::idl::ValueInfo = ::rustorb_core::idl::ValueInfo {
+                id: Account::REPOSITORY_ID,
+                sent_ids: &["IDL:ValueTest/Account:1.0"],
+                ancestors: &["IDL:ValueTest/Account:1.0"],
+                custom: false,
+                make: || ::rustorb_core::idl::ValueHandle::new(AccountState::default()),
+                type_code: <Account as ::rustorb_core::idl::IdlType>::type_code,
+            };
+            &INFO
+        }
+
+        #[doc(hidden)]
+        pub fn _write(
+            v: Option<&Account>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            ::rustorb_core::idl::ValueHandle::write(v.map(|v| &v.0), out)
+        }
+    }
+
+    impl ::rustorb_core::idl::IdlType for Account {
+        type Rust = Option<Account>;
+        type Borrowed = Option<Account>;
+        const MIN_SIZE: usize = 4;
+
+        fn type_code() -> ::rustorb_core::TypeCode {
+            static TC: ::std::sync::OnceLock<::rustorb_core::TypeCode> =
+                ::std::sync::OnceLock::new();
+            TC.get_or_init(|| {
+                ::rustorb_core::idl::tc(::rustorb_core::TypeCode::value_tc::<&str>(
+                    ::rustorb_core::TCKind::Value,
+                    "IDL:ValueTest/Account:1.0",
+                    "Account",
+                    0,
+                    None,
+                    &[(
+                        "balance",
+                        <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::type_code(),
+                        1,
+                    )],
+                ))
+            })
+            .clone()
+        }
+
+        fn write(
+            v: &Option<Account>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            Self::_write(v.as_ref(), out)
+        }
+
+        fn read(
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<Option<Account>> {
+            Ok(::rustorb_core::idl::ValueHandle::read(input, Self::_info())?.map(Account))
+        }
+    }
+
+    /// The operations of the IDL valuetype `ValueTest::Account`, which the application
+    /// implements for its state. They run with the state locked: touching
+    /// the same instance in them deadlocks.
+    pub trait AccountOperations {
+        /// `doubled`.
+        #[allow(clippy::type_complexity)]
+        fn doubled(&mut self) -> Result<i32, ::rustorb_core::SystemException>;
+    }
+
+    impl Account {
+        /// `doubled`, on the state.
+        #[allow(clippy::type_complexity)]
+        pub fn doubled(&self) -> Result<i32, ::rustorb_core::SystemException> {
+            self.0
+                .with_mut(|s: &mut AccountState| AccountOperations::doubled(s))
+        }
+    }
+
     /// A reference to an object of the IDL interface `ValueTest::ValueEcho`.
     ///
     /// `==` compares the IORs ([`ObjectRef::is_equivalent`](::rustorb_core::ObjectRef::is_equivalent)).
@@ -1220,6 +1755,80 @@ pub mod value_test {
             Ok(ret)
         }
 
+        /// `echo_tally`.
+        #[allow(clippy::type_complexity)]
+        pub fn echo_tally(
+            &self,
+            t: Option<&Tally>,
+        ) -> Result<Option<Tally>, ::rustorb_core::SystemException> {
+            let request = self.0.request("echo_tally").args(|out| {
+                Tally::_write(t, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Tally as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `call_count`.
+        #[allow(clippy::type_complexity)]
+        pub fn call_count(
+            &self,
+            c: Option<&Counter>,
+        ) -> Result<i32, ::rustorb_core::SystemException> {
+            let request = self.0.request("call_count").args(|out| {
+                Counter::_write(c, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `account_doubled`.
+        #[allow(clippy::type_complexity)]
+        pub fn account_doubled(
+            &self,
+            a: Option<&Account>,
+        ) -> Result<i32, ::rustorb_core::SystemException> {
+            let request = self.0.request("account_doubled").args(|out| {
+                Account::_write(a, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `make_account`.
+        #[allow(clippy::type_complexity)]
+        pub fn make_account(
+            &self,
+            balance: i32,
+        ) -> Result<Option<Account>, ::rustorb_core::SystemException> {
+            let request = self.0.request("make_account").args(|out| {
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&balance, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Account as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `shutdown`.
         #[allow(clippy::type_complexity)]
         pub fn shutdown(&self) -> Result<(), ::rustorb_core::SystemException> {
@@ -1333,6 +1942,31 @@ pub mod value_test {
             &self,
             a: &::rustorb_core::Any,
         ) -> Result<::rustorb_core::Any, ::rustorb_core::SystemException>;
+
+        /// `echo_tally`.
+        #[allow(clippy::type_complexity)]
+        fn echo_tally(
+            &self,
+            t: Option<&Tally>,
+        ) -> Result<Option<Tally>, ::rustorb_core::SystemException>;
+
+        /// `call_count`.
+        #[allow(clippy::type_complexity)]
+        fn call_count(&self, c: Option<&Counter>) -> Result<i32, ::rustorb_core::SystemException>;
+
+        /// `account_doubled`.
+        #[allow(clippy::type_complexity)]
+        fn account_doubled(
+            &self,
+            a: Option<&Account>,
+        ) -> Result<i32, ::rustorb_core::SystemException>;
+
+        /// `make_account`.
+        #[allow(clippy::type_complexity)]
+        fn make_account(
+            &self,
+            balance: i32,
+        ) -> Result<Option<Account>, ::rustorb_core::SystemException>;
 
         /// `shutdown`.
         #[allow(clippy::type_complexity)]
@@ -1478,6 +2112,39 @@ pub mod value_test {
                     )?;
                     Ok(())
                 }
+                "echo_tally" => {
+                    let t = <Tally as ::rustorb_core::idl::IdlType>::read(input)?;
+                    let ret = self.0.echo_tally(t.as_ref())?;
+                    let mut out = reply.output();
+                    <Tally as ::rustorb_core::idl::IdlType>::write(&ret, &mut out)?;
+                    Ok(())
+                }
+                "call_count" => {
+                    let c = <Counter as ::rustorb_core::idl::IdlType>::read(input)?;
+                    let ret = self.0.call_count(c.as_ref())?;
+                    let mut out = reply.output();
+                    <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(
+                        &ret, &mut out,
+                    )?;
+                    Ok(())
+                }
+                "account_doubled" => {
+                    let a = <Account as ::rustorb_core::idl::IdlType>::read(input)?;
+                    let ret = self.0.account_doubled(a.as_ref())?;
+                    let mut out = reply.output();
+                    <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(
+                        &ret, &mut out,
+                    )?;
+                    Ok(())
+                }
+                "make_account" => {
+                    let balance =
+                        <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(input)?;
+                    let ret = self.0.make_account(balance)?;
+                    let mut out = reply.output();
+                    <Account as ::rustorb_core::idl::IdlType>::write(&ret, &mut out)?;
+                    Ok(())
+                }
                 "shutdown" => {
                     self.0.shutdown()?;
                     Ok(())
@@ -1543,4 +2210,6 @@ pub fn register_value_types() {
     ::rustorb_core::idl::register_value(value_test::Point3::_info());
     ::rustorb_core::idl::register_value(value_test::Node::_info());
     ::rustorb_core::idl::register_value(value_test::Shape::_info());
+    ::rustorb_core::idl::register_value(value_test::Tally::_info());
+    ::rustorb_core::idl::register_value(value_test::Account::_info());
 }

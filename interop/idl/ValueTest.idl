@@ -45,6 +45,31 @@ module ValueTest {
   valuetype StringBox string;
   valuetype PairBox Pair;
 
+  // An interface that a valuetype supports.
+  interface Counter {
+    // The count.
+    long count();
+  };
+
+  // A valuetype that supports an interface: an instance is passed by
+  // value as a Tally and, activated as a servant, by reference as a
+  // Counter. Its count() returns n.
+  valuetype Tally supports Counter {
+    public long n;
+  };
+
+  // A valuetype with an operation and an initializer, which each
+  // implementation provides, with a value factory.
+  valuetype Account {
+    public long balance;
+
+    // Returns balance * 2.
+    long doubled();
+
+    // An account with the balance.
+    factory init(in long balance);
+  };
+
   interface ValueEcho {
     // Returns p (null stays null).
     Point echo_point(in Point p);
@@ -75,6 +100,19 @@ module ValueTest {
 
     // Returns a (an any that holds a valuetype).
     any echo_any(in any a);
+
+    // Returns t.
+    Tally echo_tally(in Tally t);
+
+    // Returns c.count(), called back on c (a Tally the client activated).
+    long call_count(in Counter c);
+
+    // Returns a.doubled(), with the server's implementation of Account.
+    long account_doubled(in Account a);
+
+    // An Account made by the server's value factory of Account, with
+    // init(balance).
+    Account make_account(in long balance);
 
     // Ends the server.
     oneway void shutdown();

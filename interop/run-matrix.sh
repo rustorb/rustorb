@@ -21,7 +21,10 @@
 # --suite SUITE  basic (default): the InteropTest.idl cases; any: the
 #            AnyTest.idl cases (Any and TypeCode), whose results go to
 #            <client>-to-<server>-any; value: the ValueTest.idl cases
-#            (valuetypes), whose results go to <client>-to-<server>-value
+#            (valuetypes), whose results go to <client>-to-<server>-value;
+#            custom: the CustomTest.idl cases (custom valuetypes, which
+#            omniORB does not support: of the image's implementations only
+#            jacorb runs), whose results go to <client>-to-<server>-custom
 #
 # Implementations live in impls/<name>/ and provide `server` and `client`
 # executables that accept the options in README.md. To use an implementation
@@ -47,7 +50,7 @@ while [ $# -gt 0 ]; do
     --naming) naming="$2"; shift ;;
     --suite) suite="$2"; shift ;;
     --out) out="$(realpath -m "$2")"; shift ;;
-    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
     *:*) pairs+=("$1") ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -58,6 +61,7 @@ case "$suite" in
   basic) export ECHO_NAME=interop/Echo ;;
   any) export ECHO_NAME=interop/AnyEcho ;;
   value) export ECHO_NAME=interop/ValueEcho ;;
+  custom) export ECHO_NAME=interop/CustomEcho ;;
   *) echo "unknown suite: $suite" >&2; exit 2 ;;
 esac
 export SUITE="$suite"
@@ -65,6 +69,8 @@ export SUITE="$suite"
 # docs/java-binding.md), so the any suite leaves it out unless asked for.
 if [ "$suite" = any ]; then
   IMPLS="${IMPLS:-omniorbpy omniorb-cpp}"
+elif [ "$suite" = custom ]; then
+  IMPLS="${IMPLS:-jacorb}"
 else
   IMPLS="${IMPLS:-omniorbpy omniorb-cpp jacorb}"
 fi

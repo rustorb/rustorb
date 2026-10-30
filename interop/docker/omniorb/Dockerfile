@@ -131,8 +131,9 @@ ADD --checksum=sha256:e58a2604a85ab985fb94037c889bef90b0c2a862030c03b0e830aa54a4
 COPY idl /opt/interop/idl
 COPY impls/java /src/java
 COPY impls/jacorb/idl /src/jacorb-idl/idl
-RUN java -cp '/src/jacorb-idl/*' org.jacorb.idl.parser -d /src/jacorb-gen \
+RUN java -cp '/src/jacorb-idl/*' org.jacorb.idl.parser -I/opt/interop/idl -d /src/jacorb-gen \
       /opt/interop/idl/InteropTest.idl /opt/interop/idl/ValueTest.idl \
+      /opt/interop/idl/CustomTest.idl \
  && java -cp '/src/jacorb-idl/*' org.jacorb.idl.parser -all -I/opt/interop/idl \
       -I/src/jacorb-idl/idl -d /src/jacorb-gen /src/jacorb-idl/idl/AnyAll.idl \
  && find /src/jacorb-gen /src/java -name '*.java' > /src/sources.txt \

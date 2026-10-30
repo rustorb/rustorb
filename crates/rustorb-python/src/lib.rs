@@ -35,6 +35,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<tc::CompiledOp>()?;
     m.add_class::<any::NativeTypeCode>()?;
     m.add_class::<dynany::DynAny>()?;
+    m.add_class::<value::CustomInput>()?;
     m.add_function(wrap_pyfunction!(register_value_type, m)?)?;
     m.add_function(wrap_pyfunction!(orb::set_thread_call_timeout, m)?)?;
     m.add_function(wrap_pyfunction!(orb::thread_call_timeout, m)?)?;

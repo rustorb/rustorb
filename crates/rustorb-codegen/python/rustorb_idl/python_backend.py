@@ -535,9 +535,13 @@ class PythonBackend(object):
 
     def valuetype(self, node):
         w = self.w
-        if node.supports:
-            raise fe.GeneratorError("valuetypes that support interfaces are not supported yet", node)
         bases = fe.value_bases(node)
+        supported = fe.supported_interfaces(node)
+        for i in supported:
+            if i.is_abstract or i.is_local:
+                raise fe.GeneratorError(
+                    "a valuetype can only support a non-abstract, non-local interface", node
+                )
         base = fe.concrete_base(node)
         if node.is_abstract:
             modifier = "VM_ABSTRACT"
@@ -553,7 +557,16 @@ class PythonBackend(object):
             '%s = _0_rt.declare_value("%s", "%s")'
             % (self.tc_ref(node), fe.repository_id(node), node.name)
         )
-        self.class_header(node, [self.ref(b) for b in bases] or ["_0_CORBA.ValueBase"])
+        cls_bases = [self.ref(b) for b in bases] or ["_0_CORBA.ValueBase"]
+        if node.is_custom:
+            cls_bases.append("_0_CORBA.CustomMarshal")
+        # A valuetype that supports an interface is a servant of it too:
+        # an implementation is activated like one (_this()).
+        for i in supported:
+            cls_bases.append(
+                self.modvar(self.poa_module(fe.enclosing_modules(i))) + "." + py_name(i.name)
+            )
+        self.class_header(node, cls_bases)
         names = [py_name(n) for n in fe.state_member_names(node)]
         w("_NP_members = %s" % py_tuple('"%s"' % n for n in names))
         self.assign_class(node)
@@ -575,9 +588,23 @@ class PythonBackend(object):
         )
         # A valuetype with operations or initializers needs an
         # implementation, which the application registers a factory for.
-        own_factory = not node.is_abstract and not fe.has_behaviour(node)
+        # So does a custom one, for marshal and unmarshal.
+        own_factory = not node.is_abstract and not node.is_custom and not fe.has_behaviour(node)
         w("_0_rt.register_value(%s%s)" % (self.tc_ref(node), "" if own_factory else ", False"))
         w()
+        if supported:
+            # References to an activated instance have the valuetype's
+            # repository id: their stubs are those of the (first)
+            # supported interface.
+            objref = "_objref_" + node.name
+            i = supported[0]
+            w("class %s(%s):" % (objref, self.container(i) + "._objref_" + i.name))
+            w("    _NP_RepositoryId = %s._NP_RepositoryId" % self.ref(node))
+            w()
+            w("%s.%s = %s" % (self.container(node), objref, objref))
+            w("_0_rt.register_interface(%s, %s)" % (self.ref(node), objref))
+            w("del %s" % objref)
+            w()
 
     # -- interfaces ------------------------------------------------------
 

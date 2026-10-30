@@ -59,6 +59,9 @@ public final class Cases {
             } catch (Exception | LinkageError e) {
                 // LinkageError: a class of the ORB that cannot be loaded
                 // (JacORB's javax.rmi.CORBA on Java 17, see known-failures.txt).
+                if (System.getenv("INTEROP_TRACE") != null) {
+                    e.printStackTrace();
+                }
                 fail(name, "unexpected " + e);
             }
         }

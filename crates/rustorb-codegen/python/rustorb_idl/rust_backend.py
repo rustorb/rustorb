@@ -13,7 +13,10 @@ Writes one Rust source file per IDL file (``InteropTest.idl`` ->
 - an interface ``I`` is the reference type ``I``, the servant trait
   ``IServant`` and the skeleton ``IPoa<T>``;
 - a valuetype ``V`` is the handle ``V`` and its state ``VState``; a value
-  box is a struct around an ``Arc`` of its content.
+  box is a struct around an ``Arc`` of its content. The application
+  implements ``CustomMarshal`` for the state of a custom valuetype, and
+  the trait ``VOperations`` for that of a valuetype with operations or
+  supported interfaces (whose servant traits the handle implements).
 
 Every named type implements ``rustorb_core::idl::IdlType``. The code refers
 to the core only by absolute paths (``::rustorb_core`` or ``-Wbcore``), and
@@ -69,6 +72,13 @@ BASIC = {
 }
 
 INT_RANGES = cxx_backend.INT_RANGES
+
+# The methods of the handle of a valuetype, which its operations must not
+# clash with.
+VALUE_METHODS = {
+    "new", "get", "set", "with", "with_mut", "ptr_eq", "handle", "from_handle", "_info",
+    "_write", "clone", "fmt",
+}
 
 UNSUPPORTED = {
     "Principal": "Principal",
@@ -279,7 +289,25 @@ class RustBackend(object):
             )
 
     def check_value(self, node):
-        cxx_backend.CxxBackend.check_value(self, node)
+        for i in fe.supported_interfaces(node):
+            if i.is_abstract or i.is_local:
+                raise fe.GeneratorError(
+                    "a valuetype can only support a non-abstract, non-local interface in Rust",
+                    node,
+                )
+        for opname, method, _, _, excs, _, _ in self.operations(node):
+            if excs:
+                raise fe.GeneratorError(
+                    "valuetype operations that raise exceptions are not supported by the Rust"
+                    " backend yet",
+                    node,
+                )
+            if self.method_name(opname, method) in VALUE_METHODS:
+                raise fe.GeneratorError(
+                    "the operation %s of %s clashes with a method of its Rust type"
+                    % (method, node.name),
+                    node,
+                )
         if node.is_abstract:
             raise fe.GeneratorError(
                 "abstract valuetypes are not supported by the Rust backend yet", node
@@ -563,7 +591,7 @@ class RustBackend(object):
                 '("%s", %s, %d)' % (m, self.tc_expr(t, cur, node, inner), 1 if public else 0)
                 for m, t, public in self.state_members(node)
             )
-            modifier = {"VM_NONE": 0, "VM_TRUNCATABLE": 3}[self.value_modifier(node)]
+            modifier = {"VM_NONE": 0, "VM_CUSTOM": 1, "VM_TRUNCATABLE": 3}[self.value_modifier(node)]
             base_expr = (
                 "Some(&%s)" % self.tc_expr(fe.Type("named", node=base), cur, node, inner)
                 if base is not None
@@ -1260,21 +1288,28 @@ class RustBackend(object):
         w()
         w("fn write_state(&self, out: &mut %s::OutStream<'_>) -> %s::Sys<()> {" % (R, I))
         w.indent()
-        if base is not None:
+        if node.is_custom:
+            # The application implements CustomMarshal for the state.
+            w("%s::CustomMarshal::marshal(self, &mut %s::DataOutputStream::new(out))" % (I, I))
+        elif base is not None:
             w("%s::ValueState::write_state(&self.base, out)?;" % I)
-        for f, (m, t, _) in zip(fields, members):
-            w("%s(&self.%s, out)?;" % (self.call(t, cur, "write", node), f))
-        w("Ok(())")
+        if not node.is_custom:
+            for f, (m, t, _) in zip(fields, members):
+                w("%s(&self.%s, out)?;" % (self.call(t, cur, "write", node), f))
+            w("Ok(())")
         w.dedent()
         w("}")
         w()
         w("fn read_state(&mut self, input: &mut %s::InStream<'_>) -> %s::Sys<()> {" % (R, I))
         w.indent()
-        if base is not None:
-            w("%s::ValueState::read_state(&mut self.base, input)?;" % I)
-        for f, (m, t, _) in zip(fields, members):
-            w("self.%s = %s(input)?;" % (f, self.call(t, cur, "read", node)))
-        w("Ok(())")
+        if node.is_custom:
+            w("%s::CustomMarshal::unmarshal(self, &mut %s::DataInputStream::new(input))" % (I, I))
+        else:
+            if base is not None:
+                w("%s::ValueState::read_state(&mut self.base, input)?;" % I)
+            for f, (m, t, _) in zip(fields, members):
+                w("self.%s = %s(input)?;" % (f, self.call(t, cur, "read", node)))
+            w("Ok(())")
         w.dedent()
         w("}")
         w()
@@ -1366,6 +1401,7 @@ class RustBackend(object):
         w("    id: %s::REPOSITORY_ID," % name)
         w("    sent_ids: &[%s]," % ", ".join('"%s"' % i for i in self.sent_ids(node)))
         w("    ancestors: &[%s]," % ", ".join('"%s"' % fe.repository_id(n) for n in chain))
+        w("    custom: %s," % ("true" if node.is_custom else "false"))
         w("    make: || %s::ValueHandle::new(%s::default())," % (I, state))
         w("    type_code: <%s as %s>::type_code," % (name, self.T))
         w("};")
@@ -1407,7 +1443,97 @@ class RustBackend(object):
             lambda w: w("Self::_write(v.as_ref(), out)"),
             lambda w: w("Ok(%s::ValueHandle::read(input, Self::_info())?.map(%s))" % (I, name)),
         )
+        self.value_operations(w, node, cur, name, state)
         self.values.append(node)
+
+    def value_operations(self, w, node, cur, name, state):
+        """For a valuetype with operations or supported interfaces: the
+        trait ``<V>Operations`` the application implements for the state
+        (the operations of the valuetype and of the interfaces it
+        supports), methods of the handle that call them, and the servant
+        traits of the supported interfaces for the handle, so that an
+        instance is also a servant of them."""
+        R = self.R
+        ops = [op + (node,) for op in self.operations(node)]
+        ifaces = []
+        for i in fe.supported_interfaces(node):
+            for n in [i] + self.ancestors(i):
+                if n not in ifaces:
+                    ifaces.append(n)
+        for n in ifaces:
+            ops.extend(op + (n,) for op in self.operations(n))
+        if not ops:
+            return
+        trait = ident(camel(node.name) + "Operations")
+        self.claim(cur, trait, "the operations of valuetype %s" % node.name, node)
+        sigs = []
+        for opname, method, ret, params, excs, oneway, d, owner in ops:
+            m, args, rt = self.signature(opname, method, ret, params, excs, d, owner, cur)
+            err = self.error_path(owner, opname, method, cur) if excs else R + "::SystemException"
+            sigs.append((opname, m, args, rt, err, owner))
+
+        def decl(w, m, args, rt, err, recv):
+            if len(args) > 6:
+                w("#[allow(clippy::too_many_arguments)]")
+            w("#[allow(clippy::type_complexity)]")
+            return "fn %s(%s) -> Result<%s, %s>" % (m, ", ".join([recv] + args), rt, err)
+
+        def call(m, args):
+            names = [a.split(":")[0] for a in args]
+            return "self.0.with_mut(|s: &mut %s| %s::%s(%s))" % (
+                state,
+                trait,
+                m,
+                ", ".join(["s"] + names),
+            )
+
+        w(
+            "/// The operations of the IDL valuetype `%s`, which the application"
+            % "::".join(fe.scope_path(node))
+        )
+        w("/// implements for its state. They run with the state locked: touching")
+        w("/// the same instance in them deadlocks.")
+        w("pub trait %s {" % trait)
+        w.indent()
+        for i, (opname, m, args, rt, err, owner) in enumerate(sigs):
+            if i:
+                w()
+            w("/// `%s`." % opname)
+            w("%s;" % decl(w, m, args, rt, err, "&mut self"))
+        w.dedent()
+        w("}")
+        w()
+        own = [sig for sig in sigs if sig[5] is node]
+        if own:
+            w("impl %s {" % name)
+            w.indent()
+            for i, (opname, m, args, rt, err, owner) in enumerate(own):
+                if i:
+                    w()
+                w("/// `%s`, on the state." % opname)
+                w("pub %s {" % decl(w, m, args, rt, err, "&self"))
+                w("    %s" % call(m, args))
+                w("}")
+            w.dedent()
+            w("}")
+            w()
+        for n in ifaces:
+            servant = self.ref(n, cur, name=self.item_name(n) + "Servant")
+            w("impl %s for %s {" % (servant, name))
+            w.indent()
+            first = True
+            for opname, m, args, rt, err, owner in sigs:
+                if owner is not n:
+                    continue
+                if not first:
+                    w()
+                first = False
+                w("%s {" % decl(w, m, args, rt, err, "&self"))
+                w("    %s" % call(m, args))
+                w("}")
+            w.dedent()
+            w("}")
+            w()
 
     def value_box(self, w, node, cur):
         name = self.item_name(node)

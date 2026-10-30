@@ -195,6 +195,23 @@ module RustMapping {
   valuetype LongBox long;
   valuetype PairBox Pair;
 
+  // A custom valuetype: its state implements CustomMarshal.
+  custom valuetype Tagged {
+    public long tag;
+    public string text;
+  };
+
+  // A valuetype with operations that supports an interface: its state
+  // implements GaugeOperations, and an instance is a MeterServant.
+  interface Meter {
+    long reading();
+  };
+  valuetype Gauge supports Meter {
+    public long level;
+    long scaled(in long by);
+    factory init(in long level);
+  };
+
   struct Drawing {
     Shape main;
     sequence<Shape> others;
@@ -205,6 +222,9 @@ module RustMapping {
     Shape echo_shape(in Shape s);
     Drawing echo_drawing(in Drawing d);
     LongBox echo_box(in LongBox b);
+    Tagged echo_tagged(in Tagged t);
+    Gauge echo_gauge(in Gauge g);
+    long read_meter(in Meter m);
   };
 
   // --- nested modules ---

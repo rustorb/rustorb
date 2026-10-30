@@ -57,6 +57,7 @@ def setUpModule():
         os.path.join(idl_dir, "AnyTest.idl"),
         os.path.join(idl_dir, "AnyTestHidden.idl"),
         os.path.join(idl_dir, "ValueTest.idl"),
+        os.path.join(idl_dir, "CustomTest.idl"),
         os.path.join(HERE, "idl", "NativeTest.idl"),
     ):
         if cli.main(["-bpython", "-C", OUT, "-I" + idl_dir, idl]) != 0:
@@ -643,10 +644,42 @@ def make_value_servant():
         def echo_any(self, a):
             return a
 
+        def echo_tally(self, t):
+            return t
+
+        def call_count(self, c):
+            return c.count()
+
+        def account_doubled(self, a):
+            return a.doubled()
+
+        def make_account(self, balance):
+            # Value factories are per process: this is the one the test
+            # registered.
+            return server_orb.lookup_value_factory("IDL:ValueTest/Account:1.0")(balance)
+
         def shutdown(self):
             pass
 
     return ValueEchoServant()
+
+
+def value_impls():
+    """Implementations of the valuetypes of ValueTest.idl with operations,
+    registered as their factories."""
+    import ValueTest as V
+
+    class TallyImpl(V.Tally):
+        def count(self):
+            return self.n
+
+    class AccountImpl(V.Account):
+        def doubled(self):
+            return self.balance * 2
+
+    client_orb.register_value_factory(V.Tally._NP_RepositoryId, TallyImpl)
+    client_orb.register_value_factory(V.Account._NP_RepositoryId, AccountImpl)
+    return TallyImpl, AccountImpl
 
 
 class ValuetypeTest(unittest.TestCase):
@@ -742,6 +775,27 @@ class ValuetypeTest(unittest.TestCase):
             with self.assertRaises(CORBA.BAD_PARAM):
                 self.e.echo_point(bad)
 
+    def test_supports(self):
+        TallyImpl, _ = value_impls()
+        got = self.e.echo_tally(TallyImpl(3))
+        self.assertIs(type(got), TallyImpl)
+        self.assertEqual(got.count(), 3)
+        # An instance is also a servant of the interface it supports.
+        t = TallyImpl(5)
+        poa = client_orb.resolve_initial_references("RootPOA")
+        oid = poa.activate_object(t)
+        try:
+            self.assertEqual(self.e.call_count(poa.id_to_reference(oid)), 5)
+        finally:
+            poa.deactivate_object(oid)
+
+    def test_operations_and_initializers(self):
+        _, AccountImpl = value_impls()
+        self.assertEqual(self.e.account_doubled(AccountImpl(21)), 42)
+        got = self.e.make_account(7)
+        self.assertIs(type(got), AccountImpl)
+        self.assertEqual(got.doubled(), 14)
+
     def test_value_factories(self):
         V = self.V
         made = []
@@ -779,6 +833,64 @@ class ValuetypeTest(unittest.TestCase):
         # A TypeCode that comes back from the native module is the same.
         a = self.e.echo_any(CORBA.Any(CORBA.TC_TypeCode, tc))
         self.assertTrue(a.value().equal(tc))
+
+
+class CustomValueTest(unittest.TestCase):
+    """Custom valuetypes (interop/idl/CustomTest.idl)."""
+
+    def test_marshal_and_unmarshal(self):
+        import CustomTest as C
+        import CustomTest__POA
+        import ValueTest as V
+
+        class BlobImpl(C.Blob):
+            def marshal(self, os):
+                os.write_long(self.n)
+                os.write_string(self.label)
+                os.write_Value(self.pt)
+                os.write_ulong(len(self.values))
+                os.write_long_array(self.values, 0, len(self.values))
+
+            def unmarshal(self, is_):
+                self.n = is_.read_long()
+                self.label = is_.read_string()
+                self.pt = is_.read_Value()
+                length = is_.read_ulong()
+                self.values = is_.read_long_array([0] * length, 0, length)
+
+        class Servant(CustomTest__POA.CustomEcho):
+            def echo_blob(self, b):
+                return b
+
+            def echo_blob_pair(self, p):
+                return p
+
+            def echo_blobs(self, s):
+                return s
+
+            def shutdown(self):
+                pass
+
+        client_orb.register_value_factory(C.Blob._NP_RepositoryId, BlobImpl)
+        try:
+            poa = server_orb.resolve_initial_references("RootPOA")
+            oid = poa.activate_object(Servant())
+            e = remote(client_orb, poa.id_to_reference(oid), C.CustomEcho)
+            p = V.Point(1, 2)
+            got = e.echo_blob(BlobImpl(3, "three", p, [1, 2, 3]))
+            self.assertIs(type(got), BlobImpl)
+            self.assertEqual((got.n, got.label, got.values), (3, "three", [1, 2, 3]))
+            self.assertEqual((got.pt.x, got.pt.y), (1, 2))
+            self.assertIsNone(e.echo_blob(None))
+            b = BlobImpl(1, "", p, [])
+            pair = e.echo_blob_pair(C.BlobPair(b, p))
+            # Sharing holds across the custom state and the struct.
+            self.assertIs(pair.data.pt, pair.pt)
+            got = e.echo_blobs([b, b, None])
+            self.assertIs(got[0], got[1])
+            poa.deactivate_object(oid)
+        finally:
+            client_orb.unregister_value_factory(C.Blob._NP_RepositoryId)
 
 
 class LocalTest(unittest.TestCase):

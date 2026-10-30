@@ -83,7 +83,7 @@ orb.run();
 | 定数 | モジュールの定数は `value` を持つインターフェース、インターフェースの定数はそのフィールド |
 | 型の中の型 | `<Name>Package` パッケージ |
 
-`Helper` は `insert`・`extract`・`type`・`id`・`read`・`write` を持つ。`type()` は再帰型を `create_recursive_tc` で作り、別名の `insert` は別名の TypeCode を付ける。Java の予約語と `java.lang.Object` のメソッド名（`notify`、`wait` など）と同じ識別子には `_` が付く（GIOP 上の操作名は IDL のまま）。`long double`、abstract interface、`custom` と操作を持つ valuetype はまだ生成できず、rustorb-idl がエラーにする。
+`Helper` は `insert`・`extract`・`type`・`id`・`read`・`write` を持つ。`type()` は再帰型を `create_recursive_tc` で作り、別名の `insert` は別名の TypeCode を付ける。Java の予約語と `java.lang.Object` のメソッド名（`notify`、`wait` など）と同じ識別子には `_` が付く（GIOP 上の操作名は IDL のまま）。`long double` と abstract interface はまだ生成できず、rustorb-idl がエラーにする。`custom` の valuetype（`CustomValue`）、`supports`（`IOperations` と `IPOATie`）、valuetype の操作（抽象メソッド）と初期化子（`<名前>ValueFactory`）は [valuetype.md](valuetype.md) のとおり。
 
 `fixed<D, S>` の値は `BigDecimal` で、生成コードは `write_fixed(v, D, S)` / `read_fixed(D, S)` で読み書きする。読んだ値の scale はいつも S。小数が S 桁を超える（0 でない桁がある）値や整数部が D − S 桁を超える値は送信時に `BAD_PARAM`（Python と同じ。丸めない）。パック10進の読み書きは `org.omg.CORBA.portable.OutputStream` / `InputStream` 自身が `write_octet_array` / `read_octet_array` の上で行う。桁数を取らない `write_fixed(v)` は v の桁数と scale で書き、`read_fixed()` は符号の半オクテットまで読んで整数（scale 0）を返す。`Any.insert_fixed(v)` は v 自身の桁数と scale の `tk_fixed` を、`insert_fixed(v, tc)` は tc（別名も可。`tk_fixed` でなければ `BAD_INV_ORDER`）を付け、`extract_fixed()` は TypeCode の scale の値を返す。`fixed` の定数は `BigDecimal` で、scale は型のもの（`const fixed C = 12.50d;` は `new BigDecimal("12.50")`）。
 
@@ -119,17 +119,17 @@ servant manager と adapter activator は `org.omg.CORBA.LocalObject` を継承�
   - `InteropCasesTest`：相互接続の78ケース（`interop/impls/java/interop/Cases.java`）と Any / TypeCode の251ケース（DynAny の組み立て直しを含む）（`AnyTests.java`）を、2つの ORB の間で回す
   - `DynAnyTest`：`org.omg.DynamicAny`（[dynany.md](dynany.md)）。生成コードの型の DynAny、valuetype の共有と循環、切り詰め。残りの操作は `interop/impls/rustorbjava/probe/interop/DynAnyProbe.java`（`run-dynany-probe.sh`）で確かめる
   - `PortableTest`：手書きの portable stub（`_request` / `_invoke` / `ApplicationException` / oneway）を2つの ORB の間と同一 ORB 内で、`_releaseReply` の後のストリーム、返事を作ってから操作を呼ぶスケルトンの例外の完了状態、`ORB.create_output_stream` の読み戻し、Any のストリーム操作と `insert_Value` / `extract_Value`
-  - `ValuetypeTest`：valuetype の23ケース（`ValueTests.java`）、生成された既定のファクトリ、truncatable の切り捨て、ファクトリのない型の `MARSHAL`、`create_value_tc`
+  - `ValuetypeTest`：valuetype の26ケース（`ValueTests.java`）、生成された既定のファクトリ、truncatable の切り捨て、ファクトリのない型の `MARSHAL`、`create_value_tc`
 - `crates/rustorb-codegen/python/tests/test_java_backend.py`：コマンドライン、生成物の形、対応しない構文のエラー、生成コードとランタイムの `javac -Werror` でのコンパイル
 - CI（`ci.yml` の `java`）：Linux（Java 11 と 21）、macOS、Windows で `mvn verify`。Linux では同梱の CosNaming のスタブが生成器の出力と一致することも確かめる
 - 相互接続：`interop/run-matrix.sh` に `rustorbjava`（ホストでビルドし、イメージの Java 17 で動かす）と `jacorb`（イメージの中で JacORB の IDL コンパイラで同じソースをビルドする）を加えた。Java が関わる24組（omniORBpy・omniORB C++・JacORB・rustorb の Rust・Python・C++・Java）の結果は次のとおり（ローカルで確認。失敗はすべて `known-failures.txt` の範囲）
   - basic（78ケース）：omniNames と rustorb-names、GIOP 1.2 と 1.1 で、`rustorbjava` はすべての相手と通る（omniORB 側の wchar の既知の失敗を除く）。`jacorb` との組は、下の union の判別子の1ケース（`echo_value[5]`）と、GIOP 1.1 で omniORB のクライアントが分割したメッセージ（JacORB が GIOP 1.1 の Fragment を受け付けない）だけが失敗する
   - any（190ケース）：`rustorbjava` は omniORBpy・omniORB C++・rustorb（Rust・Python・C++）・自身とのすべての組で GIOP 1.2 / 1.1 とも通る。`jacorb` は下の Helper の違いで大半の `make` / `check` が失敗するため、既定では any のマトリクスに入れない（組を指定すれば回せる）
-  - value（23ケース）：`rustorbjava` と `jacorb` はすべての相手と GIOP 1.2 / 1.1 とも通る。ただし JacORB は Java 17 で値の入った Any を書けない（[valuetype.md](valuetype.md)）ので、`jacorb` の組の `echo_any` の3ケースは既知の失敗
+  - value（26ケース）：`rustorbjava` と `jacorb` はすべての相手と GIOP 1.2 / 1.1 とも通る。ただし JacORB は Java 17 で値の入った Any を書けない（[valuetype.md](valuetype.md)）ので、`jacorb` の組の `echo_any` の3ケースは既知の失敗
 
 - portable stub：`interop/impls/rustorbjava-portable` は、`jacorb` と同じ共通のソースと JacORB の IDL コンパイラが生成したスタブ・スケルトン・Helper（相互接続のイメージから取り出す）を、JacORB ではなく rustorb の Java ランタイムでビルドしたもの。対になる全実装（omniORBpy・omniORB C++・JacORB・rustorb の Rust・Python・C++・Java と自身）と両方向で回した結果（ローカルで確認）
   - basic（78ケース）：すべての組で、JacORB の union の判別子の1ケース（`echo_value[5]`、JacORB 自身と同じ）だけが失敗する
-  - value（23ケース）：`echo_any[derived]` だけが失敗する。JacORB の生成コードの違い（下）による
+  - value（26ケース）：`echo_any[derived]` だけが失敗する。JacORB の生成コードの違い（下）による
   - basic を GIOP 1.1 でも回し、同じ結果
   - any：JacORB 自身の組と同じく Helper の違いで多くの `make` / `check` が失敗するので、CI では回さない。相手ごとの失敗するケースは `jacorb` の組と一致する。違いは2種類で、`jacorb` のクライアントだけが失敗する DynAny の16ケース（JacORB の DynAny の問題）と、`rustorbjava-portable` のクライアントだけが失敗する `dyn_make[count]`（`CountHelper.insert` が別名を落とした比較用の値に対し、rustorb の DynAny は受け取った別名の TypeCode を保つ）
   - `Any.insert_Object(o)` の TypeCode の名前を、空からリポジトリIDの最後の名前（`IDL:AnyTest/AnyEcho:1.0` なら `AnyEcho`）に変えた。JacORB の `AnyEchoHelper.insert` はこれを使い、Helper の `type()` と `equal()` で比べられる
@@ -154,5 +154,5 @@ JacORB は、UTF-8 に決まった `char` のデータ（rustorb とはどちら
 ## 残り
 
 - DII / DSI（#44）
-- `custom` の valuetype、`supports`、valuetype の操作と初期化子、abstract interface（#42、#43）
+- abstract interface（#43）
 - Java 22 以降の FFM API への置き換えの検討

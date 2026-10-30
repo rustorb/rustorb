@@ -87,7 +87,7 @@ IDL to Python マッピングと omniORBpy の Python 3 版に合わせる。
 | `any` | `CORBA.Any`（受け取った型が生成コードになければ TypeCode とクラスをその場で作る。[any-typecode.md](any-typecode.md)） |
 | `TypeCode` | `CORBA.TypeCode` |
 
-valuetype と `long double` はまだ扱わず、`NO_IMPLEMENT` になる。
+valuetype（custom・`supports`・操作を含む）は [valuetype.md](valuetype.md) のとおり。`long double` はまだ扱わず、`NO_IMPLEMENT` になる。
 
 ## 例外
 

@@ -25,6 +25,15 @@ public final class Server {
             poa.activate_object_with_id(valueOid, new ValueTests.ValueEchoImpl(orb));
             Common.bindName(Common.rootContext(orb, opt.timeout), opt.name,
                     poa.id_to_reference(valueOid));
+        } else if (opt.suite.equals("custom")) {
+            // The custom valuetype suite: CustomTest::CustomEcho, which also
+            // stops the server.
+            CustomTests.registerFactories(orb);
+            POA poa = Common.persistentPoa(orb, "CustomTest");
+            byte[] customOid = "CustomEcho".getBytes(StandardCharsets.US_ASCII);
+            poa.activate_object_with_id(customOid, new CustomTests.CustomEchoImpl(orb));
+            Common.bindName(Common.rootContext(orb, opt.timeout), opt.name,
+                    poa.id_to_reference(customOid));
         } else if (opt.suite.equals("any")) {
             // The stage 2 suite: AnyTest::AnyEcho, with an Echo object next
             // to it for the client to shut the server down.

@@ -1,4 +1,5 @@
-//! Valuetypes written and read back: sharing, cycles, truncation, boxes.
+//! Valuetypes written and read back: sharing, cycles, truncation, boxes,
+//! custom values and codebase URLs.
 
 use std::sync::Arc;
 
@@ -171,6 +172,94 @@ fn unknown_types_that_cannot_be_truncated_are_marshal() {
     assert_eq!(e.kind(), Some(SystemExceptionKind::MARSHAL));
 }
 
+/// `custom valuetype Custom { public long a; };`, marshaled as a long and
+/// a string.
+fn custom_tc() -> TypeCode {
+    TypeCode::value_tc(
+        TCKind::Value,
+        "IDL:test/Custom:1.0",
+        "Custom",
+        1,
+        None,
+        &[("a", long(), 1)],
+    )
+    .unwrap()
+}
+
+#[test]
+fn custom_values_are_chunked_and_read_by_their_reader() {
+    let tc = custom_tc();
+    let items = vec![
+        Value::Any(Box::new(Any::new(long(), Value::Long(7)))),
+        Value::Any(Box::new(Any::new(string(), Value::String("seven".into())))),
+    ];
+    let v = Value::Valuetype(Some(ValueRef::new(tc.clone(), items)));
+
+    // Chunked, with a single repository id.
+    let mut enc = Encoder::new(ByteOrder::Big, CdrVersion::Giop1_2);
+    OutStream::standalone(&mut enc)
+        .write_value(&tc, &v)
+        .unwrap();
+    let bytes = enc.into_bytes();
+    assert_eq!(bytes[..4], 0x7fff_ff0a_u32.to_be_bytes());
+
+    // Without a reader for the type, its state cannot be read.
+    let e = roundtrip(ByteOrder::Big, &tc, &v).unwrap_err();
+    assert_eq!(e.kind(), Some(SystemExceptionKind::MARSHAL));
+
+    rustorb_core::register_custom_reader(
+        "IDL:test/Custom:1.0",
+        Arc::new(|v: &ValueRef, input: &mut InStream<'_>| {
+            let a = input.read::<i32>()?;
+            let s = input.read_string()?;
+            v.set_members(vec![Value::Long(a), Value::String(s)]);
+            Ok(())
+        }),
+    );
+    let back = roundtrip(ByteOrder::Little, &tc, &v);
+    rustorb_core::unregister_custom_reader("IDL:test/Custom:1.0");
+    let back = get(&back.unwrap());
+    assert_eq!(
+        back.members(),
+        vec![Value::Long(7), Value::String("seven".into())]
+    );
+}
+
+#[test]
+fn codebase_urls_are_skipped() {
+    // Two values with a codebase URL (the second an indirection to the
+    // first's), as a struct of two Base.
+    let base = base_tc("IDL:test/Codebase/Base:1.0", 0);
+    let pair = TypeCode::struct_tc(
+        "IDL:test/CodebasePair:1.0",
+        "CodebasePair",
+        &[("x", base.clone()), ("y", base.clone())],
+    )
+    .unwrap();
+    let mut enc = Encoder::new(ByteOrder::Big, CdrVersion::Giop1_2);
+    enc.write_u32(0x7fff_ff03); // a codebase URL and a single repository id
+    let url_at = enc.position();
+    enc.write_string("http://example.com/classes/").unwrap();
+    enc.write_string("IDL:test/Codebase/Base:1.0").unwrap();
+    enc.write_i32(1);
+    enc.write_u32(0x7fff_ff03);
+    enc.write_u32(0xffff_ffff);
+    let offset = url_at as i64 - enc.position() as i64;
+    enc.write_i32(offset as i32);
+    enc.write_string("IDL:test/Codebase/Base:1.0").unwrap();
+    enc.write_i32(2);
+    let bytes = enc.into_bytes();
+    let mut input = InStream::standalone(
+        Decoder::new(&bytes, ByteOrder::Big, CdrVersion::Giop1_2),
+        None,
+    );
+    let back = input.read_value(&pair).unwrap();
+    assert!(input.is_empty());
+    let Value::List(items) = back else { panic!() };
+    assert_eq!(get(&items[0]).members(), vec![Value::Long(1)]);
+    assert_eq!(get(&items[1]).members(), vec![Value::Long(2)]);
+}
+
 #[test]
 fn values_that_do_not_fit_are_bad_param() {
     let base = base_tc("IDL:test/Fit/Base:1.0", 0);
@@ -181,10 +270,11 @@ fn values_that_do_not_fit_are_bad_param() {
         let e = roundtrip(ByteOrder::Big, &base, &v).unwrap_err();
         assert_eq!(e.kind(), Some(SystemExceptionKind::BAD_PARAM));
     }
+    // The state of a custom value is the anys its marshal wrote.
     let custom = base_tc("IDL:test/Fit/Custom:1.0", 1);
     let v = Value::Valuetype(Some(ValueRef::new(custom.clone(), vec![Value::Long(1)])));
     let e = roundtrip(ByteOrder::Big, &custom, &v).unwrap_err();
-    assert_eq!(e.kind(), Some(SystemExceptionKind::NO_IMPLEMENT));
+    assert_eq!(e.kind(), Some(SystemExceptionKind::BAD_PARAM));
 }
 
 #[test]

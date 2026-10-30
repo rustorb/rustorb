@@ -487,6 +487,62 @@ impl CanvasServant for CanvasImpl {
     fn echo_box(&self, b: Option<&LongBox>) -> Result<Option<LongBox>, SystemException> {
         Ok(b.cloned())
     }
+
+    fn echo_tagged(&self, t: Option<&Tagged>) -> Result<Option<Tagged>, SystemException> {
+        Ok(t.cloned())
+    }
+
+    fn echo_gauge(&self, g: Option<&Gauge>) -> Result<Option<Gauge>, SystemException> {
+        Ok(g.cloned())
+    }
+
+    fn read_meter(&self, m: Option<&Meter>) -> Result<i32, SystemException> {
+        m.unwrap().reading()
+    }
+}
+
+/// Tagged on the wire: the tag, then the text.
+impl idl::CustomMarshal for TaggedState {
+    fn marshal(&self, os: &mut idl::DataOutputStream<'_, '_>) -> idl::Sys<()> {
+        os.write::<idl::Long>(&self.tag)?;
+        os.write::<idl::String>(&self.text)
+    }
+
+    fn unmarshal(&mut self, is: &mut idl::DataInputStream<'_, '_>) -> idl::Sys<()> {
+        self.tag = is.read::<idl::Long>()?;
+        self.text = is.read::<idl::String>()?;
+        Ok(())
+    }
+}
+
+impl GaugeOperations for GaugeState {
+    fn reading(&mut self) -> Result<i32, SystemException> {
+        Ok(self.level)
+    }
+
+    fn scaled(&mut self, by: i32) -> Result<i32, SystemException> {
+        Ok(self.level * by)
+    }
+}
+
+#[test]
+fn custom_and_behaviour() {
+    rust_mapping_idl::register_value_types();
+    let t = Tagged::new(TaggedState {
+        tag: 7,
+        text: "seven".into(),
+    });
+    // The core cannot read the state of a custom value of the Rust
+    // mapping, so it does not go in an any (valuetype_calls sends one).
+    let e = Any::insert::<Tagged>(&Some(t)).unwrap_err();
+    assert_eq!(e.kind(), Some(SystemExceptionKind::MARSHAL));
+    assert_eq!(Tagged::type_code().type_modifier().unwrap(), 1);
+
+    let g = Gauge::new(GaugeState { level: 4 });
+    assert_eq!(g.scaled(3).unwrap(), 12);
+    assert_eq!(MeterServant::reading(&g).unwrap(), 4);
+    let back = round_trip::<Gauge>(&Some(g)).unwrap().unwrap();
+    assert_eq!(back.scaled(2).unwrap(), 8);
 }
 
 #[test]
@@ -531,6 +587,29 @@ fn valuetype_calls() {
         *canvas.echo_box(Some(&LongBox::new(9))).unwrap().unwrap(),
         9
     );
+
+    let t = Tagged::new(TaggedState {
+        tag: 1,
+        text: "one".into(),
+    });
+    let back = canvas.echo_tagged(Some(&t)).unwrap().unwrap();
+    assert_eq!((back.get().tag, back.get().text), (1, "one".to_owned()));
+    let g = Gauge::new(GaugeState { level: 5 });
+    assert_eq!(
+        canvas
+            .echo_gauge(Some(&g))
+            .unwrap()
+            .unwrap()
+            .scaled(2)
+            .unwrap(),
+        10
+    );
+    // The Gauge, activated as a servant of Meter, called back by the
+    // server.
+    let client_root = client.root_poa().unwrap();
+    client_root.the_poa_manager().activate().unwrap();
+    let (_, meter) = MeterPoa(g).activate(&client_root).unwrap();
+    assert_eq!(canvas.read_meter(Some(&meter)).unwrap(), 5);
     drop(client);
     server.shutdown(true).unwrap();
 }

@@ -157,10 +157,25 @@ def main():
         # The valuetype suite: ValueTest::ValueEcho, which also stops the
         # server.
         import valuetest
+        valuetest.register_factories(orb)
         poa = root_poa.create_POA("ValueTest", root_poa._get_the_POAManager(), policies)
         poa.activate_object_with_id(b"ValueEcho", valuetest.ValueEchoServant(orb))
         root_poa._get_the_POAManager().activate()
         bind(root_context(orb, args.timeout), args.name, poa.id_to_reference(b"ValueEcho"))
+        print("server ready: %s" % args.name, flush=True)
+        orb.run()
+        orb.destroy()
+        print("server stopped", flush=True)
+        return 0
+    if args.suite == "custom":
+        # The custom valuetype suite: CustomTest::CustomEcho, which also
+        # stops the server.
+        import customtest
+        customtest.register(orb)
+        poa = root_poa.create_POA("CustomTest", root_poa._get_the_POAManager(), policies)
+        poa.activate_object_with_id(b"CustomEcho", customtest.CustomEchoServant(orb))
+        root_poa._get_the_POAManager().activate()
+        bind(root_context(orb, args.timeout), args.name, poa.id_to_reference(b"CustomEcho"))
         print("server ready: %s" % args.name, flush=True)
         orb.run()
         orb.destroy()

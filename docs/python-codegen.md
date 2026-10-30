@@ -74,7 +74,7 @@ rustorb-idl -bpython [-I DIR] [-D NAME[=VALUE]] [-C OUTDIR] FILE.idl...
 
 - オペレーションの戻り値が `unsigned long` など複数語の型だと構文エラーになっていた（[idl\_parser#159](https://github.com/sugarsweetrobotics/idl_parser/issues/159)）。idl\_parser 側で修正され、生成器の回避策は外した
 - omniidl は IDL の名前の衝突（メンバー名と型名の大文字小文字違い、`apple` と `APPLE` など）をエラーにするが、idl\_parser は通す。生成器は通ったものをそのまま生成する
-- valuetype・eventtype・map・bitset・bitmask はまだ生成しない（エラーにする）
+- eventtype・map・bitset・bitmask はまだ生成しない（エラーにする）。valuetype は [valuetype.md](valuetype.md)
 
 ## 残り
 

@@ -21,3 +21,5 @@ for f in InteropTest AnyTest ValueTest PoaProbe; do
 done
 idl -I "$root/interop/idl" -C "$root/interop/impls/rustorb/src/idl" \
   -Wbextern=AnyTest=crate::idl::any_test "$root/interop/idl/AnyTestHidden.idl"
+idl -I "$root/interop/idl" -C "$root/interop/impls/rustorb/src/idl" \
+  -Wbextern=ValueTest=crate::idl::value_test "$root/interop/idl/CustomTest.idl"

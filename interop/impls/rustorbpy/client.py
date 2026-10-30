@@ -237,6 +237,8 @@ def main():
         return run_any(orb, root, args)
     if args.suite == "value":
         return run_value(orb, root, args)
+    if args.suite == "custom":
+        return run_custom(orb, root, args)
     name = to_name(args.name)
     echo = retry("the Echo server", lambda: root.resolve(name), args.timeout)
     echo = echo._narrow(InteropTest.Echo)
@@ -297,7 +299,34 @@ def run_value(orb, root, args):
     retry("the ValueEcho server", echo._non_existent, args.timeout)
 
     r = Runner()
+    valuetest.register_factories(orb)
     valuetest.run_cases(r, echo, check)
+
+    if args.shutdown_server:
+        echo.shutdown()
+
+    print("\n%d passed, %d failed" % (r.passed, len(r.failed)))
+    if r.failed:
+        print("failed: " + ", ".join(r.failed))
+    orb.destroy()
+    return 1 if r.failed else 0
+
+
+def run_custom(orb, root, args):
+    """The custom valuetype suite (CustomTest.idl) against the CustomEcho
+    object at args.name."""
+    import CustomTest
+    import customtest
+    customtest.register(orb)
+    echo = retry("the CustomEcho server", lambda: root.resolve(to_name(args.name)), args.timeout)
+    echo = echo._narrow(CustomTest.CustomEcho)
+    if echo is None:
+        print("%s is not a CustomTest::CustomEcho" % args.name)
+        return 1
+    retry("the CustomEcho server", echo._non_existent, args.timeout)
+
+    r = Runner()
+    customtest.run_cases(r, echo, check)
 
     if args.shutdown_server:
         echo.shutdown()
@@ -311,3 +340,4 @@ def run_value(orb, root, args):
 
 if __name__ == "__main__":
     sys.exit(main())
+

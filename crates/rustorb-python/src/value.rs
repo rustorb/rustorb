@@ -18,7 +18,7 @@ use rustorb_core::cdr::CdrEncode;
 use rustorb_core::{CompletionStatus, InStream, OutStream, SystemException, ValueRef};
 
 use crate::any;
-use crate::error::{bad_param, corba, marshal, rt, sys_err};
+use crate::error::{bad_param, corba, marshal, rt, sys_err, sys_from_py};
 use crate::orb::ObjRef;
 use crate::tc::{Tc, TcCell, TcRef, value_type};
 
@@ -170,9 +170,13 @@ fn value_from_py(tc: &Tc, obj: &Bound<'_, PyAny>) -> PyResult<Value> {
     let mut work = Vec::new();
     let first = core_instance(tc, obj, &mut work)?;
     while let Some((obj, r, tc)) = work.pop() {
-        let Tc::Value { members, .. } = &*tc else {
+        let Tc::Value { members, core, .. } = &*tc else {
             unreachable!("core_instance checks the type");
         };
+        if is_custom(core) {
+            r.set_members(marshal_custom(&obj)?);
+            continue;
+        }
         let mut values = Vec::with_capacity(members.len());
         for (name, mtc) in members {
             let member = obj.getattr(name.bind(py))?;
@@ -262,26 +266,214 @@ fn py_instance<'a, 'py>(
     if let Some(obj) = with_memo(|m| m.to_py.get(&r.key()).map(|(_, o)| o.clone_ref(py))) {
         return Ok(obj.into_bound(py));
     }
+    // An instance a custom reader made.
+    if let Some(obj) = r.native().and_then(|n| n.downcast::<Py<PyAny>>().ok()) {
+        let obj = obj.clone_ref(py);
+        with_memo(|m| m.to_py.insert(r.key(), (r.clone(), obj.clone_ref(py))));
+        return Ok(obj.into_bound(py));
+    }
     let id = r.id().to_owned();
     let no_factory = || sys_err(py, &marshal(CompletionStatus::No));
     let tc = actual_type(py, tc, &id)?.ok_or_else(no_factory)?;
-    let Tc::Value { class, .. } = &*tc else {
+    let Tc::Value { class, core, .. } = &*tc else {
         return Err(sys_err(py, &bad_param()));
     };
-    let factory = rt(py)?.call_method1("lookup_value_factory", (&id,))?;
-    let obj = if !factory.is_none() {
-        factory.call0()?
-    } else if let Some(class) = class {
-        let class = class.bind(py);
-        class.call_method1("__new__", (class,))?
-    } else {
-        return Err(no_factory());
-    };
+    let obj = new_instance(py, &id, class.as_ref())?;
     with_memo(|m| m.to_py.insert(r.key(), (r.clone(), obj.clone().unbind())));
+    if is_custom(core) {
+        // Made in this process (not read): its state is the items its
+        // marshal wrote, which unmarshal reads back.
+        unmarshal_custom(&obj, Source::Replay(r.members().into_iter()))?;
+        return Ok(obj);
+    }
     // The members are taken: what they refer to is converted once, and
     // the core instances are freed even when they form a cycle.
     work.push((obj.clone(), r.take_members(), tc));
     Ok(obj)
+}
+
+/// A new instance of the valuetype `id` to set the state of: made by the
+/// value factory registered for it, else by `class` without calling its
+/// constructor. Neither is `MARSHAL`.
+fn new_instance<'py>(
+    py: Python<'py>,
+    id: &str,
+    class: Option<&Py<PyAny>>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let factory = rt(py)?.call_method1("lookup_value_factory", (id,))?;
+    if !factory.is_none() {
+        factory.call0()
+    } else if let Some(class) = class {
+        let class = class.bind(py);
+        class.call_method1("__new__", (class,))
+    } else {
+        Err(sys_err(py, &marshal(CompletionStatus::No)))
+    }
+}
+
+// --- custom valuetypes ---------------------------------------------------------
+
+const VM_CUSTOM: i16 = 1;
+
+pub(crate) fn is_custom(core: &rustorb_core::TypeCode) -> bool {
+    core.type_modifier() == Ok(VM_CUSTOM)
+}
+
+/// The state of the custom valuetype instance `obj`: the items its
+/// `marshal` writes to a `CORBA.DataOutputStream`, each a `Value::Any`.
+fn marshal_custom(obj: &Bound<'_, PyAny>) -> PyResult<Vec<Value>> {
+    let py = obj.py();
+    let os = corba(py)?.getattr("DataOutputStream")?.call0()?;
+    obj.call_method1("marshal", (&os,))?;
+    let mut items = Vec::new();
+    for item in os.getattr("_items")?.try_iter()? {
+        let item = item?;
+        let tc = item.get_item(0)?;
+        let compiled = crate::tc::compile_tc(&tc)?;
+        let value = from_py(&compiled, &item.get_item(1)?)?;
+        items.push(Value::Any(Box::new(rustorb_core::Any::new(
+            any::tc_from_py(&tc)?,
+            value,
+        ))));
+    }
+    Ok(items)
+}
+
+/// Calls `unmarshal` of the custom valuetype instance `obj` with a
+/// `CORBA.DataInputStream` over `source`, and returns the items read.
+fn unmarshal_custom(obj: &Bound<'_, PyAny>, source: Source) -> PyResult<Vec<Value>> {
+    let py = obj.py();
+    let native = Bound::new(
+        py,
+        CustomInput {
+            state: std::sync::Mutex::new((source, Vec::new())),
+        },
+    )?;
+    let is = corba(py)?.getattr("DataInputStream")?.call1((&native,))?;
+    let result = obj.call_method1("unmarshal", (is,));
+    let (_, items) = std::mem::replace(
+        &mut *native.get().state.lock().unwrap_or_else(|e| e.into_inner()),
+        (Source::Done, Vec::new()),
+    );
+    result?;
+    Ok(items)
+}
+
+/// Reads a custom value of the Python valuetype `id` for the core: makes
+/// the instance and calls its `unmarshal`, which reads from `input`. The
+/// instance is set as the native object of `r`, and so are the instances
+/// made for the values read in it, so that they stay the same instances
+/// when the whole message is converted.
+fn read_custom(id: &str, r: &ValueRef, input: &mut InStream<'_>) -> Result<(), SystemException> {
+    let completed = input.completion_status();
+    let input: *mut InStream<'static> = (input as *mut InStream<'_>).cast();
+    Python::attach(|py| {
+        let _scope = ValueScope::ensure();
+        let read = || -> PyResult<()> {
+            let class = match crate::tc::value_type(py, id)? {
+                Some(tc) => match &**tc {
+                    Tc::Value { class, .. } => class.as_ref().map(|c| c.clone_ref(py)),
+                    _ => None,
+                },
+                None => None,
+            };
+            let obj = new_instance(py, id, class.as_ref())?;
+            with_memo(|m| m.to_py.insert(r.key(), (r.clone(), obj.clone().unbind())));
+            let items = unmarshal_custom(&obj, Source::Live(LiveInput(input), completed))?;
+            r.set_members(items);
+            Ok(())
+        };
+        let result = read();
+        with_memo(|m| {
+            for (v, obj) in m.to_py.values() {
+                if v.native().is_none() {
+                    v.set_native(Some(Arc::new(obj.clone_ref(py))));
+                }
+            }
+        });
+        result.map_err(|err| {
+            let mut e = sys_from_py(py, &err);
+            if e.repository_id.ends_with("/UNKNOWN:1.0") {
+                e = marshal(completed);
+            }
+            e.completed = completed;
+            e
+        })
+    })
+}
+
+/// Registers the core reader of the custom valuetype `id`.
+pub(crate) fn register_custom(id: &str) {
+    let owned = id.to_owned();
+    rustorb_core::register_custom_reader(
+        id,
+        Arc::new(move |r: &ValueRef, input: &mut InStream<'_>| read_custom(&owned, r, input)),
+    );
+}
+
+/// The stream a custom reader reads from, valid while `unmarshal` runs.
+struct LiveInput(*mut InStream<'static>);
+
+// SAFETY: the pointer is only used on the thread that made it, while the
+// stream it points to is borrowed by the reader that made it (the GIL is
+// held throughout, and the input is dropped before the reader returns).
+unsafe impl Send for LiveInput {}
+unsafe impl Sync for LiveInput {}
+
+/// Where a `CORBA.DataInputStream` reads from.
+enum Source {
+    /// The message being read, with its completion status.
+    Live(LiveInput, CompletionStatus),
+    /// The items a `marshal` in this process wrote.
+    Replay(std::vec::IntoIter<Value>),
+    /// `unmarshal` has returned.
+    Done,
+}
+
+/// The native half of a `CORBA.DataInputStream`.
+#[pyclass(module = "rustorb._native", frozen)]
+pub(crate) struct CustomInput {
+    /// The source, and the items read so far.
+    state: std::sync::Mutex<(Source, Vec<Value>)>,
+}
+
+#[pymethods]
+impl CustomInput {
+    /// Reads the next item, of type `tc` (a `CORBA.TypeCode`).
+    fn read<'py>(&self, py: Python<'py>, tc: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+        let compiled = crate::tc::compile_tc(tc)?;
+        let core = any::tc_from_py(tc)?;
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let (source, items) = &mut *state;
+        let value = match source {
+            Source::Live(input, completed) => {
+                // SAFETY: see `LiveInput`; `Done` replaces it before the
+                // stream is released.
+                let input = unsafe { &mut *input.0 };
+                decode(&compiled, input, *completed).map_err(|e| sys_err(py, &e))?
+            }
+            Source::Replay(rest) => match rest.next() {
+                Some(Value::Any(a)) if a.typecode().equivalent(&core) => a.into_parts().1,
+                _ => return Err(sys_err(py, &marshal(CompletionStatus::No))),
+            },
+            Source::Done => {
+                return Err(sys_err(
+                    py,
+                    &crate::error::sys(
+                        rustorb_core::SystemExceptionKind::BAD_INV_ORDER,
+                        0,
+                        CompletionStatus::No,
+                    ),
+                ));
+            }
+        };
+        items.push(Value::Any(Box::new(rustorb_core::Any::new(
+            core,
+            value.clone(),
+        ))));
+        drop(state);
+        to_py(py, &compiled, value)
+    }
 }
 
 /// The entry of a union TypeCode the discriminator selects.
