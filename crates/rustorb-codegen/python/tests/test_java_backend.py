@@ -142,10 +142,7 @@ class JavaBackendTest(unittest.TestCase):
 
     def test_unsupported(self):
         cases = {
-            "custom": "module U { custom valuetype V { public long x; }; };",
-            "value_ops": "module U { valuetype V { public long x; long f(); }; };",
-            "value_factory": "module U { valuetype V { public long x; factory make(in long x); }; };",
-            "supports": "module U { interface I {}; valuetype V supports I { public long x; }; };",
+            "supports_local": "module U { local interface I {}; valuetype V supports I { public long x; }; };",
             "abstract": "module U { abstract interface A { void f(); }; };",
             "longdouble": "module U { struct S { long double d; }; };",
         }
@@ -153,6 +150,40 @@ class JavaBackendTest(unittest.TestCase):
             with self.subTest(name):
                 path = write_idl("Unsupported_%s.idl" % name, text)
                 self.assertEqual(cli.main(["-bjava", "-C", OUT, path]), 1)
+
+    def test_value_behaviour(self):
+        path = write_idl(
+            "Behave.idl",
+            """
+            module Behave {
+              interface Meter { long reading(); };
+              custom valuetype Tagged { public long tag; };
+              valuetype Gauge supports Meter {
+                public long level;
+                long scaled(in long by);
+                factory init(in long level);
+              };
+            };
+        """,
+        )
+        outdir = os.path.join(OUT, "behave")
+        self.assertEqual(cli.main(["-bjava", "-C", outdir, path]), 0)
+        d = os.path.join(outdir, "Behave")
+        self.assertIn(
+            "public abstract class Tagged implements org.omg.CORBA.portable.CustomValue {",
+            read(os.path.join(d, "Tagged.java")),
+        )
+        gauge = read(os.path.join(d, "Gauge.java"))
+        self.assertIn(
+            "public abstract class Gauge implements org.omg.CORBA.portable.StreamableValue,"
+            " Behave.MeterOperations {",
+            gauge,
+        )
+        self.assertIn("public abstract int scaled(int by);", gauge)
+        self.assertIn("Behave.Gauge init(int level);", read(os.path.join(d, "GaugeValueFactory.java")))
+        # Only the valuetypes without behaviour have default factories.
+        self.assertFalse(os.path.exists(os.path.join(d, "GaugeDefaultFactory.java")))
+        self.assertFalse(os.path.exists(os.path.join(d, "TaggedDefaultFactory.java")))
 
     def test_valuetypes(self):
         path = write_idl(

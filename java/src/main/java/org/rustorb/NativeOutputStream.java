@@ -308,7 +308,8 @@ final class NativeOutputStream extends org.omg.CORBA_2_3.portable.OutputStream {
     }
 
     /** Writes null, an indirection to an instance written before, or the
-     * value with its repository ids (chunked when it is truncatable). */
+     * value with its repository ids (chunked when it is truncatable or
+     * custom). */
     private void writeValue(java.io.Serializable value,
             org.omg.CORBA.portable.BoxedValueHelper helper) {
         if (value == null) {
@@ -316,17 +317,23 @@ final class NativeOutputStream extends org.omg.CORBA_2_3.portable.OutputStream {
             return;
         }
         String[] ids;
+        boolean custom = helper == null && value instanceof org.omg.CORBA.portable.CustomValue;
         if (helper != null) {
             ids = new String[] {helper.get_id()};
+        } else if (custom) {
+            ids = ((org.omg.CORBA.portable.CustomValue) value)._truncatable_ids();
         } else if (value instanceof org.omg.CORBA.portable.StreamableValue) {
             ids = ((org.omg.CORBA.portable.StreamableValue) value)._truncatable_ids();
         } else {
             throw new BAD_PARAM("not a value this ORB can write: " + value.getClass().getName(), 0,
                     CompletionStatus.COMPLETED_MAYBE);
         }
-        if (Native.outBeginValue(out(), key(value), ids, ids.length > 1)) {
+        // Custom values are always chunked.
+        if (Native.outBeginValue(out(), key(value), ids, ids.length > 1 || custom)) {
             if (helper != null) {
                 helper.write_value(this, value);
+            } else if (custom) {
+                ((org.omg.CORBA.portable.CustomValue) value).marshal(new CustomOutput(this));
             } else {
                 ((org.omg.CORBA.portable.StreamableValue) value)._write(this);
             }

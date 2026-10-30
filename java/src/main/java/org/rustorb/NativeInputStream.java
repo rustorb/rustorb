@@ -262,6 +262,10 @@ class NativeInputStream extends org.omg.CORBA_2_3.portable.InputStream {
     @Override
     public java.io.Serializable read_value(java.io.Serializable value) {
         keep(value);
+        if (value instanceof org.omg.CORBA.portable.CustomValue) {
+            ((org.omg.CORBA.portable.CustomValue) value).unmarshal(new CustomInput(this));
+            return value;
+        }
         if (!(value instanceof org.omg.CORBA.portable.StreamableValue)) {
             throw new org.omg.CORBA.MARSHAL("not a StreamableValue: " + value, 0,
                     CompletionStatus.COMPLETED_MAYBE);

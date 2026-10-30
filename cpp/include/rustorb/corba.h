@@ -38,6 +38,7 @@ namespace CORBA {
 class Object;
 class ORB;
 class Policy;
+class ValueBase;
 template <typename T> class object_reference;
 template <typename T> class servant_reference;
 }  // namespace CORBA
@@ -669,10 +670,18 @@ struct ServiceInformation {
 };
 
 // CORBA::make_reference<T>(args...): a servant (T derived from
-// PortableServer::ServantBase) or a local object.
+// PortableServer::ServantBase), a local object or a value. A value that
+// is also a servant (of an interface its valuetype supports) is held as a
+// value; the reference gives up the servant's reference count when the
+// last copy goes.
+template <typename T>
+using is_plain_servant = std::integral_constant<
+    bool, std::is_base_of<PortableServer::ServantBase, T>::value &&
+              !std::is_base_of<ValueBase, T>::value>;
+
 template <typename T, typename... Args>
-std::enable_if_t<std::is_base_of<PortableServer::ServantBase, T>::value, servant_reference<T>>
-make_reference(Args&&... args) {
+std::enable_if_t<is_plain_servant<T>::value, servant_reference<T>> make_reference(
+    Args&&... args) {
   return servant_reference<T>(new T(std::forward<Args>(args)...), rustorb::detail::adopt);
 }
 
@@ -680,6 +689,15 @@ template <typename T, typename... Args>
 std::enable_if_t<!std::is_base_of<PortableServer::ServantBase, T>::value, object_reference<T>>
 make_reference(Args&&... args) {
   return object_reference<T>(std::make_shared<T>(std::forward<Args>(args)...));
+}
+
+template <typename T, typename... Args>
+std::enable_if_t<std::is_base_of<PortableServer::ServantBase, T>::value &&
+                     std::is_base_of<ValueBase, T>::value,
+                 object_reference<T>>
+make_reference(Args&&... args) {
+  return object_reference<T>(
+      std::shared_ptr<T>(new T(std::forward<Args>(args)...), [](T* p) { p->_remove_ref(); }));
 }
 
 }  // namespace CORBA

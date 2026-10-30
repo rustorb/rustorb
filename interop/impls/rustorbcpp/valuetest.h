@@ -36,9 +36,50 @@ class Point3Factory : public CORBA::ValueFactoryBase {
   }
 };
 
+// Tally supports Counter: an instance is a value and a servant.
+class TallyImpl : public POA_ValueTest::Tally, public OBV_ValueTest::Tally {
+ public:
+  TallyImpl() = default;
+  explicit TallyImpl(int32_t n) : OBV_ValueTest::Tally(n) {}
+  int32_t count() override { return n(); }
+  ref<CORBA::ValueBase> _copy_value() const override {
+    return CORBA::make_reference<TallyImpl>(n());
+  }
+};
+
+class TallyFactory : public CORBA::ValueFactoryBase {
+ public:
+  ref<CORBA::ValueBase> create_for_unmarshal() override {
+    return CORBA::make_reference<TallyImpl>();
+  }
+};
+
+class AccountImpl : public OBV_ValueTest::Account {
+ public:
+  AccountImpl() = default;
+  explicit AccountImpl(int32_t balance) : OBV_ValueTest::Account(balance) {}
+  int32_t doubled() override { return balance() * 2; }
+  ref<CORBA::ValueBase> _copy_value() const override {
+    return CORBA::make_reference<AccountImpl>(*this);
+  }
+};
+
+class AccountFactory : public Account_init {
+ public:
+  ref<CORBA::ValueBase> create_for_unmarshal() override {
+    return CORBA::make_reference<AccountImpl>();
+  }
+  ref<Account> init(int32_t balance) override {
+    return CORBA::make_reference<AccountImpl>(balance);
+  }
+};
+
 inline void register_factories(ref<CORBA::ORB> orb) {
   orb->register_value_factory(Point3::_rorb_repository_id,
                               CORBA::make_reference<Point3Factory>());
+  orb->register_value_factory(Tally::_rorb_repository_id, CORBA::make_reference<TallyFactory>());
+  orb->register_value_factory(Account::_rorb_repository_id,
+                              CORBA::make_reference<AccountFactory>());
 }
 
 class ValueEchoImpl : public CORBA::servant_traits<ValueEcho>::base_type {
@@ -62,6 +103,15 @@ class ValueEchoImpl : public CORBA::servant_traits<ValueEcho>::base_type {
   ref<StringBox> echo_string_box(ref<StringBox> b) override { return b; }
   ref<PairBox> echo_pair_box(ref<PairBox> b) override { return b; }
   CORBA::Any echo_any(const CORBA::Any& a) override { return a; }
+  ref<Tally> echo_tally(ref<Tally> t) override { return t; }
+  int32_t call_count(ref<Counter> c) override { return c->count(); }
+  int32_t account_doubled(ref<Account> a) override { return a->doubled(); }
+  ref<Account> make_account(int32_t balance) override {
+    auto f = std::dynamic_pointer_cast<Account_init>(
+        orb_->lookup_value_factory(Account::_rorb_repository_id)._rorb_shared());
+    if (!f) throw CORBA::BAD_PARAM();
+    return f->init(balance);
+  }
   void shutdown() override { orb_->shutdown(false); }
 
  private:
@@ -215,6 +265,24 @@ void run_cases(Runner& r, ref<ValueEcho> echo,
     ref<StringBox> c;
     check(got >>= c, "not a StringBox");
     check(c && c->_value() == "in an any", "wrong box");
+  });
+  r.run("echo_tally", [&]() {
+    auto got = echo->echo_tally(CORBA::make_reference<TallyImpl>(3));
+    check(std::dynamic_pointer_cast<TallyImpl>(got._rorb_shared()) != nullptr, "not a TallyImpl");
+    check(got && got->n() == 3 && got->count() == 3, "wrong tally");
+  });
+  r.run("call_count", [&]() {
+    auto t = CORBA::make_reference<TallyImpl>(5);
+    check(echo->call_count(t->_this()) == 5, "wrong count");
+  });
+  r.run("account_doubled", [&]() {
+    check(echo->account_doubled(CORBA::make_reference<AccountImpl>(21)) == 42, "wrong result");
+  });
+  r.run("make_account", [&]() {
+    auto got = echo->make_account(7);
+    check(std::dynamic_pointer_cast<AccountImpl>(got._rorb_shared()) != nullptr,
+          "not an AccountImpl");
+    check(got && got->balance() == 7 && got->doubled() == 14, "wrong account");
   });
 }
 

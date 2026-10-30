@@ -4040,6 +4040,520 @@ pub mod rust_mapping {
         }
     }
 
+    /// The state of the IDL valuetype `RustMapping::Tagged`.
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+    pub struct TaggedState {
+        pub tag: i32,
+        pub text: String,
+    }
+
+    impl ::rustorb_core::idl::ValueState for TaggedState {
+        fn info(&self) -> &'static ::rustorb_core::idl::ValueInfo {
+            Tagged::_info()
+        }
+
+        fn write_state(
+            &self,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            ::rustorb_core::idl::CustomMarshal::marshal(
+                self,
+                &mut ::rustorb_core::idl::DataOutputStream::new(out),
+            )
+        }
+
+        fn read_state(
+            &mut self,
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            ::rustorb_core::idl::CustomMarshal::unmarshal(
+                self,
+                &mut ::rustorb_core::idl::DataInputStream::new(input),
+            )
+        }
+
+        fn view(&self, ty: ::std::any::TypeId) -> Option<&dyn ::std::any::Any> {
+            if ty == ::std::any::TypeId::of::<Self>() {
+                return Some(self);
+            }
+            None
+        }
+
+        fn view_mut(&mut self, ty: ::std::any::TypeId) -> Option<&mut dyn ::std::any::Any> {
+            if ty == ::std::any::TypeId::of::<Self>() {
+                return Some(self);
+            }
+            None
+        }
+    }
+
+    /// The IDL valuetype `RustMapping::Tagged`: a shared reference to an instance of it
+    /// or of a type derived from it.
+    #[derive(Clone)]
+    pub struct Tagged(::rustorb_core::idl::ValueHandle);
+
+    impl ::std::fmt::Debug for Tagged {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            self.0.fmt(f)
+        }
+    }
+
+    impl Tagged {
+        pub const REPOSITORY_ID: &'static str = "IDL:rustorb.org/RustMapping/Tagged:1.0";
+
+        /// A new instance with the state `state`.
+        pub fn new(state: TaggedState) -> Tagged {
+            Tagged(::rustorb_core::idl::ValueHandle::new(state))
+        }
+
+        /// A copy of the state (of this type, for an instance of a derived
+        /// type).
+        pub fn get(&self) -> TaggedState {
+            self.0.with(|s: &TaggedState| s.clone())
+        }
+
+        /// Replaces the state.
+        pub fn set(&self, state: TaggedState) {
+            self.0.with_mut(|s: &mut TaggedState| *s = state)
+        }
+
+        /// Runs `f` on the state. Touching the same instance in `f`
+        /// deadlocks.
+        pub fn with<T>(&self, f: impl FnOnce(&TaggedState) -> T) -> T {
+            self.0.with(f)
+        }
+
+        /// Runs `f` on the state, to change it.
+        pub fn with_mut<T>(&self, f: impl FnOnce(&mut TaggedState) -> T) -> T {
+            self.0.with_mut(f)
+        }
+
+        /// Whether both are the same instance.
+        pub fn ptr_eq(&self, other: &Tagged) -> bool {
+            self.0.ptr_eq(&other.0)
+        }
+
+        /// The untyped handle.
+        pub fn handle(&self) -> &::rustorb_core::idl::ValueHandle {
+            &self.0
+        }
+
+        /// The instance of `h`, if it is of this type or a derived one.
+        pub fn from_handle(h: ::rustorb_core::idl::ValueHandle) -> Option<Tagged> {
+            if h.is_a(Self::REPOSITORY_ID) {
+                Some(Tagged(h))
+            } else {
+                None
+            }
+        }
+
+        #[doc(hidden)]
+        pub fn _info() -> &'static ::rustorb_core::idl::ValueInfo {
+            static INFO: ::rustorb_core::idl::ValueInfo = ::rustorb_core::idl::ValueInfo {
+                id: Tagged::REPOSITORY_ID,
+                sent_ids: &["IDL:rustorb.org/RustMapping/Tagged:1.0"],
+                ancestors: &["IDL:rustorb.org/RustMapping/Tagged:1.0"],
+                custom: true,
+                make: || ::rustorb_core::idl::ValueHandle::new(TaggedState::default()),
+                type_code: <Tagged as ::rustorb_core::idl::IdlType>::type_code,
+            };
+            &INFO
+        }
+
+        #[doc(hidden)]
+        pub fn _write(
+            v: Option<&Tagged>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            ::rustorb_core::idl::ValueHandle::write(v.map(|v| &v.0), out)
+        }
+    }
+
+    impl ::rustorb_core::idl::IdlType for Tagged {
+        type Rust = Option<Tagged>;
+        type Borrowed = Option<Tagged>;
+        const MIN_SIZE: usize = 4;
+
+        fn type_code() -> ::rustorb_core::TypeCode {
+            static TC: ::std::sync::OnceLock<::rustorb_core::TypeCode> =
+                ::std::sync::OnceLock::new();
+            TC.get_or_init(|| ::rustorb_core::idl::tc(::rustorb_core::TypeCode::value_tc::<&str>(::rustorb_core::TCKind::Value, "IDL:rustorb.org/RustMapping/Tagged:1.0", "Tagged", 1, None, &[("tag", <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::type_code(), 1), ("text", <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::type_code(), 1)]))).clone()
+        }
+
+        fn write(
+            v: &Option<Tagged>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            Self::_write(v.as_ref(), out)
+        }
+
+        fn read(
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<Option<Tagged>> {
+            Ok(::rustorb_core::idl::ValueHandle::read(input, Self::_info())?.map(Tagged))
+        }
+    }
+
+    /// A reference to an object of the IDL interface `RustMapping::Meter`.
+    ///
+    /// `==` compares the IORs ([`ObjectRef::is_equivalent`](::rustorb_core::ObjectRef::is_equivalent)).
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct Meter(::rustorb_core::ObjectRef);
+
+    impl AsRef<::rustorb_core::ObjectRef> for Meter {
+        fn as_ref(&self) -> &::rustorb_core::ObjectRef {
+            &self.0
+        }
+    }
+
+    impl Meter {
+        pub const REPOSITORY_ID: &'static str = "IDL:rustorb.org/RustMapping/Meter:1.0";
+
+        /// `obj` as a reference to this interface, if the object supports it
+        /// (from the type id of its IOR, else by asking it with `_is_a`).
+        pub fn narrow(obj: &::rustorb_core::ObjectRef) -> ::rustorb_core::idl::Sys<Option<Meter>> {
+            Ok(if ::rustorb_core::idl::is_a(obj, Self::REPOSITORY_ID)? {
+                Some(Meter(obj.clone()))
+            } else {
+                None
+            })
+        }
+
+        /// `obj` as a reference to this interface, unchecked.
+        pub fn unchecked_narrow(obj: ::rustorb_core::ObjectRef) -> Meter {
+            Meter(obj)
+        }
+
+        /// The object reference.
+        pub fn object(&self) -> &::rustorb_core::ObjectRef {
+            &self.0
+        }
+
+        /// The object reference.
+        pub fn into_object(self) -> ::rustorb_core::ObjectRef {
+            self.0
+        }
+
+        #[doc(hidden)]
+        pub fn _write(
+            v: Option<&Meter>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            out.write_object(v.map(|v| &v.0))
+        }
+
+        /// `reading`.
+        #[allow(clippy::type_complexity)]
+        pub fn reading(&self) -> Result<i32, ::rustorb_core::SystemException> {
+            let request = self.0.request("reading");
+            let reply = request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+    }
+
+    impl ::rustorb_core::idl::IdlType for Meter {
+        type Rust = Option<Meter>;
+        type Borrowed = Option<Meter>;
+        const MIN_SIZE: usize = 4;
+
+        fn type_code() -> ::rustorb_core::TypeCode {
+            static TC: ::std::sync::OnceLock<::rustorb_core::TypeCode> =
+                ::std::sync::OnceLock::new();
+            TC.get_or_init(|| {
+                ::rustorb_core::idl::tc(::rustorb_core::TypeCode::objref(
+                    "IDL:rustorb.org/RustMapping/Meter:1.0",
+                    "Meter",
+                ))
+            })
+            .clone()
+        }
+
+        fn write(
+            v: &Option<Meter>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            Self::_write(v.as_ref(), out)
+        }
+
+        fn read(
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<Option<Meter>> {
+            Ok(input.read_object()?.map(Meter))
+        }
+    }
+
+    /// The implementation of the IDL interface `RustMapping::Meter`.
+    pub trait MeterServant: Send + Sync {
+        /// `reading`.
+        #[allow(clippy::type_complexity)]
+        fn reading(&self) -> Result<i32, ::rustorb_core::SystemException>;
+    }
+
+    /// The skeleton of `Meter`: makes a `MeterServant` a servant.
+    pub struct MeterPoa<T>(pub T);
+
+    impl<T> ::std::fmt::Debug for MeterPoa<T> {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            f.write_str("MeterPoa")
+        }
+    }
+
+    impl<T: MeterServant + 'static> MeterPoa<T> {
+        /// Activates the servant in `poa` (with an id the POA assigns) and
+        /// returns its id and reference.
+        pub fn activate(
+            self,
+            poa: &::rustorb_core::Poa,
+        ) -> Result<(::rustorb_core::ObjectId, Meter), ::rustorb_core::PoaError> {
+            let servant: ::std::sync::Arc<dyn ::rustorb_core::Servant> =
+                ::std::sync::Arc::new(self);
+            let id = poa.activate_object(servant)?;
+            let obj = poa.id_to_reference(&id)?;
+            Ok((id, Meter(obj)))
+        }
+
+        /// Activates the servant in `poa` with the id `id` (a USER_ID POA)
+        /// and returns its reference.
+        pub fn activate_with_id(
+            self,
+            poa: &::rustorb_core::Poa,
+            id: &[u8],
+        ) -> Result<Meter, ::rustorb_core::PoaError> {
+            let servant: ::std::sync::Arc<dyn ::rustorb_core::Servant> =
+                ::std::sync::Arc::new(self);
+            poa.activate_object_with_id(id, servant)?;
+            Ok(Meter(poa.id_to_reference(id)?))
+        }
+    }
+
+    impl<T: MeterServant> ::rustorb_core::Servant for MeterPoa<T> {
+        fn repository_id(&self) -> &str {
+            Meter::REPOSITORY_ID
+        }
+
+        fn is_a(&self, repository_id: &str) -> bool {
+            matches!(repository_id, "IDL:rustorb.org/RustMapping/Meter:1.0")
+        }
+
+        #[allow(unused_variables)]
+        fn dispatch(
+            &self,
+            operation: &str,
+            input: &mut ::rustorb_core::InStream<'_>,
+            reply: &mut ::rustorb_core::ServerReply,
+        ) -> Result<(), ::rustorb_core::SystemException> {
+            match operation {
+                "reading" => {
+                    let ret = self.0.reading()?;
+                    let mut out = reply.output();
+                    <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(
+                        &ret, &mut out,
+                    )?;
+                    Ok(())
+                }
+                _ => Err(::rustorb_core::idl::unknown_operation()),
+            }
+        }
+    }
+
+    /// The state of the IDL valuetype `RustMapping::Gauge`.
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+    pub struct GaugeState {
+        pub level: i32,
+    }
+
+    impl ::rustorb_core::idl::ValueState for GaugeState {
+        fn info(&self) -> &'static ::rustorb_core::idl::ValueInfo {
+            Gauge::_info()
+        }
+
+        fn write_state(
+            &self,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&self.level, out)?;
+            Ok(())
+        }
+
+        fn read_state(
+            &mut self,
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            self.level = <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(input)?;
+            Ok(())
+        }
+
+        fn view(&self, ty: ::std::any::TypeId) -> Option<&dyn ::std::any::Any> {
+            if ty == ::std::any::TypeId::of::<Self>() {
+                return Some(self);
+            }
+            None
+        }
+
+        fn view_mut(&mut self, ty: ::std::any::TypeId) -> Option<&mut dyn ::std::any::Any> {
+            if ty == ::std::any::TypeId::of::<Self>() {
+                return Some(self);
+            }
+            None
+        }
+    }
+
+    /// The IDL valuetype `RustMapping::Gauge`: a shared reference to an instance of it
+    /// or of a type derived from it.
+    #[derive(Clone)]
+    pub struct Gauge(::rustorb_core::idl::ValueHandle);
+
+    impl ::std::fmt::Debug for Gauge {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            self.0.fmt(f)
+        }
+    }
+
+    impl Gauge {
+        pub const REPOSITORY_ID: &'static str = "IDL:rustorb.org/RustMapping/Gauge:1.0";
+
+        /// A new instance with the state `state`.
+        pub fn new(state: GaugeState) -> Gauge {
+            Gauge(::rustorb_core::idl::ValueHandle::new(state))
+        }
+
+        /// A copy of the state (of this type, for an instance of a derived
+        /// type).
+        pub fn get(&self) -> GaugeState {
+            self.0.with(|s: &GaugeState| s.clone())
+        }
+
+        /// Replaces the state.
+        pub fn set(&self, state: GaugeState) {
+            self.0.with_mut(|s: &mut GaugeState| *s = state)
+        }
+
+        /// Runs `f` on the state. Touching the same instance in `f`
+        /// deadlocks.
+        pub fn with<T>(&self, f: impl FnOnce(&GaugeState) -> T) -> T {
+            self.0.with(f)
+        }
+
+        /// Runs `f` on the state, to change it.
+        pub fn with_mut<T>(&self, f: impl FnOnce(&mut GaugeState) -> T) -> T {
+            self.0.with_mut(f)
+        }
+
+        /// Whether both are the same instance.
+        pub fn ptr_eq(&self, other: &Gauge) -> bool {
+            self.0.ptr_eq(&other.0)
+        }
+
+        /// The untyped handle.
+        pub fn handle(&self) -> &::rustorb_core::idl::ValueHandle {
+            &self.0
+        }
+
+        /// The instance of `h`, if it is of this type or a derived one.
+        pub fn from_handle(h: ::rustorb_core::idl::ValueHandle) -> Option<Gauge> {
+            if h.is_a(Self::REPOSITORY_ID) {
+                Some(Gauge(h))
+            } else {
+                None
+            }
+        }
+
+        #[doc(hidden)]
+        pub fn _info() -> &'static ::rustorb_core::idl::ValueInfo {
+            static INFO: ::rustorb_core::idl::ValueInfo = ::rustorb_core::idl::ValueInfo {
+                id: Gauge::REPOSITORY_ID,
+                sent_ids: &["IDL:rustorb.org/RustMapping/Gauge:1.0"],
+                ancestors: &["IDL:rustorb.org/RustMapping/Gauge:1.0"],
+                custom: false,
+                make: || ::rustorb_core::idl::ValueHandle::new(GaugeState::default()),
+                type_code: <Gauge as ::rustorb_core::idl::IdlType>::type_code,
+            };
+            &INFO
+        }
+
+        #[doc(hidden)]
+        pub fn _write(
+            v: Option<&Gauge>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            ::rustorb_core::idl::ValueHandle::write(v.map(|v| &v.0), out)
+        }
+    }
+
+    impl ::rustorb_core::idl::IdlType for Gauge {
+        type Rust = Option<Gauge>;
+        type Borrowed = Option<Gauge>;
+        const MIN_SIZE: usize = 4;
+
+        fn type_code() -> ::rustorb_core::TypeCode {
+            static TC: ::std::sync::OnceLock<::rustorb_core::TypeCode> =
+                ::std::sync::OnceLock::new();
+            TC.get_or_init(|| {
+                ::rustorb_core::idl::tc(::rustorb_core::TypeCode::value_tc::<&str>(
+                    ::rustorb_core::TCKind::Value,
+                    "IDL:rustorb.org/RustMapping/Gauge:1.0",
+                    "Gauge",
+                    0,
+                    None,
+                    &[(
+                        "level",
+                        <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::type_code(),
+                        1,
+                    )],
+                ))
+            })
+            .clone()
+        }
+
+        fn write(
+            v: &Option<Gauge>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            Self::_write(v.as_ref(), out)
+        }
+
+        fn read(
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<Option<Gauge>> {
+            Ok(::rustorb_core::idl::ValueHandle::read(input, Self::_info())?.map(Gauge))
+        }
+    }
+
+    /// The operations of the IDL valuetype `RustMapping::Gauge`, which the application
+    /// implements for its state. They run with the state locked: touching
+    /// the same instance in them deadlocks.
+    pub trait GaugeOperations {
+        /// `scaled`.
+        #[allow(clippy::type_complexity)]
+        fn scaled(&mut self, by: i32) -> Result<i32, ::rustorb_core::SystemException>;
+
+        /// `reading`.
+        #[allow(clippy::type_complexity)]
+        fn reading(&mut self) -> Result<i32, ::rustorb_core::SystemException>;
+    }
+
+    impl Gauge {
+        /// `scaled`, on the state.
+        #[allow(clippy::type_complexity)]
+        pub fn scaled(&self, by: i32) -> Result<i32, ::rustorb_core::SystemException> {
+            self.0
+                .with_mut(|s: &mut GaugeState| GaugeOperations::scaled(s, by))
+        }
+    }
+
+    impl MeterServant for Gauge {
+        #[allow(clippy::type_complexity)]
+        fn reading(&self) -> Result<i32, ::rustorb_core::SystemException> {
+            self.0
+                .with_mut(|s: &mut GaugeState| GaugeOperations::reading(s))
+        }
+    }
+
     /// IDL struct `RustMapping::Drawing`.
     #[derive(Debug, Clone, Default)]
     pub struct Drawing {
@@ -4226,6 +4740,61 @@ pub mod rust_mapping {
             let ret = <LongBox as ::rustorb_core::idl::IdlType>::read(&mut input)?;
             Ok(ret)
         }
+
+        /// `echo_tagged`.
+        #[allow(clippy::type_complexity)]
+        pub fn echo_tagged(
+            &self,
+            t: Option<&Tagged>,
+        ) -> Result<Option<Tagged>, ::rustorb_core::SystemException> {
+            let request = self.0.request("echo_tagged").args(|out| {
+                Tagged::_write(t, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Tagged as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `echo_gauge`.
+        #[allow(clippy::type_complexity)]
+        pub fn echo_gauge(
+            &self,
+            g: Option<&Gauge>,
+        ) -> Result<Option<Gauge>, ::rustorb_core::SystemException> {
+            let request = self.0.request("echo_gauge").args(|out| {
+                Gauge::_write(g, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Gauge as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `read_meter`.
+        #[allow(clippy::type_complexity)]
+        pub fn read_meter(
+            &self,
+            m: Option<&Meter>,
+        ) -> Result<i32, ::rustorb_core::SystemException> {
+            let request = self.0.request("read_meter").args(|out| {
+                Meter::_write(m, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
     }
 
     impl ::rustorb_core::idl::IdlType for Canvas {
@@ -4278,6 +4847,24 @@ pub mod rust_mapping {
             &self,
             b: Option<&LongBox>,
         ) -> Result<Option<LongBox>, ::rustorb_core::SystemException>;
+
+        /// `echo_tagged`.
+        #[allow(clippy::type_complexity)]
+        fn echo_tagged(
+            &self,
+            t: Option<&Tagged>,
+        ) -> Result<Option<Tagged>, ::rustorb_core::SystemException>;
+
+        /// `echo_gauge`.
+        #[allow(clippy::type_complexity)]
+        fn echo_gauge(
+            &self,
+            g: Option<&Gauge>,
+        ) -> Result<Option<Gauge>, ::rustorb_core::SystemException>;
+
+        /// `read_meter`.
+        #[allow(clippy::type_complexity)]
+        fn read_meter(&self, m: Option<&Meter>) -> Result<i32, ::rustorb_core::SystemException>;
     }
 
     /// The skeleton of `Canvas`: makes a `CanvasServant` a servant.
@@ -4353,6 +4940,29 @@ pub mod rust_mapping {
                     let ret = self.0.echo_box(b.as_ref())?;
                     let mut out = reply.output();
                     <LongBox as ::rustorb_core::idl::IdlType>::write(&ret, &mut out)?;
+                    Ok(())
+                }
+                "echo_tagged" => {
+                    let t = <Tagged as ::rustorb_core::idl::IdlType>::read(input)?;
+                    let ret = self.0.echo_tagged(t.as_ref())?;
+                    let mut out = reply.output();
+                    <Tagged as ::rustorb_core::idl::IdlType>::write(&ret, &mut out)?;
+                    Ok(())
+                }
+                "echo_gauge" => {
+                    let g = <Gauge as ::rustorb_core::idl::IdlType>::read(input)?;
+                    let ret = self.0.echo_gauge(g.as_ref())?;
+                    let mut out = reply.output();
+                    <Gauge as ::rustorb_core::idl::IdlType>::write(&ret, &mut out)?;
+                    Ok(())
+                }
+                "read_meter" => {
+                    let m = <Meter as ::rustorb_core::idl::IdlType>::read(input)?;
+                    let ret = self.0.read_meter(m.as_ref())?;
+                    let mut out = reply.output();
+                    <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(
+                        &ret, &mut out,
+                    )?;
                     Ok(())
                 }
                 _ => Err(::rustorb_core::idl::unknown_operation()),
@@ -5257,4 +5867,6 @@ pub fn register_value_types() {
     ::rustorb_core::idl::register_value(rust_mapping::Shape::_info());
     ::rustorb_core::idl::register_value(rust_mapping::Circle::_info());
     ::rustorb_core::idl::register_value(rust_mapping::Link::_info());
+    ::rustorb_core::idl::register_value(rust_mapping::Tagged::_info());
+    ::rustorb_core::idl::register_value(rust_mapping::Gauge::_info());
 }

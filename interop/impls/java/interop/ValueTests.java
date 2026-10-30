@@ -5,13 +5,18 @@
 // The classes of the valuetypes come from both rustorb-idl -bjava (concrete,
 // with default factories) and JacORB's IDL compiler (abstract, without), so
 // the tests use implementation classes of their own and register a factory
-// for each.
+// for each. Tally and Account (with operations) are abstract in both.
 
 package interop;
 
 import java.util.IdentityHashMap;
 import java.util.Map;
 
+import ValueTest.Account;
+import ValueTest.AccountHelper;
+import ValueTest.AccountValueFactory;
+import ValueTest.Counter;
+import ValueTest.CounterPOATie;
 import ValueTest.LongBox;
 import ValueTest.Node;
 import ValueTest.NodeHelper;
@@ -23,6 +28,8 @@ import ValueTest.PointHelper;
 import ValueTest.Shape;
 import ValueTest.ShapeHelper;
 import ValueTest.StringBoxHelper;
+import ValueTest.Tally;
+import ValueTest.TallyHelper;
 import ValueTest.ValueEcho;
 import ValueTest.ValueEchoPOA;
 import org.omg.CORBA.Any;
@@ -55,6 +62,49 @@ public final class ValueTests {
         private static final long serialVersionUID = 1L;
     }
 
+    /** Tally supports Counter: its servant is a CounterPOATie of it. */
+    static final class TallyImpl extends Tally {
+        private static final long serialVersionUID = 1L;
+
+        TallyImpl() {}
+
+        TallyImpl(int n) {
+            this.n = n;
+        }
+
+        @Override
+        public int count() {
+            return n;
+        }
+    }
+
+    static final class AccountImpl extends Account {
+        private static final long serialVersionUID = 1L;
+
+        AccountImpl() {}
+
+        AccountImpl(int balance) {
+            this.balance = balance;
+        }
+
+        @Override
+        public int doubled() {
+            return balance * 2;
+        }
+    }
+
+    static final class AccountFactory implements AccountValueFactory {
+        @Override
+        public java.io.Serializable read_value(org.omg.CORBA_2_3.portable.InputStream is) {
+            return is.read_value(new AccountImpl());
+        }
+
+        @Override
+        public Account init(int balance) {
+            return new AccountImpl(balance);
+        }
+    }
+
     /** A factory that reads the state into a new instance of `make`. */
     private static org.omg.CORBA.portable.ValueFactory factory(
             java.util.function.Supplier<java.io.Serializable> make) {
@@ -67,6 +117,8 @@ public final class ValueTests {
         o.register_value_factory(Point3Helper.id(), factory(Point3Impl::new));
         o.register_value_factory(NodeHelper.id(), factory(NodeImpl::new));
         o.register_value_factory(ShapeHelper.id(), factory(ShapeImpl::new));
+        o.register_value_factory(TallyHelper.id(), factory(TallyImpl::new));
+        o.register_value_factory(AccountHelper.id(), new AccountFactory());
     }
 
     public static final class ValueEchoImpl extends ValueEchoPOA {
@@ -133,6 +185,31 @@ public final class ValueTests {
         @Override
         public Any echo_any(Any a) {
             return a;
+        }
+
+        @Override
+        public Tally echo_tally(Tally t) {
+            return t;
+        }
+
+        @Override
+        public int call_count(Counter c) {
+            return c.count();
+        }
+
+        @Override
+        public int account_doubled(Account a) {
+            return a.doubled();
+        }
+
+        @Override
+        public Account make_account(int balance) {
+            org.omg.CORBA.portable.ValueFactory f =
+                    ((org.omg.CORBA_2_3.ORB) orb).lookup_value_factory(AccountHelper.id());
+            if (!(f instanceof AccountValueFactory)) {
+                throw new org.omg.CORBA.BAD_PARAM("no factory of Account");
+            }
+            return ((AccountValueFactory) f).init(balance);
         }
 
         @Override
@@ -292,6 +369,21 @@ public final class ValueTests {
             Any got = echo.echo_any(a);
             check(got.type().equal(StringBoxHelper.type()), "wrong TypeCode");
             check("in an any".equals(StringBoxHelper.extract(got)), "wrong box");
+        });
+        r.run("echo_tally", () -> {
+            Tally got = echo.echo_tally(new TallyImpl(3));
+            check(got instanceof TallyImpl, "got " + got);
+            check(got.n == 3 && got.count() == 3, "wrong tally");
+        });
+        r.run("call_count", () -> {
+            Counter c = new CounterPOATie(new TallyImpl(5))._this(orb);
+            check(echo.call_count(c) == 5, "wrong count");
+        });
+        r.run("account_doubled", () -> check(echo.account_doubled(new AccountImpl(21)) == 42, "wrong result"));
+        r.run("make_account", () -> {
+            Account got = echo.make_account(7);
+            check(got instanceof AccountImpl, "got " + got);
+            check(got.balance == 7 && got.doubled() == 14, "wrong account");
         });
     }
 }

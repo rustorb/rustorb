@@ -82,6 +82,21 @@ suite=value * jacorb echo_any[ring] JacORB on Java 17 cannot write values in any
 suite=value * jacorb echo_any[derived] JacORB on Java 17 cannot write values in anys
 suite=value * jacorb echo_any[box] JacORB on Java 17 cannot write values in anys
 
+# The same for a value written in the marshal of a custom valuetype:
+# JacORB's DataOutputStream.write_Value writes it through javax.rmi.CORBA
+# (found from the stack trace with INTEROP_TRACE=1), so a Blob, whose Point
+# is written so, fails either way. The null and empty cases pass.
+suite=custom jacorb * echo_blob[plain] JacORB on Java 17 cannot write values in custom marshal
+suite=custom jacorb * echo_blob[derived] JacORB on Java 17 cannot write values in custom marshal
+suite=custom jacorb * echo_blob_pair[shared] JacORB on Java 17 cannot write values in custom marshal
+suite=custom jacorb * echo_blob_pair[distinct] JacORB on Java 17 cannot write values in custom marshal
+suite=custom jacorb * echo_blobs JacORB on Java 17 cannot write values in custom marshal
+suite=custom * jacorb echo_blob[plain] JacORB on Java 17 cannot write values in custom marshal
+suite=custom * jacorb echo_blob[derived] JacORB on Java 17 cannot write values in custom marshal
+suite=custom * jacorb echo_blob_pair[shared] JacORB on Java 17 cannot write values in custom marshal
+suite=custom * jacorb echo_blob_pair[distinct] JacORB on Java 17 cannot write values in custom marshal
+suite=custom * jacorb echo_blobs JacORB on Java 17 cannot write values in custom marshal
+
 # JacORB 3.9's valuetype Helpers: Point3Helper.type() has no concrete base
 # and no truncatable modifier, and PointHelper.insert gives the any the
 # TypeCode of the value's own class (Point3 for a Point3), which the client

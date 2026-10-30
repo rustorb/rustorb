@@ -494,6 +494,25 @@ class GeneratorTest(unittest.TestCase):
         self.assertIsNone(_rt.lookup_value_factory(Values.Made._NP_RepositoryId))
         self.assertIsNone(_rt.lookup_value_factory(Values.Named._NP_RepositoryId))
 
+    def test_supports(self):
+        path = write_idl(
+            "Supports.idl",
+            """
+            module Supports {
+              interface Meter { long reading(); };
+              valuetype Gauge supports Meter { public long level; long scaled(in long by); };
+            };
+        """,
+        )
+        generate(path)
+        import Supports
+        import Supports__POA
+
+        # The value class is also the skeleton of the supported interface.
+        self.assertTrue(issubclass(Supports.Gauge, CORBA.ValueBase))
+        self.assertTrue(issubclass(Supports.Gauge, Supports__POA.Meter))
+        self.assertIsNone(_rt.lookup_value_factory(Supports.Gauge._NP_RepositoryId))
+
     def test_includes_and_shared_modules(self):
         base = write_idl(
             "SharedBase.idl",
@@ -598,7 +617,7 @@ class GeneratorTest(unittest.TestCase):
             "Unsupported.idl",
             """
             module Unsup {
-              interface I { void f(); };
+              local interface I { void f(); };
               valuetype V supports I { public long x; };
             };
         """,

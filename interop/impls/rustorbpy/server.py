@@ -157,6 +157,7 @@ def main():
         # The valuetype suite: ValueTest::ValueEcho, which also stops the
         # server.
         import valuetest
+        valuetest.register_factories(orb)
         poa = root_poa.create_POA("ValueTest", root_poa._get_the_POAManager(), policies)
         poa.activate_object_with_id(b"ValueEcho", valuetest.ValueEchoServant(orb))
         root_poa._get_the_POAManager().activate()

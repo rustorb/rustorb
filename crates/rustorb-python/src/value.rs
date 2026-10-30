@@ -366,7 +366,7 @@ fn unmarshal_custom(obj: &Bound<'_, PyAny>, source: Source) -> PyResult<Vec<Valu
 /// when the whole message is converted.
 fn read_custom(id: &str, r: &ValueRef, input: &mut InStream<'_>) -> Result<(), SystemException> {
     let completed = input.completion_status();
-    let input = input as *mut InStream<'_> as *mut InStream<'static>;
+    let input: *mut InStream<'static> = (input as *mut InStream<'_>).cast();
     Python::attach(|py| {
         let _scope = ValueScope::ensure();
         let read = || -> PyResult<()> {
@@ -467,7 +467,10 @@ impl CustomInput {
                 ));
             }
         };
-        items.push(Value::Any(Box::new(rustorb_core::Any::new(core, value.clone()))));
+        items.push(Value::Any(Box::new(rustorb_core::Any::new(
+            core,
+            value.clone(),
+        ))));
         drop(state);
         to_py(py, &compiled, value)
     }

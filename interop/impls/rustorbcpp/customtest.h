@@ -110,14 +110,14 @@ void run_cases(Runner& r, ref<CustomEcho> echo,
   r.run("echo_blob_pair[shared]", [&]() {
     auto p = point(5, 6);
     BlobPair got = echo->echo_blob_pair(BlobPair(blob(1, "one", p, {4, 5}), p));
-    check(is_blob(got.blob(), 1, "one", {4, 5}), "wrong blob");
-    check(got.blob()->pt() == got.pt(), "not one instance");
+    check(is_blob(got.data(), 1, "one", {4, 5}), "wrong blob");
+    check(got.data()->pt() == got.pt(), "not one instance");
     check(is_point(got.pt(), 5, 6), "wrong point");
   });
   r.run("echo_blob_pair[distinct]", [&]() {
     BlobPair got = echo->echo_blob_pair(BlobPair(blob(1, "one", point(5, 6), {}), point(5, 6)));
-    check(is_blob(got.blob(), 1, "one", {}), "wrong blob");
-    check(got.blob()->pt() != got.pt(), "one instance");
+    check(is_blob(got.data(), 1, "one", {}), "wrong blob");
+    check(got.data()->pt() != got.pt(), "one instance");
   });
   r.run("echo_blobs", [&]() {
     LongSeq many;

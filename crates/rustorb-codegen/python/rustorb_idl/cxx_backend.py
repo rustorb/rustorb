@@ -28,8 +28,11 @@ A valuetype ``M::V`` is an abstract class with virtual accessors
 class ``OBV_M::V`` that holds the state; a value box is a concrete class
 with ``_value()``. The source registers each valuetype's TypeCode with
 the core and, for those without operations, a factory of its ``OBV_``
-class (or of the box). Custom valuetypes, ``supports``, valuetype
-operations and abstract interfaces are not mapped yet.
+class (or of the box). A custom valuetype also derives from
+``CORBA::CustomMarshal``; operations (those of supported interfaces too)
+are pure virtual, initializers are pure virtual in ``V_init``, and a
+valuetype that supports interfaces has ``POA_M::V``, deriving from their
+skeletons and ``V``. Abstract interfaces are not mapped yet.
 """
 
 import os
@@ -152,6 +155,7 @@ class CxxBackend(object):
         self.typecodes = []  # definitions with a _tc_<name>
         self.interfaces = []  # full, non-local interface definitions
         self.values = []  # full valuetype and value box definitions
+        self.supporting_values = []  # valuetypes that support an interface
         self.ns = ()  # namespaces open in the header
 
     # -- names -----------------------------------------------------------
@@ -946,17 +950,23 @@ class CxxBackend(object):
         return inherited + self.state_members(node)
 
     def check_value(self, node):
-        backend = "the %s backend" % self.LANGUAGE
-        if node.supports:
-            raise fe.GeneratorError(
-                "valuetypes that support interfaces are not supported by %s yet" % backend, node
-            )
-        if fe.has_behaviour(node):
-            raise fe.GeneratorError(
-                "valuetype operations, attributes and initializers are not supported by %s yet"
-                % backend,
-                node,
-            )
+        for i in fe.supported_interfaces(node):
+            if i.is_abstract or i.is_local:
+                raise fe.GeneratorError(
+                    "a valuetype can only support a non-abstract, non-local interface in %s"
+                    % self.LANGUAGE,
+                    node,
+                )
+
+    def value_operations(self, node):
+        """The operations of a valuetype that its implementation provides:
+        its own and those of the interfaces it supports (with their bases),
+        as :meth:`operations` lists them."""
+        ops = list(self.operations(node))
+        for i in fe.supported_interfaces(node):
+            for n in [i] + self.ancestors(i):
+                ops.extend(self.operations(n))
+        return ops
 
     def value_accessors(self, w, name, t, where, prefix, suffix):
         """The accessors and modifiers of a state member, as declarations
@@ -992,6 +1002,11 @@ class CxxBackend(object):
         for m, t, public in members:
             if public:
                 self.value_accessors(w, m, t, node, "virtual ", " = 0;")
+        ops = self.value_operations(node)
+        if ops:
+            w()
+        for _, method, ret, params, _, _, d in ops:
+            w("virtual %s = 0;" % self.signature(method, ret, params, d))
         if not node.is_abstract:
             w()
             w("const std::vector<const char*>& _rorb_ids() const override;")
@@ -1008,7 +1023,28 @@ class CxxBackend(object):
         w.dedent()
         w("};")
         w()
+        if node.factories:
+            # The value factory of a valuetype with initializers: the
+            # application implements the initializers and
+            # create_for_unmarshal.
+            w("class %s_init : public ::CORBA::ValueFactoryBase {" % name)
+            w(" public:")
+            w.indent()
+            for f in node.factories:
+                params = [(a.name, fe.type_of(a.type, a), "in") for a in f.arguments]
+                w(
+                    "virtual %s = 0;"
+                    % self.signature(f.name, fe.Type("named", node=node), params, node)
+                )
+            w.dedent()
+            w()
+            w(" protected:")
+            w("  %s_init() = default;" % name)
+            w("};")
+            w()
         self.values.append(node)
+        if node.supports:
+            self.supporting_values.append(node)
 
     def value_box(self, w, node):
         name = cxx_name(node.name)
@@ -1372,6 +1408,32 @@ class CxxBackend(object):
                 "  bool %s(std::string_view op, rorb_in* in, rorb_server_reply* reply);"
                 % self.ops_name(node)
             )
+            w("};")
+            w()
+            if mods:
+                for m in reversed(mods[1:]):
+                    w("}  // namespace %s" % cxx_name(m))
+                w("}  // namespace POA_%s" % mods[0])
+                w()
+        for node in self.supporting_values:
+            # A valuetype that supports interfaces: its implementation
+            # derives from this class to be a servant of them as well.
+            mods = fe.enclosing_modules(node)
+            if mods:
+                w("namespace POA_%s {" % mods[0])
+                for m in mods[1:]:
+                    w("namespace %s {" % cxx_name(m))
+                w()
+                cls = cxx_name(node.name)
+            else:
+                cls = "POA_" + node.name
+            bases = [self.poa_scoped(i) for i in fe.supported_interfaces(node)]
+            w(
+                "class %s : %s, public virtual %s {"
+                % (cls, ", ".join("public virtual %s" % b for b in bases), self.scoped(node))
+            )
+            w(" protected:")
+            w("  %s() = default;" % cls)
             w("};")
             w()
             if mods:

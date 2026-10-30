@@ -299,6 +299,7 @@ def run_value(orb, root, args):
     retry("the ValueEcho server", echo._non_existent, args.timeout)
 
     r = Runner()
+    valuetest.register_factories(orb)
     valuetest.run_cases(r, echo, check)
 
     if args.shutdown_server:

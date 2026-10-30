@@ -223,7 +223,11 @@ impl ValueRef {
 
     /// The object of a language binding set with [`ValueRef::set_native`].
     pub fn native(&self) -> Option<Native> {
-        self.0.native.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.0
+            .native
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Sets (or, with `None`, removes) the object of a language binding
@@ -705,7 +709,11 @@ fn write_valuetype(
 
 /// Writes a custom value: always chunked (CORBA 3.4 part 2, 9.3.4.6), with
 /// its repository id, and the items of its state with their types.
-fn write_custom(out: &mut OutStream<'_>, tc: &TypeCode, v: &ValueRef) -> Result<(), SystemException> {
+fn write_custom(
+    out: &mut OutStream<'_>,
+    tc: &TypeCode,
+    v: &ValueRef,
+) -> Result<(), SystemException> {
     if !out.begin_value(v.key(), &[tc.id().unwrap_or_default()], true)? {
         return Ok(());
     }

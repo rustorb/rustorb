@@ -78,7 +78,7 @@ int main(int argc, char* argv[]) {
 | valuetype・value box | `IDL::traits<V>::ref_type`、具象クラスは `OBV_<モジュール>::V`（[valuetype.md](valuetype.md)） |
 | サーバント | `CORBA::servant_reference<T>`（侵入型の参照カウント）、`CORBA::make_reference<T>(...)` で作る |
 
-C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP 上の綴りは IDL のまま）。`long double`、abstract interface、`custom` と操作を持つ valuetype はまだ生成できず、rustorb-idl がエラーにする。
+C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP 上の綴りは IDL のまま）。`long double` と abstract interface はまだ生成できず、rustorb-idl がエラーにする。`custom` の valuetype、`supports`、valuetype の操作と初期化子は [valuetype.md](valuetype.md) のとおり。
 
 `IDL::Fixed<D, S>` は D 桁（うち小数 S 桁）の10進数で、桁を配列で持つ。型に収まらない値（整数部の桁が多い、0 でない小数の桁が多い）は作るときに `DATA_CONVERSION` になるので、値はいつも TypeCode に収まる。文字列（`"-12.50"`、`d` の接尾辞も可）・整数から作り、`double` からは小数 S 桁に丸めて作る。`to_string()`（小数はいつも S 桁）、`explicit operator double`、比較演算子、単項の `-`、`<<` を持ち、四則演算はない。別の桁数の `Fixed` からは `explicit` に変換できる（収まらなければ `DATA_CONVERSION`）。`fixed` の定数はリテラルの桁数と小数の桁数の型（`const fixed C = 12.50d;` は `IDL::Fixed<4, 2>`）で、型付きの定数が型に収まらなければ rustorb-idl がエラーにする。Any には `<<=` / `>>=` で入り、TypeCode は `tk_fixed`。C ABI では `rorb_out_write_fixed` / `rorb_in_read_fixed` が桁の配列と符号を受け渡す（パック10進は Rust のコアが書く）。
 
@@ -118,7 +118,7 @@ C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP �
 - `cpp/tests/test_interop.cc`：相互接続の78ケース（`interop/impls/rustorbcpp/cases.h`）を同じプロセスの2つの ORB の間で回す
 - `cpp/tests/test_poa.cc`：`ServantActivator`（初回の `incarnate`、転送、システム例外、nil、C++ 例外、`deactivate_object` と `destroy` での `etherealize`）、`ServantLocator`（cookie の受け渡し、失敗時に `postinvoke` を呼ばないこと）、`AdapterActivator`（`find_POA` と、存在しない POA への要求での作成）、ポリシーの検査（`WrongPolicy`、種類の違う manager の `OBJ_ADAPTER`、2回目の `BAD_INV_ORDER`）を、2つの ORB の間と同一 ORB 内で確かめる。POA が破棄されると manager が解放されることも見る
 - `cpp/tests/test_any.cc`：Any / TypeCode の相互接続の251ケース（DynAny の組み立て直しを含む）（`interop/impls/rustorbcpp/anytest.h`）を同じプロセスの2つの ORB の間で回し、TypeCode の操作、`ORB::create_*_tc`、`<<=` / `>>=` の規則を確かめる
-- `cpp/tests/test_value.cc`：valuetype の相互接続の23ケース（`interop/impls/rustorbcpp/valuetest.h`）を同じプロセスの2つの ORB の間で回し、値ファクトリの表、truncatable の切り捨て、ファクトリのない型の `MARSHAL`、`ORB::create_value_tc`、`_copy_value` を確かめる
+- `cpp/tests/test_value.cc`：valuetype の相互接続の26ケース（`interop/impls/rustorbcpp/valuetest.h`）を同じプロセスの2つの ORB の間で回し、値ファクトリの表、truncatable の切り捨て、ファクトリのない型の `MARSHAL`、`ORB::create_value_tc`、`_copy_value` を確かめる
 - `cpp/tests/test_dynany.cc`：`DynamicAny`（[dynany.md](dynany.md)）。生成コードの型の DynAny、valuetype の共有と循環、切り詰め。残りの操作は `interop/impls/rustorbcpp/dynany_probe.cc`（`run-dynany-probe.sh`）で確かめる
 - CI（`ci.yml` の `cpp`）は g++ と clang++ の両方で `-Wall -Wextra -Werror` でビルドして ctest を回す。ローカルでは ASan・UBSan・LeakSanitizer でも警告なし
 - `crates/rustorb-codegen/python/tests/test_cxx_backend.py`：コマンドライン、生成物の形、対応しない構文のエラー、生成コードのコンパイル
@@ -128,5 +128,5 @@ C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP �
 
 ## 残り
 
-- `custom` の valuetype、`supports`、valuetype の操作と初期化子、abstract interface（#42、#43）、`IDL::Fixed` の四則演算
+- abstract interface（#43）、`IDL::Fixed` の四則演算
 - IDL4-CPP の構文（アノテーションなど）

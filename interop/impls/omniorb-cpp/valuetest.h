@@ -15,8 +15,8 @@ namespace valuetest {
 
 using namespace ValueTest;
 
-// The generated OBV_ classes of these valuetypes (which have no
-// operations) are concrete, with reference counting. Point3Impl only makes
+// The generated OBV_ classes of the valuetypes without operations are
+// concrete, with reference counting. Point3Impl only makes
 // the private member readable.
 using PointImpl = OBV_ValueTest::Point;
 using NodeImpl = OBV_ValueTest::Node;
@@ -32,6 +32,33 @@ class Point3Impl : public OBV_ValueTest::Point3 {
     this->label(label);
   }
   std::string get_label() { return label(); }
+};
+
+// Tally supports Counter: an instance is a value and a servant, with the
+// reference counting of both (PortableServer::ValueRefCountBase).
+class TallyImpl : public virtual POA_ValueTest::Tally,
+                  public virtual OBV_ValueTest::Tally,
+                  public virtual PortableServer::ValueRefCountBase {
+ public:
+  TallyImpl() {}
+  explicit TallyImpl(CORBA::Long n) { this->n(n); }
+  CORBA::Long count() override { return n(); }
+  ValueTest::Tally* _copy_value() override { return new TallyImpl(n()); }
+};
+
+class AccountImpl : public virtual OBV_ValueTest::Account,
+                    public virtual CORBA::DefaultValueRefCountBase {
+ public:
+  AccountImpl() {}
+  explicit AccountImpl(CORBA::Long balance) { this->balance(balance); }
+  CORBA::Long doubled() override { return balance() * 2; }
+  ValueTest::Account* _copy_value() override { return new AccountImpl(balance()); }
+};
+
+class AccountFactory : public ValueTest::Account_init {
+ public:
+  CORBA::ValueBase* create_for_unmarshal() override { return new AccountImpl; }
+  Account* init(CORBA::Long balance) override { return new AccountImpl(balance); }
 };
 
 template <typename T>
@@ -51,6 +78,8 @@ inline void register_factories(CORBA::ORB_ptr orb) {
   reg("IDL:ValueTest/Point3:1.0", new Factory<Point3Impl>);
   reg("IDL:ValueTest/Node:1.0", new Factory<NodeImpl>);
   reg("IDL:ValueTest/Shape:1.0", new Factory<ShapeImpl>);
+  reg("IDL:ValueTest/Tally:1.0", new Factory<TallyImpl>);
+  reg("IDL:ValueTest/Account:1.0", new AccountFactory);
 }
 
 inline Point* add_ref(Point* p) {
@@ -92,6 +121,23 @@ class ValueEchoImpl : public POA_ValueTest::ValueEcho {
     return b;
   }
   CORBA::Any* echo_any(const CORBA::Any& a) override { return new CORBA::Any(a); }
+  Tally* echo_tally(Tally* t) override {
+    if (t) t->_add_ref();
+    return t;
+  }
+  CORBA::Long call_count(Counter_ptr c) override { return c->count(); }
+  CORBA::Long account_doubled(Account* a) override { return a->doubled(); }
+  Account* make_account(CORBA::Long balance) override {
+    CORBA::ValueFactory f = orb_->lookup_value_factory("IDL:ValueTest/Account:1.0");
+    Account_init* init = Account_init::_downcast(f);
+    if (!init) {
+      if (f) f->_remove_ref();
+      throw CORBA::BAD_PARAM();
+    }
+    Account* a = init->init(balance);
+    f->_remove_ref();
+    return a;
+  }
   void shutdown() override { orb_->shutdown(false); }
 
  private:
@@ -292,6 +338,30 @@ void run_cases(Runner& r, ValueEcho_ptr echo,
     StringBox* c = nullptr;
     check(got >>= c, "not a StringBox");
     check(c && std::string(c->_value()) == "in an any", "wrong box");
+  });
+  r.run("echo_tally", [&]() {
+    Tally_var t = new TallyImpl(3);
+    Tally_var got = echo->echo_tally(t.in());
+    check(dynamic_cast<TallyImpl*>(got.in()) != nullptr, "not a TallyImpl");
+    check(got.in() && got->n() == 3 && got->count() == 3, "wrong tally");
+  });
+  r.run("call_count", [&]() {
+    TallyImpl* t = new TallyImpl(5);
+    Counter_var c = t->_this();
+    check(echo->call_count(c.in()) == 5, "wrong count");
+    PortableServer::POA_var poa = t->_default_POA();
+    PortableServer::ObjectId_var oid = poa->servant_to_id(t);
+    poa->deactivate_object(oid.in());
+    static_cast<CORBA::ValueBase*>(t)->_remove_ref();
+  });
+  r.run("account_doubled", [&]() {
+    Account_var a = new AccountImpl(21);
+    check(echo->account_doubled(a.in()) == 42, "wrong result");
+  });
+  r.run("make_account", [&]() {
+    Account_var got = echo->make_account(7);
+    check(dynamic_cast<AccountImpl*>(got.in()) != nullptr, "not an AccountImpl");
+    check(got.in() && got->balance() == 7 && got->doubled() == 14, "wrong account");
   });
 }
 

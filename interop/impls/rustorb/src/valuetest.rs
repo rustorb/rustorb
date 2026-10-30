@@ -12,8 +12,9 @@ use rustorb_core::idl::{IdlType as _, Sys};
 use rustorb_core::{Any, Orb};
 
 use crate::idl::value_test::{
-    LongBox, Node, NodeState, Pair, PairBox, Point, Point3, Point3State, PointSeq, PointState,
-    Shape, ShapeState, StringBox, ValueEcho, ValueEchoServant,
+    Account, AccountState, Counter, CounterPoa, CounterServant, LongBox, Node, NodeState, Pair,
+    PairBox, Point, Point3, Point3State, PointSeq, PointState, Shape, ShapeState, StringBox, Tally,
+    TallyState, ValueEcho, ValueEchoServant,
 };
 
 fn point(x: i32, y: i32) -> Point {
@@ -123,6 +124,38 @@ impl ValueEchoServant for ValueEchoImpl {
         Ok(a.clone())
     }
 
+    fn echo_tally(&self, t: Option<&Tally>) -> Sys<Option<Tally>> {
+        Ok(t.cloned())
+    }
+
+    fn call_count(&self, c: Option<&Counter>) -> Sys<i32> {
+        c.ok_or_else(|| {
+            rustorb_core::SystemException::new(
+                rustorb_core::SystemExceptionKind::BAD_PARAM,
+                0,
+                rustorb_core::CompletionStatus::No,
+            )
+        })?
+        .count()
+    }
+
+    fn account_doubled(&self, a: Option<&Account>) -> Sys<i32> {
+        match a {
+            Some(a) => a.doubled(),
+            None => Err(rustorb_core::SystemException::new(
+                rustorb_core::SystemExceptionKind::BAD_PARAM,
+                0,
+                rustorb_core::CompletionStatus::No,
+            )),
+        }
+    }
+
+    fn make_account(&self, balance: i32) -> Sys<Option<Account>> {
+        // The Rust mapping has no factories for the initializers: an
+        // instance is made from its state.
+        Ok(Some(Account::new(AccountState { balance })))
+    }
+
     fn shutdown(&self) -> Sys<()> {
         self.orb.shutdown(false)
     }
@@ -191,8 +224,9 @@ fn add<'a>(cases: &mut Vec<Case<'a>>, name: &str, f: impl Fn() -> Result<(), Str
     cases.push((name.to_owned(), Box::new(f)));
 }
 
-/// The valuetype client cases against the ValueEcho object `echo`.
-pub fn cases(echo: &ValueEcho) -> Vec<Case<'_>> {
+/// The valuetype client cases against the ValueEcho object `echo`; `poa`
+/// (active) is where call_count activates its Tally.
+pub fn cases<'a>(echo: &'a ValueEcho, poa: &'a rustorb_core::Poa) -> Vec<Case<'a>> {
     let mut cases = Vec::new();
     add(&mut cases, "echo_point[plain]", move || {
         let got = echo.echo_point(Some(&point(1, -2))).map_err(err)?;
@@ -379,6 +413,37 @@ pub fn cases(echo: &ValueEcho) -> Vec<Case<'_>> {
             b.as_deref().map(String::as_str) == Some("in an any"),
             || format!("got {b:?}"),
         )
+    });
+    add(&mut cases, "echo_tally", move || {
+        let got = echo
+            .echo_tally(Some(&Tally::new(TallyState { n: 3 })))
+            .map_err(err)?;
+        let t = get(&got)?;
+        let count = CounterServant::count(t).map_err(err)?;
+        check(t.get().n == 3 && count == 3, || format!("got {t:?}"))
+    });
+    add(&mut cases, "call_count", move || {
+        let (id, c) = CounterPoa(Tally::new(TallyState { n: 5 }))
+            .activate(poa)
+            .map_err(err)?;
+        let got = echo.call_count(Some(&c)).map_err(err);
+        poa.deactivate_object(&id).map_err(err)?;
+        let got = got?;
+        check(got == 5, || format!("got {got}"))
+    });
+    add(&mut cases, "account_doubled", move || {
+        let got = echo
+            .account_doubled(Some(&Account::new(AccountState { balance: 21 })))
+            .map_err(err)?;
+        check(got == 42, || format!("got {got}"))
+    });
+    add(&mut cases, "make_account", move || {
+        let got = echo.make_account(7).map_err(err)?;
+        let a = get(&got)?;
+        let doubled = a.doubled().map_err(err)?;
+        check(a.get().balance == 7 && doubled == 14, || {
+            format!("got {a:?}")
+        })
     });
     cases
 }

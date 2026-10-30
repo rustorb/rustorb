@@ -97,6 +97,6 @@ pub use timeout::{set_thread_call_timeout, thread_call_timeout};
 pub use typecode::{TCKind, TypeCode, TypeCodeError};
 pub use value::{
     Any, CustomReader, Native, Value, ValueRef, ValueTypeResolver, lookup_value_type,
-    register_custom_reader, register_value_type, set_value_type_resolver,
-    unregister_custom_reader, unregister_value_type,
+    register_custom_reader, register_value_type, set_value_type_resolver, unregister_custom_reader,
+    unregister_value_type,
 };

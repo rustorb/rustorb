@@ -146,9 +146,9 @@ class RustBackendTest(unittest.TestCase):
         cases = {
             "abstract": "module U { abstract interface A { void f(); }; };",
             "local": "module U { local interface L { void f(); }; };",
-            "custom": "module U { custom valuetype V { public long x; }; };",
-            "value_ops": "module U { valuetype V { public long x; long f(); }; };",
-            "supports": "module U { interface I {}; valuetype V supports I { public long x; }; };",
+            "supports_local": "module U { local interface I {}; valuetype V supports I { public long x; }; };",
+            "value_raises": "module U { exception E {}; valuetype V { public long x; long f() raises (E); }; };",
+            "value_op_clash": "module U { valuetype V { public long x; long get(); }; };",
             "abstract_value": "module U { abstract valuetype A {}; valuetype V : A { public long x; }; };",
             "longdouble": "module U { struct S { long double d; }; };",
             "members": "module U { struct S { long aB; long a_b; }; };",

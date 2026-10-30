@@ -100,7 +100,9 @@ pub fn cases(echo: &CustomEcho) -> Vec<Case<'_>> {
         check(got.is_none(), || "not null".into())
     });
     add(&mut cases, "echo_blob[empty]", move || {
-        let got = echo.echo_blob(Some(&blob(0, "", None, vec![]))).map_err(err)?;
+        let got = echo
+            .echo_blob(Some(&blob(0, "", None, vec![])))
+            .map_err(err)?;
         let s = is_blob(&got, 0, "", &[])?;
         check(s.pt.is_none(), || "a point".into())
     });
@@ -115,7 +117,8 @@ pub fn cases(echo: &CustomEcho) -> Vec<Case<'_>> {
             .map_err(err)?;
         let s = is_blob(&got, 3, "three", &[-1])?;
         let p = s.pt.ok_or("got a null point")?;
-        let got = Point3::try_from(p.clone()).map_err(|_| format!("got {}", p.handle().info().id))?;
+        let got =
+            Point3::try_from(p.clone()).map_err(|_| format!("got {}", p.handle().info().id))?;
         let (got, want) = (got.get(), p3.get());
         check(got == want, || format!("got {got:?}"))
     });
@@ -123,22 +126,22 @@ pub fn cases(echo: &CustomEcho) -> Vec<Case<'_>> {
         let p = point(5, 6);
         let got = echo
             .echo_blob_pair(&BlobPair {
-                blob: Some(blob(1, "one", Some(p.clone()), vec![4, 5])),
+                data: Some(blob(1, "one", Some(p.clone()), vec![4, 5])),
                 pt: Some(p),
             })
             .map_err(err)?;
-        let s = is_blob(&got.blob, 1, "one", &[4, 5])?;
+        let s = is_blob(&got.data, 1, "one", &[4, 5])?;
         check(same(&s.pt, &got.pt), || "not one instance".into())?;
         is_point(&got.pt, 5, 6)
     });
     add(&mut cases, "echo_blob_pair[distinct]", move || {
         let got = echo
             .echo_blob_pair(&BlobPair {
-                blob: Some(blob(1, "one", Some(point(5, 6)), vec![])),
+                data: Some(blob(1, "one", Some(point(5, 6)), vec![])),
                 pt: Some(point(5, 6)),
             })
             .map_err(err)?;
-        let s = is_blob(&got.blob, 1, "one", &[])?;
+        let s = is_blob(&got.data, 1, "one", &[])?;
         check(!same(&s.pt, &got.pt), || "one instance".into())
     });
     add(&mut cases, "echo_blobs", move || {

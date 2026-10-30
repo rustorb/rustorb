@@ -167,7 +167,7 @@ pub mod custom_test {
     /// IDL struct `CustomTest::BlobPair`.
     #[derive(Debug, Clone, Default)]
     pub struct BlobPair {
-        pub blob: Option<Blob>,
+        pub data: Option<Blob>,
         pub pt: Option<crate::idl::value_test::Point>,
     }
 
@@ -179,7 +179,7 @@ pub mod custom_test {
             &self,
             out: &mut ::rustorb_core::OutStream<'_>,
         ) -> ::rustorb_core::idl::Sys<()> {
-            <Blob as ::rustorb_core::idl::IdlType>::write(&self.blob, out)?;
+            <Blob as ::rustorb_core::idl::IdlType>::write(&self.data, out)?;
             <crate::idl::value_test::Point as ::rustorb_core::idl::IdlType>::write(&self.pt, out)?;
             Ok(())
         }
@@ -189,7 +189,7 @@ pub mod custom_test {
             input: &mut ::rustorb_core::InStream<'_>,
         ) -> ::rustorb_core::idl::Sys<BlobPair> {
             Ok(BlobPair {
-                blob: <Blob as ::rustorb_core::idl::IdlType>::read(input)?,
+                data: <Blob as ::rustorb_core::idl::IdlType>::read(input)?,
                 pt: <crate::idl::value_test::Point as ::rustorb_core::idl::IdlType>::read(input)?,
             })
         }
@@ -204,7 +204,7 @@ pub mod custom_test {
         fn type_code() -> ::rustorb_core::TypeCode {
             static TC: ::std::sync::OnceLock<::rustorb_core::TypeCode> =
                 ::std::sync::OnceLock::new();
-            TC.get_or_init(|| ::rustorb_core::idl::tc(::rustorb_core::TypeCode::struct_tc::<&str>("IDL:CustomTest/BlobPair:1.0", "BlobPair", &[("blob", <Blob as ::rustorb_core::idl::IdlType>::type_code()), ("pt", <crate::idl::value_test::Point as ::rustorb_core::idl::IdlType>::type_code())]))).clone()
+            TC.get_or_init(|| ::rustorb_core::idl::tc(::rustorb_core::TypeCode::struct_tc::<&str>("IDL:CustomTest/BlobPair:1.0", "BlobPair", &[("data", <Blob as ::rustorb_core::idl::IdlType>::type_code()), ("pt", <crate::idl::value_test::Point as ::rustorb_core::idl::IdlType>::type_code())]))).clone()
         }
 
         fn write(

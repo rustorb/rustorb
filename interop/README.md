@@ -22,7 +22,7 @@ and [The rustorb C++ client and server](#the-rustorb-c-client-and-server).
 | `impls/rustorbjava-portable/` | the same Java client and server on the rustorb Java runtime with the stubs, skeletons and Helpers of JacORB's IDL compiler (taken from the image, `build.sh`): portable stubs on rustorb; run only when named in a pair |
 | `docker/omniorb/Dockerfile` | omniORB 4.3.4 and omniORBpy 4.3.4 built from source, JacORB 3.9 from its release jars, with the implementations above |
 | `compose.yaml` | naming service, server and client containers |
-| `run-matrix.sh` | runs every client / server combination, with omniNames or (`--naming rustorb`) the rustorb naming service; `--suite any` runs the Any / TypeCode suite (`idl/AnyTest.idl`, `idl/AnyTestHidden.idl`, `anytest.*` in each implementation) instead of the Echo one, and `--suite value` the valuetype suite (`idl/ValueTest.idl`, `valuetest.*`, `ValueTests.java`; every implementation, see [`docs/valuetype.md`](../docs/valuetype.md)) |
+| `run-matrix.sh` | runs every client / server combination, with omniNames or (`--naming rustorb`) the rustorb naming service; `--suite any` runs the Any / TypeCode suite (`idl/AnyTest.idl`, `idl/AnyTestHidden.idl`, `anytest.*` in each implementation) instead of the Echo one, `--suite value` the valuetype suite (`idl/ValueTest.idl`, `valuetest.*`, `ValueTests.java`; every implementation, see [`docs/valuetype.md`](../docs/valuetype.md)) and `--suite custom` the custom valuetype suite (`idl/CustomTest.idl`, `customtest.*`, `CustomTests.java`; the rustorb implementations and `jacorb`, as omniORB has no custom valuetypes) |
 | `run-naming-check.sh` | runs a fixed CosNaming operation sequence (and `corbaname:` URLs) with the omniORBpy and rustorb (Rust, Python, C++, Java) clients against omniNames or (`--naming rustorb`) the rustorb naming service, and compares the output with `expected/naming-check.txt`; for rustorb, also restarts the service and compares with `expected/naming-restart.txt` |
 | `run-wire-probe.sh` | sends hand-built GIOP requests (`scripts/wire-probe`) to each Echo server (omniORB C++, omniORBpy, and rustorb in Rust, Python, C++ and Java) and compares the answers with `expected/wire-probe-*.txt` (the rustorb bindings all with `wire-probe-rustorb.txt`) |
 | `run-timeout-probe.sh` | runs `scripts/timeout-probe` with omniORBpy and rustorbpy (through the omniORB compatibility package) and compares how the client call timeouts behave with `expected/timeout-probe-*.txt` |
@@ -51,6 +51,7 @@ interop/run-naming-check.sh --naming rustorb   # against rustorb-names, with a r
 interop/run-matrix.sh --naming rustorb         # all pairs, rustorb-names instead of omniNames
 interop/run-matrix.sh --suite any              # Any / TypeCode suite
 interop/run-matrix.sh --suite value            # valuetype suite
+interop/run-matrix.sh --suite custom           # custom valuetype suite
 interop/run-wire-probe.sh
 interop/run-poa-probe.sh
 interop/run-timeout-probe.sh
@@ -63,7 +64,7 @@ interop/scripts/golden-compare --all interop/out interop/golden
 ```
 
 Logs and captures go to `interop/out/<client>-to-<server>/` (with
-`-giop1.1` appended for `--giop 1.1`, `-any` for `--suite any` and `-value` for `--suite value`):
+`-giop1.1` appended for `--giop 1.1`, `-any` for `--suite any`, `-value` for `--suite value` and `-custom` for `--suite custom`):
 `client.log`, `server.log`, `naming.log`, and with `--capture`,
 `capture/capture.pcap` and `capture/messages/` (one `.bin` file per GIOP
 message, header included, and a `messages.json` index).
@@ -248,7 +249,11 @@ the same cases, so CI leaves it out of the any suite too. The value suite runs `
 for the valuetypes (JacORB generates abstract classes and no default
 factories). JacORB 3.9 cannot write a value in an any on Java 17, so the
 three `echo_any` cases of its pairs are in `known-failures.txt`. `java/`
-(`mvn verify`) runs the same cases in one process.
+(`mvn verify`) runs the same cases in one process. For the same reason
+(its `DataOutputStream.write_Value`), JacORB cannot marshal the `Blob` of
+the custom suite, whose cases but the null and empty ones are in
+`known-failures.txt` for its pairs. The Java client prints the stack trace
+of an unexpected exception when `INTEROP_TRACE` is set.
 
 ## The rustorb naming service
 

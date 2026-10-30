@@ -27,7 +27,7 @@ module CustomTest {
   };
 
   struct BlobPair {
-    Blob blob;
+    Blob data;
     ValueTest::Point pt;
   };
   typedef sequence<Blob> BlobSeq;
@@ -36,7 +36,7 @@ module CustomTest {
     // Returns b (null stays null).
     Blob echo_blob(in Blob b);
 
-    // Returns p, sharing preserved: when p.blob.pt and p.pt are the
+    // Returns p, sharing preserved: when p.data.pt and p.pt are the
     // same instance, so are those returned.
     BlobPair echo_blob_pair(in BlobPair p);
 

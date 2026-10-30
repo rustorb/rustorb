@@ -80,6 +80,10 @@ jobs:
       - name: Run the valuetype matrix with GIOP 1.1 clients
         run: interop/run-matrix.sh --suite value --giop 1.1
 
+      # The custom valuetype suite (CustomTest.idl): rustorb and JacORB.
+      - name: Run the custom valuetype matrix
+        run: interop/run-matrix.sh --suite custom
+
       # The Java client and server built from JacORB's generated stubs,
       # skeletons and Helpers on the rustorb Java runtime (portable stubs
       # and streams, ObjectImpl._request), against every implementation.

@@ -125,10 +125,7 @@ class CxxBackendTest(unittest.TestCase):
 
     def test_unsupported(self):
         cases = {
-            "custom": "module U { custom valuetype V { public long x; }; };",
-            "value_ops": "module U { valuetype V { public long x; long f(); }; };",
-            "value_factory": "module U { valuetype V { public long x; factory make(in long x); }; };",
-            "supports": "module U { interface I {}; valuetype V supports I { public long x; }; };",
+            "supports_local": "module U { local interface I {}; valuetype V supports I { public long x; }; };",
             "abstract": "module U { abstract interface A { void f(); }; };",
             "longdouble": "module U { struct S { long double d; }; };",
         }
@@ -136,6 +133,40 @@ class CxxBackendTest(unittest.TestCase):
             with self.subTest(name):
                 path = write_idl("Unsupported_%s.idl" % name, text)
                 self.assertEqual(cli.main(["-bc++11", "-C", OUT, path]), 1)
+
+    def test_value_behaviour(self):
+        path = write_idl(
+            "Behave.idl",
+            """
+            module Behave {
+              interface Meter { long reading(); };
+              custom valuetype Tagged { public long tag; };
+              valuetype Gauge supports Meter {
+                public long level;
+                long scaled(in long by);
+                factory init(in long level);
+              };
+            };
+        """,
+        )
+        outdir = os.path.join(OUT, "behave")
+        self.assertEqual(cli.main(["-bc++11", "-C", outdir, path]), 0)
+        header = read(os.path.join(outdir, "Behave.hh"))
+        self.assertIn(
+            "class Tagged : public virtual ::CORBA::ValueBase, public virtual ::CORBA::CustomMarshal {",
+            header,
+        )
+        # Operations, those of the supported interface included, are pure.
+        self.assertIn("virtual int32_t scaled(int32_t by) = 0;", header)
+        self.assertIn("virtual int32_t reading() = 0;", header)
+        self.assertIn("class Gauge_init : public ::CORBA::ValueFactoryBase {", header)
+        self.assertIn(
+            "virtual ::IDL::traits<::Behave::Gauge>::ref_type init(int32_t level) = 0;", header
+        )
+        self.assertIn(
+            "class Gauge : public virtual ::POA_Behave::Meter, public virtual ::Behave::Gauge {",
+            header,
+        )
 
     def test_fixed(self):
         header = read(os.path.join(self.outdir, "CxxMapping.hh"))

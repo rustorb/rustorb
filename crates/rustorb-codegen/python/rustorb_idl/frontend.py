@@ -390,10 +390,16 @@ def state_member_names(node):
     return names + [m.name for m in node.state_members]
 
 
+def supported_interfaces(node):
+    """The interfaces a valuetype supports, as definition nodes."""
+    return [i if is_interface(i) else i.obj for i in node.supports]
+
+
 def has_behaviour(node):
     """Whether a valuetype or one of its bases has operations, attributes
-    or initializers, which an implementation must provide."""
-    if node.factories or any(
+    or initializers, or supports an interface, which an implementation
+    must provide."""
+    if node.factories or node.supports or any(
         is_operation(d) or is_attribute(d) for d in node.methods + node.attributes
     ):
         return True

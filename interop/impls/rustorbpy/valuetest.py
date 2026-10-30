@@ -12,6 +12,25 @@ import ValueTest__POA
 V = ValueTest
 
 
+class TallyImpl(V.Tally):
+    """ValueTest::Tally: also a servant of Counter."""
+
+    def count(self):
+        return self.n
+
+
+class AccountImpl(V.Account):
+
+    def doubled(self):
+        return self.balance * 2
+
+
+def register_factories(orb):
+    """Registers the value factories of the valuetypes with operations."""
+    orb.register_value_factory(V.Tally._NP_RepositoryId, TallyImpl)
+    orb.register_value_factory(V.Account._NP_RepositoryId, AccountImpl)
+
+
 class ValueEchoServant(ValueTest__POA.ValueEcho):
 
     def __init__(self, orb):
@@ -53,6 +72,20 @@ class ValueEchoServant(ValueTest__POA.ValueEcho):
 
     def echo_any(self, a):
         return a
+
+    def echo_tally(self, t):
+        return t
+
+    def call_count(self, c):
+        return c.count()
+
+    def account_doubled(self, a):
+        return a.doubled()
+
+    def make_account(self, balance):
+        # The mapping has no class for the initializers: the factory is
+        # the implementation class.
+        return AccountImpl(balance)
 
     def shutdown(self):
         self.orb.shutdown(False)
@@ -190,3 +223,22 @@ def run_cases(r, echo, check):
     r.case("echo_any[ring]", any_ring)
     r.case("echo_any[derived]", any_derived)
     r.case("echo_any[box]", any_box)
+
+    def tally():
+        got = echo.echo_tally(TallyImpl(3))
+        check(isinstance(got, TallyImpl), "got %r" % (got,))
+        check(got.n == 3 and got.count() == 3, "got %r" % (got,))
+
+    def call_count():
+        t = TallyImpl(5)
+        check(echo.call_count(t._this()) == 5, "wrong count")
+
+    def account():
+        got = echo.make_account(7)
+        check(isinstance(got, AccountImpl), "got %r" % (got,))
+        check(got.balance == 7 and got.doubled() == 14, "got %r" % (got,))
+
+    r.case("echo_tally", tally)
+    r.case("call_count", call_count)
+    r.case("account_doubled", lambda: check(echo.account_doubled(AccountImpl(21)) == 42))
+    r.case("make_account", account)

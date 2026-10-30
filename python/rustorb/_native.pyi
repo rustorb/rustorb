@@ -86,6 +86,10 @@ class CompiledOp: ...
 
 class NativeTypeCode: ...
 
+class CustomInput:
+    # The state of a custom value being read, for CORBA.DataInputStream.
+    def read(self, tc: Any) -> Any: ...  # tc: a CORBA.TypeCode
+
 class DynAny:
     @staticmethod
     def create(value: Any, truncate: bool) -> "DynAny": ...

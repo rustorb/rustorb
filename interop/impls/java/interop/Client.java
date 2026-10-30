@@ -53,6 +53,24 @@ public final class Client {
         return r.failed().isEmpty() ? 0 : 1;
     }
 
+    /** The custom valuetype suite (CustomTest.idl) against the CustomEcho
+     * object at opt.name, which the client shuts down itself. */
+    private static int runCustom(ORB orb, NamingContext root, Common.Options opt) throws Exception {
+        CustomTests.registerFactories(orb);
+        org.omg.CORBA.Object obj = Common.retry("the CustomEcho server",
+                () -> root.resolve(Common.toName(opt.name)), opt.timeout);
+        CustomTest.CustomEcho echo = CustomTest.CustomEchoHelper.narrow(obj);
+        Common.retry("the CustomEcho server", echo::_non_existent, opt.timeout);
+
+        Cases.Runner r = new Cases.Runner();
+        CustomTests.run(r, echo);
+        if (opt.shutdownServer) {
+            echo.shutdown();
+        }
+        r.summary();
+        return r.failed().isEmpty() ? 0 : 1;
+    }
+
     public static void main(String[] argv) throws Exception {
         Common.Options opt = Common.parseArgs("client", argv);
         ORB orb = Common.orbInit(opt, "InteropTestClient");
@@ -60,8 +78,18 @@ public final class Client {
         try {
             POA poa = Common.persistentPoa(orb, "InteropTestClient");
             NamingContext root = Common.rootContext(orb, opt.timeout);
-            if (opt.suite.equals("any") || opt.suite.equals("value")) {
-                status = opt.suite.equals("any") ? runAny(orb, root, opt) : runValue(orb, root, opt);
+            if (!opt.suite.equals("basic")) {
+                switch (opt.suite) {
+                    case "any":
+                        status = runAny(orb, root, opt);
+                        break;
+                    case "value":
+                        status = runValue(orb, root, opt);
+                        break;
+                    default:
+                        status = runCustom(orb, root, opt);
+                        break;
+                }
                 orb.destroy();
                 System.exit(status);
             }

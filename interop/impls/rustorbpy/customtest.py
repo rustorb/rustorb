@@ -87,13 +87,13 @@ def run_cases(r, echo, check):
     def pair_shared():
         p = V.Point(5, 6)
         got = echo.echo_blob_pair(C.BlobPair(Blob(1, "one", p, [4, 5]), p))
-        blob(got.blob, 1, "one", [4, 5])
-        check(got.blob.pt is got.pt, "not one instance")
+        blob(got.data, 1, "one", [4, 5])
+        check(got.data.pt is got.pt, "not one instance")
         check((got.pt.x, got.pt.y) == (5, 6), "got %r" % (got.pt,))
 
     def pair_distinct():
         got = echo.echo_blob_pair(C.BlobPair(Blob(1, "one", V.Point(5, 6), []), V.Point(5, 6)))
-        check(got.blob.pt is not got.pt, "one instance")
+        check(got.data.pt is not got.pt, "one instance")
 
     r.case("echo_blob_pair[shared]", pair_shared)
     r.case("echo_blob_pair[distinct]", pair_distinct)

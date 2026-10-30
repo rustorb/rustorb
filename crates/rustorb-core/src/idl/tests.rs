@@ -114,6 +114,7 @@ static NODE: ValueInfo = ValueInfo {
     id: "IDL:Test/Node:1.0",
     sent_ids: &["IDL:Test/Node:1.0"],
     ancestors: &["IDL:Test/Node:1.0"],
+    custom: false,
     make: || ValueHandle::new(NodeState::default()),
     type_code: || {
         tc(TypeCode::value_tc(

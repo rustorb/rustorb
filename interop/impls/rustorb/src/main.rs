@@ -630,7 +630,11 @@ fn run_value(
         failed: Vec::new(),
     };
     let echo = idl::value_test::ValueEcho::unchecked_narrow(echo);
-    for (case, f) in valuetest::cases(&echo) {
+    let poa = orb.root_poa().map_err(|e| format!("RootPOA: {e}"))?;
+    poa.the_poa_manager()
+        .activate()
+        .map_err(|e| format!("activate: {e}"))?;
+    for (case, f) in valuetest::cases(&echo, &poa) {
         r.case(&case, f);
     }
 

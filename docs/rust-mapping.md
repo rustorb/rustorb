@@ -353,13 +353,26 @@ impl TryFrom<Point> for Point3 { /* 派生への変換。違えば元の Point �
 - 送るときは、同じインスタンスを2回目からは間接参照で書く。受け取るときは位置ごとのインスタンスの表で共有と循環を戻す。truncatable な型は chunk 形式で、すべての基底のリポジトリIDを付けて送る（コアの `begin_value` / `end_value` をそのまま使う）
 - **知らない派生の型**：受け取った値の型が、期待した型でも登録された型でもないときは、truncatable な基底のうち知っている最初の型として読み、なければ `MARSHAL`（コアと同じ）。生成した型を受け取り側に知らせるため、出力ファイルごとに `register_value_types()` を作る（Rust には静的な初期化がないので、利用者が1回呼ぶ）
 - **value box**：`valuetype LongBox long;` は `#[derive(Clone)] pub struct LongBox(Arc<i32>)` にする（`new`、`Deref`、`ptr_eq`）。中身は変えられない。値の型のメンバーと同じく `Option<LongBox>`
-- `custom`、`supports`、操作・初期化子を持つ valuetype、抽象 valuetype は [#42](https://github.com/rustorb/rustorb/issues/42) / [#43](https://github.com/rustorb/rustorb/issues/43) の範囲で、生成器がエラーにする
+- **custom**（[#42](https://github.com/rustorb/rustorb/issues/42)）：`custom valuetype V` の状態の構造体 `VState` に、利用者が `rustorb_core::idl::CustomMarshal`（`marshal(&self, &mut DataOutputStream)` / `unmarshal(&mut self, &mut DataInputStream)`）を実装する。値は常に chunk 形式で送る。custom の値は Any に入れられない（コアが状態を読めないので `MARSHAL`）
+- **操作と supports**（#42）：操作か `supports I` を持つ valuetype には、トレイト `VOperations`（valuetype の操作と、`I` とその基底の操作。`&mut self` で、例外は `SystemException` だけ）を作り、利用者が `VState` に実装する。ハンドル `V` には valuetype 自身の操作を同名のメソッドとして作り、状態をロックしてトレイトを呼ぶ（中で同じインスタンスに触るとデッドロックする）。`supports I` なら `impl IServant for V` を作るので、`IPoa(v.clone()).activate(&poa)` で値をサーバントにできる。初期化子（`factory`）は生成せず、`V::new(state)` で作る。例外を投げる valuetype の操作と、ハンドルのメソッド（`new`、`get` など）と同じ名前の操作は生成器のエラー
+
+```rust
+impl AccountOperations for AccountState {
+    fn doubled(&mut self) -> Sys<i32> {
+        Ok(self.balance * 2)
+    }
+}
+let a = Account::new(AccountState { balance: 21 });
+assert_eq!(a.doubled()?, 42);
+```
+
+- 抽象 valuetype は [#43](https://github.com/rustorb/rustorb/issues/43) の範囲で、生成器がエラーにする
 
 ## 対象外（生成器がエラーにするもの）
 
 - `long double`（[#41](https://github.com/rustorb/rustorb/issues/41)）
 - abstract interface、local interface（[#43](https://github.com/rustorb/rustorb/issues/43)。local interface は必要になったら Rust のトレイトだけを作る形で足す）
-- `custom` などの valuetype（上記）
+- 抽象 valuetype、abstract・local interface を `supports` する valuetype、例外を投げる valuetype の操作（上記）
 - 操作の `context` 句
 - IDL4 の新しい構文（[#46](https://github.com/rustorb/rustorb/issues/46)）
 
