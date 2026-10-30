@@ -10,8 +10,12 @@ import java.lang.ref.Reference;
 import org.omg.CORBA.BAD_PARAM;
 import org.omg.CORBA.CompletionStatus;
 import org.omg.CORBA.MARSHAL;
+import org.omg.CORBA.UNKNOWN;
+import org.omg.CORBA.portable.ApplicationException;
 import org.omg.CORBA.portable.Delegate;
+import org.omg.CORBA.portable.InputStream;
 import org.omg.CORBA.portable.ObjectImpl;
+import org.omg.CORBA.portable.OutputStream;
 
 final class ObjectDelegateImpl extends Delegate {
     private final Owned handle;
@@ -138,6 +142,77 @@ final class ObjectDelegateImpl extends Delegate {
             return Native.objectValidateConnection(handle());
         } finally {
             Reference.reachabilityFence(this);
+        }
+    }
+
+    // --- portable stubs ------------------------------------------------------
+
+    /** The stream of ObjectImpl._request: the arguments, kept until
+     * _invoke writes them into the request. */
+    private static final class RequestStream extends PortableOutputStream {
+        final ObjectDelegateImpl target;
+        final String operation;
+        final boolean responseExpected;
+
+        RequestStream(ObjectDelegateImpl target, String operation, boolean responseExpected) {
+            super(target.orb);
+            this.target = target;
+            this.operation = operation;
+            this.responseExpected = responseExpected;
+        }
+    }
+
+    @Override
+    public OutputStream request(org.omg.CORBA.Object self, String operation,
+            boolean responseExpected) {
+        if (operation == null) {
+            throw new BAD_PARAM("null operation", 0, CompletionStatus.COMPLETED_NO);
+        }
+        return new RequestStream(this, operation, responseExpected);
+    }
+
+    /**
+     * Sends the request and returns the reply stream (null for a oneway
+     * call). A user exception is an ApplicationException whose stream
+     * gives its repository id to the first read_string, so that the
+     * Helper reads it. The core follows LOCATION_FORWARD itself, so there
+     * is no RemarshalException.
+     */
+    @Override
+    public InputStream invoke(org.omg.CORBA.Object self, OutputStream output)
+            throws ApplicationException {
+        if (!(output instanceof RequestStream) || ((RequestStream) output).target != this) {
+            throw new BAD_PARAM("not a stream of _request on this object", 0,
+                    CompletionStatus.COMPLETED_NO);
+        }
+        RequestStream r = (RequestStream) output;
+        Call call = r.replay(orb);
+        long h;
+        try {
+            h = Native.objectInvokeStream(handle(), r.operation, !r.responseExpected, -1, call);
+        } finally {
+            Reference.reachabilityFence(this);
+        }
+        Bridge.rethrow(call);
+        if (h == 0) {
+            if (r.responseExpected) {
+                throw new UNKNOWN("no reply", 0, CompletionStatus.COMPLETED_MAYBE);
+            }
+            return null;
+        }
+        OwnedInputStream in = new OwnedInputStream(h, orb, null);
+        String id = Native.inExceptionId(h);
+        if (id != null) {
+            in.inject(id);
+            throw new ApplicationException(id, in);
+        }
+        return in;
+    }
+
+    @Override
+    public void releaseReply(org.omg.CORBA.Object self, InputStream input) {
+        if (input instanceof OwnedInputStream) {
+            ((OwnedInputStream) input).release();
         }
     }
 

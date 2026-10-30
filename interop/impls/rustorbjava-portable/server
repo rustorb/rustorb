@@ -1,0 +1,6 @@
+#!/bin/sh
+# Java interop server on the rustorb Java runtime with stubs and skeletons
+# from JacORB's IDL compiler. run-matrix.sh builds it on the host (build.sh)
+# and mounts this directory, with classes/ and lib/, into the container.
+here="$(dirname "$0")"
+exec java -Drustorb.jni.library="$here/lib/librustorb_jni.so" -cp "$here/classes" interop.Server "$@"

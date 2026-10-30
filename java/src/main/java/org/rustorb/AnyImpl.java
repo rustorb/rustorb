@@ -23,6 +23,12 @@ final class AnyImpl extends Any {
     private final Owned handle;
     /** The Streamable of insert_Streamable, for extract_Streamable. */
     private Streamable streamable;
+    /** The TypeCode type(t) set without a value of it (the next insert or
+     * read_value gives one), else null. */
+    private TypeCodeImpl pending;
+    /** The stream of create_output_stream, whose writes become the value
+     * when it is next used, else null. */
+    private PortableOutputStream writer;
 
     AnyImpl() {
         this(Native.anyNew());
@@ -37,8 +43,28 @@ final class AnyImpl extends Any {
         return handle == 0 ? null : new AnyImpl(handle);
     }
 
+    /** The handle; BAD_OPERATION while the any has a TypeCode without a
+     * value (see type(t)). */
     long handle() {
+        if (writer != null) {
+            PortableOutputStream w = writer;
+            writer = null;
+            TypeCodeImpl t = TypeCodeImpl.cast(type());
+            insert(t, w::writeTo, t.unaliasedKind() == TCKind._tk_except);
+        }
+        if (pending != null) {
+            throw new BAD_OPERATION("the any has no value of its TypeCode", 0,
+                    CompletionStatus.COMPLETED_NO);
+        }
         return handle.get();
+    }
+
+    /** Takes a new handle holding a value. */
+    private void replace(long h) {
+        handle.set(h);
+        streamable = null;
+        pending = null;
+        writer = null;
     }
 
     static AnyImpl cast(Any a) {
@@ -89,8 +115,7 @@ final class AnyImpl extends Any {
             Reference.reachabilityFence(t);
         }
         Bridge.rethrow(call);
-        handle.set(h);
-        streamable = null;
+        replace(h);
     }
 
     <T> T extract(TypeCode tc, Anys.Reader<T> r, boolean exception) {
@@ -164,6 +189,9 @@ final class AnyImpl extends Any {
 
     @Override
     public TypeCode type() {
+        if (pending != null) {
+            return pending;
+        }
         try {
             return TypeCodeImpl.of(Native.anyType(handle()));
         } finally {
@@ -178,32 +206,145 @@ final class AnyImpl extends Any {
         try {
             if (kind == TCKind._tk_null || kind == TCKind._tk_void) {
                 insert(tc, out -> {}, false);
-            } else {
+            } else if (pending == null && writer == null && type().equivalent(tc)) {
                 Native.anySetType(handle(), tc.handle());
+            } else {
+                // The value is lost: an insert, read_value or the writes on
+                // the stream of create_output_stream give the new one
+                // (portable Helpers set the type first).
+                pending = tc;
+                streamable = null;
             }
         } finally {
             Reference.reachabilityFence(tc);
         }
     }
 
+    /** A new any with the same TypeCode and value. */
+    AnyImpl copy() {
+        try {
+            return new AnyImpl(Native.anyClone(handle()));
+        } finally {
+            Reference.reachabilityFence(this);
+        }
+    }
+
+    private static BAD_PARAM foreignStream() {
+        return new BAD_PARAM("not a stream of rustorb", 0, CompletionStatus.COMPLETED_NO);
+    }
+
+    /** Reads a value of type t from is (a stream of rustorb). */
     @Override
     public void read_value(InputStream is, TypeCode t) {
-        throw new NO_IMPLEMENT();
+        if (!(is instanceof NativeInputStream)) {
+            throw foreignStream();
+        }
+        long h = ((NativeInputStream) is).readAnyValue(TypeCodeImpl.cast(t));
+        if (h != 0) {
+            replace(h);
+        }
     }
 
+    /** Writes the value, without the TypeCode. */
     @Override
     public void write_value(OutputStream os) {
-        throw new NO_IMPLEMENT();
+        if (os instanceof NativeOutputStream) {
+            ((NativeOutputStream) os).writeAnyValue(this);
+        } else if (os instanceof PortableOutputStream) {
+            AnyImpl a = copy();
+            ((PortableOutputStream) os).record(o -> a.write_value(o));
+        } else {
+            throw foreignStream();
+        }
     }
 
+    /** A stream whose writes become the value, of the type the any then
+     * has, when the any is next used (or that is given to read_value with
+     * its create_input_stream()). */
     @Override
     public OutputStream create_output_stream() {
-        throw new NO_IMPLEMENT();
+        writer = new PortableOutputStream(OrbImpl.defaultOrb());
+        return writer;
+    }
+
+    /** A stream over the value (an exception starts with its repository
+     * id). */
+    @Override
+    public InputStream create_input_stream() {
+        long h;
+        try {
+            h = Native.anyInput(handle());
+        } finally {
+            Reference.reachabilityFence(this);
+        }
+        return new OwnedInputStream(h, OrbImpl.defaultOrb(), null);
+    }
+
+    /** The TypeCode of a valuetype or value box without aliases;
+     * BAD_OPERATION for other types. */
+    private static TypeCode valueType(TypeCode t) {
+        TypeCode u = unaliased(t);
+        int kind = u.kind().value();
+        if (kind != TCKind._tk_value && kind != TCKind._tk_value_box) {
+            throw Anys.badOperation();
+        }
+        return u;
+    }
+
+    private static String idOf(TypeCode t) {
+        try {
+            return t.id();
+        } catch (org.omg.CORBA.TypeCodePackage.BadKind e) {
+            throw Anys.badOperation();
+        }
     }
 
     @Override
-    public InputStream create_input_stream() {
-        throw new NO_IMPLEMENT();
+    public java.io.Serializable extract_Value() {
+        TypeCode u = valueType(type());
+        String id = idOf(u);
+        if (u.kind().value() == TCKind._tk_value_box) {
+            org.omg.CORBA.portable.BoxedValueHelper helper = Values.boxHelper(id);
+            if (helper == null) {
+                throw new org.omg.CORBA.MARSHAL("no Helper for the value box " + id, 0,
+                        CompletionStatus.COMPLETED_NO);
+            }
+            return extract(type(),
+                    in -> ((org.omg.CORBA_2_3.portable.InputStream) in).read_value(helper), false);
+        }
+        return extract(type(),
+                in -> ((org.omg.CORBA_2_3.portable.InputStream) in).read_value(id), false);
+    }
+
+    /** Inserts a StreamableValue (or null) with the TypeCode of its
+     * class. */
+    @Override
+    public void insert_Value(java.io.Serializable v) {
+        if (v instanceof org.omg.CORBA.portable.StreamableValue) {
+            insert_Value(v, ((org.omg.CORBA.portable.StreamableValue) v)._type());
+        } else {
+            throw new org.omg.CORBA.MARSHAL("the TypeCode of "
+                    + (v == null ? "null" : v.getClass().getName())
+                    + " is not known; use insert_Value(v, type)", 0,
+                    CompletionStatus.COMPLETED_NO);
+        }
+    }
+
+    @Override
+    public void insert_Value(java.io.Serializable v, TypeCode t) {
+        TypeCode u = valueType(t);
+        if (u.kind().value() == TCKind._tk_value_box) {
+            String id = idOf(u);
+            org.omg.CORBA.portable.BoxedValueHelper helper = Values.boxHelper(id);
+            if (helper == null) {
+                throw new org.omg.CORBA.MARSHAL("no Helper for the value box " + id, 0,
+                        CompletionStatus.COMPLETED_NO);
+            }
+            insert(t, out -> ((org.omg.CORBA_2_3.portable.OutputStream) out).write_value(v, helper),
+                    false);
+        } else {
+            insert(t, out -> ((org.omg.CORBA_2_3.portable.OutputStream) out).write_value(v), false);
+        }
     }
 
     @Override
@@ -353,10 +494,21 @@ final class AnyImpl extends Any {
             String[] ids = ((org.omg.CORBA.portable.ObjectImpl) o)._ids();
             if (ids.length > 0 && !(o instanceof ObjectStub)) {
                 id = ids[0];
-                name = "";
+                name = nameOf(id);
             }
         }
         insert_Object(o, TypeCodes.iface(TCKind._tk_objref, id, name));
+    }
+
+    /** The last name of an IDL repository id ("IDL:M/I:1.0" is "I"), as
+     * the TypeCodes of the interface's Helper have it; else "". */
+    private static String nameOf(String id) {
+        if (!id.startsWith("IDL:")) {
+            return "";
+        }
+        int colon = id.lastIndexOf(':');
+        String path = colon > 4 ? id.substring(4, colon) : id.substring(4);
+        return path.substring(path.lastIndexOf('/') + 1);
     }
 
     @Override

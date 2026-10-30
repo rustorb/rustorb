@@ -239,7 +239,7 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - 生成器：標準マッピングのクラス群（Helper・Holder・Operations・Stub・POA・POATie、`<Name>Package`、予約語の `_`）と、モジュールの外の定義のための `-Wbpackage`
   - 相互接続：`interop/impls/java` のクライアント・サーバーを、`rustorbjava`（rustorb-idl のスタブ）と `jacorb`（JacORB 3.9 のリリース jar と IDL コンパイラ）で共有する。`rustorbjava` は basic（omniNames・rustorb-names、GIOP 1.2 / 1.1）と any（GIOP 1.2 / 1.1）ですべての相手と通る。JacORB との失敗は JacORB の生成コードと GIOP 1.1 の Fragment の扱いによるもので、`known-failures.txt` に載せた。JacORB はソースを読まず、生成されたクラスを呼んだ結果だけを使った
   - Java のテスト（`java/`、Maven と JUnit）：CxxMapping.idl の往復（2つの ORB の間と同一 ORB 内）、相互接続の78ケースと any の178ケース。CI は Linux（Java 11 / 21）・macOS・Windows
-  - 残り：ストリームによる Any の操作、DII / DSI（valuetype は下記）
+  - 残り：DII / DSI（#44。valuetype は下記、portable stub とストリームは下記）
 - [x] C++ と Java の servant manager（`ServantActivator`・`ServantLocator`）と `AdapterActivator`（[cpp-binding.md](cpp-binding.md#poa-の範囲)、[java-binding.md](java-binding.md#poa-の範囲)）
   - C ABI：`rorb_poa_set_servant_activator` / `_locator`・`rorb_poa_get_servant_manager`・`rorb_poa_set_the_activator` / `rorb_poa_the_activator` と関数表。`incarnate` / `preinvoke` の `ForwardRequest` とシステム例外は `rorb_manager_error_*` で伝える
   - C++ は `PortableServer::ServantActivator` などのローカルインターフェースと `ForwardRequest`、Java は `org.omg.PortableServer` の同名のインターフェースと `CookieHolder`（`rustorb-jni` 経由）
@@ -259,6 +259,10 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - [x] Java：`StreamableValue`、`ValueFactory`・`DefaultFactory`、`BoxedValueHelper`、CORBA_2_3 のストリームと ORB、`-bjava`
   - [x] 相互接続：rustorbcpp・rustorbjava・JacORB を加えた49組が GIOP 1.2 / 1.1 で通る（JacORB が Java 17 で Any の中の値を書けない3ケースは既知の失敗）
   - 残り：`custom`、abstract interface、`supports`（#42、#43）
+- [x] Java の portable stub とストリーム（[java-binding.md](java-binding.md#portable-stub-とストリーム)、[#45](https://github.com/rustorb/rustorb/issues/45)）
+  - C ABI：呼び出しの後も有効な入力ストリーム（`rorb_object_invoke_stream`、`rorb_in_new`、`rorb_any_input`、`rorb_in_release`）、型を指定した Any の値の読み書き
+  - Java：`ObjectImpl._request` / `_invoke` / `_releaseReply` と `ApplicationException`、`ORB.create_output_stream`、Any の `create_output_stream` / `create_input_stream` / `read_value` / `write_value` / `insert_Value` / `extract_Value`。出力は書き込みの列として持ち、送るときに本物のストリームに書き直す
+  - 相互接続：JacORB の IDL コンパイラが生成したスタブ・スケルトン・Helper を rustorb のランタイムで動かす `rustorbjava-portable` を、すべての実装と basic（GIOP 1.2 / 1.1）と value で回す
 - [x] Rust の IDL 生成器 `rustorb-idl -brust`（[rust-mapping.md](rust-mapping.md)、[#37](https://github.com/rustorb/rustorb/issues/37)）
   - コア：`rustorb_core::idl`（記述子のトレイト `IdlType` と基本型・無名の型の記述子、valuetype のハンドルと登録、value box、`Any::insert` / `extract`）と `Fixed`
   - 生成器：名前の変換と衝突の検査、struct・enum・union・typedef・定数・例外・操作ごとのエラー型、スタブ・サーバントのトレイト・スケルトン、TypeCode、valuetype・value box。`-Wbextern` で別クレートの生成コードを参照する。`build.rs` 用の `rustorb_codegen::Config`

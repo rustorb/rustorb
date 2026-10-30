@@ -273,6 +273,8 @@ pub struct In<'a, 'b> {
     pub(crate) values: Vec<Option<crate::value::Held>>,
     /// The repository ids of the last value header read.
     pub(crate) value_ids: Vec<String>,
+    /// Whether the caller owns the stream (`rorb_in_release`).
+    pub(crate) owned: bool,
 }
 
 /// What a `rorb_in*` points to; the lifetimes are those of the callback.
@@ -289,6 +291,7 @@ impl<'a, 'b> In<'a, 'b> {
             wide: Vec::new(),
             values: Vec::new(),
             value_ids: Vec::new(),
+            owned: false,
         }
     }
 

@@ -67,6 +67,18 @@ public abstract class Any implements org.omg.CORBA.portable.IDLEntity {
         throw new NO_IMPLEMENT();
     }
 
+    public java.io.Serializable extract_Value() throws BAD_OPERATION {
+        throw new NO_IMPLEMENT();
+    }
+
+    public void insert_Value(java.io.Serializable v) {
+        throw new NO_IMPLEMENT();
+    }
+
+    public void insert_Value(java.io.Serializable v, TypeCode t) throws MARSHAL {
+        throw new NO_IMPLEMENT();
+    }
+
     public java.math.BigDecimal extract_fixed() {
         throw new NO_IMPLEMENT();
     }

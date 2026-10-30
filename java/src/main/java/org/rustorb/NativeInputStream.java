@@ -9,7 +9,7 @@ import org.omg.CORBA.BAD_INV_ORDER;
 import org.omg.CORBA.CompletionStatus;
 import org.omg.CORBA.TCKind;
 
-final class NativeInputStream extends org.omg.CORBA_2_3.portable.InputStream {
+class NativeInputStream extends org.omg.CORBA_2_3.portable.InputStream {
     private long in;
     private final OrbImpl orb;
     /** The result of the first read_string (see Call.injectId). */
@@ -23,6 +23,21 @@ final class NativeInputStream extends org.omg.CORBA_2_3.portable.InputStream {
 
     void invalidate() {
         in = 0;
+    }
+
+    /** Gives id to the next read_string (the repository id of a user
+     * exception the stream is past). */
+    void inject(String id) {
+        injectId = id;
+    }
+
+    /** Reads a value of type tc into a new any handle (0 after an error). */
+    long readAnyValue(TypeCodeImpl tc) {
+        try {
+            return Native.inAnyValue(in(), tc.handle());
+        } finally {
+            java.lang.ref.Reference.reachabilityFence(tc);
+        }
     }
 
     long in() {

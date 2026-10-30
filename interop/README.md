@@ -19,6 +19,7 @@ and [The rustorb C++ client and server](#the-rustorb-c-client-and-server).
 | `impls/java/` | Echo server, AnyEcho and ValueEcho servants and test client on the standard IDL to Java mapping, shared by `jacorb` and `rustorbjava` |
 | `impls/jacorb/` | the Java client and server on JacORB 3.9, with stubs from JacORB's IDL compiler (built in the image) |
 | `impls/rustorbjava/` | the Java client and server on the rustorb Java binding, with stubs from rustorb-idl -bjava (`build.sh`), and its POA probe server (`probe/`) |
+| `impls/rustorbjava-portable/` | the same Java client and server on the rustorb Java runtime with the stubs, skeletons and Helpers of JacORB's IDL compiler (taken from the image, `build.sh`): portable stubs on rustorb; run only when named in a pair |
 | `docker/omniorb/Dockerfile` | omniORB 4.3.4 and omniORBpy 4.3.4 built from source, JacORB 3.9 from its release jars, with the implementations above |
 | `compose.yaml` | naming service, server and client containers |
 | `run-matrix.sh` | runs every client / server combination, with omniNames or (`--naming rustorb`) the rustorb naming service; `--suite any` runs the Any / TypeCode suite (`idl/AnyTest.idl`, `idl/AnyTestHidden.idl`, `anytest.*` in each implementation) instead of the Echo one, and `--suite value` the valuetype suite (`idl/ValueTest.idl`, `valuetest.*`, `ValueTests.java`; every implementation, see [`docs/valuetype.md`](../docs/valuetype.md)) |
@@ -214,10 +215,28 @@ JacORB's IDL compiler (`impls/jacorb/idl/` has the `orb.idl` it needs).
 IDL_PARSER_DIR=path/to/idl_parser interop/run-matrix.sh rustorbjava:jacorb jacorb:rustorbjava
 ```
 
+`rustorbjava-portable` compiles the same shared sources, with the stubs,
+skeletons and Helpers that JacORB's IDL compiler generated in the image
+(`/opt/interop/impls/jacorb/gen`), against the rustorb Java runtime instead
+of JacORB's jars: generated code of another IDL compiler (portable stubs on
+`ObjectImpl._request` / `_invoke`, Helpers on the stream operations of Any)
+running on rustorb. `impls/rustorbjava-portable/build.sh` takes the sources
+out of the image, so the image must be built first. It is not in the
+default matrix; CI runs it against every implementation:
+
+```sh
+p=rustorbjava-portable; pairs="$p:$p"
+for x in omniorbpy omniorb-cpp jacorb rustorb rustorbpy rustorbcpp rustorbjava; do
+  pairs="$pairs $p:$x $x:$p"
+done
+IDL_PARSER_DIR=path/to/idl_parser interop/run-matrix.sh $pairs
+```
+
 The any suite leaves `jacorb` out by default: the anys that JacORB's
 generated Helpers make do not have the TypeCodes of `AnyTest.idl` (see
 docs/java-binding.md), so most cases fail on that and not on the wire. Name
-the pairs to run it anyway. The value suite runs `jacorb` too: the shared
+the pairs to run it anyway. The same Helpers make `rustorbjava-portable` fail
+the same cases, so CI leaves it out of the any suite too. The value suite runs `jacorb` too: the shared
 `ValueTests.java` registers implementation classes and factories of its own
 for the valuetypes (JacORB generates abstract classes and no default
 factories). JacORB 3.9 cannot write a value in an any on Java 17, so the

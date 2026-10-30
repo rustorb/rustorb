@@ -187,8 +187,11 @@ final class Bridge {
             return OK;
         } catch (SystemException e) {
             // Raised while writing the reply (a bound, say): the operation
-            // has completed.
-            int completed = handler.replying() ? CompletionStatus._COMPLETED_YES
+            // has completed. Skeletons may start the reply before calling
+            // the operation (those of other IDL compilers), so an exception
+            // the operation raised keeps its own status.
+            int completed = handler.replying() && !raisedByOperation(e, servant)
+                    ? CompletionStatus._COMPLETED_YES
                     : e.completed == null ? CompletionStatus._COMPLETED_MAYBE : e.completed.value();
             Native.replySystemException(reply, SystemExceptions.id(e), e.minor, completed);
             return SYSTEM_EXCEPTION;
@@ -200,6 +203,25 @@ final class Bridge {
             input.invalidate();
             handler.invalidate();
         }
+    }
+
+    /** Whether e comes from the operation the skeleton called: the frame
+     * above the skeleton's _invoke is another method of the servant's
+     * classes (not a Helper or a stream writing the reply). */
+    private static boolean raisedByOperation(Throwable e, Object servant) {
+        java.util.Set<String> classes = new java.util.HashSet<>();
+        for (Class<?> c = servant.getClass(); c != null; c = c.getSuperclass()) {
+            classes.add(c.getName());
+        }
+        StackTraceElement[] st = e.getStackTrace();
+        for (int i = 1; i < st.length; i++) {
+            if (st[i].getMethodName().equals("_invoke") && classes.contains(st[i].getClassName())) {
+                StackTraceElement above = st[i - 1];
+                return classes.contains(above.getClassName())
+                        && !above.getMethodName().equals("_invoke");
+            }
+        }
+        return false;
     }
 
     static boolean isA(Object servant, String id) {

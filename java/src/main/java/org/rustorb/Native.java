@@ -133,6 +133,21 @@ final class Native {
     static native int inLength(long in, int minElementSize);
     static native void inFail(long in);
     static native boolean inFailed(long in);
+    /** Throws the error of the stream, if it has one. */
+    static native void inCheck(long in);
+    static native void outAnyValue(long out, long any);
+    /** 0 after an error. */
+    static native long inAnyValue(long in, long tc);
+
+    // owned input streams (OwnedInputStream)
+    /** The reply stream; 0 for a oneway call or when call.write failed. */
+    static native long objectInvokeStream(long obj, String op, boolean oneway, long timeoutUs,
+            Call call);
+    static native String inExceptionId(long in);
+    /** 0 when call.write failed. */
+    static native long inNew(long orb, Call call);
+    static native long anyInput(long any);
+    static native void inRelease(long in);
 
     // valuetypes (RORB_VALUE_NULL, RORB_VALUE_INDIRECTION, RORB_VALUE_NEW)
     static final int VALUE_NULL = 0;

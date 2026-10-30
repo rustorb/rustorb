@@ -52,6 +52,9 @@ giop=1.1 rustorb* omniorb* echo_wstring[3] omniORB has no GIOP 1.1 wchar code se
 # classes, not from the JacORB source.)
 jacorb * echo_value[5] JacORB unions keep one default discriminator
 * jacorb echo_value[5] JacORB unions keep one default discriminator
+# The same generated classes on rustorb (rustorbjava-portable).
+rustorbjava-portable * echo_value[5] JacORB unions keep one default discriminator
+* rustorbjava-portable echo_value[5] JacORB unions keep one default discriminator
 
 # JacORB 3.9 does not accept GIOP 1.1 Fragment messages ("Received a
 # fragmented GIOP 1.1 message", then NO_IMPLEMENT). The omniORB clients
@@ -78,3 +81,13 @@ suite=value jacorb * echo_any[box] JacORB on Java 17 cannot write values in anys
 suite=value * jacorb echo_any[ring] JacORB on Java 17 cannot write values in anys
 suite=value * jacorb echo_any[derived] JacORB on Java 17 cannot write values in anys
 suite=value * jacorb echo_any[box] JacORB on Java 17 cannot write values in anys
+
+# JacORB 3.9's valuetype Helpers: Point3Helper.type() has no concrete base
+# and no truncatable modifier, and PointHelper.insert gives the any the
+# TypeCode of the value's own class (Point3 for a Point3), which the client
+# finds not equal() to PointHelper.type(); a server with those Helpers
+# decodes a Point3 without the members of Point. JacORB on its own ORB does
+# the same (found by calling the generated classes on rustorb and on
+# JacORB). The JacORB pairs fail these cases already (above).
+suite=value rustorbjava-portable * echo_any[derived] JacORB valuetype Helpers
+suite=value * rustorbjava-portable echo_any[derived] JacORB valuetype Helpers

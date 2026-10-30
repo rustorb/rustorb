@@ -47,11 +47,22 @@ orb.run();
 
 - **ハンドル**：C ABI のハンドルは Java の `long` で受け渡す。Java のオブジェクトは `java.lang.ref.Cleaner` で解放を登録し、ネイティブ呼び出しの間は `Reference.reachabilityFence` で生かす
 - **エラー**：失敗した C 呼び出しは、`rorb_exception` に対応する Java の例外を投げる（`org.rustorb.Bridge` の static メソッドが作る）。システム例外は40種の `org.omg.CORBA` のクラスで、POA・ORB の例外は C ABI のローカル例外コードから変換する。Rust の panic は `INTERNAL`
-- **呼び出し**：スタブは操作ごとのローカルクラス（`org.rustorb.Call` の派生）に引数の書き込み、返事の読み込み、ユーザー例外の読み込みを持たせ、`Stubs.invoke` で `rorb_object_invoke` を呼ぶ。C ABI のストリームはコールバックの中でだけ有効なので、標準の `_request` / `_invoke` の組（ストリームを呼び出し元に返す形）は使わない。`ObjectImpl._request` は `NO_IMPLEMENT`
+- **呼び出し**：`-bjava` のスタブは操作ごとのローカルクラス（`org.rustorb.Call` の派生）に引数の書き込み、返事の読み込み、ユーザー例外の読み込みを持たせ、`Stubs.invoke` で `rorb_object_invoke` を呼ぶ。他の IDL コンパイラが生成した標準の形（`_request` / `_invoke` / `_releaseReply`）のスタブも動く（下の「portable stub とストリーム」）
 - **スケルトン**：標準どおり `FooPOA extends Servant implements InvokeHandler` の `_invoke(op, in, ResponseHandler)`。`createExceptionReply()` のストリームは、最初に書かれた文字列を例外のリポジトリIDとして `rorb_server_reply_user_exception` を呼ぶ。クライアント側の例外のストリームは最初の `read_string` でリポジトリIDを返すので、生成された `Helper.read` がそのまま使える
 - **サーバント**：Java のサーバントごとに1つの peer（Rust 側の `Box`）を持ち、それが C ABI の `self` になる。peer はサーバントを弱参照し、C 側がサーバントを持っている間（`add_ref` / `remove_ref`）だけ強い参照（GlobalRef）も持つ。同じサーバントには同じコア側サーバントが返るので、POA の判定（`servant_to_id` など）が保たれる
 - **スレッド**：アップコール用スレッドプールのスレッドは、最初に Java を呼ぶときにデーモンとして JVM にアタッチし、スレッドの終了で自動的にデタッチする。アップコールはローカル参照のフレームの中で実行する
 - **文字列**：`string` は UTF-8 で、`wstring` は Java の `String` の UTF-16 の単位をそのまま渡す。`char` は C ABI と同じく1バイト（ISO 8859-1 の範囲）で、範囲外は送信時 `DATA_CONVERSION`
+
+## portable stub とストリーム
+
+他の IDL コンパイラ（JacORB の IDL コンパイラなど）が生成したコードは、標準の portable stub の形で呼ぶ。`_request(op, responseExpected)` が返すストリームに引数を書き、`_invoke(out)` が返事のストリームを返し（ユーザー例外は `ApplicationException`）、`_releaseReply(in)` で手放す。Helper は `Any.type(t)` と `create_output_stream()` / `create_input_stream()` で Any に値を出し入れする。C ABI のストリームはコールバックの中でだけ有効なので、次のようにした。
+
+- **出力**：`_request`、`ORB.create_output_stream()`、`Any.create_output_stream()` のストリーム（`org.rustorb.PortableOutputStream`）は、書かれた内容をバイト列にせず、書き込みの呼び出しの列として持つ。`_invoke` はそれを `rorb_object_invoke` と同じ引数のコールバックで本物の要求のストリームに書き直すので、接続ごとに決まる文字コード（omniORB には ISO 8859-1）、`wchar` の交渉、GIOP 1.0 / 1.1 の本体のアラインメント、valuetype の共有（同じインスタンスは indirection）がそのまま正しくなる。配列は書いた時点で写し、`write_any` は Any の値をその時点で写す。valuetype は送るときの状態を書く
+- **入力**：C ABI に、呼び出しの後も有効な「所有する入力ストリーム」（`rorb_in_release` まで有効）を加えた。`rorb_object_invoke_stream`（返事、ユーザー例外はその ID と本体）、`rorb_in_new`（コールバックが標準のストリームに書いたもの。ネイティブの文字コード）、`rorb_any_input`（Any の値）。Java では `org.rustorb.OwnedInputStream` で、読むたびにエラーを確かめて投げる（コールバックのストリームはコールバックが戻るときにまとめて報告する）。`_releaseReply` か GC で解放する
+- **ApplicationException**：ストリームは例外の本体の位置にあり、最初の `read_string` が例外のリポジトリIDを返す。生成された `Helper.read` はそのまま使える。コアが LOCATION_FORWARD を自分で辿るので `RemarshalException` は出さない。`_is_local()` は偽、`_servant_preinvoke` は null で、同じ ORB の中の呼び出しもコアの同一 ORB 内呼び出しになる
+- **Any**：`read_value(in, tc)` は rustorb のストリームから型 tc の値を読み（`rorb_in_read_any_value`）、`write_value(out)` は TypeCode なしで値を書く（`rorb_out_write_any_value`）。`create_input_stream()` は値の上のストリーム（例外はリポジトリIDから）。`type(t)` は同等でない型なら値のない状態にし（その後の取り出しは `BAD_OPERATION`）、次の insert・`read_value`、または `create_output_stream()` のストリームに書かれたもの（次に Any を使うときにその型の値として読む）が値になる。`insert_Value(v)` は `StreamableValue` の `_type()` の TypeCode、`insert_Value(v, tc)` は tc（value box は生成された `<Box>Helper` で書く）、`extract_Value()` は valuetype と value box の値を返す
+- **スケルトン**：スケルトンの `_invoke` が `createReply()` の後に送出した `SystemException` は、従来は返事の書き込みの失敗として COMPLETED_YES にしていた。操作を呼ぶ前に返事を作るスケルトン（JacORB の生成コード）では操作の例外まで YES になるので、例外のスタックで `_invoke` のすぐ上がサーバントのクラスのメソッド（操作）なら、例外自身の完了状態を返すようにした
+- `org.omg.CORBA.portable.ServantObjectExt` を足した（JacORB の生成コードが参照する。rustorb は使わない）
 
 ## 値の表現
 
@@ -107,6 +118,7 @@ servant manager と adapter activator は `org.omg.CORBA.LocalObject` を継承�
   - `PoaTest`：C++ の `test_poa.cc` と同じ内容（ServantActivator・ServantLocator・AdapterActivator、転送と例外、ポリシーの検査）を、2つの ORB の間と同一 ORB 内で確かめる
   - `InteropCasesTest`：相互接続の78ケース（`interop/impls/java/interop/Cases.java`）と Any / TypeCode の251ケース（DynAny の組み立て直しを含む）（`AnyTests.java`）を、2つの ORB の間で回す
   - `DynAnyTest`：`org.omg.DynamicAny`（[dynany.md](dynany.md)）。生成コードの型の DynAny、valuetype の共有と循環、切り詰め。残りの操作は `interop/impls/rustorbjava/probe/interop/DynAnyProbe.java`（`run-dynany-probe.sh`）で確かめる
+  - `PortableTest`：手書きの portable stub（`_request` / `_invoke` / `ApplicationException` / oneway）を2つの ORB の間と同一 ORB 内で、`_releaseReply` の後のストリーム、返事を作ってから操作を呼ぶスケルトンの例外の完了状態、`ORB.create_output_stream` の読み戻し、Any のストリーム操作と `insert_Value` / `extract_Value`
   - `ValuetypeTest`：valuetype の23ケース（`ValueTests.java`）、生成された既定のファクトリ、truncatable の切り捨て、ファクトリのない型の `MARSHAL`、`create_value_tc`
 - `crates/rustorb-codegen/python/tests/test_java_backend.py`：コマンドライン、生成物の形、対応しない構文のエラー、生成コードとランタイムの `javac -Werror` でのコンパイル
 - CI（`ci.yml` の `java`）：Linux（Java 11 と 21）、macOS、Windows で `mvn verify`。Linux では同梱の CosNaming のスタブが生成器の出力と一致することも確かめる
@@ -115,6 +127,12 @@ servant manager と adapter activator は `org.omg.CORBA.LocalObject` を継承�
   - any（190ケース）：`rustorbjava` は omniORBpy・omniORB C++・rustorb（Rust・Python・C++）・自身とのすべての組で GIOP 1.2 / 1.1 とも通る。`jacorb` は下の Helper の違いで大半の `make` / `check` が失敗するため、既定では any のマトリクスに入れない（組を指定すれば回せる）
   - value（23ケース）：`rustorbjava` と `jacorb` はすべての相手と GIOP 1.2 / 1.1 とも通る。ただし JacORB は Java 17 で値の入った Any を書けない（[valuetype.md](valuetype.md)）ので、`jacorb` の組の `echo_any` の3ケースは既知の失敗
 
+- portable stub：`interop/impls/rustorbjava-portable` は、`jacorb` と同じ共通のソースと JacORB の IDL コンパイラが生成したスタブ・スケルトン・Helper（相互接続のイメージから取り出す）を、JacORB ではなく rustorb の Java ランタイムでビルドしたもの。対になる全実装（omniORBpy・omniORB C++・JacORB・rustorb の Rust・Python・C++・Java と自身）と両方向で回した結果（ローカルで確認）
+  - basic（78ケース）：すべての組で、JacORB の union の判別子の1ケース（`echo_value[5]`、JacORB 自身と同じ）だけが失敗する
+  - value（23ケース）：`echo_any[derived]` だけが失敗する。JacORB の生成コードの違い（下）による
+  - basic を GIOP 1.1 でも回し、同じ結果
+  - any：JacORB 自身の組と同じく Helper の違いで多くの `make` / `check` が失敗するので、CI では回さない。相手ごとの失敗するケースは `jacorb` の組と一致する。違いは2種類で、`jacorb` のクライアントだけが失敗する DynAny の16ケース（JacORB の DynAny の問題）と、`rustorbjava-portable` のクライアントだけが失敗する `dyn_make[count]`（`CountHelper.insert` が別名を落とした比較用の値に対し、rustorb の DynAny は受け取った別名の TypeCode を保つ）
+  - `Any.insert_Object(o)` の TypeCode の名前を、空からリポジトリIDの最後の名前（`IDL:AnyTest/AnyEcho:1.0` なら `AnyEcho`）に変えた。JacORB の `AnyEchoHelper.insert` はこれを使い、Helper の `type()` と `equal()` で比べられる
 - POA プローブ：`interop/impls/rustorbjava/probe/interop/PoaProbeServer.java` で `run-poa-probe.sh` を回し、Rust のプローブサーバーと同じ期待出力（`expected/poa-probe-rustorb.txt`）と一致する
 
 ## JacORB の実測
@@ -129,10 +147,11 @@ JacORB は、UTF-8 に決まった `char` のデータ（rustorb とはどちら
 - 別名の `Helper.insert`（`CountHelper.insert`）は元の型（`tk_long`）の TypeCode を付ける
 - 複数のラベルを持つ union のメンバーの TypeCode は、ラベルが IDL と逆の順になる（`Choice` の `s` が 3, 2 の順）ので、`TypeCode.equal` が偽になる
 - インターフェースの `Helper.insert` に nil を渡すと、TypeCode が `CORBA::Object` になる
+- valuetype の `Helper.type()` の TypeCode に、具象の基底と truncatable の修飾がない（`Point3` が `Point` の派生にならない）。また valuetype の `Helper.insert` は、渡した値のクラスの TypeCode を付ける（`PointHelper.insert` に `Point3` を渡すと `Point3`）。JacORB 自身も同じ（rustorb の上で動かして見つけ、JacORB のランタイムでも確かめた）
 - GIOP 1.1 の Fragment メッセージを受け付けない（`NO_IMPLEMENT`）。omniORB のクライアントは GIOP 1.1 でも大きな要求を分割するので、その組の大きな値の2ケースが失敗する。rustorb は送るメッセージを分割しない
 
 ## 残り
 
-- `Any.create_output_stream` / `read_value` などのストリームによる Any の操作、DII / DSI、`ObjectImpl._request` の形のスタブ（他の IDL コンパイラが生成したスタブを rustorb の上で使う場合に要る）
+- DII / DSI（#44）
 - `custom` の valuetype、`supports`、valuetype の操作と初期化子、abstract interface（#42、#43）
 - Java 22 以降の FFM API への置き換えの検討

@@ -27,6 +27,7 @@ mod dynany;
 mod manager;
 mod object;
 mod orb;
+mod owned;
 mod poa;
 mod policy;
 mod servant;
