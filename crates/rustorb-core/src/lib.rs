@@ -68,6 +68,7 @@ mod stream;
 mod timeout;
 pub mod typecode;
 mod value;
+mod wire;
 
 pub use codeset::CodeSets;
 pub use dynany::{DynAny, DynAnyError, DynAnyFactory};

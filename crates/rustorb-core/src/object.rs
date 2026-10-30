@@ -641,13 +641,10 @@ async fn attempt_on(
         },
         None => rx.await,
     };
-    let whole = match delivered {
-        Ok(Ok(whole)) => whole,
+    let message = match delivered {
+        Ok(Ok(message)) => message,
         Ok(Err(closed)) => return Err(closed),
         Err(_) => return Err(Closed::Failed("reply channel dropped".into())),
-    };
-    let Ok((_, message)) = whole.decode() else {
-        return Err(Closed::Failed("undecodable reply".into()));
     };
     Ok(match message {
         Message::Reply { header, body } => {

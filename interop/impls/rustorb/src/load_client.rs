@@ -3,7 +3,8 @@
 //! prints the rate of each phase.
 //!
 //! Options: `--naming CORBALOC --name PATH [--seconds S] [--threads N]
-//! [--connections N]`. The phases, each `--seconds` long:
+//! [--connections N] [--phases LIST]`. The phases, each `--seconds` long
+//! (`--phases` runs only the comma-separated ones named):
 //!
 //! - `small`: `echo_long` from N threads, all on one connection
 //! - `string`: `echo_string` of 100 characters, the same way
@@ -31,6 +32,13 @@ struct Args {
     seconds: u64,
     threads: usize,
     connections: usize,
+    phases: Vec<String>,
+}
+
+impl Args {
+    fn wants(&self, phase: &str) -> bool {
+        self.phases.is_empty() || self.phases.iter().any(|p| p == phase)
+    }
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -40,6 +48,7 @@ fn parse_args() -> Result<Args, String> {
         seconds: 5,
         threads: 8,
         connections: 16,
+        phases: Vec::new(),
     };
     let mut iter = std::env::args().skip(1);
     while let Some(a) = iter.next() {
@@ -52,6 +61,7 @@ fn parse_args() -> Result<Args, String> {
             "--connections" => {
                 args.connections = value()?.parse().map_err(|e| format!("{a}: {e}"))?
             }
+            "--phases" => args.phases = value()?.split(',').map(str::to_owned).collect(),
             _ => return Err(format!("unknown argument: {a}")),
         }
     }
@@ -146,14 +156,41 @@ fn run() -> Result<bool, String> {
     let mut ok = true;
 
     let echoes = vec![echo.clone(); args.threads];
-    ok &= phase("small", args.seconds, echoes.clone(), |e: &Echo, i| {
-        e.echo_long(i as i32) == Ok(i as i32)
-    });
-    let text = "x".repeat(100);
-    ok &= phase("string", args.seconds, echoes, move |e: &Echo, _| {
-        e.echo_string(&text).as_deref() == Ok(text.as_str())
-    });
+    if args.wants("small") {
+        ok &= phase("small", args.seconds, echoes.clone(), |e: &Echo, i| {
+            e.echo_long(i as i32) == Ok(i as i32)
+        });
+    }
+    if args.wants("string") {
+        let text = "x".repeat(100);
+        ok &= phase("string", args.seconds, echoes, move |e: &Echo, _| {
+            e.echo_string(&text).as_deref() == Ok(text.as_str())
+        });
+    }
+    if args.wants("connections") {
+        ok &= connections(&orb, &echo, &args)?;
+    }
+    if args.wants("large") {
+        let data: Arc<Vec<u8>> = Arc::new((0..1 << 20).map(|i| i as u8).collect());
+        ok &= phase(
+            "large",
+            args.seconds,
+            vec![echo.clone(); 4],
+            move |e: &Echo, _| match e.echo_octets(&data) {
+                Ok(back) => back == *data,
+                Err(err) => {
+                    eprintln!("echo_octets: {err}");
+                    false
+                }
+            },
+        );
+    }
+    let _ = orb.destroy();
+    Ok(ok)
+}
 
+/// The `connections` phase.
+fn connections(orb: &Orb, echo: &Echo, args: &Args) -> Result<bool, String> {
     // Each worker has its own ORB, and so its own connection.
     let ior = orb
         .object_to_string(Some(echo.as_ref()))
@@ -172,7 +209,7 @@ fn run() -> Result<bool, String> {
         clients.push((Echo::unchecked_narrow(obj), o));
     }
     let orbs: Vec<Orb> = clients.iter().map(|(_, o)| o.clone()).collect();
-    ok &= phase(
+    let ok = phase(
         "connections",
         args.seconds,
         clients,
@@ -181,21 +218,6 @@ fn run() -> Result<bool, String> {
     for o in orbs {
         let _ = o.destroy();
     }
-
-    let data: Arc<Vec<u8>> = Arc::new((0..1 << 20).map(|i| i as u8).collect());
-    ok &= phase(
-        "large",
-        args.seconds,
-        vec![echo.clone(); 4],
-        move |e: &Echo, _| match e.echo_octets(&data) {
-            Ok(back) => back == *data,
-            Err(err) => {
-                eprintln!("echo_octets: {err}");
-                false
-            }
-        },
-    );
-    let _ = orb.destroy();
     Ok(ok)
 }
 

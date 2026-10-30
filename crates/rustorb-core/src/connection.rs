@@ -12,15 +12,14 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use rustorb_cdr::ByteOrder;
-use rustorb_giop::{
-    AssembledMessage, FragmentAssembler, Message, MessageEncoder, MessageHeader, Version,
-};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use rustorb_giop::{FragmentAssembler, Message, MessageEncoder, Version};
+use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::sync::oneshot;
 
 use crate::CodeSets;
+use crate::wire::{self, ReadError};
 
 /// Why a connection stopped delivering replies.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,7 +45,7 @@ pub(crate) enum SendError {
 }
 
 /// What a waiting caller receives.
-pub(crate) type Delivery = Result<AssembledMessage, Closed>;
+pub(crate) type Delivery = Result<Message, Closed>;
 
 #[derive(Debug)]
 struct Pending {
@@ -89,7 +88,11 @@ impl Connection {
             code_sets: Mutex::new(None),
             closing: AtomicBool::new(false),
         });
-        tokio::spawn(read_loop(Arc::clone(&conn), reader, max_message_size));
+        tokio::spawn(read_loop(
+            Arc::clone(&conn),
+            wire::buffered(reader),
+            max_message_size,
+        ));
         Ok(conn)
     }
 
@@ -215,7 +218,7 @@ impl Connection {
         }
     }
 
-    fn deliver(&self, request_id: u32, msg: AssembledMessage) {
+    fn deliver(&self, request_id: u32, msg: Message) {
         let tx = self.pending.lock().unwrap().waiters.remove(&request_id);
         if let Some(tx) = tx {
             let _ = tx.send(Ok(msg));
@@ -223,7 +226,11 @@ impl Connection {
     }
 }
 
-async fn read_loop(conn: Arc<Connection>, mut reader: OwnedReadHalf, max_message_size: usize) {
+async fn read_loop(
+    conn: Arc<Connection>,
+    mut reader: BufReader<OwnedReadHalf>,
+    max_message_size: usize,
+) {
     let why = match read_messages(&conn, &mut reader, max_message_size).await {
         Ok(why) => why,
         Err(e) => Closed::Failed(e),
@@ -235,39 +242,31 @@ async fn read_loop(conn: Arc<Connection>, mut reader: OwnedReadHalf, max_message
 /// Reads messages until the stream ends. Returns how it ended.
 async fn read_messages(
     conn: &Connection,
-    reader: &mut OwnedReadHalf,
+    reader: &mut BufReader<OwnedReadHalf>,
     max_message_size: usize,
 ) -> Result<Closed, String> {
     let mut assembler = FragmentAssembler::new(max_message_size);
     loop {
-        let mut header = [0u8; MessageHeader::SIZE];
-        match reader.read_exact(&mut header).await {
-            Ok(_) => {}
-            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
+        let (_, msg) = match wire::read_message(reader, max_message_size).await {
+            Ok(read) => read,
+            Err(ReadError::Closed(e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
                 return Err("connection closed by the server".into());
             }
-            Err(e) => return Err(format!("read failed: {e}")),
-        }
-        let parsed = MessageHeader::parse(&header).map_err(|e| e.to_string())?;
-        let total = parsed.total_len();
-        if total > max_message_size {
-            return Err(format!("message of {total} bytes exceeds the limit"));
-        }
-        let mut msg = Vec::with_capacity(total);
-        msg.extend_from_slice(&header);
-        msg.resize(total, 0);
-        reader
-            .read_exact(&mut msg[MessageHeader::SIZE..])
-            .await
-            .map_err(|e| format!("read failed: {e}"))?;
-
-        let Some(whole) = assembler.push(&msg).map_err(|e| e.to_string())? else {
+            Err(ReadError::Closed(e) | ReadError::Truncated(e)) => {
+                return Err(format!("read failed: {e}"));
+            }
+            Err(ReadError::BadHeader(e)) => return Err(e),
+            Err(ReadError::TooLarge(total, _)) => {
+                return Err(format!("message of {total} bytes exceeds the limit"));
+            }
+        };
+        let Some(whole) = assembler.push_owned(msg).map_err(|e| e.to_string())? else {
             continue;
         };
-        let (_, message) = whole.decode().map_err(|e| e.to_string())?;
+        let (_, message) = whole.into_decoded().map_err(|e| e.to_string())?;
         match message {
-            Message::Reply { header, .. } => conn.deliver(header.request_id, whole),
-            Message::LocateReply { header, .. } => conn.deliver(header.request_id, whole),
+            Message::Reply { ref header, .. } => conn.deliver(header.request_id, message),
+            Message::LocateReply { ref header, .. } => conn.deliver(header.request_id, message),
             Message::CloseConnection => return Ok(Closed::Orderly),
             Message::MessageError => return Err("the server sent MessageError".into()),
             // A client connection is not bidirectional: requests from the
