@@ -105,7 +105,8 @@ servant manager と adapter activator は `org.omg.CORBA.LocalObject` を継承�
 - `java/src/test`（`mvn -f java/pom.xml -Didl.parser.dir=... verify`。cargo で `librustorb_jni` を、`rustorb-idl -bjava` でテスト用 IDL のコードを作る）
   - `MappingTest`：C++ と同じ `cpp/tests/idl/CxxMapping.idl`（`-Wbpackage=mapping`）の定数、union の規則、すべての型を、同じプロセスの2つの ORB の間と同一 ORB 内で往復させる
   - `PoaTest`：C++ の `test_poa.cc` と同じ内容（ServantActivator・ServantLocator・AdapterActivator、転送と例外、ポリシーの検査）を、2つの ORB の間と同一 ORB 内で確かめる
-  - `InteropCasesTest`：相互接続の78ケース（`interop/impls/java/interop/Cases.java`）と Any / TypeCode の190ケース（`AnyTests.java`）を、2つの ORB の間で回す
+  - `InteropCasesTest`：相互接続の78ケース（`interop/impls/java/interop/Cases.java`）と Any / TypeCode の251ケース（DynAny の組み立て直しを含む）（`AnyTests.java`）を、2つの ORB の間で回す
+  - `DynAnyTest`：`org.omg.DynamicAny`（[dynany.md](dynany.md)）。生成コードの型の DynAny、valuetype の共有と循環、切り詰め。残りの操作は `interop/impls/rustorbjava/probe/interop/DynAnyProbe.java`（`run-dynany-probe.sh`）で確かめる
   - `ValuetypeTest`：valuetype の23ケース（`ValueTests.java`）、生成された既定のファクトリ、truncatable の切り捨て、ファクトリのない型の `MARSHAL`、`create_value_tc`
 - `crates/rustorb-codegen/python/tests/test_java_backend.py`：コマンドライン、生成物の形、対応しない構文のエラー、生成コードとランタイムの `javac -Werror` でのコンパイル
 - CI（`ci.yml` の `java`）：Linux（Java 11 と 21）、macOS、Windows で `mvn verify`。Linux では同梱の CosNaming のスタブが生成器の出力と一致することも確かめる
@@ -133,5 +134,5 @@ JacORB は、UTF-8 に決まった `char` のデータ（rustorb とはどちら
 ## 残り
 
 - `Any.create_output_stream` / `read_value` などのストリームによる Any の操作、DII / DSI、`ObjectImpl._request` の形のスタブ（他の IDL コンパイラが生成したスタブを rustorb の上で使う場合に要る）
-- `custom` の valuetype、`supports`、valuetype の操作と初期化子、abstract interface（#42、#43）、DynAny
+- `custom` の valuetype、`supports`、valuetype の操作と初期化子、abstract interface（#42、#43）
 - Java 22 以降の FFM API への置き換えの検討

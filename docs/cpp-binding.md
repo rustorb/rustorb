@@ -117,8 +117,9 @@ C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP �
 - `cpp/tests/test_mapping.cc`：`cpp/tests/idl/CxxMapping.idl`（定数、typedef、`fixed`（typedef・struct のメンバー・列・inout / out・定数・Any）、上限付きの型、多次元配列、再帰的な struct と union、すべての種類の判別子、入れ子の型、予約語の名前、多重継承、oneway、inout / out、ユーザー例外とシステム例外、オブジェクト参照の列）を、同じプロセスの2つの ORB の間と、同一 ORB 内で往復させる
 - `cpp/tests/test_interop.cc`：相互接続の78ケース（`interop/impls/rustorbcpp/cases.h`）を同じプロセスの2つの ORB の間で回す
 - `cpp/tests/test_poa.cc`：`ServantActivator`（初回の `incarnate`、転送、システム例外、nil、C++ 例外、`deactivate_object` と `destroy` での `etherealize`）、`ServantLocator`（cookie の受け渡し、失敗時に `postinvoke` を呼ばないこと）、`AdapterActivator`（`find_POA` と、存在しない POA への要求での作成）、ポリシーの検査（`WrongPolicy`、種類の違う manager の `OBJ_ADAPTER`、2回目の `BAD_INV_ORDER`）を、2つの ORB の間と同一 ORB 内で確かめる。POA が破棄されると manager が解放されることも見る
-- `cpp/tests/test_any.cc`：Any / TypeCode の相互接続の190ケース（`interop/impls/rustorbcpp/anytest.h`）を同じプロセスの2つの ORB の間で回し、TypeCode の操作、`ORB::create_*_tc`、`<<=` / `>>=` の規則を確かめる
+- `cpp/tests/test_any.cc`：Any / TypeCode の相互接続の251ケース（DynAny の組み立て直しを含む）（`interop/impls/rustorbcpp/anytest.h`）を同じプロセスの2つの ORB の間で回し、TypeCode の操作、`ORB::create_*_tc`、`<<=` / `>>=` の規則を確かめる
 - `cpp/tests/test_value.cc`：valuetype の相互接続の23ケース（`interop/impls/rustorbcpp/valuetest.h`）を同じプロセスの2つの ORB の間で回し、値ファクトリの表、truncatable の切り捨て、ファクトリのない型の `MARSHAL`、`ORB::create_value_tc`、`_copy_value` を確かめる
+- `cpp/tests/test_dynany.cc`：`DynamicAny`（[dynany.md](dynany.md)）。生成コードの型の DynAny、valuetype の共有と循環、切り詰め。残りの操作は `interop/impls/rustorbcpp/dynany_probe.cc`（`run-dynany-probe.sh`）で確かめる
 - CI（`ci.yml` の `cpp`）は g++ と clang++ の両方で `-Wall -Wextra -Werror` でビルドして ctest を回す。ローカルでは ASan・UBSan・LeakSanitizer でも警告なし
 - `crates/rustorb-codegen/python/tests/test_cxx_backend.py`：コマンドライン、生成物の形、対応しない構文のエラー、生成コードのコンパイル
 - 相互接続：`interop/impls/rustorbcpp` を omniORB C++・omniORBpy・rustorb（Rust・Python）とすべての組み合わせで、omniNames と rustorb-names の両方、GIOP 1.1 でも回す。失敗は既存の `known-failures.txt`（omniORB 側の wchar）の範囲だけ
@@ -126,6 +127,6 @@ C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP �
 
 ## 残り
 
-- `custom` の valuetype、`supports`、valuetype の操作と初期化子、abstract interface（#42、#43）、DynAny、`IDL::Fixed` の四則演算
+- `custom` の valuetype、`supports`、valuetype の操作と初期化子、abstract interface（#42、#43）、`IDL::Fixed` の四則演算
 - IDL4-CPP の構文（アノテーションなど）
 - `run-wire-probe.sh` への C++ の rustorb の追加

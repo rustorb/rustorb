@@ -1048,10 +1048,16 @@ template <typename T> class DefaultValueFactory : public CORBA::ValueFactoryBase
 namespace rustorb {
 namespace detail {
 // The names resolve_initial_references answers without the core.
-inline constexpr const char* local_initial_references[] = {"RootPOA", "POACurrent",
-                                                           "ORBPolicyManager", "PolicyCurrent"};
+inline constexpr const char* local_initial_references[] = {
+    "RootPOA", "POACurrent", "ORBPolicyManager", "PolicyCurrent", "DynAnyFactory"};
 CORBA::object_reference<CORBA::Object> orb_policy_manager(rorb_orb* orb);
 CORBA::object_reference<CORBA::Object> policy_current();
+// The DynAnyFactory, set by <rustorb/dynany.h>.
+using LocalFactory = CORBA::object_reference<CORBA::Object> (*)();
+inline LocalFactory& dyn_any_factory_hook() {
+  static LocalFactory factory = nullptr;
+  return factory;
+}
 }  // namespace detail
 }  // namespace rustorb
 
@@ -1715,6 +1721,10 @@ inline object_reference<Object> ORB::resolve_initial_references(const std::strin
   }
   if (identifier == "ORBPolicyManager") return rustorb::detail::orb_policy_manager(handle_);
   if (identifier == "PolicyCurrent") return rustorb::detail::policy_current();
+  if (identifier == "DynAnyFactory") {
+    if (!rustorb::detail::dyn_any_factory_hook()) throw InvalidName();
+    return rustorb::detail::dyn_any_factory_hook()();
+  }
   object_reference<Object> local;
   if (rorb_orb_resolve_local_initial_reference(
           handle_, identifier.data(), identifier.size(), &local, [](void* ctx, void* p) {

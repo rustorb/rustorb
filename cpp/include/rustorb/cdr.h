@@ -694,4 +694,7 @@ RUSTORB_POLICY_VALUE_TYPE(RequestProcessingPolicyValue, "USE_ACTIVE_OBJECT_MAP_O
 }  // namespace cdr
 }  // namespace rustorb
 
+// DynamicAny is part of the runtime (resolve_initial_references("DynAnyFactory")).
+#include <rustorb/dynany.h>
+
 #endif

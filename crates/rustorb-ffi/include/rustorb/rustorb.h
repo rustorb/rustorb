@@ -89,6 +89,10 @@ typedef int32_t rorb_status;
 #define RORB_TC_BAD_KIND 14           /* TypeCode::BadKind */
 #define RORB_TC_BOUNDS 15             /* TypeCode::Bounds */
 #define RORB_POLICY_ERROR 16          /* CORBA::PolicyError (reason in .index) */
+#define RORB_DYN_INVALID_VALUE 17     /* DynamicAny::DynAny::InvalidValue */
+#define RORB_DYN_TYPE_MISMATCH 18     /* DynamicAny::DynAny::TypeMismatch */
+#define RORB_DYN_INCONSISTENT_TYPECODE 19 /* DynamicAny::DynAnyFactory::InconsistentTypeCode */
+#define RORB_DYN_MUST_TRUNCATE 20     /* DynamicAny::MustTruncate */
 
 typedef struct rorb_exception {
   /* RORB_SYSTEM_EXCEPTION: the repository id, such as
@@ -285,6 +289,146 @@ rorb_status rorb_any_insert(const rorb_typecode* tc,
 rorb_status rorb_any_extract(const rorb_any* any,
                              rorb_status (*read)(void* context, rorb_in* in), void* context,
                              rorb_exception* exc);
+
+/* --- DynamicAny --------------------------------------------------------------
+
+   An rorb_dynany handle is one reference to a DynAny of the core; clones
+   are the same DynAny, released one by one. The operations of every
+   derived interface (DynStruct, DynUnion...) take any handle: on a DynAny
+   of another kind they are BAD_OPERATION. Failures are RORB_LOCAL_EXCEPTION
+   with RORB_DYN_* or system exceptions (OBJECT_NOT_EXIST after destroy).
+   Values go in and out as anys (see docs/dynany.md). Strings returned in
+   rorb_bytes are UTF-8. */
+
+typedef struct rorb_dynany rorb_dynany;
+
+/* DynAnyFactory: create_dyn_any (truncate 1) or
+   create_dyn_any_without_truncation (0), create_dyn_any_from_type_code. */
+rorb_status rorb_dynany_create(const rorb_any* any, int32_t truncate, rorb_dynany** out,
+                               rorb_exception* exc);
+rorb_status rorb_dynany_from_typecode(const rorb_typecode* tc, rorb_dynany** out,
+                                      rorb_exception* exc);
+rorb_dynany* rorb_dynany_clone(const rorb_dynany* d);
+void rorb_dynany_release(rorb_dynany* d);
+/* The kind of the unaliased type, which tells the derived interface. */
+uint32_t rorb_dynany_kind(const rorb_dynany* d);
+/* 1 if both handles are the same DynAny. */
+int32_t rorb_dynany_same(const rorb_dynany* a, const rorb_dynany* b);
+
+rorb_status rorb_dynany_type(const rorb_dynany* d, rorb_typecode** out, rorb_exception* exc);
+/* The type of the DynAny insert and get work on: the current component,
+   else the DynAny itself. */
+rorb_status rorb_dynany_target_type(const rorb_dynany* d, rorb_typecode** out,
+                                    rorb_exception* exc);
+rorb_status rorb_dynany_assign(const rorb_dynany* d, const rorb_dynany* other,
+                               rorb_exception* exc);
+rorb_status rorb_dynany_from_any(const rorb_dynany* d, const rorb_any* any, rorb_exception* exc);
+rorb_status rorb_dynany_to_any(const rorb_dynany* d, rorb_any** out, rorb_exception* exc);
+rorb_status rorb_dynany_equal(const rorb_dynany* d, const rorb_dynany* other, int32_t* out,
+                              rorb_exception* exc);
+rorb_status rorb_dynany_destroy(const rorb_dynany* d, rorb_exception* exc);
+rorb_status rorb_dynany_copy(const rorb_dynany* d, rorb_dynany** out, rorb_exception* exc);
+/* insert_<type>: the value of the any (its type is not looked at) as a
+   value of the kind (RORB_TK_OBJREF for insert_reference, RORB_TK_VALUE for
+   insert_val). get_<type>: an any of the kind's type (string, wstring,
+   Object, the instance's type for RORB_TK_VALUE). */
+rorb_status rorb_dynany_insert(const rorb_dynany* d, uint32_t kind, const rorb_any* value,
+                               rorb_exception* exc);
+rorb_status rorb_dynany_get(const rorb_dynany* d, uint32_t kind, rorb_any** out,
+                            rorb_exception* exc);
+/* insert_<type>_seq: the elements of an any of a sequence of the kind;
+   get_<type>_seq: an any of an unbounded sequence of the kind. */
+rorb_status rorb_dynany_insert_seq(const rorb_dynany* d, uint32_t kind, const rorb_any* value,
+                                   rorb_exception* exc);
+rorb_status rorb_dynany_get_seq(const rorb_dynany* d, uint32_t kind, rorb_any** out,
+                                rorb_exception* exc);
+rorb_status rorb_dynany_insert_dyn_any(const rorb_dynany* d, const rorb_dynany* value,
+                                       rorb_exception* exc);
+rorb_status rorb_dynany_get_dyn_any(const rorb_dynany* d, rorb_dynany** out,
+                                    rorb_exception* exc);
+/* NO_IMPLEMENT (long double, abstract interfaces), or OBJECT_NOT_EXIST. */
+rorb_status rorb_dynany_no_implement(const rorb_dynany* d, rorb_exception* exc);
+rorb_status rorb_dynany_seek(const rorb_dynany* d, int32_t index, int32_t* out,
+                             rorb_exception* exc);
+rorb_status rorb_dynany_rewind(const rorb_dynany* d, rorb_exception* exc);
+rorb_status rorb_dynany_next(const rorb_dynany* d, int32_t* out, rorb_exception* exc);
+rorb_status rorb_dynany_component_count(const rorb_dynany* d, uint32_t* out,
+                                        rorb_exception* exc);
+/* NULL in *out at position -1. */
+rorb_status rorb_dynany_current_component(const rorb_dynany* d, rorb_dynany** out,
+                                          rorb_exception* exc);
+
+/* DynFixed, DynEnum */
+rorb_status rorb_dynany_get_fixed_value(const rorb_dynany* d, rorb_bytes* out,
+                                        rorb_exception* exc);
+rorb_status rorb_dynany_set_fixed_value(const rorb_dynany* d, const char* value, size_t len,
+                                        int32_t* out, rorb_exception* exc);
+rorb_status rorb_dynany_get_as_string(const rorb_dynany* d, rorb_bytes* out,
+                                      rorb_exception* exc);
+rorb_status rorb_dynany_set_as_string(const rorb_dynany* d, const char* value, size_t len,
+                                      rorb_exception* exc);
+rorb_status rorb_dynany_get_as_ulong(const rorb_dynany* d, uint32_t* out, rorb_exception* exc);
+rorb_status rorb_dynany_set_as_ulong(const rorb_dynany* d, uint32_t value, rorb_exception* exc);
+
+/* DynStruct, DynValue. get_members is member_count (failing as
+   get_members does) and member_at for each. */
+rorb_status rorb_dynany_current_member_name(const rorb_dynany* d, rorb_bytes* out,
+                                            rorb_exception* exc);
+rorb_status rorb_dynany_current_member_kind(const rorb_dynany* d, uint32_t* out,
+                                            rorb_exception* exc);
+rorb_status rorb_dynany_member_count(const rorb_dynany* d, uint32_t* out, rorb_exception* exc);
+rorb_status rorb_dynany_member_at(const rorb_dynany* d, uint32_t index, rorb_bytes* name,
+                                  rorb_dynany** out, rorb_exception* exc);
+rorb_status rorb_dynany_set_members(const rorb_dynany* d, size_t count,
+                                    const char* const* names, const size_t* name_lens,
+                                    const rorb_any* const* values, rorb_exception* exc);
+rorb_status rorb_dynany_set_members_as_dyn_any(const rorb_dynany* d, size_t count,
+                                               const char* const* names,
+                                               const size_t* name_lens,
+                                               const rorb_dynany* const* values,
+                                               rorb_exception* exc);
+
+/* DynUnion */
+rorb_status rorb_dynany_get_discriminator(const rorb_dynany* d, rorb_dynany** out,
+                                          rorb_exception* exc);
+rorb_status rorb_dynany_set_discriminator(const rorb_dynany* d, const rorb_dynany* disc,
+                                          rorb_exception* exc);
+rorb_status rorb_dynany_set_to_default_member(const rorb_dynany* d, rorb_exception* exc);
+rorb_status rorb_dynany_set_to_no_active_member(const rorb_dynany* d, rorb_exception* exc);
+rorb_status rorb_dynany_has_no_active_member(const rorb_dynany* d, int32_t* out,
+                                             rorb_exception* exc);
+rorb_status rorb_dynany_discriminator_kind(const rorb_dynany* d, uint32_t* out,
+                                           rorb_exception* exc);
+rorb_status rorb_dynany_member(const rorb_dynany* d, rorb_dynany** out, rorb_exception* exc);
+rorb_status rorb_dynany_member_name(const rorb_dynany* d, rorb_bytes* out, rorb_exception* exc);
+rorb_status rorb_dynany_member_kind(const rorb_dynany* d, uint32_t* out, rorb_exception* exc);
+
+/* DynSequence, DynArray. get_elements is element_count and element_at. */
+rorb_status rorb_dynany_get_length(const rorb_dynany* d, uint32_t* out, rorb_exception* exc);
+rorb_status rorb_dynany_set_length(const rorb_dynany* d, uint32_t len, rorb_exception* exc);
+rorb_status rorb_dynany_element_count(const rorb_dynany* d, uint32_t* out,
+                                      rorb_exception* exc);
+rorb_status rorb_dynany_element_at(const rorb_dynany* d, uint32_t index, rorb_dynany** out,
+                                   rorb_exception* exc);
+rorb_status rorb_dynany_set_elements(const rorb_dynany* d, size_t count,
+                                     const rorb_any* const* values, rorb_exception* exc);
+rorb_status rorb_dynany_set_elements_as_dyn_any(const rorb_dynany* d, size_t count,
+                                                const rorb_dynany* const* values,
+                                                rorb_exception* exc);
+
+/* DynValueCommon, DynValueBox */
+rorb_status rorb_dynany_is_null(const rorb_dynany* d, int32_t* out, rorb_exception* exc);
+rorb_status rorb_dynany_set_to_null(const rorb_dynany* d, rorb_exception* exc);
+rorb_status rorb_dynany_set_to_value(const rorb_dynany* d, rorb_exception* exc);
+rorb_status rorb_dynany_get_boxed_value(const rorb_dynany* d, rorb_any** out,
+                                        rorb_exception* exc);
+rorb_status rorb_dynany_set_boxed_value(const rorb_dynany* d, const rorb_any* value,
+                                        rorb_exception* exc);
+rorb_status rorb_dynany_get_boxed_value_as_dyn_any(const rorb_dynany* d, rorb_dynany** out,
+                                                   rorb_exception* exc);
+rorb_status rorb_dynany_set_boxed_value_as_dyn_any(const rorb_dynany* d,
+                                                   const rorb_dynany* value,
+                                                   rorb_exception* exc);
 
 /* --- ORB --------------------------------------------------------------- */
 

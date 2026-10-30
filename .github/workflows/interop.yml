@@ -103,7 +103,7 @@ jobs:
       - name: Probe the remaining ORB operations of omniORBpy and rustorbpy
         run: interop/run-orb-ops-probe.sh
 
-      - name: Probe DynAny on omniORB C++, rustorb and rustorbpy
+      - name: Probe DynAny on omniORB C++ and rustorb (Rust, Python, C++, Java)
         run: interop/run-dynany-probe.sh
 
       - name: Compare the generated Python code with omniidl -bpython
