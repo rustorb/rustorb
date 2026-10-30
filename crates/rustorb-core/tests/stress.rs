@@ -282,6 +282,46 @@ fn many_clients_each_on_its_own_connection() {
     server.destroy().unwrap();
 }
 
+/// Long runs of calls, one after another, on each of several connections:
+/// the caller reads its own reply, or the reader task does, and the
+/// server's upcall thread reads the next request, or the I/O task does
+/// (docs/read-ownership.md). A reply or request lost in a hand-over shows
+/// up as `TIMEOUT`.
+#[test]
+fn back_to_back_calls_hand_the_reading_over() {
+    let server = Orb::with_options(server_options(0)).unwrap();
+    let servant = Arc::new(LoadServant::default());
+    let obj = serve(&server, servant.clone());
+    let ior = server.object_to_string(Some(&obj)).unwrap();
+    let clients = 8;
+    let calls = 2000 * scale();
+    let start = Instant::now();
+    let threads: Vec<_> = (0..clients)
+        .map(|c| {
+            let ior = ior.clone();
+            thread::spawn(move || {
+                let orb = Orb::with_options(client_options()).unwrap();
+                let obj = orb.string_to_object(&ior).unwrap().unwrap();
+                obj.set_call_timeout(Some(Some(Duration::from_secs(10))));
+                for i in 0..calls {
+                    let v = (c * 100_000 + i) as i32;
+                    assert_eq!(echo_long(&obj, v).unwrap(), v);
+                }
+                orb.destroy().unwrap();
+            })
+        })
+        .collect();
+    for t in threads {
+        t.join().unwrap();
+    }
+    eprintln!(
+        "{clients} connections back to back: {}",
+        rate(clients * calls, start.elapsed())
+    );
+    assert_eq!(servant.calls.load(Ordering::Relaxed), clients * calls);
+    server.destroy().unwrap();
+}
+
 #[test]
 fn many_threads_share_one_connection() {
     let server = Orb::with_options(server_options(0)).unwrap();

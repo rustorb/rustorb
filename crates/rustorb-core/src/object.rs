@@ -616,30 +616,35 @@ async fn attempt_on(
         return Ok(Attempt::Done(Ok(Outcome::Reply(None))));
     };
 
-    let delivered = match deadline {
-        Some(at) => match tokio::time::timeout_at(at.into(), rx).await {
-            Ok(delivered) => delivered,
-            Err(_) => {
-                conn.forget(request_id);
-                if let Ok(cancel) = MessageEncoder::cancel_request(
-                    version,
-                    order,
-                    &CancelRequestHeader { request_id },
-                ) {
-                    // The caller is out of time already, and the connection
-                    // may be the reason: a short wait at most.
-                    let at = Instant::now() + CANCEL_SEND_TIME;
-                    let _ = conn.send(&cancel, Some(at)).await;
-                }
-                return Ok(Attempt::Done(Err(sys(
-                    SystemExceptionKind::TIMEOUT,
-                    0,
-                    CompletionStatus::Maybe,
-                )
-                .into())));
-            }
+    // `attempt` runs on the caller's own thread (`Orb::block_on`), which
+    // may block reading the reply.
+    let delivered = match conn.read_reply_here(request_id, deadline) {
+        Some(Some(message)) => Some(Ok(Ok(message))),
+        Some(None) => None,
+        None => match deadline {
+            Some(at) => tokio::time::timeout_at(at.into(), rx).await.ok(),
+            None => Some(rx.await),
         },
-        None => rx.await,
+    };
+    let delivered = match delivered {
+        Some(delivered) => delivered,
+        None => {
+            conn.forget(request_id);
+            if let Ok(cancel) =
+                MessageEncoder::cancel_request(version, order, &CancelRequestHeader { request_id })
+            {
+                // The caller is out of time already, and the connection
+                // may be the reason: a short wait at most.
+                let at = Instant::now() + CANCEL_SEND_TIME;
+                let _ = conn.send(&cancel, Some(at)).await;
+            }
+            return Ok(Attempt::Done(Err(sys(
+                SystemExceptionKind::TIMEOUT,
+                0,
+                CompletionStatus::Maybe,
+            )
+            .into())));
+        }
     };
     let message = match delivered {
         Ok(Ok(message)) => message,

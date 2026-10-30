@@ -20,16 +20,16 @@ use std::io;
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak, mpsc as std_mpsc};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use rustorb_cdr::ByteOrder;
 use rustorb_giop::{
     AlternateIiopAddress, Body, CodeSetComponent, CodeSetComponentInfo, CodeSetContext,
-    FragmentAssembler, IiopProfile, Ior, LocateReplyHeader, LocateRequestHeader, LocateStatus,
-    Message, MessageEncoder, RequestHeader, ServiceContext, TargetAddress, Version,
+    IiopProfile, Ior, LocateReplyHeader, LocateRequestHeader, LocateStatus, Message,
+    MessageEncoder, RequestHeader, ServiceContext, TargetAddress, Version,
 };
-use tokio::io::{AsyncWriteExt, BufReader};
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::io::AsyncWriteExt;
+use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::runtime::Handle;
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
@@ -45,7 +45,7 @@ use crate::poa::{
 use crate::pool::{Job, Pool};
 use crate::servant::{OBJECT_ID, ServerReply, location_forward_reply, system_exception_reply};
 use crate::stream::InStream;
-use crate::wire::{self, ReadError};
+use crate::wire::{Here, Inbound, ReadError};
 use crate::{
     CodeSets, CompletionStatus, EndpointAddr, Lifespan, Orb, Poa, Servant, ServantManagerError,
     SystemException, SystemExceptionKind, ThreadPolicy,
@@ -355,11 +355,26 @@ impl Server {
             // client it may send the request again.
             return;
         }
-        let code_sets = conn.code_sets_for(version, &header.service_context);
-        conn.saw_version(version);
         let Ok(permit) = Arc::clone(&conn.permits).acquire_owned().await else {
             return;
         };
+        if let Some((key, request)) = self.prepare(conn, version, header, body, permit) {
+            self.route(key, request);
+        }
+    }
+
+    /// Makes a request read off `conn` ready to go to its POA. `None` when
+    /// it has been answered already.
+    fn prepare(
+        self: &Arc<Self>,
+        conn: &Arc<ServerConn>,
+        version: Version,
+        header: RequestHeader,
+        body: Body,
+        permit: OwnedSemaphorePermit,
+    ) -> Option<(Vec<u8>, Incoming)> {
+        let code_sets = conn.code_sets_for(version, &header.service_context);
+        conn.saw_version(version);
         let ticket = self.ticket(Some(permit));
         let reply = ReplyTo::new(
             conn,
@@ -370,7 +385,7 @@ impl Server {
         );
         let Some(key) = target_key(&header.target) else {
             reply.system(&no_such_object());
-            return;
+            return None;
         };
         let request = Incoming {
             operation: header.operation,
@@ -379,6 +394,12 @@ impl Server {
             reply,
             _ticket: ticket,
         };
+        Some((key, request))
+    }
+
+    /// Finds the POA of a request, on an I/O task, and hands the request
+    /// to it.
+    fn route(self: &Arc<Self>, key: Vec<u8>, request: Incoming) {
         match self.find(&key, None) {
             Ok((poa, id)) => self.admit(&poa, id, request),
             Err(Lookup::Missing) => request.reply.system(&no_such_object()),
@@ -405,13 +426,144 @@ impl Server {
         let server = Arc::clone(self);
         let target = Arc::clone(poa);
         let dispatch: Dispatch = Box::new(move |disposition| match disposition {
-            Disposition::Run => {
-                let job = server.upcall_job(&target, id, request);
-                server.schedule(&target, job);
-            }
+            Disposition::Run => server.schedule_upcall(&target, id, request),
             Disposition::Reject(e) => request.reply.system(&e),
         });
         poa.manager.inner.dispatch(dispatch);
+    }
+
+    /// Runs a request on the thread the thread policy of `poa` asks for.
+    /// An upcall thread that answered a request of a connection goes on to
+    /// read the connection's next request ([`follow`](Self::follow)).
+    fn schedule_upcall(self: &Arc<Self>, poa: &Arc<PoaInner>, id: Vec<u8>, request: Incoming) {
+        if !matches!(poa.policies().thread, ThreadPolicy::OrbCtrl) {
+            let job = self.upcall_job(poa, id, request);
+            self.schedule(poa, job);
+            return;
+        }
+        let server = Arc::clone(self);
+        let poa = Arc::clone(poa);
+        let conn = request.reply.conn();
+        self.submit(Box::new(move || {
+            server.upcall(&poa, &id, request);
+            if let Some(conn) = conn {
+                server.follow(&conn);
+            }
+        }));
+    }
+
+    /// Leader / follower: an upcall thread that answered a request of
+    /// `conn` reads the connection's next request itself and runs it, so
+    /// that the request needs no hand-over from the I/O task to the pool.
+    /// The thread waits [`FOLLOW_LINGER`] at most for a request, and stops
+    /// when the pool has queued work (which other connections wait for),
+    /// after [`FOLLOW_LIMIT`] requests, or when the I/O task reads the
+    /// connection. See docs/read-ownership.md.
+    fn follow(self: &Arc<Self>, conn: &Arc<ServerConn>) {
+        for _ in 0..FOLLOW_LIMIT {
+            if self.is_shutting_down() || self.pool_has_queued() {
+                break;
+            }
+            let Ok(permit) = Arc::clone(&conn.permits).try_acquire_owned() else {
+                break;
+            };
+            if !conn.inbound.claim() {
+                return;
+            }
+            let (version, message) =
+                match conn.inbound.read_here(Some(Instant::now() + FOLLOW_LINGER)) {
+                    Here::Message(version, message) => (version, message),
+                    Here::TimedOut | Here::HandedBack => return,
+                };
+            let keep = match message {
+                Message::Request { header, body } => {
+                    let keep = conn.inbound.busy();
+                    if let Some((key, request)) = self.prepare(conn, version, header, body, permit)
+                    {
+                        self.route_here(key, request);
+                    }
+                    keep
+                }
+                Message::LocateRequest(header) => {
+                    let keep = conn.inbound.busy();
+                    self.on_locate(conn, version, &header);
+                    keep
+                }
+                Message::CancelRequest(header) => {
+                    let keep = conn.inbound.busy();
+                    conn.cancel_request(header.request_id);
+                    keep
+                }
+                other => {
+                    conn.inbound.give_back(version, other);
+                    return;
+                }
+            };
+            if !keep {
+                return;
+            }
+        }
+        conn.inbound.unbusy();
+    }
+
+    /// Like [`route`](Self::route), on an upcall thread: runs the request
+    /// on this thread when its POA is ORB_CTRL_MODEL and its manager lets
+    /// it run at once.
+    fn route_here(self: &Arc<Self>, key: Vec<u8>, request: Incoming) {
+        let found = match self.find(&key, None) {
+            Err(Lookup::NeedsActivator) => match self.orb() {
+                Some(orb) => self.find(&key, Some(&orb)),
+                None => Err(Lookup::Missing),
+            },
+            found => found,
+        };
+        let Ok((poa, id)) = found else {
+            request.reply.system(&no_such_object());
+            return;
+        };
+        if !matches!(poa.policies().thread, ThreadPolicy::OrbCtrl) {
+            self.admit(&poa, id, request);
+            return;
+        }
+        // The verdict comes at once, or later from another thread (a
+        // holding manager): then the request is scheduled as usual.
+        let here = Arc::new(Mutex::new(RunHere {
+            waiting: true,
+            request: None,
+        }));
+        let slot = Arc::clone(&here);
+        let server = Arc::clone(self);
+        let target = Arc::clone(&poa);
+        poa.manager
+            .inner
+            .dispatch(Box::new(move |disposition| match disposition {
+                Disposition::Run => {
+                    let mut slot = slot.lock().unwrap();
+                    if slot.waiting {
+                        slot.request = Some((id, request));
+                    } else {
+                        drop(slot);
+                        server.schedule_upcall(&target, id, request);
+                    }
+                }
+                Disposition::Reject(e) => request.reply.system(&e),
+            }));
+        let run = {
+            let mut here = here.lock().unwrap();
+            here.waiting = false;
+            here.request.take()
+        };
+        if let Some((id, request)) = run {
+            self.upcall(&poa, &id, request);
+        }
+    }
+
+    fn pool_has_queued(&self) -> bool {
+        self.pool
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(Pool::has_queued)
     }
 
     fn upcall_job(self: &Arc<Self>, poa: &Arc<PoaInner>, id: Vec<u8>, request: Incoming) -> Job {
@@ -763,6 +915,22 @@ impl Server {
     }
 }
 
+/// How long an upcall thread waits for the next request of the connection
+/// it answered (see [`Server::follow`]). A client calling one request after
+/// another sends the next within a round trip.
+const FOLLOW_LINGER: Duration = Duration::from_millis(1);
+
+/// How many requests of one connection an upcall thread reads in a row
+/// before it lets the I/O task read again.
+const FOLLOW_LIMIT: usize = 64;
+
+/// A request that [`Server::route_here`] runs on its own thread if the
+/// manager lets it run before `dispatch` returns.
+struct RunHere {
+    waiting: bool,
+    request: Option<(Vec<u8>, Incoming)>,
+}
+
 /// Why a key names no POA.
 enum Lookup {
     /// There is no such POA, or the key is not one of this server's.
@@ -968,6 +1136,7 @@ impl Outbox {
 
 /// One connection accepted by the server.
 struct ServerConn {
+    inbound: Inbound,
     out: Arc<Outbox>,
     /// The code sets of the first request with a code set context.
     code_sets: Mutex<Option<CodeSets>>,
@@ -1028,6 +1197,12 @@ impl ServerConn {
 
     fn begin(&self, request_id: u32) {
         self.requests.lock().unwrap().pending.insert(request_id);
+    }
+
+    /// `CancelRequest`: drops the fragments of the request, and its reply.
+    fn cancel_request(&self, request_id: u32) {
+        self.inbound.side().assembler.cancel(request_id);
+        self.cancel(request_id);
     }
 
     fn cancel(&self, request_id: u32) {
@@ -1104,6 +1279,14 @@ impl ReplyTo {
         }
     }
 
+    /// The connection the request came from.
+    fn conn(&self) -> Option<Arc<ServerConn>> {
+        match &self.sink {
+            Some(Sink::Conn(c)) => Some(Arc::clone(c)),
+            _ => None,
+        }
+    }
+
     fn is_cancelled(&self) -> bool {
         match &self.sink {
             Some(Sink::Conn(c)) => c.is_cancelled(self.request_id),
@@ -1177,9 +1360,9 @@ async fn accept_loop(server: Weak<Server>, listener: TcpListener) {
 async fn serve(server: Arc<Server>, stream: TcpStream) {
     let _ = stream.set_nodelay(true);
     let (reader, writer) = stream.into_split();
-    let mut reader = wire::buffered(reader);
     let out = Arc::new(Outbox::new(writer));
     let conn = Arc::new(ServerConn {
+        inbound: Inbound::new(reader, server.max_message_size),
         out: Arc::clone(&out),
         code_sets: Mutex::new(None),
         requests: Mutex::default(),
@@ -1189,7 +1372,7 @@ async fn serve(server: Arc<Server>, stream: TcpStream) {
     });
     *conn.writer.lock().unwrap() = Some(tokio::spawn(write_loop(out)));
     let id = server.add_connection(&conn);
-    let ended = read_loop(&server, &conn, &mut reader).await;
+    let ended = read_loop(&server, &conn).await;
     server.remove_connection(id);
     match ended {
         Ok(Ended::Peer) => {}
@@ -1263,34 +1446,22 @@ enum Ended {
 
 /// Reads requests until the connection ends. `Err` carries the GIOP
 /// version for the `MessageError` sent back for a malformed message.
-async fn read_loop(
-    server: &Arc<Server>,
-    conn: &Arc<ServerConn>,
-    reader: &mut BufReader<OwnedReadHalf>,
-) -> Result<Ended, Version> {
-    let max = server.max_message_size;
-    let mut assembler = FragmentAssembler::new(max);
+async fn read_loop(server: &Arc<Server>, conn: &Arc<ServerConn>) -> Result<Ended, Version> {
     loop {
-        let (header, msg) = match wire::read_message(reader, max).await {
+        let (version, message) = match conn.inbound.next().await {
             Ok(read) => read,
             Err(ReadError::Closed(_) | ReadError::Truncated(_)) => return Ok(Ended::Peer),
             Err(ReadError::BadHeader(_)) => return Err(Version::V1_0),
-            Err(ReadError::TooLarge(_, version)) => return Err(version),
+            Err(ReadError::TooLarge(_, version) | ReadError::Malformed(version, _)) => {
+                return Err(version);
+            }
         };
-        let version = header.version;
-        let Some(whole) = assembler.push_owned(msg).map_err(|_| version)? else {
-            continue;
-        };
-        let (_, message) = whole.into_decoded().map_err(|_| version)?;
         match message {
             Message::Request { header, body } => {
                 server.on_request(conn, version, header, body).await;
             }
             Message::LocateRequest(header) => server.on_locate(conn, version, &header),
-            Message::CancelRequest(header) => {
-                assembler.cancel(header.request_id);
-                conn.cancel(header.request_id);
-            }
+            Message::CancelRequest(header) => conn.cancel_request(header.request_id),
             Message::CloseConnection | Message::MessageError => {
                 return Ok(Ended::CloseConnection);
             }
