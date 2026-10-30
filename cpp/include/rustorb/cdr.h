@@ -238,7 +238,7 @@ template <typename T, size_t N> struct codec<std::array<T, N>> {
 // asking the server (the IDL type says what they are).
 template <typename T>
 struct codec<CORBA::object_reference<T>,
-             std::enable_if_t<!std::is_base_of<CORBA::ValueBase, T>::value>> {
+             std::enable_if_t<std::is_base_of<CORBA::Object, T>::value>> {
   static void write(rorb_out* out, const CORBA::object_reference<T>& v) {
     rorb_out_write_object(out, detail::handle_of(v));
   }
@@ -316,6 +316,52 @@ struct codec<CORBA::object_reference<T>,
   static void read(rorb_in* in, CORBA::object_reference<T>& v) {
     v = nullptr;
     CORBA::object_reference<CORBA::ValueBase> got = read_value(in, T::_rorb_repository_id);
+    if (!got) return;
+    auto p = std::dynamic_pointer_cast<T>(got._rorb_shared());
+    if (!p) {
+      rorb_in_fail(in);
+      return;
+    }
+    v = CORBA::object_reference<T>(std::move(p));
+  }
+};
+
+// Abstract interfaces: a boolean, then an object reference (true) or a
+// value (false). A nil reference is sent as a nil object reference.
+template <typename T>
+struct codec<CORBA::object_reference<T>,
+             std::enable_if_t<std::is_base_of<CORBA::AbstractBase, T>::value &&
+                              !std::is_base_of<CORBA::Object, T>::value &&
+                              !std::is_base_of<CORBA::ValueBase, T>::value>> {
+  static void write(rorb_out* out, const CORBA::object_reference<T>& v) {
+    T* p = detail::get_pointer(v);
+    if (auto* value = dynamic_cast<const CORBA::ValueBase*>(p)) {
+      rorb_out_write_boolean(out, 0);
+      write_value(out, value);
+      return;
+    }
+    rorb_out_write_boolean(out, 1);
+    auto* obj = dynamic_cast<CORBA::Object*>(p);
+    if (p && !obj) {
+      // Neither an object nor a value.
+      throw CORBA::BAD_PARAM(0, CORBA::CompletionStatus::COMPLETED_NO);
+    }
+    rorb_object* h = obj ? obj->_rorb_handle() : nullptr;
+    if (obj && !h) throw CORBA::MARSHAL(0x4f4d0004, CORBA::CompletionStatus::COMPLETED_NO);
+    rorb_out_write_object(out, h);
+  }
+  static void read(rorb_in* in, CORBA::object_reference<T>& v) {
+    v = nullptr;
+    if (rorb_in_read_boolean(in)) {
+      // A plain CORBA::Object for CORBA::AbstractBase.
+      using S = std::conditional_t<std::is_same<T, CORBA::AbstractBase>::value, CORBA::Object,
+                                   typename detail::stub_type<T>::type>;
+      v = detail::make_stub<S>(rorb_in_read_object(in));
+      return;
+    }
+    const char* id = "IDL:omg.org/CORBA/AbstractBase:1.0";
+    if constexpr (!std::is_same<T, CORBA::AbstractBase>::value) id = T::_rorb_repository_id;
+    CORBA::object_reference<CORBA::ValueBase> got = read_value(in, id);
     if (!got) return;
     auto p = std::dynamic_pointer_cast<T>(got._rorb_shared());
     if (!p) {
@@ -738,6 +784,7 @@ class DataOutputStream {
   void write_Value(const object_reference<ValueBase>& v) {
     ::rustorb::cdr::write_value(out_, ::rustorb::detail::get_pointer(v));
   }
+  void write_Abstract(const object_reference<AbstractBase>& v) { write(v); }
   void write_TypeCode(const object_reference<TypeCode>& v) { write(v); }
 
   // The stream, for what the methods above do not cover.
@@ -796,6 +843,7 @@ class DataInputStream {
   object_reference<ValueBase> read_Value() {
     return ::rustorb::cdr::read_value(in_, "IDL:omg.org/CORBA/ValueBase:1.0");
   }
+  object_reference<AbstractBase> read_Abstract() { return read<object_reference<AbstractBase>>(); }
   object_reference<TypeCode> read_TypeCode() { return read<object_reference<TypeCode>>(); }
 
   // The stream, for what the methods above do not cover.

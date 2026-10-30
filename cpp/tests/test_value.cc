@@ -1,10 +1,12 @@
 // Valuetypes: the value interop cases (interop/impls/rustorbcpp/valuetest.h)
 // in one process, over IIOP on the loopback interface, then truncation,
-// unknown types, ORB::create_value_tc and _copy_value.
+// unknown types, ORB::create_value_tc and _copy_value; then the abstract
+// interface cases (abstracttest.h) and narrowing of abstract interfaces.
 
 #include <iostream>
 #include <thread>
 
+#include "abstracttest.h"
 #include "cases.h"
 #include "valuetest.h"
 
@@ -19,6 +21,9 @@ int main() {
     root->the_POAManager()->activate();
     auto oid = root->activate_object(CORBA::make_reference<valuetest::ValueEchoImpl>(server_orb));
     std::string ior = server_orb->object_to_string(root->id_to_reference(oid));
+    auto abstract_oid =
+        root->activate_object(CORBA::make_reference<abstracttest::AbstractEchoImpl>(server_orb));
+    std::string abstract_ior = server_orb->object_to_string(root->id_to_reference(abstract_oid));
     std::thread server([&] { server_orb->run(); });
 
     int cargc = 1;
@@ -27,6 +32,9 @@ int main() {
     auto orb = CORBA::ORB_init(cargc, cargv);
     auto echo = IDL::traits<ValueTest::ValueEcho>::narrow(orb->string_to_object(ior));
     valuetest::register_factories(orb);
+    abstracttest::register_factories(orb);
+    auto abstract_echo = IDL::traits<AbstractTest::AbstractEcho>::narrow(
+        orb->string_to_object(abstract_ior));
 
     Runner r;
     auto check = [](bool cond, const std::string& what) {
@@ -76,6 +84,26 @@ int main() {
       auto p = valuetest::point(3, 4);
       auto q = IDL::traits<Point>::narrow(p->_copy_value());
       check(q && q != p && valuetest::is_point(q, 3, 4), "wrong copy");
+    });
+
+    abstracttest::run_cases(r, abstract_echo, check);
+    r.run("abstract narrow", [&]() {
+      using namespace AbstractTest;
+      auto person = abstract_echo->make_person("carol");
+      IDL::traits<Named>::ref_type named = person;
+      check(IDL::traits<Person>::narrow(named) == person, "Named to Person");
+      // A plain object reference narrows to the stub of the abstract
+      // interface, which narrows on to Person.
+      IDL::traits<CORBA::Object>::ref_type obj = person;
+      auto n = IDL::traits<Named>::narrow(obj);
+      check(n && n->name() == "carol", "Object to Named");
+      auto p = IDL::traits<Person>::narrow(n);
+      check(p && p->age() == 42, "Named to Person");
+      // A value narrows to its valuetype, and not to an interface.
+      auto c = abstracttest::card("ten");
+      check(IDL::traits<Card>::narrow(c) != nullptr, "Named to Card");
+      check(IDL::traits<Person>::narrow(c) == nullptr, "a value narrowed to Person");
+      check(_tc_Named->kind() == CORBA::TCKind::tk_abstract_interface, "wrong TypeCode kind");
     });
 
     echo->shutdown();

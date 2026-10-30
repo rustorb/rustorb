@@ -126,10 +126,18 @@ pub(crate) enum Tc {
         items: Py<PyTuple>,
         count: u32,
     },
-    /// An object reference to the interface `id` (an abstract or local
-    /// interface is marshalled the same way).
+    /// An object reference to the interface `id` (a local interface is
+    /// marshalled the same way).
     Objref {
         id: String,
+    },
+    /// The abstract interface `id`: an object reference or a value, which
+    /// the core marshals with its TypeCode `core`. `value` is the type of
+    /// the values (`ValueBase`).
+    Abstract {
+        id: String,
+        core: TypeCode,
+        value: TcRef,
     },
     /// A valuetype: its repository id, the class of its values (if it
     /// has one), its core TypeCode, which marshals it, and its state
@@ -173,7 +181,7 @@ impl Tc {
         match self.unaliased() {
             Tc::Void | Tc::Struct { .. } | Tc::Union { .. } | Tc::Back(_) | Tc::Unsupported(_) => 0,
             Tc::Array { content, length } => content.min_size().saturating_mul(*length as usize),
-            Tc::Boolean | Tc::Char | Tc::Octet | Tc::WChar => 1,
+            Tc::Boolean | Tc::Char | Tc::Octet | Tc::WChar | Tc::Abstract { .. } => 1,
             Tc::Short | Tc::UShort => 2,
             Tc::LongLong | Tc::ULongLong | Tc::Double => 8,
             Tc::Fixed { digits, .. } => (*digits as usize + 2) / 2,
@@ -478,9 +486,12 @@ impl Compiler {
                 core: tc_from_py(tc)?,
                 content: self.tc(&tc.getattr("_content")?)?,
             },
-            kind::OBJREF | kind::ABSTRACT_INTERFACE | kind::LOCAL_INTERFACE => {
-                Tc::Objref { id: id()? }
-            }
+            kind::ABSTRACT_INTERFACE => Tc::Abstract {
+                id: id()?,
+                core: tc_from_py(tc)?,
+                value: self.tc(&crate::error::corba(tc.py())?.getattr("TC_ValueBase")?)?,
+            },
+            kind::OBJREF | kind::LOCAL_INTERFACE => Tc::Objref { id: id()? },
             _ => Tc::Unsupported(tc.getattr("_k")?.str()?.to_string()),
         })
     }

@@ -126,13 +126,81 @@ class CxxBackendTest(unittest.TestCase):
     def test_unsupported(self):
         cases = {
             "supports_local": "module U { local interface I {}; valuetype V supports I { public long x; }; };",
-            "abstract": "module U { abstract interface A { void f(); }; };",
             "longdouble": "module U { struct S { long double d; }; };",
         }
         for name, text in cases.items():
             with self.subTest(name):
                 path = write_idl("Unsupported_%s.idl" % name, text)
                 self.assertEqual(cli.main(["-bc++11", "-C", OUT, path]), 1)
+
+    def test_abstract_interfaces(self):
+        path = write_idl(
+            "Abstracts.idl",
+            """
+            module Abs {
+              abstract interface A { string a(); };
+              abstract interface B : A { long b(); };
+              interface I : B { void i(); };
+              interface J : I, A { void j(); };
+              interface K : A {};
+              valuetype V supports B { public long x; };
+              valuetype W supports A, J { public long y; };
+              interface Use { A swap(in B b, inout A x, out B y); };
+            };
+        """,
+        )
+        outdir = os.path.join(OUT, "abstracts")
+        self.assertEqual(cli.main(["-bc++11", "-C", outdir, path]), 0)
+        header = read(os.path.join(outdir, "Abstracts.hh"))
+        source = read(os.path.join(outdir, "Abstracts.cc"))
+        self.assertIn("class A : public virtual ::CORBA::AbstractBase {", header)
+        self.assertIn("class B : public virtual ::Abs::A {", header)
+        self.assertIn("virtual std::string a() = 0;", header)
+        # The stub of a reference received as B implements A's operations.
+        self.assertIn(
+            "class B::_rorb_stub : public virtual B, public virtual ::CORBA::Object {", header
+        )
+        self.assertIn("std::string Abs::B::_rorb_stub::a() {", source)
+        self.assertIn("int32_t Abs::B::_rorb_stub::b() {", source)
+        # The first concrete interface implements the abstract operations,
+        # in its stub and its skeleton.
+        self.assertIn(
+            "class I : public virtual ::Abs::B, public virtual ::CORBA::Object {", header
+        )
+        self.assertIn("class J : public virtual ::Abs::I, public virtual ::Abs::A {", header)
+        self.assertIn("std::string Abs::I::a() {", source)
+        self.assertNotIn("std::string Abs::J::a() {", source)
+        self.assertIn("class I : public virtual ::PortableServer::ServantBase {", header)
+        self.assertIn('if (op == "a") {', source)
+        self.assertNotIn("_rorb_ops_Abs_A", source)
+        self.assertIn("::CORBA::TCKind::tk_abstract_interface", source)
+        # A valuetype is a value of the abstract interfaces it supports.
+        self.assertIn(
+            "class V : public virtual ::CORBA::ValueBase, public virtual ::Abs::B {", header
+        )
+        self.assertIn(
+            "class W : public virtual ::CORBA::ValueBase, public virtual ::Abs::A {", header
+        )
+        self.assertIn(
+            "class W : public virtual ::POA_Abs::J, public virtual ::Abs::W {", header
+        )
+        self.assertNotIn("class V : public virtual ::POA_Abs", header)
+        if CXX:
+            subprocess.run(
+                [
+                    CXX,
+                    "-std=c++17",
+                    "-fsyntax-only",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-I" + os.path.join(ROOT, "cpp", "include"),
+                    "-I" + os.path.join(ROOT, "crates", "rustorb-ffi", "include"),
+                    "-I" + outdir,
+                    os.path.join(outdir, "Abstracts.cc"),
+                ],
+                check=True,
+            )
 
     def test_value_behaviour(self):
         path = write_idl(

@@ -5,7 +5,6 @@ package org.rustorb;
 import org.omg.CORBA.Any;
 import org.omg.CORBA.BAD_PARAM;
 import org.omg.CORBA.CompletionStatus;
-import org.omg.CORBA.NO_IMPLEMENT;
 import org.omg.CORBA.TypeCode;
 
 /** The DataOutputStream a custom valuetype's marshal writes to: the
@@ -114,8 +113,7 @@ final class CustomOutput implements org.omg.CORBA.DataOutputStream {
 
     @Override
     public void write_Abstract(java.lang.Object value) {
-        // Abstract interfaces are not supported yet.
-        throw new NO_IMPLEMENT();
+        out.write_abstract_interface(value);
     }
 
     @Override

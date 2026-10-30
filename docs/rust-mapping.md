@@ -366,12 +366,12 @@ let a = Account::new(AccountState { balance: 21 });
 assert_eq!(a.doubled()?, 42);
 ```
 
-- 抽象 valuetype は [#43](https://github.com/rustorb/rustorb/issues/43) の範囲で、生成器がエラーにする
+- 抽象 valuetype は生成器がエラーにする
 
 ## 対象外（生成器がエラーにするもの）
 
 - `long double`（[#41](https://github.com/rustorb/rustorb/issues/41)）
-- abstract interface、local interface（[#43](https://github.com/rustorb/rustorb/issues/43)。local interface は必要になったら Rust のトレイトだけを作る形で足す）
+- abstract interface、local interface（コアと Python・C++・Java は abstract interface に対応した（[#43](https://github.com/rustorb/rustorb/issues/43)）。Rust は必要になったら、参照か値かの enum とトレイトの形で足す。local interface はトレイトだけを作る形で足す）
 - 抽象 valuetype、abstract・local interface を `supports` する valuetype、例外を投げる valuetype の操作（上記）
 - 操作の `context` 句
 - IDL4 の新しい構文（[#46](https://github.com/rustorb/rustorb/issues/46)）

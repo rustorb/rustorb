@@ -237,6 +237,8 @@ def main():
         return run_any(orb, root, args)
     if args.suite == "value":
         return run_value(orb, root, args)
+    if args.suite == "abstract":
+        return run_abstract(orb, root, args)
     if args.suite == "custom":
         return run_custom(orb, root, args)
     name = to_name(args.name)
@@ -278,6 +280,32 @@ def run_any(orb, root, args):
     if args.shutdown_server:
         server = root.resolve(to_name(args.name + "-Echo"))._narrow(InteropTest.Echo)
         server.shutdown()
+
+    print("\n%d passed, %d failed" % (r.passed, len(r.failed)))
+    if r.failed:
+        print("failed: " + ", ".join(r.failed))
+    orb.destroy()
+    return 1 if r.failed else 0
+
+
+def run_abstract(orb, root, args):
+    """The abstract interface suite (AbstractTest.idl) against the
+    AbstractEcho object at args.name."""
+    import AbstractTest
+    import abstracttest
+    abstracttest.register(orb)
+    echo = retry("the AbstractEcho server", lambda: root.resolve(to_name(args.name)), args.timeout)
+    echo = echo._narrow(AbstractTest.AbstractEcho)
+    if echo is None:
+        print("%s is not an AbstractTest::AbstractEcho" % args.name)
+        return 1
+    retry("the AbstractEcho server", echo._non_existent, args.timeout)
+
+    r = Runner()
+    abstracttest.run_cases(r, echo, check)
+
+    if args.shutdown_server:
+        echo.shutdown()
 
     print("\n%d passed, %d failed" % (r.passed, len(r.failed)))
     if r.failed:

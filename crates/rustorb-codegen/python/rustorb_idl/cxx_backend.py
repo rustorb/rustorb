@@ -153,7 +153,8 @@ class CxxBackend(object):
         # What the header declares and the source defines.
         self.codecs = []  # (kind, node) for structs, unions, exceptions, enums
         self.typecodes = []  # definitions with a _tc_<name>
-        self.interfaces = []  # full, non-local interface definitions
+        self.interfaces = []  # full, non-local, non-abstract interface definitions
+        self.abstracts = []  # full abstract interface definitions
         self.values = []  # full valuetype and value box definitions
         self.supporting_values = []  # valuetypes that support an interface
         self.ns = ()  # namespaces open in the header
@@ -216,7 +217,6 @@ class CxxBackend(object):
             if fe.is_native(n):
                 raise fe.GeneratorError("native %s cannot be used in C++" % n.name, where)
             if fe.is_interface(n):
-                self.check_interface(n)
                 return "::IDL::traits<%s>::ref_type" % self.scoped(n)
             if fe.is_valuetype(n):
                 return "::IDL::traits<%s>::ref_type" % self.scoped(n)
@@ -224,12 +224,6 @@ class CxxBackend(object):
                 return "::IDL::traits<%s>::ref_type" % self.scoped(n)
             return self.scoped(n)
         raise fe.GeneratorError("no C++ type for %r" % t, where)
-
-    def check_interface(self, n):
-        if getattr(n, "is_abstract", False):
-            raise fe.GeneratorError(
-                "abstract interfaces are not supported by the C++ backend yet", n
-            )
 
     def is_objref(self, t):
         r = t.resolved()
@@ -399,7 +393,6 @@ class CxxBackend(object):
                 self.union(w, node)
                 self.typecode_declaration(w, node, in_class)
         elif fe.is_interface(node):
-            self.check_interface(node)
             if fe.is_forward(node):
                 w("class %s;" % cxx_name(node.name))
                 w()
@@ -588,7 +581,12 @@ class CxxBackend(object):
                 ", ".join('"%s"' % v.name for v in node.values),
             )
         if fe.is_interface(node):
-            kind = "tk_local_interface" if getattr(node, "is_local", False) else "tk_objref"
+            if getattr(node, "is_local", False):
+                kind = "tk_local_interface"
+            elif getattr(node, "is_abstract", False):
+                kind = "tk_abstract_interface"
+            else:
+                kind = "tk_objref"
             return "::rustorb::detail::tc_interface(::CORBA::TCKind::%s, %s, %s)" % (
                 kind,
                 rid,
@@ -951,21 +949,24 @@ class CxxBackend(object):
 
     def check_value(self, node):
         for i in fe.supported_interfaces(node):
-            if i.is_abstract or i.is_local:
+            if i.is_local:
                 raise fe.GeneratorError(
-                    "a valuetype can only support a non-abstract, non-local interface in %s"
-                    % self.LANGUAGE,
+                    "a valuetype cannot support a local interface in %s" % self.LANGUAGE,
                     node,
                 )
 
     def value_operations(self, node):
         """The operations of a valuetype that its implementation provides:
         its own and those of the interfaces it supports (with their bases),
-        as :meth:`operations` lists them."""
+        as :meth:`operations` lists them. Those of abstract interfaces are
+        left out: the class inherits them from the interface's class."""
         ops = list(self.operations(node))
+        seen = []
         for i in fe.supported_interfaces(node):
             for n in [i] + self.ancestors(i):
-                ops.extend(self.operations(n))
+                if not self.is_abstract(n) and not any(n is m for m in seen):
+                    seen.append(n)
+                    ops.extend(self.operations(n))
         return ops
 
     def value_accessors(self, w, name, t, where, prefix, suffix):
@@ -992,6 +993,11 @@ class CxxBackend(object):
             base_list = "public virtual ::CORBA::ValueBase"
         if node.is_custom:
             base_list += ", public virtual ::CORBA::CustomMarshal"
+        # A value of an abstract interface it supports is a value of that
+        # interface type.
+        for i in fe.supported_interfaces(node):
+            if i.is_abstract:
+                base_list += ", public virtual %s" % self.scoped(i)
         w("class %s : %s {" % (name, base_list))
         w(" public:")
         w.indent()
@@ -1043,7 +1049,7 @@ class CxxBackend(object):
             w("};")
             w()
         self.values.append(node)
-        if node.supports:
+        if any(not i.is_abstract for i in fe.supported_interfaces(node)):
             self.supporting_values.append(node)
 
     def value_box(self, w, node):
@@ -1294,6 +1300,35 @@ class CxxBackend(object):
             todo.extend(self.bases(b))
         return out
 
+    def full_interface(self, node):
+        if fe.is_forward(node):
+            full = fe.full_definition(node)
+            return full if full is not None else node
+        return node
+
+    def is_abstract(self, node):
+        return bool(getattr(self.full_interface(node), "is_abstract", False))
+
+    def own_operations(self, node):
+        """The operations the stub and the skeleton of a concrete
+        interface define themselves."""
+        return self.operations(node) + self.abstract_operations(node)
+
+    def abstract_operations(self, node):
+        """The operations of the abstract interfaces a concrete interface
+        inherits that none of its concrete bases inherits: the stub and the
+        skeleton of the interface implement them, as :meth:`operations`
+        lists them."""
+        covered = []
+        for a in self.ancestors(node):
+            if not self.is_abstract(a):
+                covered.extend(b for b in self.ancestors(a) if self.is_abstract(b))
+        ops = []
+        for a in self.ancestors(node):
+            if self.is_abstract(a) and not any(a is c for c in covered):
+                ops.extend(self.operations(a))
+        return ops
+
     def operations(self, node):
         """``[(op name, method name, return Type, [(param, Type, direction)],
         raised exceptions, oneway)]`` for the operations and attribute
@@ -1341,14 +1376,16 @@ class CxxBackend(object):
         )
 
     def interface(self, w, node):
+        if self.is_abstract(node):
+            self.abstract_interface(w, node)
+            return
         name = cxx_name(node.name)
         bases = self.bases(node)
         local = bool(getattr(node, "is_local", False))
-        if bases:
-            base_list = ", ".join("public virtual %s" % self.scoped(b) for b in bases)
-        else:
-            base_list = "public virtual ::CORBA::%s" % ("LocalObject" if local else "Object")
-        w("class %s : %s {" % (name, base_list))
+        base_list = ["public virtual %s" % self.scoped(b) for b in bases]
+        if all(self.is_abstract(b) for b in bases):
+            base_list.append("public virtual ::CORBA::%s" % ("LocalObject" if local else "Object"))
+        w("class %s : %s {" % (name, ", ".join(base_list)))
         w(" public:")
         w.indent()
         if not local:
@@ -1362,6 +1399,9 @@ class CxxBackend(object):
         for _, method, ret, params, _, _, d in self.operations(node):
             sig = self.signature(method, ret, params, d)
             w(("virtual %s = 0;" if local else "virtual %s;") % sig)
+        if not local:
+            for _, method, ret, params, _, _, d in self.abstract_operations(node):
+                w("%s override;" % self.signature(method, ret, params, d))
         w.dedent()
         w()
         w(" protected:")
@@ -1370,6 +1410,51 @@ class CxxBackend(object):
         w()
         if not local:
             self.interfaces.append(node)
+
+    def abstract_interface(self, w, node):
+        """An abstract interface: a class with pure virtual operations that
+        objects (stubs of the interface or of interfaces derived from it)
+        and values (of valuetypes that support it) implement. Its nested
+        class _rorb_stub is the stub of references received as the
+        abstract interface type."""
+        name = cxx_name(node.name)
+        bases = self.bases(node)
+        if bases:
+            base_list = ", ".join("public virtual %s" % self.scoped(b) for b in bases)
+        else:
+            base_list = "public virtual ::CORBA::AbstractBase"
+        w("class %s : %s {" % (name, base_list))
+        w(" public:")
+        w.indent()
+        w('static constexpr const char* _rorb_repository_id = "%s";' % fe.repository_id(node))
+        w("class _rorb_stub;")
+        w()
+        self.nested(w, node)
+        for _, method, ret, params, _, _, d in self.operations(node):
+            w("virtual %s = 0;" % self.signature(method, ret, params, d))
+        w.dedent()
+        w()
+        w(" protected:")
+        w("  %s() = default;" % name)
+        w("};")
+        w()
+        w("class %s::_rorb_stub : public virtual %s, public virtual ::CORBA::Object {" % (name, name))
+        w(" public:")
+        w.indent()
+        w("using _rorb_interface = %s;" % name)
+        w("static constexpr const char* _rorb_repository_id = %s::_rorb_repository_id;" % name)
+        w(
+            "_rorb_stub(::rustorb::detail::adopt_t, rorb_object* _h) noexcept"
+            " : ::CORBA::Object(::rustorb::detail::adopt, _h) {}"
+        )
+        w()
+        for n in [node] + self.ancestors(node):
+            for _, method, ret, params, _, _, d in self.operations(n):
+                w("%s override;" % self.signature(method, ret, params, d))
+        w.dedent()
+        w("};")
+        w()
+        self.abstracts.append(node)
 
     def skeletons(self, w):
         for node in self.interfaces:
@@ -1382,7 +1467,9 @@ class CxxBackend(object):
                 cls = cxx_name(node.name)
             else:
                 cls = "POA_" + node.name
-            bases = self.bases(node)
+            # Abstract interfaces have no skeleton: the skeleton of the
+            # first concrete interface that inherits one has its operations.
+            bases = [b for b in self.bases(node) if not self.is_abstract(b)]
             if bases:
                 base_list = ", ".join("public virtual %s" % self.poa_scoped(b) for b in bases)
             else:
@@ -1390,7 +1477,7 @@ class CxxBackend(object):
             w("class %s : %s {" % (cls, base_list))
             w(" public:")
             w.indent()
-            for _, method, ret, params, _, _, d in self.operations(node):
+            for _, method, ret, params, _, _, d in self.own_operations(node):
                 w("virtual %s = 0;" % self.signature(method, ret, params, d))
             w()
             w("::IDL::traits<%s>::ref_type _this();" % self.scoped(node))
@@ -1427,7 +1514,9 @@ class CxxBackend(object):
                 cls = cxx_name(node.name)
             else:
                 cls = "POA_" + node.name
-            bases = [self.poa_scoped(i) for i in fe.supported_interfaces(node)]
+            bases = [
+                self.poa_scoped(i) for i in fe.supported_interfaces(node) if not i.is_abstract
+            ]
             w(
                 "class %s : %s, public virtual %s {"
                 % (cls, ", ".join("public virtual %s" % b for b in bases), self.scoped(node))
@@ -1520,6 +1609,8 @@ class CxxBackend(object):
                 self.struct_codec(w, node)
             elif kind == "union":
                 self.union_codec(w, node)
+        for node in self.abstracts:
+            self.stub_source(w, node)
         for node in self.interfaces:
             self.stub_source(w, node)
             self.skeleton_source(w, node)
@@ -1582,8 +1673,13 @@ class CxxBackend(object):
         w()
 
     def stub_source(self, w, node):
-        cls = self.scoped(node)
-        for op, method, ret, params, excs, oneway, d in self.operations(node):
+        if self.is_abstract(node):
+            cls = self.scoped(node) + "::_rorb_stub"
+            ops = [op for n in [node] + self.ancestors(node) for op in self.operations(n)]
+        else:
+            cls = self.scoped(node)
+            ops = self.own_operations(node)
+        for op, method, ret, params, excs, oneway, d in ops:
             w("%s {" % self.signature(method, ret, params, d, cls[2:] + "::"))
             w.indent()
             if ret.kind != "void":
@@ -1645,6 +1741,8 @@ class CxxBackend(object):
         w("  std::string_view name(op, len);")
         w("  return ::rustorb::detail::upcall(reply, [&]() -> rorb_status {")
         for n in [node] + self.ancestors(node):
+            if self.is_abstract(n):
+                continue
             w(
                 "    if (%s::%s(name, in, reply)) return RORB_OK;"
                 % (self.poa_scoped(n), self.ops_name(n))
@@ -1658,10 +1756,15 @@ class CxxBackend(object):
             % (poa, self.ops_name(node))
         )
         w.indent()
-        ops = self.operations(node)
+        ops = self.own_operations(node)
         if not ops:
             w("(void)op;")
             w("(void)in;")
+        uses_reply = any(
+            excs or (not oneway and (ret.kind != "void" or any(dr != "in" for _, _, dr in params)))
+            for _, _, ret, params, excs, oneway, _ in ops
+        )
+        if not uses_reply:
             w("(void)reply;")
         for opname, method, ret, params, excs, oneway, d in ops:
             w('if (op == "%s") {' % opname)

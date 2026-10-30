@@ -3,7 +3,6 @@
 package org.rustorb;
 
 import org.omg.CORBA.Any;
-import org.omg.CORBA.NO_IMPLEMENT;
 import org.omg.CORBA.TypeCode;
 
 /** The DataInputStream a custom valuetype's unmarshal reads from. */
@@ -104,7 +103,7 @@ final class CustomInput implements org.omg.CORBA.DataInputStream {
 
     @Override
     public java.lang.Object read_Abstract() {
-        throw new NO_IMPLEMENT();
+        return in.read_abstract_interface();
     }
 
     @Override

@@ -261,6 +261,40 @@ fn codebase_urls_are_skipped() {
 }
 
 #[test]
+fn abstract_interfaces_are_a_reference_or_a_value() {
+    let named =
+        TypeCode::interface(TCKind::AbstractInterface, "IDL:test/Named:1.0", "Named").unwrap();
+    let base = base_tc("IDL:test/Abstract/Base:1.0", 0);
+    rustorb_core::register_value_type(&base);
+    let shared = ValueRef::new(base.clone(), vec![Value::Long(3)]);
+    let seq = TypeCode::sequence(&named, 0).unwrap();
+    let v = Value::List(vec![
+        Value::Valuetype(Some(shared.clone())),
+        Value::Objref(None),
+        Value::Valuetype(None),
+        Value::Valuetype(Some(shared)),
+    ]);
+    let back = roundtrip(ByteOrder::Big, &seq, &v);
+    rustorb_core::unregister_value_type("IDL:test/Abstract/Base:1.0");
+    let Value::List(items) = back.unwrap() else {
+        panic!()
+    };
+    assert_eq!(get(&items[0]).members(), vec![Value::Long(3)]);
+    assert!(get(&items[0]).ptr_eq(&get(&items[3])));
+    assert!(matches!(items[1], Value::Objref(None)));
+    assert!(matches!(items[2], Value::Valuetype(None)));
+
+    // The discriminator, then the reference or the value.
+    let mut enc = Encoder::new(ByteOrder::Big, CdrVersion::Giop1_2);
+    OutStream::standalone(&mut enc)
+        .write_value(&named, &Value::Valuetype(None))
+        .unwrap();
+    assert_eq!(enc.into_bytes(), [0, 0, 0, 0, 0, 0, 0, 0]);
+    let e = roundtrip(ByteOrder::Big, &named, &Value::Long(1)).unwrap_err();
+    assert_eq!(e.kind(), Some(SystemExceptionKind::BAD_PARAM));
+}
+
+#[test]
 fn values_that_do_not_fit_are_bad_param() {
     let base = base_tc("IDL:test/Fit/Base:1.0", 0);
     let other = base_tc("IDL:test/Fit/Other:1.0", 0);

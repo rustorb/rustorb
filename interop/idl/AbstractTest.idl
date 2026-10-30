@@ -1,0 +1,64 @@
+// Interop test IDL for abstract interfaces (the abstract suite).
+//
+// An abstract interface is passed as an object reference or as a value
+// (CORBA 3.4 Part 2, 9.3.7). The comment on each operation is its
+// specification: every server must implement it exactly, and every client
+// runs the same cases.
+
+#ifndef ABSTRACT_TEST_IDL
+#define ABSTRACT_TEST_IDL
+
+module AbstractTest {
+  abstract interface Named {
+    // The name.
+    string name();
+  };
+
+  // An interface that is a Named: its references pass as Named.
+  interface Person : Named {
+    // The age.
+    long age();
+  };
+
+  // A valuetype that is a Named: its instances pass as Named. Its name()
+  // returns title.
+  valuetype Card supports Named {
+    public string title;
+  };
+
+  struct NamedPair {
+    Named first;
+    Named second;
+  };
+  typedef sequence<Named> NamedSeq;
+
+  interface AbstractEcho {
+    // Returns n (a reference, a value or null).
+    Named echo_named(in Named n);
+
+    // n.name(): called on the object for a reference, on the value for a
+    // value.
+    string name_of(in Named n);
+
+    // Whether n arrived as an object reference.
+    boolean is_object(in Named n);
+
+    // Returns p, sharing preserved: when first and second are the same
+    // value, so are those returned.
+    NamedPair echo_pair(in NamedPair p);
+
+    // Returns s.
+    NamedSeq echo_seq(in NamedSeq s);
+
+    // A Person object of the server, named name, of age 42.
+    Person make_person(in string name);
+
+    // Returns a (an any that holds a Named).
+    any echo_any(in any a);
+
+    // Ends the server.
+    oneway void shutdown();
+  };
+};
+
+#endif

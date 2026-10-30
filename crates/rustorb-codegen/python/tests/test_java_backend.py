@@ -143,13 +143,76 @@ class JavaBackendTest(unittest.TestCase):
     def test_unsupported(self):
         cases = {
             "supports_local": "module U { local interface I {}; valuetype V supports I { public long x; }; };",
-            "abstract": "module U { abstract interface A { void f(); }; };",
             "longdouble": "module U { struct S { long double d; }; };",
         }
         for name, text in cases.items():
             with self.subTest(name):
                 path = write_idl("Unsupported_%s.idl" % name, text)
                 self.assertEqual(cli.main(["-bjava", "-C", OUT, path]), 1)
+
+    def test_abstract_interfaces(self):
+        path = write_idl(
+            "Abstracts.idl",
+            """
+            module Abs {
+              abstract interface A { string a(); };
+              abstract interface B : A { long b(); };
+              interface I : B { void i(); };
+              interface J : I, A { void j(); };
+              valuetype V supports B { public long x; };
+              valuetype W supports A, J { public long y; };
+              interface Use { A swap(in B b, inout A x, out B y); };
+            };
+        """,
+        )
+        outdir = os.path.join(OUT, "abstracts")
+        self.assertEqual(cli.main(["-bjava", "-C", outdir, path]), 0)
+        d = os.path.join(outdir, "Abs")
+        # An abstract interface has its operations itself, and a stub.
+        self.assertIn(
+            "public interface B extends Abs.A, org.omg.CORBA.portable.IDLEntity {",
+            read(os.path.join(d, "B.java")),
+        )
+        self.assertIn("String a();", read(os.path.join(d, "A.java")))
+        self.assertFalse(os.path.exists(os.path.join(d, "AOperations.java")))
+        self.assertFalse(os.path.exists(os.path.join(d, "APOA.java")))
+        self.assertIn(
+            "public class _BStub extends org.omg.CORBA.portable.ObjectImpl implements Abs.B {",
+            read(os.path.join(d, "_BStub.java")),
+        )
+        helper = read(os.path.join(d, "BHelper.java"))
+        self.assertIn("create_abstract_interface_tc(_id, \"B\")", helper)
+        self.assertIn(".write_abstract_interface(value);", helper)
+        self.assertIn(".read_abstract_interface());", helper)
+        self.assertIn("public static Abs.B narrow(java.lang.Object obj) {", helper)
+        # A concrete interface's operations extend its abstract bases.
+        self.assertIn(
+            "public interface IOperations extends Abs.B {", read(os.path.join(d, "IOperations.java"))
+        )
+        self.assertIn(
+            "public interface I extends IOperations, org.omg.CORBA.Object,",
+            read(os.path.join(d, "I.java")),
+        )
+        self.assertIn("public String a() {", read(os.path.join(d, "_IStub.java")))
+        self.assertIn('"a"', read(os.path.join(d, "IPOA.java")))
+        # A valuetype implements the abstract interfaces it supports.
+        self.assertIn("implements org.omg.CORBA.portable.StreamableValue, Abs.B {",
+                      read(os.path.join(d, "V.java")))
+        self.assertIn("org.omg.CORBA.portable.StreamableValue, Abs.A, Abs.JOperations {",
+                      read(os.path.join(d, "W.java")))
+        if JAVAC:
+            sources = []
+            for root in (RUNTIME, outdir):
+                for dirpath, _, names in os.walk(root):
+                    sources += [os.path.join(dirpath, n) for n in names if n.endswith(".java")]
+            listing = os.path.join(OUT, "abstracts.txt")
+            with open(listing, "w") as f:
+                f.write("\n".join(sources))
+            subprocess.run(
+                [JAVAC, "--release", "11", "-encoding", "UTF-8", "-Xlint:all,-serial", "-Werror",
+                 "-d", os.path.join(OUT, "abstracts-classes"), "@" + listing],
+                check=True,
+            )
 
     def test_value_behaviour(self):
         path = write_idl(

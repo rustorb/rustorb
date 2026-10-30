@@ -71,6 +71,25 @@ public final class Client {
         return r.failed().isEmpty() ? 0 : 1;
     }
 
+    /** The abstract interface suite (AbstractTest.idl) against the
+     * AbstractEcho object at opt.name. */
+    private static int runAbstract(ORB orb, NamingContext root, Common.Options opt)
+            throws Exception {
+        AbstractTests.registerFactories(orb);
+        org.omg.CORBA.Object obj = Common.retry("the AbstractEcho server",
+                () -> root.resolve(Common.toName(opt.name)), opt.timeout);
+        AbstractTest.AbstractEcho echo = AbstractTest.AbstractEchoHelper.narrow(obj);
+        Common.retry("the AbstractEcho server", echo::_non_existent, opt.timeout);
+
+        Cases.Runner r = new Cases.Runner();
+        AbstractTests.run(r, orb, echo);
+        if (opt.shutdownServer) {
+            echo.shutdown();
+        }
+        r.summary();
+        return r.failed().isEmpty() ? 0 : 1;
+    }
+
     public static void main(String[] argv) throws Exception {
         Common.Options opt = Common.parseArgs("client", argv);
         ORB orb = Common.orbInit(opt, "InteropTestClient");
@@ -85,6 +104,9 @@ public final class Client {
                         break;
                     case "value":
                         status = runValue(orb, root, opt);
+                        break;
+                    case "abstract":
+                        status = runAbstract(orb, root, opt);
                         break;
                     default:
                         status = runCustom(orb, root, opt);

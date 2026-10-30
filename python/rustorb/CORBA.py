@@ -643,6 +643,9 @@ class ValueBase(object):
 
 TC_ValueBase = TypeCode(tk_value, ValueBase._NP_RepositoryId, "ValueBase", members=[], cls=ValueBase)
 _tc_ValueBase = TC_ValueBase
+# Any abstract interface: a reference or a value.
+TC_AbstractBase = TypeCode(tk_abstract_interface, "IDL:omg.org/CORBA/AbstractBase:1.0", "AbstractBase")
+_tc_AbstractBase = TC_AbstractBase
 
 
 class CustomMarshal(object):
@@ -712,8 +715,7 @@ class DataOutputStream(object):
         self._write(TC_ValueBase, value)
 
     def write_Abstract(self, value):
-        # Abstract interfaces are not supported yet.
-        raise NO_IMPLEMENT(0, COMPLETED_NO)
+        self._write(TC_AbstractBase, value)
 
     def write_TypeCode(self, value):
         self._write(TC_TypeCode, value)
@@ -759,7 +761,7 @@ class DataInputStream(object):
         return self._n.read(TC_ValueBase)
 
     def read_Abstract(self):
-        raise NO_IMPLEMENT(0, COMPLETED_NO)
+        return self._n.read(TC_AbstractBase)
 
     def read_TypeCode(self):
         return self._n.read(TC_TypeCode)

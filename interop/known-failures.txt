@@ -106,3 +106,23 @@ suite=custom * jacorb echo_blobs JacORB on Java 17 cannot write values in custom
 # JacORB). The JacORB pairs fail these cases already (above).
 suite=value rustorbjava-portable * echo_any[derived] JacORB valuetype Helpers
 suite=value * rustorbjava-portable echo_any[derived] JacORB valuetype Helpers
+
+# JacORB 3.9 writes the value of an abstract interface through
+# javax.rmi.CORBA as well (sun.reflect.ReflectionFactory, seen in the
+# server's log), so on Java 17 a JacORB client cannot send a Card, nor a
+# JacORB server send one back. JacORB reads them, and references pass.
+suite=abstract jacorb * echo_named[value] JacORB on Java 17 cannot write values
+suite=abstract jacorb * name_of[value] JacORB on Java 17 cannot write values
+suite=abstract jacorb * is_object[value] JacORB on Java 17 cannot write values
+suite=abstract jacorb * echo_pair[shared] JacORB on Java 17 cannot write values
+suite=abstract jacorb * echo_pair[mixed] JacORB on Java 17 cannot write values
+suite=abstract jacorb * echo_seq JacORB on Java 17 cannot write values
+suite=abstract jacorb * echo_any[value] JacORB on Java 17 cannot write values
+suite=abstract * jacorb echo_named[value] JacORB on Java 17 cannot write values
+suite=abstract * jacorb echo_pair[shared] JacORB on Java 17 cannot write values
+suite=abstract * jacorb echo_pair[mixed] JacORB on Java 17 cannot write values
+suite=abstract * jacorb echo_seq JacORB on Java 17 cannot write values
+suite=abstract * jacorb echo_any[value] JacORB on Java 17 cannot write values
+# JacORB's NamedHelper.insert puts an object in an any with the TypeCode of
+# its stub's type (tk_objref IDL:AbstractTest/Person:1.0), not tk_abstract_interface.
+suite=abstract jacorb * echo_any[object] JacORB abstract interface Helpers insert objects as objrefs

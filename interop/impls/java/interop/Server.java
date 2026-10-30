@@ -34,6 +34,15 @@ public final class Server {
             poa.activate_object_with_id(customOid, new CustomTests.CustomEchoImpl(orb));
             Common.bindName(Common.rootContext(orb, opt.timeout), opt.name,
                     poa.id_to_reference(customOid));
+        } else if (opt.suite.equals("abstract")) {
+            // The abstract interface suite: AbstractTest::AbstractEcho, which
+            // also stops the server.
+            AbstractTests.registerFactories(orb);
+            POA poa = Common.persistentPoa(orb, "AbstractTest");
+            byte[] abstractOid = "AbstractEcho".getBytes(StandardCharsets.US_ASCII);
+            poa.activate_object_with_id(abstractOid, new AbstractTests.AbstractEchoImpl(orb));
+            Common.bindName(Common.rootContext(orb, opt.timeout), opt.name,
+                    poa.id_to_reference(abstractOid));
         } else if (opt.suite.equals("any")) {
             // The stage 2 suite: AnyTest::AnyEcho, with an Echo object next
             // to it for the client to shut the server down.

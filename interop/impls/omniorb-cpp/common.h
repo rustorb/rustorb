@@ -54,7 +54,7 @@ inline Options parse_args(int argc, char** argv, std::vector<std::string>& orb_a
   if (opt.naming.empty() || opt.name.empty()) {
     std::cerr << "usage: " << argv[0]
               << " --naming CORBALOC --name PATH [--host H] [--port N] [--timeout S]"
-              << " [--shutdown-server] [--suite basic|any|value] [ORB options]" << std::endl;
+              << " [--shutdown-server] [--suite basic|any|value|abstract] [ORB options]" << std::endl;
     std::exit(2);
   }
   orb_args.push_back("-ORBInitRef");
