@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use rustorb_cdr::{ByteOrder, Segment};
 
@@ -72,9 +73,17 @@ impl AssembledMessage {
         !self.segments.is_empty()
     }
 
-    /// Decodes the message, keeping the alignment of each fragment.
+    /// Decodes the message, keeping the alignment of each fragment. The
+    /// bodies get a copy of the bytes; [`into_decoded`](Self::into_decoded)
+    /// shares them instead.
     pub fn decode(&self) -> Result<(MessageHeader, Message)> {
-        decode_segmented(&self.data, &self.segments)
+        decode_segmented(&Arc::new(self.data.clone()), &self.segments)
+    }
+
+    /// Decodes the message like [`decode`](Self::decode), handing its
+    /// bytes to the bodies without copying them.
+    pub fn into_decoded(self) -> Result<(MessageHeader, Message)> {
+        decode_segmented(&Arc::new(self.data), &self.segments)
     }
 }
 
@@ -111,6 +120,21 @@ impl FragmentAssembler {
     /// Takes one complete message and returns a whole message when one is
     /// ready.
     pub fn push(&mut self, msg: &[u8]) -> Result<Option<AssembledMessage>> {
+        self.push_message(msg)
+    }
+
+    /// Like [`push`](Self::push), but takes the buffer the message was read
+    /// into: an unfragmented message, and the first fragment of a
+    /// fragmented one, keep it instead of copying it.
+    pub fn push_owned(&mut self, msg: Vec<u8>) -> Result<Option<AssembledMessage>> {
+        self.push_message(msg)
+    }
+
+    fn push_message<M>(&mut self, owned: M) -> Result<Option<AssembledMessage>>
+    where
+        M: AsRef<[u8]> + Into<Vec<u8>>,
+    {
+        let msg = owned.as_ref();
         let header = MessageHeader::parse(msg)?;
         let expected = header.total_len();
         if msg.len() != expected {
@@ -128,19 +152,23 @@ impl FragmentAssembler {
         if header.msg_type != MsgType::Fragment {
             if !header.more_fragments {
                 return Ok(Some(AssembledMessage {
-                    data: msg.to_vec(),
+                    data: owned.into(),
                     segments: Vec::new(),
                 }));
             }
             self.check_size(msg.len())?;
+            let id = if v12 {
+                Some(request_id(&header, msg)?)
+            } else {
+                None
+            };
             let pending = Pending {
                 version: header.version,
                 byte_order: header.byte_order,
-                data: msg.to_vec(),
+                data: owned.into(),
                 segments: Vec::new(),
             };
-            if v12 {
-                let id = request_id(&header, msg)?;
+            if let Some(id) = id {
                 if self.pending_1_2.contains_key(&id) {
                     return Err(Error::FragmentInProgress);
                 }

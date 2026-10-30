@@ -4,16 +4,17 @@
 //! The I/O tasks only read and write GIOP messages, parse object keys and
 //! find the target POA; user code (servants, servant managers, adapter
 //! activators) always runs on the upcall pool, or on the main thread for
-//! MAIN_THREAD_MODEL. Replies go to a writer task per connection through a
-//! channel and are written in the order they complete, which need not be
-//! the order of the requests (omniORB does the same).
+//! MAIN_THREAD_MODEL. Replies are written in the order they complete,
+//! which need not be the order of the requests (omniORB does the same):
+//! by the thread that made them when the socket takes them at once,
+//! otherwise by a writer task per connection ([`Outbox`]).
 //!
 //! Calls from the ORB to its own objects do not go through the network:
 //! the request is marshalled as usual and dispatched on the calling thread
 //! ([`Server::call_local`]).
 
 use std::collections::hash_map::RandomState;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{BuildHasher, Hasher};
 use std::io;
 use std::panic::{self, AssertUnwindSafe};
@@ -25,13 +26,13 @@ use rustorb_cdr::ByteOrder;
 use rustorb_giop::{
     AlternateIiopAddress, Body, CodeSetComponent, CodeSetComponentInfo, CodeSetContext,
     FragmentAssembler, IiopProfile, Ior, LocateReplyHeader, LocateRequestHeader, LocateStatus,
-    Message, MessageEncoder, MessageHeader, RequestHeader, ServiceContext, TargetAddress, Version,
+    Message, MessageEncoder, RequestHeader, ServiceContext, TargetAddress, Version,
 };
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::runtime::Handle;
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
+use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinHandle;
 
 use crate::codeset::{CONVERSION_CHAR, NATIVE_CHAR, NATIVE_WCHAR};
@@ -44,6 +45,7 @@ use crate::poa::{
 use crate::pool::{Job, Pool};
 use crate::servant::{OBJECT_ID, ServerReply, location_forward_reply, system_exception_reply};
 use crate::stream::InStream;
+use crate::wire::{self, ReadError};
 use crate::{
     CodeSets, CompletionStatus, EndpointAddr, Lifespan, Orb, Poa, Servant, ServantManagerError,
     SystemException, SystemExceptionKind, ThreadPolicy,
@@ -529,7 +531,7 @@ impl Server {
             if let Ok(msg) = MessageEncoder::locate_reply(version, order, &reply)
                 .and_then(MessageEncoder::finish)
             {
-                conn.send(Outgoing::Message(msg));
+                conn.send(msg);
             }
         };
         let Some(key) = target_key(&header.target) else {
@@ -743,7 +745,7 @@ impl Server {
         for conn in conns {
             let version = *conn.version.lock().unwrap();
             if let Ok(msg) = MessageEncoder::close_connection(version, self.order) {
-                conn.send(Outgoing::Close(msg));
+                conn.close(msg);
             }
             writers.extend(conn.writer.lock().unwrap().take());
         }
@@ -880,17 +882,93 @@ impl Drop for Ticket {
     }
 }
 
-/// What the writer task writes.
-enum Outgoing {
-    Message(Vec<u8>),
-    /// A last message (`CloseConnection` or `MessageError`), after which
-    /// the connection is shut down.
-    Close(Vec<u8>),
+/// The write side of a server connection.
+///
+/// A reply is written by the thread that made it, straight to the socket,
+/// while nothing is queued before it and the socket takes all of it, so
+/// that a reply needs no hand-over to the runtime. What the socket does not
+/// take is queued for the writer task, and so is everything after it until
+/// the queue is empty again. Writes happen under the lock or by the writer
+/// task while it holds the stream, so messages never interleave.
+struct Outbox {
+    state: Mutex<OutState>,
+    /// Wakes the writer task when something is queued or the connection
+    /// closes.
+    ready: Notify,
+}
+
+struct OutState {
+    /// The stream; `None` while the writer task writes, and once closed.
+    stream: Option<OwnedWriteHalf>,
+    /// Messages for the writer task, each with how much of it was
+    /// written already.
+    queue: VecDeque<(Vec<u8>, usize)>,
+    /// No more messages are taken: the writer task writes the queue,
+    /// shuts the stream down and ends.
+    closing: bool,
+    /// Writing failed: everything is dropped.
+    failed: bool,
+}
+
+impl Outbox {
+    fn new(stream: OwnedWriteHalf) -> Outbox {
+        Outbox {
+            state: Mutex::new(OutState {
+                stream: Some(stream),
+                queue: VecDeque::new(),
+                closing: false,
+                failed: false,
+            }),
+            ready: Notify::new(),
+        }
+    }
+
+    /// Writes `msg`, or queues what the socket does not take now.
+    fn send(&self, msg: Vec<u8>) {
+        let mut state = self.state.lock().unwrap();
+        if state.closing || state.failed {
+            return;
+        }
+        let mut written = 0;
+        if let (true, Some(stream)) = (state.queue.is_empty(), &state.stream) {
+            while written < msg.len() {
+                match stream.try_write(&msg[written..]) {
+                    Ok(0) => break,
+                    Ok(n) => written += n,
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                    // Not writable now, or failed: the writer task waits
+                    // for the socket, or finds the error again.
+                    Err(_) => break,
+                }
+            }
+            if written == msg.len() {
+                return;
+            }
+        }
+        state.queue.push_back((msg, written));
+        drop(state);
+        self.ready.notify_one();
+    }
+
+    /// Queues a last message (none if empty) and has the writer task shut
+    /// the stream down after it. Later messages are dropped.
+    fn close(&self, last: Vec<u8>) {
+        let mut state = self.state.lock().unwrap();
+        if state.closing || state.failed {
+            return;
+        }
+        if !last.is_empty() {
+            state.queue.push_back((last, 0));
+        }
+        state.closing = true;
+        drop(state);
+        self.ready.notify_one();
+    }
 }
 
 /// One connection accepted by the server.
 struct ServerConn {
-    tx: mpsc::UnboundedSender<Outgoing>,
+    out: Arc<Outbox>,
     /// The code sets of the first request with a code set context.
     code_sets: Mutex<Option<CodeSets>>,
     requests: Mutex<Requests>,
@@ -901,6 +979,14 @@ struct ServerConn {
     writer: Mutex<Option<JoinHandle<()>>>,
 }
 
+impl Drop for ServerConn {
+    /// The requests still running hold the connection: once the last one
+    /// replied, the stream is shut down.
+    fn drop(&mut self) {
+        self.out.close(Vec::new());
+    }
+}
+
 #[derive(Default)]
 struct Requests {
     pending: HashSet<u32>,
@@ -908,8 +994,14 @@ struct Requests {
 }
 
 impl ServerConn {
-    fn send(&self, msg: Outgoing) {
-        let _ = self.tx.send(msg);
+    fn send(&self, msg: Vec<u8>) {
+        self.out.send(msg);
+    }
+
+    /// Sends `last` (if not empty) after what is queued, then shuts the
+    /// stream down.
+    fn close(&self, last: Vec<u8>) {
+        self.out.close(last);
     }
 
     fn saw_version(&self, version: Version) {
@@ -1025,7 +1117,7 @@ impl ReplyTo {
             Some(Sink::Conn(conn)) => {
                 let cancelled = conn.end(self.request_id);
                 if self.response && !cancelled {
-                    conn.send(Outgoing::Message(msg));
+                    conn.send(msg);
                 }
             }
             Some(Sink::Local(tx)) if self.response => {
@@ -1084,26 +1176,27 @@ async fn accept_loop(server: Weak<Server>, listener: TcpListener) {
 
 async fn serve(server: Arc<Server>, stream: TcpStream) {
     let _ = stream.set_nodelay(true);
-    let (mut reader, writer) = stream.into_split();
-    let (tx, rx) = mpsc::unbounded_channel();
+    let (reader, writer) = stream.into_split();
+    let mut reader = wire::buffered(reader);
+    let out = Arc::new(Outbox::new(writer));
     let conn = Arc::new(ServerConn {
-        tx,
+        out: Arc::clone(&out),
         code_sets: Mutex::new(None),
         requests: Mutex::default(),
         version: Mutex::new(Version::V1_0),
         permits: Arc::new(Semaphore::new(server.max_requests)),
         writer: Mutex::new(None),
     });
-    *conn.writer.lock().unwrap() = Some(tokio::spawn(write_loop(writer, rx)));
+    *conn.writer.lock().unwrap() = Some(tokio::spawn(write_loop(out)));
     let id = server.add_connection(&conn);
     let ended = read_loop(&server, &conn, &mut reader).await;
     server.remove_connection(id);
     match ended {
         Ok(Ended::Peer) => {}
-        Ok(Ended::CloseConnection) => conn.send(Outgoing::Close(Vec::new())),
+        Ok(Ended::CloseConnection) => conn.close(Vec::new()),
         Err(version) => {
             if let Ok(msg) = MessageEncoder::message_error(version, server.order) {
-                conn.send(Outgoing::Close(msg));
+                conn.close(msg);
             }
         }
     }
@@ -1111,21 +1204,53 @@ async fn serve(server: Arc<Server>, stream: TcpStream) {
     // replies and dropped the connection.
 }
 
-async fn write_loop(mut writer: OwnedWriteHalf, mut rx: mpsc::UnboundedReceiver<Outgoing>) {
-    while let Some(out) = rx.recv().await {
-        match out {
-            Outgoing::Message(msg) => {
-                if writer.write_all(&msg).await.is_err() {
-                    return;
+/// Writes what [`Outbox::send`] queued, and shuts the stream down once the
+/// outbox is closed (by `close`, or when the connection is dropped).
+async fn write_loop(out: Arc<Outbox>) {
+    enum Step {
+        Write(OwnedWriteHalf, VecDeque<(Vec<u8>, usize)>),
+        Wait,
+        Shutdown(Option<OwnedWriteHalf>),
+        End,
+    }
+    loop {
+        let step = {
+            let mut state = out.state.lock().unwrap();
+            if state.failed {
+                Step::End
+            } else if !state.queue.is_empty() {
+                match state.stream.take() {
+                    Some(stream) => Step::Write(stream, std::mem::take(&mut state.queue)),
+                    None => Step::End,
                 }
+            } else if state.closing {
+                Step::Shutdown(state.stream.take())
+            } else {
+                Step::Wait
             }
-            Outgoing::Close(msg) => {
-                let _ = writer.write_all(&msg).await;
-                break;
+        };
+        match step {
+            Step::Write(mut stream, batch) => {
+                for (msg, written) in batch {
+                    if stream.write_all(&msg[written..]).await.is_err() {
+                        let mut state = out.state.lock().unwrap();
+                        state.failed = true;
+                        state.queue.clear();
+                        return;
+                    }
+                }
+                out.state.lock().unwrap().stream = Some(stream);
             }
+            Step::Wait => out.ready.notified().await,
+            Step::Shutdown(stream) => {
+                if let Some(mut stream) = stream {
+                    let _ = stream.shutdown().await;
+                }
+                return;
+            }
+            Step::End => return,
         }
     }
-    let _ = writer.shutdown().await;
 }
 
 /// How a connection's read loop ended normally.
@@ -1141,37 +1266,22 @@ enum Ended {
 async fn read_loop(
     server: &Arc<Server>,
     conn: &Arc<ServerConn>,
-    reader: &mut OwnedReadHalf,
+    reader: &mut BufReader<OwnedReadHalf>,
 ) -> Result<Ended, Version> {
     let max = server.max_message_size;
     let mut assembler = FragmentAssembler::new(max);
     loop {
-        let mut header = [0u8; MessageHeader::SIZE];
-        match reader.read_exact(&mut header).await {
-            Ok(_) => {}
-            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(Ended::Peer),
-            Err(_) => return Ok(Ended::Peer),
-        }
-        let parsed = MessageHeader::parse(&header).map_err(|_| Version::V1_0)?;
-        let version = parsed.version;
-        let total = parsed.total_len();
-        if total > max {
-            return Err(version);
-        }
-        let mut msg = Vec::with_capacity(total);
-        msg.extend_from_slice(&header);
-        msg.resize(total, 0);
-        if reader
-            .read_exact(&mut msg[MessageHeader::SIZE..])
-            .await
-            .is_err()
-        {
-            return Ok(Ended::Peer);
-        }
-        let Some(whole) = assembler.push(&msg).map_err(|_| version)? else {
+        let (header, msg) = match wire::read_message(reader, max).await {
+            Ok(read) => read,
+            Err(ReadError::Closed(_) | ReadError::Truncated(_)) => return Ok(Ended::Peer),
+            Err(ReadError::BadHeader(_)) => return Err(Version::V1_0),
+            Err(ReadError::TooLarge(_, version)) => return Err(version),
+        };
+        let version = header.version;
+        let Some(whole) = assembler.push_owned(msg).map_err(|_| version)? else {
             continue;
         };
-        let (_, message) = whole.decode().map_err(|_| version)?;
+        let (_, message) = whole.into_decoded().map_err(|_| version)?;
         match message {
             Message::Request { header, body } => {
                 server.on_request(conn, version, header, body).await;

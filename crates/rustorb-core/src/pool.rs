@@ -100,7 +100,11 @@ impl Pool {
         state.queue.push_back(job);
         // Threads woken before take the jobs queued before.
         if let Some(waiter) = state.idle.pop() {
-            waiter.wake();
+            waiter.woken.store(true, Ordering::Relaxed);
+            // Notified after the lock is released, so that the thread does
+            // not wake only to wait for it.
+            drop(state);
+            waiter.cond.notify_one();
         } else if state.threads < self.shared.max {
             spawn(&self.shared, &mut state);
         }

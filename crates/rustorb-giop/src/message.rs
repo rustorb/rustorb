@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use rustorb_cdr::{ByteOrder, CdrDecode, CdrEncode, CdrVersion, Decoder, Encoder, Segment};
 
 use crate::{Error, Ior, MessageHeader, MsgType, Result, ServiceContext, TaggedProfile, Version};
@@ -251,20 +253,37 @@ pub struct FragmentHeader {
 
 /// The body of a message: the bytes after the message header, kept with
 /// their offset in the message so that CDR alignment is preserved.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// The bytes are shared with the buffer the message was read into, not
+/// copied: cloning a body is cheap.
+#[derive(Debug, Clone)]
 pub struct Body {
-    data: Vec<u8>,
+    buf: Arc<Vec<u8>>,
+    start: usize,
     offset: usize,
     segments: Vec<Segment>,
     byte_order: ByteOrder,
     version: CdrVersion,
 }
 
+impl PartialEq for Body {
+    fn eq(&self, other: &Body) -> bool {
+        self.as_bytes() == other.as_bytes()
+            && self.offset == other.offset
+            && self.segments == other.segments
+            && self.byte_order == other.byte_order
+            && self.version == other.version
+    }
+}
+
+impl Eq for Body {}
+
 impl Body {
     fn new(dec: &Decoder<'_>, src: &Source<'_>) -> Body {
-        let start = src.len - dec.remaining();
+        let start = src.buf.len() - dec.remaining();
         Body {
-            data: dec.remaining_bytes().to_vec(),
+            buf: Arc::clone(src.buf),
+            start,
             offset: dec.position(),
             segments: src
                 .segments
@@ -282,7 +301,7 @@ impl Body {
 
     /// The body bytes.
     pub fn as_bytes(&self) -> &[u8] {
-        &self.data
+        &self.buf[self.start..]
     }
 
     /// Offset of the first body byte from the start of the message.
@@ -297,7 +316,7 @@ impl Body {
 
     /// Whether the body is empty.
     pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
+        self.as_bytes().is_empty()
     }
 
     /// Where the alignment restarts inside the body: one segment for each
@@ -309,15 +328,16 @@ impl Body {
 
     /// A CDR decoder over the body with the message's alignment.
     pub fn decoder(&self) -> Decoder<'_> {
-        let mut dec = Decoder::with_offset(&self.data, self.byte_order, self.version, self.offset);
+        let mut dec =
+            Decoder::with_offset(self.as_bytes(), self.byte_order, self.version, self.offset);
         dec.set_segments(&self.segments);
         dec
     }
 }
 
-/// The message a body is decoded from: its length and alignment segments.
+/// The message a body is decoded from: its bytes and alignment segments.
 struct Source<'a> {
-    len: usize,
+    buf: &'a Arc<Vec<u8>>,
     segments: &'a [Segment],
 }
 
@@ -386,13 +406,13 @@ impl Message {
 /// [`FragmentAssembler`](crate::FragmentAssembler) first to get the whole
 /// message.
 pub fn decode_message(buf: &[u8]) -> Result<(MessageHeader, Message)> {
-    decode_segmented(buf, &[])
+    decode_segmented(&Arc::new(buf.to_vec()), &[])
 }
 
 /// Decodes a message whose alignment restarts at `segments`, as one joined
-/// from fragments.
+/// from fragments. The bodies share `buf`.
 pub(crate) fn decode_segmented(
-    buf: &[u8],
+    buf: &Arc<Vec<u8>>,
     segments: &[Segment],
 ) -> Result<(MessageHeader, Message)> {
     let header = MessageHeader::parse(buf)?;
@@ -409,10 +429,7 @@ pub(crate) fn decode_segmented(
     let mut dec = Decoder::new(buf, header.byte_order, header.version.cdr_version());
     dec.set_segments(segments);
     dec.skip(MessageHeader::SIZE)?;
-    let src = Source {
-        len: buf.len(),
-        segments,
-    };
+    let src = Source { buf, segments };
     let message = decode_body(&header, &mut dec, &src)?;
     Ok((header, message))
 }
