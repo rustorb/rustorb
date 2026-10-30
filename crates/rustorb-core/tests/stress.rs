@@ -837,15 +837,26 @@ fn a_stalled_connection_does_not_hold_up_the_others() {
     .unwrap();
     let stuck = via_port(&stuck_client, &obj, proxy.port);
     assert_eq!(echo_long(&stuck, 1).unwrap(), 1);
-    let big = vec![1; 4 << 20];
+    let big = vec![1; 16 << 20];
 
     // The server stops reading: the client cannot write the whole request
     // and gives up at the call timeout. The request did not reach the
-    // server, and the cut-off stream is closed.
+    // server (completed no), and the cut-off stream is closed. Where the
+    // socket buffers take the whole request (Windows' loopback can), the
+    // write ends and the call times out waiting for the reply instead
+    // (completed maybe).
     proxy.stalled.store(true, Ordering::Relaxed);
+    let start = Instant::now();
     let e = system(echo_octets(&stuck, &big));
     assert!(e.is(SystemExceptionKind::TIMEOUT), "{e:?}");
-    assert_eq!(e.completed, CompletionStatus::No);
+    assert!(
+        start.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        start.elapsed()
+    );
+    if cfg!(target_os = "linux") {
+        assert_eq!(e.completed, CompletionStatus::No);
+    }
     for i in 0..100 {
         assert_eq!(echo_long(&direct, i).unwrap(), i);
     }
