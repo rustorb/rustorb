@@ -14,3 +14,10 @@ workspace = true
 rustorb-cdr.workspace = true
 rustorb-giop.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "sync", "io-util", "time"] }
+
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false }
+
+[[bench]]
+name = "throughput"
+harness = false

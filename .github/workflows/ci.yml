@@ -115,6 +115,30 @@ jobs:
       - run: cmake --build build/cpp
       - run: ctest --test-dir build/cpp --output-on-failure
 
+  cpp-sanitize:
+    name: C++ with AddressSanitizer and LeakSanitizer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: sugarsweetrobotics/idl_parser
+          ref: 5eef768bb61e0ee7c5cd08c42c45789a45585f60
+          path: idl_parser
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Every C++ test with ASan; LeakSanitizer reports what the C++ runtime
+      # and librustorb_ffi left unfreed at exit (tests/test_leak.cc above
+      # all).
+      - run: >
+          cmake -S cpp -B build/cpp -DCMAKE_CXX_COMPILER=g++ -DRUSTORB_SANITIZE=address
+          -DIDL_PARSER_DIR=${{ github.workspace }}/idl_parser
+      - run: cmake --build build/cpp
+      - run: ctest --test-dir build/cpp --output-on-failure
+
   java:
     name: Java (rustorb-jni, the Java mapping and rustorb-idl -bjava)
     strategy:

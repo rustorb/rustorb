@@ -506,6 +506,59 @@ fn reassemble_giop_1_2_fragments() {
     assert_eq!(Vec::<u32>::decode(&mut body.decoder()).unwrap(), payload);
 }
 
+/// Whether `inner` lies within the memory `outer` spans.
+fn within(inner: &[u8], outer: &std::ops::Range<*const u8>) -> bool {
+    let i = inner.as_ptr_range();
+    outer.start <= i.start && i.end <= outer.end
+}
+
+#[test]
+fn owned_messages_are_decoded_without_copying() {
+    let header = RequestHeader {
+        request_id: 12,
+        response_flags: response_flags::SYNC_WITH_TARGET,
+        target: TargetAddress::Key(b"key".to_vec()),
+        operation: "send".into(),
+        service_context: vec![],
+        requesting_principal: vec![],
+    };
+    let payload = vec![9u8; 4096];
+    let mut m = MessageEncoder::request(Version::V1_2, ByteOrder::Little, &header).unwrap();
+    m.body().write_octet_seq(&payload).unwrap();
+    let whole = m.finish().unwrap();
+
+    // Unfragmented: the body is the buffer that was pushed.
+    let mut asm = FragmentAssembler::default();
+    let buf = whole.clone();
+    let range = buf.as_ptr_range();
+    let joined = asm.push_owned(buf).unwrap().unwrap();
+    assert_eq!(joined.as_bytes().as_ptr_range(), range);
+    let (_, message) = joined.into_decoded().unwrap();
+    let Message::Request { header: got, body } = message else {
+        panic!("not a request");
+    };
+    assert_eq!(got, header);
+    assert_eq!(body.decoder().read_octet_seq().unwrap(), &payload[..]);
+    assert!(within(body.as_bytes(), &range));
+    // A clone shares the bytes too, and compares by content.
+    let copy = body.clone();
+    assert_eq!(copy.as_bytes().as_ptr(), body.as_bytes().as_ptr());
+    assert_eq!(copy, body);
+
+    // Fragmented: joined into the first fragment's buffer, decoded the same
+    // as through `push` and `decode`.
+    let fragments = fragment_1_2(&whole, 12, 512);
+    assert!(fragments.len() > 3);
+    let mut joined = None;
+    for f in fragments.clone() {
+        joined = asm.push_owned(f).unwrap();
+    }
+    let joined = joined.unwrap();
+    assert_eq!(joined.as_bytes(), whole);
+    let borrowed = joined.decode().unwrap();
+    assert_eq!(joined.into_decoded().unwrap(), borrowed);
+}
+
 #[test]
 fn interleaved_giop_1_2_fragments() {
     let mut wholes = Vec::new();

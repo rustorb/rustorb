@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+"""Load client for run-load.sh on omniORBpy or on rustorb's Python binding:
+calls an Echo server, resolved from the naming service, as fast as it can
+for a while and prints the rate of each phase.
+
+    load-client --impl omniorbpy|rustorbpy --naming CORBALOC --name PATH
+                [--seconds S] [--threads N]
+
+The phases, each --seconds long, are those of the Rust load client
+(impls/rustorb/src/load_client.rs) but for `connections`, which one ORB
+per process does not give: `small` (echo_long from N threads on one
+connection), `string` (echo_string of 100 characters) and `large`
+(echo_octets of 1 MiB from 4 threads). Each line reads
+`PHASE calls=N errors=N rate=N/s`; a failed call makes the exit status 1.
+"""
+
+import argparse
+import os
+import sys
+import threading
+import time
+
+parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+parser.add_argument("--impl", required=True, choices=["omniorbpy", "rustorbpy"])
+parser.add_argument("--seconds", type=float, default=5)
+parser.add_argument("--threads", type=int, default=8)
+parser.add_argument("--naming", required=True)
+parser.add_argument("--name", required=True)
+args = parser.parse_args()
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "impls", args.impl))
+sys.argv = [sys.argv[0], "--naming", args.naming, "--name", args.name]
+from common import orb_init, parse_args, retry, root_context, to_name  # noqa: E402
+import InteropTest  # noqa: E402
+
+
+def phase(label, workers, call):
+    stop = threading.Event()
+    counts = [[0, 0] for _ in workers]
+
+    def work(i, w):
+        n = 0
+        while not stop.is_set():
+            try:
+                ok = call(w, n)
+            except Exception as e:  # noqa: BLE001 - counted and reported
+                print("%s: %r" % (label, e), file=sys.stderr)
+                ok = False
+            counts[i][0 if ok else 1] += 1
+            n += 1
+
+    start = time.monotonic()
+    threads = [threading.Thread(target=work, args=(i, w)) for i, w in enumerate(workers)]
+    for t in threads:
+        t.start()
+    time.sleep(args.seconds)
+    stop.set()
+    for t in threads:
+        t.join()
+    took = time.monotonic() - start
+    calls = sum(c[0] for c in counts)
+    errors = sum(c[1] for c in counts)
+    print("%s calls=%d errors=%d rate=%.0f/s" % (label, calls, errors, calls / took), flush=True)
+    return errors == 0
+
+
+def main():
+    a, orb_args = parse_args("load client")
+    orb = orb_init(a, orb_args)
+    root = root_context(orb, a.timeout)
+
+    def resolve():
+        echo = root.resolve(to_name(args.name))._narrow(InteropTest.Echo)
+        echo.echo_long(1)
+        return echo
+
+    echo = retry("the Echo server", resolve, a.timeout)
+    ok = phase("small", [echo] * args.threads, lambda e, i: e.echo_long(i) == i)
+    text = "x" * 100
+    ok &= phase("string", [echo] * args.threads, lambda e, i: e.echo_string(text) == text)
+    data = bytes(i & 0xFF for i in range(1 << 20))
+    ok &= phase("large", [echo] * 4, lambda e, i: e.echo_octets(data) == data)
+    orb.destroy()
+    return 0 if ok else 1
+
+
+sys.exit(main())
