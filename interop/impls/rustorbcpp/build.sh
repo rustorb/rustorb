@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Builds the rustorb C++ client, server, POA probe server and DynAny probe on the host,
-# into bin/: the stubs and skeletons of InteropTest.idl, AnyTest.idl,
+# Builds the rustorb C++ client, server, POA probe server, DynAny probe and
+# naming check on the host, into bin/: the stubs and skeletons of InteropTest.idl, AnyTest.idl,
 # AnyTestHidden.idl (the client only), ValueTest.idl, CosNaming.idl and PoaProbe.idl (the
 # probe server only) from rustorb-idl -bc++11 (in gen/), linked with
-# librustorb_ffi statically. run-matrix.sh, run-poa-probe.sh and run-dynany-probe.sh
-# run it; idl_parser must be importable, or IDL_PARSER_DIR set to a
+# librustorb_ffi statically. run-matrix.sh, run-poa-probe.sh, run-dynany-probe.sh and
+# run-naming-check.sh run it; idl_parser must be importable, or IDL_PARSER_DIR set to a
 # checkout of it. CXX picks the compiler (default g++).
 #
 # The binaries run in the interop image (Ubuntu 24.04), so the host needs a
@@ -43,3 +43,4 @@ link server "$here/server.cc" "${objs[@]}"
 link client "$here/client.cc" "${objs[@]}" "$here/gen/AnyTestHidden.o"
 link poa_probe_server "$here/poa_probe_server.cc" "$here/gen/PoaProbe.o"
 link dynany_probe "$here/dynany_probe.cc"
+link naming_check "$here/naming_check.cc" "$here/gen/CosNaming.o"

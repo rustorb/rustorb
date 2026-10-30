@@ -1,0 +1,5 @@
+#!/bin/sh
+# rustorb Python POA probe server. run-poa-probe.sh builds the rustorb
+# package and the stubs on the host (build.sh) and mounts this directory into
+# the server container.
+exec python3 "$(dirname "$0")/poa_probe_server.py" "$@"
