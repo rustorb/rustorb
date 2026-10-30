@@ -115,13 +115,16 @@ fn build_from_typecode() {
 fn octets_and_chars() {
     let octets = TypeCode::sequence(&TypeCode::simple(TCKind::Octet).unwrap(), 0).unwrap();
     let d = f()
-        .create_dyn_any(&Any::new(octets.clone(), Value::Octets(vec![1, 2, 255])))
+        .create_dyn_any(&Any::new(
+            octets.clone(),
+            Value::Octets(vec![1, 2, 255].into()),
+        ))
         .unwrap();
     assert_eq!(d.component_count().unwrap(), 3);
     assert_eq!(d.get_octet().unwrap(), 1);
     assert_eq!(d.get_octet_seq().unwrap(), vec![1, 2, 255]);
     d.insert_octet_seq(&[9]).unwrap();
-    assert!(matches!(d.to_any().unwrap().value(), Value::Octets(b) if b == &[9]));
+    assert!(matches!(d.to_any().unwrap().value(), Value::Octets(b) if b.as_slice() == [9]));
     let chars = TypeCode::array(&TypeCode::simple(TCKind::Char).unwrap(), 2).unwrap();
     let d = f().create_dyn_any_from_type_code(&chars).unwrap();
     d.insert_char_seq(&['a', 'b']).unwrap();

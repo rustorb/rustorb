@@ -10,7 +10,8 @@
 //!   network (`FragmentAssembler` and decoding). Catches copies coming
 //!   back.
 //! - `orb/*`: an ORB calling another in the same process over loopback
-//!   TCP: one call at a time, 1 MiB octet sequences, and 16 client ORBs
+//!   TCP: one call at a time, 1 MiB octet sequences (copied, and shared
+//!   with `read_octet_seq_shared` / `write_octet_seq_shared`), and 16 client ORBs
 //!   (a connection each) calling at once.
 
 use std::sync::{Arc, Barrier};
@@ -18,7 +19,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use rustorb_core::cdr::ByteOrder;
+use rustorb_core::cdr::{ByteOrder, Octets};
 use rustorb_core::giop::{
     FragmentAssembler, Message, MessageEncoder, RequestHeader, TargetAddress, Version,
     response_flags,
@@ -48,6 +49,11 @@ impl Servant for Echo {
             "echo_long" => {
                 let v = input.read::<i32>()?;
                 reply.output().write_i32(v);
+                Ok(())
+            }
+            "echo_octets_shared" => {
+                let v = input.read_octet_seq_shared()?;
+                reply.output().write_octet_seq_shared(&v)?;
                 Ok(())
             }
             "echo_octets" => {
@@ -157,6 +163,17 @@ fn echo_long(obj: &ObjectRef, v: i32) -> i32 {
     reply.input().read::<i32>().unwrap()
 }
 
+/// Like [`echo_octets`] with the shared octet API on both sides: nothing
+/// is copied outside the kernel.
+fn echo_octets_shared(obj: &ObjectRef, data: &Octets) -> usize {
+    let reply = obj
+        .request("echo_octets_shared")
+        .args(|out| Ok(out.write_octet_seq_shared(data)?))
+        .invoke()
+        .unwrap();
+    reply.input().read_octet_seq_shared().unwrap().len()
+}
+
 fn echo_octets(obj: &ObjectRef, data: &[u8]) -> usize {
     let reply = obj
         .request("echo_octets")
@@ -180,6 +197,10 @@ fn orb(c: &mut Criterion) {
     group.throughput(Throughput::Bytes(2 * MIB as u64));
     group.bench_function("echo_octets_1MiB", |b| {
         b.iter(|| assert_eq!(echo_octets(&pair.obj, &data), MIB));
+    });
+    let shared = Octets::from(data.clone());
+    group.bench_function("echo_octets_shared_1MiB", |b| {
+        b.iter(|| assert_eq!(echo_octets_shared(&pair.obj, &shared), MIB));
     });
 
     // Each iteration is one call from each client, all at once.

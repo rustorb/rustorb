@@ -1,12 +1,25 @@
-use crate::{ByteOrder, CdrVersion, Error, Result};
+use crate::{ByteOrder, CdrVersion, Error, Octets, Result, SHARE_MIN};
 
 /// Writes CDR into a growable buffer.
 ///
 /// Alignment is relative to the stream offset of the first byte, which is
 /// `0` unless the encoder was created with [`Encoder::with_offset`].
+///
+/// An encoder that [allows shared octets](Encoder::allow_shared) keeps
+/// large octet sequences written with
+/// [`write_octet_seq_shared`](Encoder::write_octet_seq_shared) apart from
+/// its buffer: [`into_parts`](Encoder::into_parts) gives the buffer and
+/// where each goes, for a vectored write, and
+/// [`into_bytes`](Encoder::into_bytes) puts them in place.
 #[derive(Debug, Clone)]
 pub struct Encoder {
     pub(crate) buf: Vec<u8>,
+    /// Shared octet sequences, each with the buffer length at which it
+    /// goes.
+    shared: Vec<(usize, Octets)>,
+    /// Their total length.
+    shared_len: usize,
+    allow_shared: bool,
     pub(crate) order: ByteOrder,
     version: CdrVersion,
     base: usize,
@@ -41,6 +54,9 @@ impl Encoder {
     pub fn with_offset(order: ByteOrder, version: CdrVersion, base: usize) -> Encoder {
         Encoder {
             buf: Vec::new(),
+            shared: Vec::new(),
+            shared_len: 0,
+            allow_shared: false,
             order,
             version,
             base,
@@ -77,37 +93,74 @@ impl Encoder {
 
     /// The stream offset of the next byte.
     pub fn position(&self) -> usize {
-        self.base + self.buf.len()
+        self.base + self.len()
     }
 
-    /// Bytes written so far.
+    /// Bytes written so far, shared octets included.
     pub fn len(&self) -> usize {
-        self.buf.len()
+        self.buf.len() + self.shared_len
     }
 
     /// Whether nothing has been written.
     pub fn is_empty(&self) -> bool {
-        self.buf.is_empty()
+        self.len() == 0
     }
 
-    /// The bytes written so far.
+    /// The bytes written into the buffer so far: all of them, unless
+    /// shared octets were kept apart.
     pub fn as_bytes(&self) -> &[u8] {
         &self.buf
     }
 
-    /// Mutable access to the bytes written so far, for patching lengths.
+    /// Mutable access to the buffer, for patching lengths. Indexes are
+    /// buffer indexes, which differ from stream offsets after shared
+    /// octets.
     pub fn as_bytes_mut(&mut self) -> &mut [u8] {
         &mut self.buf
     }
 
-    /// Drops bytes past `len`.
+    /// Drops bytes past `len`, which must not be before shared octets.
     pub fn truncate(&mut self, len: usize) {
+        debug_assert!(self.shared.last().is_none_or(|(at, _)| *at <= len));
         self.buf.truncate(len);
     }
 
-    /// Consumes the encoder and returns the bytes.
+    /// Consumes the encoder and returns the bytes, shared octets copied in
+    /// place.
     pub fn into_bytes(self) -> Vec<u8> {
-        self.buf
+        if self.shared.is_empty() {
+            return self.buf;
+        }
+        let mut out = Vec::with_capacity(self.len());
+        let mut from = 0;
+        for (at, octets) in &self.shared {
+            out.extend_from_slice(&self.buf[from..*at]);
+            out.extend_from_slice(octets);
+            from = *at;
+        }
+        out.extend_from_slice(&self.buf[from..]);
+        out
+    }
+
+    /// Consumes the encoder and returns the buffer and the shared octets,
+    /// each with the buffer length at which it goes.
+    pub fn into_parts(self) -> (Vec<u8>, Vec<(usize, Octets)>) {
+        (self.buf, self.shared)
+    }
+
+    /// Makes room for at least `additional` more bytes in the buffer.
+    pub fn reserve(&mut self, additional: usize) {
+        self.buf.reserve(additional);
+    }
+
+    /// Lets [`write_octet_seq_shared`](Encoder::write_octet_seq_shared)
+    /// keep large octet sequences apart from the buffer. Only for an
+    /// encoder whose result goes out through
+    /// [`into_parts`](Encoder::into_parts) or
+    /// [`into_bytes`](Encoder::into_bytes), not one read through
+    /// [`as_bytes`](Encoder::as_bytes).
+    pub fn allow_shared(&mut self, allow: bool) {
+        self.allow_shared = allow;
     }
 
     /// Pads with zero octets until the stream offset is a multiple of `align`.
@@ -168,6 +221,20 @@ impl Encoder {
     pub fn write_octet_seq(&mut self, bytes: &[u8]) -> Result<()> {
         self.write_len(bytes.len())?;
         self.write_octets(bytes);
+        Ok(())
+    }
+
+    /// Writes a `sequence<octet>` without copying a large one, if the
+    /// encoder [allows it](Encoder::allow_shared) and no valuetype is
+    /// being written (whose chunk lengths count the buffer). Otherwise
+    /// like [`write_octet_seq`](Encoder::write_octet_seq).
+    pub fn write_octet_seq_shared(&mut self, octets: &Octets) -> Result<()> {
+        if !self.allow_shared || octets.len() < SHARE_MIN || self.values.is_some() {
+            return self.write_octet_seq(octets);
+        }
+        self.write_len(octets.len())?;
+        self.shared.push((self.buf.len(), octets.clone()));
+        self.shared_len += octets.len();
         Ok(())
     }
 

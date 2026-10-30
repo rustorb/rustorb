@@ -1,4 +1,6 @@
-use crate::{ByteOrder, CdrVersion, Error, Result};
+use std::sync::Arc;
+
+use crate::{ByteOrder, CdrVersion, Error, Octets, Result, SHARE_MIN};
 
 /// Reads CDR from a byte slice.
 ///
@@ -9,6 +11,8 @@ use crate::{ByteOrder, CdrVersion, Error, Result};
 #[derive(Debug, Clone)]
 pub struct Decoder<'a> {
     pub(crate) buf: &'a [u8],
+    /// The buffer `buf` lies in, when it is shared.
+    shared: Option<&'a Arc<Vec<u8>>>,
     pub(crate) pos: usize,
     pub(crate) order: ByteOrder,
     version: CdrVersion,
@@ -65,6 +69,7 @@ impl<'a> Decoder<'a> {
     ) -> Decoder<'a> {
         Decoder {
             buf,
+            shared: None,
             pos: 0,
             order,
             version,
@@ -267,6 +272,41 @@ impl<'a> Decoder<'a> {
     pub fn read_octet_seq(&mut self) -> Result<&'a [u8]> {
         let len = self.read_len(1)?;
         self.read_octets(len)
+    }
+
+    /// Tells the decoder that its bytes lie in `buf`, so that
+    /// [`read_octet_seq_shared`](Decoder::read_octet_seq_shared) can share
+    /// them.
+    pub fn set_shared(&mut self, buf: &'a Arc<Vec<u8>>) {
+        self.shared = Some(buf);
+    }
+
+    /// Reads a `sequence<octet>` that keeps pointing into the decoder's
+    /// buffer, when that is shared (see
+    /// [`set_shared`](Decoder::set_shared)) and the sequence is not short;
+    /// otherwise a copy.
+    pub fn read_octet_seq_shared(&mut self) -> Result<Octets> {
+        let len = self.read_len(1)?;
+        self.read_octets_shared(len)
+    }
+
+    /// Reads `len` raw octets like
+    /// [`read_octet_seq_shared`](Decoder::read_octet_seq_shared) reads a
+    /// sequence's.
+    pub fn read_octets_shared(&mut self, len: usize) -> Result<Octets> {
+        let bytes = self.read_octets(len)?;
+        if let Some(buf) = self.shared.filter(|_| bytes.len() >= SHARE_MIN) {
+            let base = buf.as_ptr() as usize;
+            let at = bytes.as_ptr() as usize;
+            if at >= base && at + bytes.len() <= base + buf.len() {
+                let start = at - base;
+                return Ok(Octets::slice_of(
+                    Arc::clone(buf),
+                    start..start + bytes.len(),
+                ));
+            }
+        }
+        Ok(Octets::from(bytes))
     }
 
     /// Reads a `string` as bytes in the transmission code set, without the

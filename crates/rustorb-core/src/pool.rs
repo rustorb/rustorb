@@ -110,6 +110,11 @@ impl Pool {
         }
     }
 
+    /// Whether jobs wait for a thread.
+    pub(crate) fn has_queued(&self) -> bool {
+        !self.shared.state.lock().unwrap().queue.is_empty()
+    }
+
     /// Threads running, idle or not.
     #[cfg(test)]
     pub(crate) fn threads(&self) -> usize {

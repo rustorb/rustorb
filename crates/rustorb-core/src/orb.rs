@@ -69,6 +69,13 @@ pub struct OrbOptions {
     /// Requests of one connection that may wait or run at once. Beyond
     /// that the connection is not read until one completes.
     pub max_requests_per_connection: usize,
+    /// The socket send buffer of each connection (`SO_SNDBUF`), client and
+    /// server; `None` leaves the operating system's default (which on
+    /// Linux grows as needed).
+    pub socket_send_buffer: Option<usize>,
+    /// The socket receive buffer of each connection (`SO_RCVBUF`); `None`
+    /// leaves the operating system's default.
+    pub socket_receive_buffer: Option<usize>,
 }
 
 /// A TCP address of an endpoint, as in `giop:tcp:HOST:PORT`.
@@ -122,6 +129,8 @@ impl Default for OrbOptions {
             max_server_threads: 100,
             server_thread_idle_timeout: Duration::from_secs(60),
             max_requests_per_connection: 256,
+            socket_send_buffer: None,
+            socket_receive_buffer: None,
         }
     }
 }
@@ -943,8 +952,7 @@ impl Orb {
                 return Ok(Arc::clone(conn));
             }
         }
-        let max = self.inner.options.max_message_size;
-        let connect = Connection::connect(host, port, max);
+        let connect = Connection::connect(host, port, &self.inner.options);
         let limit = match self.connect_timeout() {
             Some(t) => Some(Instant::now() + t),
             None => deadline,

@@ -1,4 +1,6 @@
-use rustorb_cdr::{ByteOrder, CdrEncode, Encoder};
+use std::io::IoSlice;
+
+use rustorb_cdr::{ByteOrder, CdrEncode, Encoder, Octets};
 
 use crate::{
     CancelRequestHeader, Error, LocateReplyHeader, LocateRequestHeader, MessageHeader, MsgType,
@@ -45,6 +47,8 @@ impl MessageEncoder {
             message_size: 0,
         };
         let mut enc = Encoder::new(order, version.cdr_version());
+        // Room for the headers and a small body without growing.
+        enc.reserve(256);
         enc.write_octets(&header.to_bytes());
         Ok(MessageEncoder {
             enc,
@@ -182,6 +186,7 @@ impl MessageEncoder {
                 self.enc.align(8);
             }
             self.body_start = Some((before, self.enc.len()));
+            self.enc.allow_shared(true);
         }
         &mut self.enc
     }
@@ -193,7 +198,15 @@ impl MessageEncoder {
 
     /// Fills in the message size and returns the message bytes. Body
     /// padding is dropped again if no body was written.
-    pub fn finish(mut self) -> Result<Vec<u8>> {
+    pub fn finish(self) -> Result<Vec<u8>> {
+        Ok(self.finish_shared()?.into_vec())
+    }
+
+    /// Like [`finish`](MessageEncoder::finish), but large octet sequences
+    /// written with
+    /// [`write_octet_seq_shared`](Encoder::write_octet_seq_shared) stay
+    /// where they are, for a vectored write.
+    pub fn finish_shared(mut self) -> Result<OutMessage> {
         if let Some((before, after)) = self.body_start {
             if self.enc.len() == after {
                 self.enc.truncate(before);
@@ -207,6 +220,101 @@ impl MessageEncoder {
             ByteOrder::Little => size.to_le_bytes(),
         };
         self.enc.as_bytes_mut()[8..12].copy_from_slice(&size);
-        Ok(self.enc.into_bytes())
+        let (bytes, shared) = self.enc.into_parts();
+        Ok(OutMessage { bytes, shared, len })
+    }
+}
+
+/// A whole message to send: its bytes, with large octet sequences that
+/// were not copied in kept apart.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct OutMessage {
+    bytes: Vec<u8>,
+    /// Each with the length of `bytes` at which it goes.
+    shared: Vec<(usize, Octets)>,
+    len: usize,
+}
+
+impl OutMessage {
+    /// The length of the message.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Whether the message has no bytes.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// The whole message, if it is one piece.
+    pub fn as_single(&self) -> Option<&[u8]> {
+        self.shared.is_empty().then_some(&self.bytes[..])
+    }
+
+    /// The pieces of the message from offset `from` on, in order, for a
+    /// vectored write; at most `max` of them.
+    pub fn slices_from(&self, from: usize, max: usize) -> Vec<IoSlice<'_>> {
+        let mut out = Vec::new();
+        let mut offset = 0;
+        for piece in self.pieces() {
+            if out.len() == max {
+                break;
+            }
+            let end = offset + piece.len();
+            if end > from {
+                out.push(IoSlice::new(&piece[from.saturating_sub(offset)..]));
+            }
+            offset = end;
+        }
+        out
+    }
+
+    /// The pieces of the message in order.
+    pub fn pieces(&self) -> impl Iterator<Item = &[u8]> {
+        let mut from = 0;
+        let mut shared = self.shared.iter();
+        let mut pending: Option<&[u8]> = None;
+        std::iter::from_fn(move || {
+            if let Some(octets) = pending.take() {
+                return Some(octets);
+            }
+            match shared.next() {
+                Some((at, octets)) => {
+                    let piece = &self.bytes[from..*at];
+                    from = *at;
+                    pending = Some(octets.as_slice());
+                    Some(piece)
+                }
+                None if from != usize::MAX => {
+                    let piece = &self.bytes[from..];
+                    from = usize::MAX;
+                    Some(piece)
+                }
+                None => None,
+            }
+        })
+    }
+
+    /// The message as one buffer; copies only if octets were kept apart.
+    pub fn into_vec(self) -> Vec<u8> {
+        if self.shared.is_empty() {
+            return self.bytes;
+        }
+        let mut out = Vec::with_capacity(self.len);
+        for piece in self.pieces() {
+            out.extend_from_slice(piece);
+        }
+        out
+    }
+}
+
+impl From<Vec<u8>> for OutMessage {
+    fn from(bytes: Vec<u8>) -> OutMessage {
+        let len = bytes.len();
+        OutMessage {
+            bytes,
+            shared: Vec::new(),
+            len,
+        }
     }
 }

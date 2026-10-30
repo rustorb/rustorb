@@ -1,4 +1,4 @@
-use rustorb_cdr::{ByteOrder, CdrDecode, CdrEncode};
+use rustorb_cdr::{ByteOrder, CdrDecode, CdrEncode, Octets};
 use rustorb_giop::{
     AssembledMessage, CancelRequestHeader, CodeSetContext, CompletionStatus, Error,
     FragmentAssembler, Ior, LocateReplyHeader, LocateRequestHeader, LocateStatus, Message,
@@ -557,6 +557,85 @@ fn owned_messages_are_decoded_without_copying() {
     assert_eq!(joined.as_bytes(), whole);
     let borrowed = joined.decode().unwrap();
     assert_eq!(joined.into_decoded().unwrap(), borrowed);
+}
+
+/// Large octet sequences are kept apart when written (a vectored write
+/// sends them from where they are) and shared with the message buffer when
+/// read; the bytes on the wire are those of a plain write.
+#[test]
+fn shared_octet_sequences_are_not_copied() {
+    let header = RequestHeader {
+        request_id: 5,
+        response_flags: response_flags::SYNC_WITH_TARGET,
+        target: TargetAddress::Key(b"key".to_vec()),
+        operation: "send".into(),
+        service_context: vec![],
+        requesting_principal: vec![],
+    };
+    let big = Octets::from(vec![7u8; 100_000]);
+    let small = Octets::from(vec![3u8; 10]);
+    let write = |shared: bool| {
+        let mut m = MessageEncoder::request(Version::V1_2, ByteOrder::Big, &header).unwrap();
+        let body = m.body();
+        body.write_octet(1);
+        if shared {
+            body.write_octet_seq_shared(&big).unwrap();
+            body.write_octet_seq_shared(&small).unwrap();
+        } else {
+            body.write_octet_seq(&big).unwrap();
+            body.write_octet_seq(&small).unwrap();
+        }
+        // Aligned after the shared octets as after copied ones.
+        body.write_f64(1.5);
+        m
+    };
+    let plain = write(false).finish().unwrap();
+    let out = write(true).finish_shared().unwrap();
+    assert_eq!(out.len(), plain.len());
+    let pieces: Vec<&[u8]> = out.pieces().collect();
+    assert_eq!(pieces.len(), 3);
+    assert_eq!(pieces[1].as_ptr(), big.as_ptr());
+    assert_eq!(pieces.concat(), plain);
+    // Slices for a write that already sent part of the message.
+    for from in [
+        0,
+        1,
+        50,
+        pieces[0].len(),
+        pieces[0].len() + 7,
+        plain.len() - 3,
+    ] {
+        let rest: Vec<u8> = out
+            .slices_from(from, usize::MAX)
+            .iter()
+            .flat_map(|s| s.iter().copied())
+            .collect();
+        assert_eq!(rest, plain[from..]);
+    }
+    assert_eq!(out.slices_from(0, 2).len(), 2);
+    assert_eq!(write(true).finish().unwrap(), plain);
+    assert_eq!(out.clone().into_vec(), plain);
+
+    // Read back: the large one points into the message, the short one is
+    // copied.
+    let buf = plain.clone();
+    let range = buf.as_ptr_range();
+    let joined = FragmentAssembler::default()
+        .push_owned(buf)
+        .unwrap()
+        .unwrap();
+    let (_, Message::Request { body, .. }) = joined.into_decoded().unwrap() else {
+        panic!("not a request");
+    };
+    let mut dec = body.decoder();
+    assert_eq!(dec.read_octet().unwrap(), 1);
+    let got = dec.read_octet_seq_shared().unwrap();
+    assert_eq!(got, big);
+    assert!(range.contains(&got.as_ptr()));
+    let got_small = dec.read_octet_seq_shared().unwrap();
+    assert_eq!(got_small, small);
+    assert!(!range.contains(&got_small.as_ptr()));
+    assert_eq!(dec.read_f64().unwrap(), 1.5);
 }
 
 #[test]

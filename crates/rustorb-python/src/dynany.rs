@@ -216,7 +216,7 @@ impl DynAny {
         let kind = kind_of(py, kind)?;
         let values = match value_from_py(tc, values)? {
             Value::List(items) => items,
-            Value::Octets(b) => b.into_iter().map(Value::Octet).collect(),
+            Value::Octets(b) => b.iter().copied().map(Value::Octet).collect(),
             Value::Chars(s) => s.chars().map(Value::Char).collect(),
             _ => Vec::new(),
         };

@@ -14,6 +14,10 @@ workspace = true
 rustorb-cdr.workspace = true
 rustorb-giop.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "sync", "io-util", "time"] }
+socket2 = "0.6"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false }

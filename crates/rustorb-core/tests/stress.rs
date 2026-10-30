@@ -17,8 +17,8 @@ use std::time::{Duration, Instant};
 use rustorb_core::cdr::ByteOrder;
 use rustorb_core::giop::{IiopProfile, Ior, Version};
 use rustorb_core::{
-    CompletionStatus, EndpointAddr, Exception, IdAssignment, InStream, Lifespan, ObjectRef, Orb,
-    OrbOptions, Policy, Servant, ServerReply, SystemException, SystemExceptionKind, minor,
+    CompletionStatus, EndpointAddr, Exception, IdAssignment, InStream, Lifespan, ObjectRef, Octets,
+    Orb, OrbOptions, Policy, Servant, ServerReply, SystemException, SystemExceptionKind, minor,
 };
 
 const LOAD_ID: &str = "IDL:test/Load:1.0";
@@ -69,6 +69,11 @@ impl Servant for LoadServant {
             "echo_octets" => {
                 let v = input.read_octet_seq()?.to_vec();
                 reply.output().write_octet_seq(&v)?;
+                Ok(())
+            }
+            "echo_octets_shared" => {
+                let v = input.read_octet_seq_shared()?;
+                reply.output().write_octet_seq_shared(&v)?;
                 Ok(())
             }
             "sleep" => {
@@ -182,6 +187,19 @@ fn echo_long(obj: &ObjectRef, v: i32) -> Result<i32, Exception> {
     Ok(reply.input().read::<i32>()?)
 }
 
+/// Like [`echo_octets`], with the octets shared rather than copied on both
+/// sides (vectored writes of the large ones).
+fn echo_octets_shared(obj: &ObjectRef, data: &Octets) -> Result<Octets, Exception> {
+    let reply = obj
+        .request("echo_octets_shared")
+        .args(|out| Ok(out.write_octet_seq_shared(data)?))
+        .invoke()?;
+    Ok(reply
+        .input()
+        .read_octet_seq_shared()
+        .map_err(SystemException::from)?)
+}
+
 fn echo_octets(obj: &ObjectRef, data: &[u8]) -> Result<Vec<u8>, Exception> {
     let reply = obj
         .request("echo_octets")
@@ -282,6 +300,46 @@ fn many_clients_each_on_its_own_connection() {
     server.destroy().unwrap();
 }
 
+/// Long runs of calls, one after another, on each of several connections:
+/// the caller reads its own reply, or the reader task does, and the
+/// server's upcall thread reads the next request, or the I/O task does
+/// (docs/read-ownership.md). A reply or request lost in a hand-over shows
+/// up as `TIMEOUT`.
+#[test]
+fn back_to_back_calls_hand_the_reading_over() {
+    let server = Orb::with_options(server_options(0)).unwrap();
+    let servant = Arc::new(LoadServant::default());
+    let obj = serve(&server, servant.clone());
+    let ior = server.object_to_string(Some(&obj)).unwrap();
+    let clients = 8;
+    let calls = 2000 * scale();
+    let start = Instant::now();
+    let threads: Vec<_> = (0..clients)
+        .map(|c| {
+            let ior = ior.clone();
+            thread::spawn(move || {
+                let orb = Orb::with_options(client_options()).unwrap();
+                let obj = orb.string_to_object(&ior).unwrap().unwrap();
+                obj.set_call_timeout(Some(Some(Duration::from_secs(10))));
+                for i in 0..calls {
+                    let v = (c * 100_000 + i) as i32;
+                    assert_eq!(echo_long(&obj, v).unwrap(), v);
+                }
+                orb.destroy().unwrap();
+            })
+        })
+        .collect();
+    for t in threads {
+        t.join().unwrap();
+    }
+    eprintln!(
+        "{clients} connections back to back: {}",
+        rate(clients * calls, start.elapsed())
+    );
+    assert_eq!(servant.calls.load(Ordering::Relaxed), clients * calls);
+    server.destroy().unwrap();
+}
+
 #[test]
 fn many_threads_share_one_connection() {
     let server = Orb::with_options(server_options(0)).unwrap();
@@ -351,24 +409,32 @@ fn large_messages_in_both_directions() {
         })
         .unwrap();
         let obj = remote(&client, &server, &obj);
-        // Several large messages at once on the one connection.
+        // Several large messages at once on the one connection, copied
+        // and shared (written from where they are, read in place).
         let workers: Vec<_> = sizes
             .iter()
-            .map(|&size| {
+            .flat_map(|&size| [(size, false), (size, true)])
+            .map(|(size, shared)| {
                 let obj = obj.clone();
                 thread::spawn(move || {
                     let data: Vec<u8> = (0..size).map(|i| (i * 7 + size) as u8).collect();
                     let start = Instant::now();
-                    let back = echo_octets(&obj, &data).unwrap();
-                    assert!(back == data, "{size} octets came back changed");
-                    start.elapsed()
+                    if shared {
+                        let back = echo_octets_shared(&obj, &Octets::from(data.clone())).unwrap();
+                        assert!(back == data, "{size} shared octets came back changed");
+                    } else {
+                        let back = echo_octets(&obj, &data).unwrap();
+                        assert!(back == data, "{size} octets came back changed");
+                    }
+                    (size, shared, start.elapsed())
                 })
             })
             .collect();
-        for (size, w) in sizes.iter().zip(workers) {
-            let took = w.join().unwrap();
-            if *size >= 1 << 20 {
-                eprintln!("GIOP {version:?}: {size} octets there and back in {took:.2?}");
+        for w in workers {
+            let (size, shared, took) = w.join().unwrap();
+            if size >= 1 << 20 {
+                let how = if shared { "shared" } else { "copied" };
+                eprintln!("GIOP {version:?}: {size} octets ({how}) there and back in {took:.2?}");
             }
         }
         client.destroy().unwrap();

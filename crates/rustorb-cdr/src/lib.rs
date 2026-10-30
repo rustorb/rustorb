@@ -11,6 +11,11 @@
 //!   and floats to their IDL counterparts, [`String`] to `string`, [`Vec`] to
 //!   `sequence`, and fixed-size arrays to IDL arrays.
 //!
+//! - [`Octets`] is a `sequence<octet>` that shares its bytes: read from a
+//!   message without copying ([`Decoder::read_octet_seq_shared`]) and
+//!   written without copying into the message
+//!   ([`Encoder::write_octet_seq_shared`], when the encoder allows it).
+//!
 //! Code set conversion is out of scope: `string` is read and written as
 //! bytes (UTF-8 when converted to [`String`]), and `wchar`/`wstring` use
 //! UTF-16. Negotiating other code sets is left to the ORB core.
@@ -23,15 +28,23 @@
 //! and chunking, and the caller writes or reads the state members in
 //! between.
 
+/// Octet sequences at least this long are shared rather than copied, by
+/// [`Decoder::read_octet_seq_shared`] and
+/// [`Encoder::write_octet_seq_shared`]. Shorter ones are cheaper to copy,
+/// and a short slice should not keep a large message buffer alive.
+pub const SHARE_MIN: usize = 4096;
+
 mod decoder;
 mod encoder;
 mod error;
+mod octets;
 mod traits;
 mod value;
 
 pub use decoder::{Decoder, Segment};
 pub use encoder::Encoder;
 pub use error::{Error, Result};
+pub use octets::Octets;
 pub use traits::{CdrDecode, CdrEncode};
 pub use value::ValueHeader;
 

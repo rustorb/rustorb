@@ -436,8 +436,10 @@ name = "rustorb-core"
 version = "0.0.0"
 dependencies = [
  "criterion",
+ "libc",
  "rustorb-cdr",
  "rustorb-giop",
+ "socket2",
  "tokio",
 ]
 

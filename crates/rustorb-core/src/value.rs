@@ -59,7 +59,7 @@ pub enum Value {
     Char(char),
     WChar(u16),
     String(String),
-    Octets(Vec<u8>),
+    Octets(rustorb_cdr::Octets),
     Chars(String),
     List(Vec<Value>),
     Union {
@@ -684,9 +684,10 @@ fn write_items(
         (TCKind::Octet, Value::Octets(b)) => {
             check(b.len())?;
             if is_seq {
-                out.write_len(b.len())?;
+                out.write_octet_seq_shared(b)?;
+            } else {
+                out.write_octets(b);
             }
-            out.write_octets(b);
         }
         (TCKind::Char, Value::Chars(s)) => {
             check(s.chars().count())?;
@@ -769,7 +770,7 @@ impl Reader {
                 self.check_bound(input, s.chars().count(), &tc)?;
                 Value::String(s)
             }
-            TCKind::Principal => Value::Octets(input.read()?),
+            TCKind::Principal => Value::Octets(input.read::<Vec<u8>>()?.into()),
             TCKind::Sequence => {
                 let content = tc.content_type().map_err(|_| input.marshal_error())?;
                 let min = min_size(&content, 0).max(1);
@@ -901,9 +902,8 @@ impl Reader {
         Ok(match content.unaliased().kind() {
             TCKind::Octet => Value::Octets(
                 input
-                    .read_octets(len)
-                    .map_err(|_| input.marshal_error())?
-                    .to_vec(),
+                    .read_octets_shared(len)
+                    .map_err(|_| input.marshal_error())?,
             ),
             TCKind::Char => {
                 let bytes = input.read_octets(len).map_err(|_| input.marshal_error())?;
