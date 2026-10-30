@@ -8,7 +8,9 @@
 # $SERVER_IMPLS. Both default to $IMPLS (omniorbpy, omniorb-cpp and, but for
 # --suite any, jacorb, in the image) plus rustorb, rustorbpy, rustorbcpp and
 # rustorbjava (the Rust, the Python, the C++ and the Java client and server of
-# rustorb), which are built on the host.
+# rustorb), which are built on the host. rustorbjava-portable (the Java client
+# and server on rustorb with JacORB's generated stubs) runs only when named
+# in a pair.
 # --build    builds the omniORB image first
 # --capture  captures each client's traffic and splits it into GIOP messages
 # --giop VER limits the client to GIOP VER (e.g. 1.1); the results go to
@@ -126,6 +128,15 @@ done
 for pair in "${pairs[@]}"; do
   if [ "${pair%%:*}" = rustorbjava ] || [ "${pair##*:}" = rustorbjava ]; then
     impls/rustorbjava/build.sh
+    break
+  fi
+done
+
+# The Java client and server on rustorb with the stubs of JacORB's IDL
+# compiler (from the image).
+for pair in "${pairs[@]}"; do
+  if [ "${pair%%:*}" = rustorbjava-portable ] || [ "${pair##*:}" = rustorbjava-portable ]; then
+    IMAGE="$IMAGE" impls/rustorbjava-portable/build.sh
     break
   fi
 done

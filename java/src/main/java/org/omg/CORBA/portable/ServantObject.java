@@ -5,7 +5,8 @@
 
 package org.omg.CORBA.portable;
 
-/** The servant of a colocated call (not used by rustorb stubs). */
+/** The servant of a colocated call (not used by rustorb, whose
+ * Delegate.servant_preinvoke returns null). */
 public class ServantObject {
     public java.lang.Object servant;
 }

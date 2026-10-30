@@ -143,6 +143,62 @@ pub struct Invocation {
     pub read_user_exception: Option<UserExceptionFn>,
 }
 
+/// What [`send`] got back.
+pub(crate) enum Sent {
+    Oneway,
+    Reply(rustorb_core::Reply),
+    User(rustorb_core::UserException),
+}
+
+/// Sends the request of `inv`, its arguments written by `write_args`.
+/// `Err` is the status to return: a system exception (set in `exc`), or
+/// `CALLBACK_FAILED` when the callback failed.
+pub(crate) unsafe fn send(
+    obj: &ObjectRef,
+    inv: &Invocation,
+    exc: *mut Exception,
+) -> Result<Sent, Status> {
+    let operation = match unsafe { str_arg(inv.operation, inv.operation_len) } {
+        Ok(op) => op,
+        Err(e) => return Err(unsafe { set_system(exc, &e) }),
+    };
+    // Set when a callback failed, so that its placeholder exception is
+    // not reported.
+    let failed = Cell::new(false);
+    let write = |out: &mut OutStream<'_>| -> Result<(), SystemException> {
+        let Some(write_args) = inv.write_args else {
+            return Ok(());
+        };
+        let mut o = Out::new(out);
+        if write_args(inv.context, o.as_ptr()) != OK {
+            failed.set(true);
+            return Err(sys(SystemExceptionKind::UNKNOWN, 0, CompletionStatus::No));
+        }
+        match o.error {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    };
+    let mut request = obj.request(operation).args(write);
+    if inv.timeout_us >= 0 {
+        let timeout = u64::try_from(inv.timeout_us).unwrap_or(0);
+        request = request.timeout((timeout > 0).then(|| Duration::from_micros(timeout)));
+    }
+    if inv.oneway != 0 {
+        return match request.send_oneway() {
+            Ok(()) => Ok(Sent::Oneway),
+            Err(_) if failed.get() => Err(CALLBACK_FAILED),
+            Err(e) => Err(unsafe { set_system(exc, &e) }),
+        };
+    }
+    match request.invoke() {
+        Ok(reply) => Ok(Sent::Reply(reply)),
+        Err(CoreException::System(_)) if failed.get() => Err(CALLBACK_FAILED),
+        Err(CoreException::System(e)) => Err(unsafe { set_system(exc, &e) }),
+        Err(CoreException::User(u)) => Ok(Sent::User(u)),
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rorb_object_invoke(
     obj: *mut ObjectRef,
@@ -152,41 +208,13 @@ pub unsafe extern "C" fn rorb_object_invoke(
     guard(exc, || {
         let obj = unsafe { &*obj };
         let inv = unsafe { &*inv };
-        let operation = match unsafe { str_arg(inv.operation, inv.operation_len) } {
-            Ok(op) => op,
-            Err(e) => return unsafe { set_system(exc, &e) },
+        let sent = match unsafe { send(obj, inv, exc) } {
+            Ok(sent) => sent,
+            Err(status) => return status,
         };
-        // Set when a callback failed, so that its placeholder exception is
-        // not reported.
-        let failed = Cell::new(false);
-        let write = |out: &mut OutStream<'_>| -> Result<(), SystemException> {
-            let Some(write_args) = inv.write_args else {
-                return Ok(());
-            };
-            let mut o = Out::new(out);
-            if write_args(inv.context, o.as_ptr()) != OK {
-                failed.set(true);
-                return Err(sys(SystemExceptionKind::UNKNOWN, 0, CompletionStatus::No));
-            }
-            match o.error {
-                Some(e) => Err(e),
-                None => Ok(()),
-            }
-        };
-        let mut request = obj.request(operation).args(write);
-        if inv.timeout_us >= 0 {
-            let timeout = u64::try_from(inv.timeout_us).unwrap_or(0);
-            request = request.timeout((timeout > 0).then(|| Duration::from_micros(timeout)));
-        }
-        if inv.oneway != 0 {
-            return match request.send_oneway() {
-                Ok(()) => OK,
-                Err(_) if failed.get() => CALLBACK_FAILED,
-                Err(e) => unsafe { set_system(exc, &e) },
-            };
-        }
-        match request.invoke() {
-            Ok(reply) => {
+        match sent {
+            Sent::Oneway => OK,
+            Sent::Reply(reply) => {
                 let Some(read_reply) = inv.read_reply else {
                     return OK;
                 };
@@ -200,9 +228,7 @@ pub unsafe extern "C" fn rorb_object_invoke(
                     None => OK,
                 }
             }
-            Err(CoreException::System(_)) if failed.get() => CALLBACK_FAILED,
-            Err(CoreException::System(e)) => unsafe { set_system(exc, &e) },
-            Err(CoreException::User(u)) => {
+            Sent::User(u) => {
                 let Some(read_user_exception) = inv.read_user_exception else {
                     return unsafe { set_system(exc, &unlisted()) };
                 };

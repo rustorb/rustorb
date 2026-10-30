@@ -611,11 +611,11 @@ pub unsafe extern "C" fn rorb_any_label(any: *const Any, label: *mut u64) -> i32
 
 /// The ORB of the object references read back from a standalone stream:
 /// the first one in a value, else the first ORB initialised.
-fn default_orb() -> Option<Orb> {
+pub(crate) fn default_orb() -> Option<Orb> {
     crate::orb::default_orb()
 }
 
-fn encoder() -> Encoder {
+pub(crate) fn encoder() -> Encoder {
     Encoder::new(ByteOrder::Big, CdrVersion::Giop1_2)
 }
 
@@ -723,7 +723,7 @@ pub unsafe extern "C" fn rorb_any_extract(
 }
 
 /// The first object reference in a value.
-fn first_object(v: &rustorb_core::Value) -> Option<&ObjectRef> {
+pub(crate) fn first_object(v: &rustorb_core::Value) -> Option<&ObjectRef> {
     use rustorb_core::Value;
     match v {
         Value::Objref(Some(o)) => Some(o),
@@ -761,6 +761,26 @@ pub unsafe extern "C" fn rorb_in_read_typecode(input: *mut RorbIn) -> *mut TypeC
 pub unsafe extern "C" fn rorb_in_read_any(input: *mut RorbIn) -> *mut Any {
     match unsafe { &mut *input }.read(|s| s.read_any().map(Some)) {
         Some(any) => into_handle(any),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Writes the value of `any`, without its TypeCode.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_out_write_any_value(out: *mut RorbOut, any: *const Any) {
+    let any = unsafe { &*any };
+    unsafe { &mut *out }.with(|s| s.write_value(any.typecode(), any.value()));
+}
+
+/// Reads a value of type `tc` into a new any; NULL after an error.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_in_read_any_value(
+    input: *mut RorbIn,
+    tc: *const TypeCode,
+) -> *mut Any {
+    let tc = unsafe { &*tc };
+    match unsafe { &mut *input }.read(|s| s.read_value(tc).map(Some)) {
+        Some(v) => into_handle(Any::new(tc.clone(), v)),
         None => std::ptr::null_mut(),
     }
 }

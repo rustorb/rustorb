@@ -19,9 +19,10 @@
  *   terminating NUL. Wide strings are UTF-16 code units.
  * - Memory returned in an rorb_bytes is freed with rorb_bytes_free.
  * - Streams (rorb_out, rorb_in) and server replies (rorb_server_reply) are
- *   only valid during the callback that receives them. Errors on a stream
- *   are sticky: after the first one, writes do nothing and reads return
- *   zeros, and the error is reported when the callback returns.
+ *   only valid during the callback that receives them, but for the owned
+ *   input streams (see "owned input streams"). Errors on a stream are
+ *   sticky: after the first one, writes do nothing and reads return zeros,
+ *   and the error is reported when the callback returns.
  * - Callbacks must not unwind (throw a C++ exception) into Rust.
  *
  * Licensed under MIT OR Apache-2.0, like the rest of the rustorb core.
@@ -623,6 +624,8 @@ void rorb_out_write_object(rorb_out* out, rorb_object* obj);
 /* A TypeCode with an unresolved recursive placeholder is BAD_TYPECODE. */
 void rorb_out_write_typecode(rorb_out* out, const rorb_typecode* tc);
 void rorb_out_write_any(rorb_out* out, const rorb_any* any);
+/* The value of the any, without its TypeCode. */
+void rorb_out_write_any_value(rorb_out* out, const rorb_any* any);
 /* A fixed of count digits (0 to 9, most significant first) as packed
    decimal; the scale is not on the wire. More than 31 digits is BAD_PARAM. */
 void rorb_out_write_fixed(rorb_out* out, const uint8_t* digits, size_t count, int32_t negative);
@@ -652,6 +655,9 @@ rorb_object* rorb_in_read_object(rorb_in* in);
 /* NULL after an error. */
 rorb_typecode* rorb_in_read_typecode(rorb_in* in);
 rorb_any* rorb_in_read_any(rorb_in* in);
+/* A value of type tc (no TypeCode on the stream) as a new any; NULL after
+   an error. */
+rorb_any* rorb_in_read_any_value(rorb_in* in, const rorb_typecode* tc);
 void rorb_in_read_array(rorb_in* in, int32_t kind, void* data, size_t count);
 /* A fixed of count digits into digits[count]; returns 1 if it is negative. */
 int32_t rorb_in_read_fixed(rorb_in* in, uint8_t* digits, size_t count);
@@ -661,6 +667,43 @@ uint32_t rorb_in_read_length(rorb_in* in, size_t min_element_size);
 /* Marks the stream as failed (MARSHAL), for a value the caller rejects. */
 void rorb_in_fail(rorb_in* in);
 int32_t rorb_in_failed(rorb_in* in);
+/* RORB_OK, or RORB_SYSTEM_EXCEPTION with the error of the stream (which
+   stays). */
+rorb_status rorb_in_error(rorb_in* in, rorb_exception* exc);
+
+/* --- owned input streams ---------------------------------------------------
+
+   Input streams that stay valid after the call that made them, until
+   rorb_in_release: the reply of rorb_object_invoke_stream, the bytes a
+   callback writes, the value of an any. They are for streams handed to
+   the caller's code, like the portable streams of the Java mapping
+   (ObjectImpl._invoke, create_input_stream). The caller checks for errors
+   with rorb_in_failed / rorb_in_error. Errors in a reply are completed yes,
+   the others completed no. */
+
+/* Like rorb_object_invoke, with the arguments from inv->write_args (the
+   read callbacks are not used); *reply gets the reply. Returns RORB_OK
+   with the reply stream (NULL for a oneway call), RORB_USER_EXCEPTION with
+   a stream at the members of the user exception (rorb_in_exception_id
+   names it), RORB_SYSTEM_EXCEPTION or RORB_CALLBACK_FAILED. */
+rorb_status rorb_object_invoke_stream(rorb_object* obj, const rorb_invocation* inv,
+                                      rorb_in** reply, rorb_exception* exc);
+/* The repository id of the user exception of a reply stream; NULL (and
+   *len 0) for a normal reply or another stream. */
+const char* rorb_in_exception_id(rorb_in* in, size_t* len);
+/* A stream over what write(context, out) writes on a standalone stream (the
+   native code sets: UTF-8 and UTF-16). Object references read from it
+   belong to orb (may be NULL), else to the ORB of the first reference
+   written, else to the first ORB initialised. write returns RORB_OK or
+   RORB_CALLBACK_FAILED. */
+rorb_status rorb_in_new(rorb_status (*write)(void* context, rorb_out* out), void* context,
+                        rorb_orb* orb, rorb_in** in, rorb_exception* exc);
+/* A stream over the value of the any (without its TypeCode), as
+   rorb_out_write_any_value writes it; an exception starts with its
+   repository id. */
+rorb_status rorb_any_input(const rorb_any* any, rorb_in** in, rorb_exception* exc);
+/* Releases an owned stream; does nothing for the stream of a callback. */
+void rorb_in_release(rorb_in* in);
 
 /* --- valuetypes ------------------------------------------------------------
 

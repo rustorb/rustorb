@@ -75,6 +75,21 @@ public final class Values {
         }
     }
 
+    /** An instance of the generated Helper of the value box id; null if
+     * there is none. */
+    static org.omg.CORBA.portable.BoxedValueHelper boxHelper(String id) {
+        Class<?> c = generated(id, "Helper");
+        if (c != null && org.omg.CORBA.portable.BoxedValueHelper.class.isAssignableFrom(c)) {
+            try {
+                return (org.omg.CORBA.portable.BoxedValueHelper) c.getDeclaredConstructor()
+                        .newInstance();
+            } catch (ReflectiveOperationException e) {
+                // no usable constructor
+            }
+        }
+        return null;
+    }
+
     /** The TypeCode of the valuetype id, from its generated Helper; null if
      * there is none. */
     static TypeCode typeCode(String id) {

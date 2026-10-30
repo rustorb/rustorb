@@ -41,6 +41,12 @@ public final class Stubs {
         }
     }
 
+    /** ORB.create_output_stream: a stream whose create_input_stream reads
+     * back what was written (object references belong to orb). */
+    public static org.omg.CORBA.portable.OutputStream newOutputStream(org.omg.CORBA.ORB orb) {
+        return new PortableOutputStream(orb instanceof OrbImpl ? (OrbImpl) orb : null);
+    }
+
     /** The length of a sequence read from in, checked against the bytes
      * left when in is a stream of rustorb (elements of at least
      * minElementSize bytes). */

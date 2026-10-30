@@ -578,6 +578,27 @@ unsafe extern "C" {
     pub fn rorb_in_read_length(r#in: *mut rorb_in, min_element_size: usize) -> u32;
     pub fn rorb_in_fail(r#in: *mut rorb_in);
     pub fn rorb_in_failed(r#in: *mut rorb_in) -> i32;
+    pub fn rorb_in_error(r#in: *mut rorb_in, exc: Exc) -> rorb_status;
+    pub fn rorb_out_write_any_value(out: *mut rorb_out, any: *const rorb_any);
+    pub fn rorb_in_read_any_value(r#in: *mut rorb_in, tc: *const rorb_typecode) -> *mut rorb_any;
+
+    // owned input streams
+    pub fn rorb_object_invoke_stream(
+        obj: *mut rorb_object,
+        inv: *const rorb_invocation,
+        reply: *mut *mut rorb_in,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_in_exception_id(r#in: *mut rorb_in, len: *mut usize) -> *const c_char;
+    pub fn rorb_in_new(
+        write: Option<WriteFn>,
+        context: *mut c_void,
+        orb: *mut rorb_orb,
+        r#in: *mut *mut rorb_in,
+        exc: Exc,
+    ) -> rorb_status;
+    pub fn rorb_any_input(any: *const rorb_any, r#in: *mut *mut rorb_in, exc: Exc) -> rorb_status;
+    pub fn rorb_in_release(r#in: *mut rorb_in);
     pub fn rorb_out_write_null_value(out: *mut rorb_out);
     pub fn rorb_out_begin_value(
         out: *mut rorb_out,

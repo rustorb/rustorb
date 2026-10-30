@@ -152,6 +152,9 @@ COPY --from=impl-build /opt/interop /opt/interop
 COPY --from=openrtm-build /opt/openrtm /opt/openrtm
 COPY --from=jacorb-build /opt/jacorb /opt/jacorb
 COPY --from=jacorb-build /opt/interop/impls/jacorb /opt/interop/impls/jacorb
+# The stubs and skeletons from JacORB's IDL compiler, which
+# impls/rustorbjava-portable/build.sh compiles against the rustorb runtime.
+COPY --from=jacorb-build /src/jacorb-gen /opt/interop/impls/jacorb/gen
 COPY impls/jacorb/client impls/jacorb/server /opt/interop/impls/jacorb/
 COPY scripts /opt/interop/scripts
 

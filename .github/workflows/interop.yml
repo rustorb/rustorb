@@ -13,7 +13,7 @@ jobs:
   omniorb:
     name: omniORB / omniORBpy / JacORB matrix
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 80
     env:
       # rustorb-idl generates the stubs of the rustorb Python client and
       # server (impls/rustorbpy/build.sh) and the code of
@@ -79,6 +79,22 @@ jobs:
 
       - name: Run the valuetype matrix with GIOP 1.1 clients
         run: interop/run-matrix.sh --suite value --giop 1.1
+
+      # The Java client and server built from JacORB's generated stubs,
+      # skeletons and Helpers on the rustorb Java runtime (portable stubs
+      # and streams, ObjectImpl._request), against every implementation.
+      # The any suite is left out as for jacorb (its Helpers do not follow
+      # AnyTest.idl); see docs/java-binding.md.
+      - name: Run the matrix with JacORB-generated stubs on rustorb
+        run: |
+          p=rustorbjava-portable
+          pairs="$p:$p"
+          for x in omniorbpy omniorb-cpp jacorb rustorb rustorbpy rustorbcpp rustorbjava; do
+            pairs="$pairs $p:$x $x:$p"
+          done
+          interop/run-matrix.sh $pairs
+          interop/run-matrix.sh --giop 1.1 $pairs
+          interop/run-matrix.sh --suite value $pairs
 
       - name: Run the naming service check
         run: interop/run-naming-check.sh

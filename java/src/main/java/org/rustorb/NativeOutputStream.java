@@ -261,6 +261,15 @@ final class NativeOutputStream extends org.omg.CORBA_2_3.portable.OutputStream {
         }
     }
 
+    /** Writes the value of a, without its TypeCode. */
+    void writeAnyValue(AnyImpl a) {
+        try {
+            Native.outAnyValue(out(), a.handle());
+        } finally {
+            Reference.reachabilityFence(a);
+        }
+    }
+
     // --- valuetypes ---------------------------------------------------------
 
     /** Keys of the instances written; keys are unique in the process (and

@@ -11,6 +11,9 @@
 //!   results the caller writes and reads in callbacks.
 //! - [`stream`]: the CDR streams the callbacks get. Their errors are
 //!   sticky, so generated code does not check every call.
+//! - [`owned`]: input streams the caller owns after the call that made
+//!   them (replies, the bytes a callback writes, the value of an any), for
+//!   the portable streams of the Java mapping.
 //! - [`servant`]: servants implemented by the caller through a table of
 //!   callbacks, and the replies they write.
 //! - [`poa`]: the POA, its manager and `PortableServer::Current`.
@@ -31,6 +34,7 @@ pub mod dynany;
 pub mod manager;
 pub mod object;
 pub mod orb;
+pub mod owned;
 pub mod poa;
 pub mod policy;
 pub mod servant;

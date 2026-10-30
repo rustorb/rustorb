@@ -115,8 +115,10 @@ public abstract class ORB {
         throw new NO_IMPLEMENT();
     }
 
+    /** A stream to write values on and read them back
+     * (create_input_stream). */
     public org.omg.CORBA.portable.OutputStream create_output_stream() {
-        throw new NO_IMPLEMENT();
+        return org.rustorb.Stubs.newOutputStream(this);
     }
 
     // --- TypeCodes and anys ----------------------------------------------
