@@ -48,7 +48,7 @@ inline Options parse_args(int argc, char** argv, std::vector<std::string>& orb_a
     else if (a == "--suite") {
       opt.suite = value();
       if (opt.suite != "basic" && opt.suite != "any" && opt.suite != "value" &&
-          opt.suite != "custom") {
+          opt.suite != "custom" && opt.suite != "abstract") {
         std::cerr << "unknown suite " << opt.suite << std::endl;
         std::exit(2);
       }
@@ -57,7 +57,7 @@ inline Options parse_args(int argc, char** argv, std::vector<std::string>& orb_a
   if (opt.naming.empty() || opt.name.empty()) {
     std::cerr << "usage: " << argv[0]
               << " --naming CORBALOC --name PATH [--host H] [--port N] [--timeout S]"
-              << " [--shutdown-server] [--suite basic|any|value|custom] [ORB options]" << std::endl;
+              << " [--shutdown-server] [--suite basic|any|value|custom|abstract] [ORB options]" << std::endl;
     std::exit(2);
   }
   orb_args.push_back("-ORBInitRef");

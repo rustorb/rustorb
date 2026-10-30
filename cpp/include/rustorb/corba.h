@@ -35,6 +35,7 @@
 #endif
 
 namespace CORBA {
+class AbstractBase;
 class Object;
 class ORB;
 class Policy;
@@ -560,9 +561,24 @@ using PolicyTypeSeq = std::vector<PolicyType>;
 using PolicyList = std::vector<object_reference<Policy>>;
 enum class SetOverrideType : uint32_t { SET_OVERRIDE, ADD_OVERRIDE };
 
+// The base of abstract interfaces (abstract interface A), of objects and
+// of values: a reference of an abstract interface type refers to either
+// an object (a stub or a local object, a CORBA::Object) or a value (a
+// CORBA::ValueBase), which dynamic_cast or IDL::traits<T>::narrow tells
+// apart.
+class AbstractBase {
+ public:
+  virtual ~AbstractBase() = default;
+
+ protected:
+  AbstractBase() = default;
+  AbstractBase(const AbstractBase&) = default;
+  AbstractBase& operator=(const AbstractBase&) = default;
+};
+
 // An object: the base of the stubs (generated interface classes), which
 // hold a handle of the core, and of local objects, which do not.
-class Object {
+class Object : public virtual AbstractBase {
  public:
   // A plain stub, for references of type CORBA::Object.
   Object(rustorb::detail::adopt_t, rorb_object* handle) noexcept : handle_(handle) {}
@@ -724,6 +740,16 @@ template <typename T> CORBA::object_reference<T> make_stub(rorb_object* handle) 
   return CORBA::object_reference<T>(std::make_shared<T>(adopt, handle));
 }
 
+// The class of the stubs of an interface T: T itself, but for an abstract
+// interface, whose generated class has a nested stub class _rorb_stub.
+template <typename T, typename = void> struct stub_type {
+  using type = T;
+};
+template <typename T>
+struct stub_type<T, std::enable_if_t<std::is_same<typename T::_rorb_stub::_rorb_interface, T>::value>> {
+  using type = typename T::_rorb_stub;
+};
+
 template <typename T> T* get_pointer(const CORBA::object_reference<T>& r) {
   return r._rorb_shared().get();
 }
@@ -734,15 +760,24 @@ CORBA::object_reference<T> narrow(const CORBA::object_reference<U>& obj) {
   if (auto p = std::dynamic_pointer_cast<T>(obj._rorb_shared())) {
     return CORBA::object_reference<T>(std::move(p));
   }
-  if constexpr (is_stub<T>::value) {
-    rorb_object* h = obj->_rorb_handle();
+  using S = typename stub_type<T>::type;
+  if constexpr (is_stub<S>::value) {
+    // A reference of an abstract interface type may hold an object.
+    CORBA::Object* o;
+    if constexpr (std::is_base_of<CORBA::Object, U>::value) {
+      o = get_pointer(obj);
+    } else {
+      o = dynamic_cast<CORBA::Object*>(get_pointer(obj));
+      if (!o) return nullptr;
+    }
+    rorb_object* h = o->_rorb_handle();
     if (!h) return nullptr;
-    std::string type_id = obj->_rorb_type_id();
+    std::string type_id = o->_rorb_type_id();
     if (type_id != T::_rorb_repository_id && !registered_is_a(type_id, T::_rorb_repository_id) &&
-        !obj->_is_a(T::_rorb_repository_id)) {
+        !o->_is_a(T::_rorb_repository_id)) {
       return nullptr;
     }
-    return make_stub<T>(rorb_object_clone(h));
+    return make_stub<S>(rorb_object_clone(h));
   } else {
     return nullptr;
   }
@@ -949,9 +984,9 @@ namespace CORBA {
 // IDL::traits<T>::ref_type (a CORBA::object_reference<T>, nullptr for
 // null): an instance passed twice in a call arrives as one instance, and
 // cycles are kept. The generated classes implement the _rorb_ functions.
-class ValueBase {
+class ValueBase : public virtual AbstractBase {
  public:
-  virtual ~ValueBase() = default;
+  ~ValueBase() override = default;
 
   // A copy of the instance (its members copied, the values they refer to
   // shared).

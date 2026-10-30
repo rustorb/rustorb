@@ -7,6 +7,7 @@
 #include <sstream>
 
 #define ANYTEST_HIDDEN
+#include "abstracttest.h"
 #include "anytest.h"
 #include "cases.h"
 #include "common.h"
@@ -93,6 +94,32 @@ static int run_custom(IDL::traits<CORBA::ORB>::ref_type orb,
   return r.failed().empty() ? 0 : 1;
 }
 
+// The abstract interface suite (AbstractTest.idl) against the
+// AbstractEcho object at opt.name.
+static int run_abstract(IDL::traits<CORBA::ORB>::ref_type orb,
+                        IDL::traits<CosNaming::NamingContext>::ref_type root, const Options& opt) {
+  abstracttest::register_factories(orb);
+  CosNaming::Name name = to_name(opt.name);
+  auto obj = retry("the AbstractEcho server", [&]() { return root->resolve(name); }, opt.timeout);
+  auto echo = IDL::traits<AbstractTest::AbstractEcho>::narrow(obj);
+  if (!echo) {
+    std::cout << opt.name << " is not an AbstractTest::AbstractEcho" << std::endl;
+    return 1;
+  }
+  retry("the AbstractEcho server", [&]() { return echo->_non_existent(); }, opt.timeout);
+
+  Runner r;
+  abstracttest::run_cases(r, echo, [](bool cond, const std::string& what) {
+    if (!cond) throw CheckFailed{what};
+  });
+
+  if (opt.shutdown_server) echo->shutdown();
+
+  r.summary();
+  orb->destroy();
+  return r.failed().empty() ? 0 : 1;
+}
+
 int main(int argc, char** argv) {
   std::vector<std::string> orb_args;
   Options opt = parse_args(argc, argv, orb_args);
@@ -104,6 +131,7 @@ int main(int argc, char** argv) {
     if (opt.suite == "any") return run_any(orb, root, opt);
     if (opt.suite == "value") return run_value(orb, root, opt);
     if (opt.suite == "custom") return run_custom(orb, root, opt);
+    if (opt.suite == "abstract") return run_abstract(orb, root, opt);
     CosNaming::Name name = to_name(opt.name);
     auto obj = retry("the Echo server", [&]() { return root->resolve(name); }, opt.timeout);
     auto echo = IDL::traits<InteropTest::Echo>::narrow(obj);

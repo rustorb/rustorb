@@ -128,9 +128,10 @@ target_include_directories(test_any PRIVATE
 target_link_libraries(test_any PRIVATE rustorb)
 target_compile_options(test_any PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME any COMMAND test_any)
-# Valuetypes: the value interop cases, in one process.
+# Valuetypes and abstract interfaces: their interop cases, in one process.
 rustorb_idl_generate(VALUE_SOURCES "${RUSTORB_ROOT}/interop/idl/ValueTest.idl")
-add_executable(test_value tests/test_value.cc ${VALUE_SOURCES})
+rustorb_idl_generate(ABSTRACT_SOURCES "${RUSTORB_ROOT}/interop/idl/AbstractTest.idl")
+add_executable(test_value tests/test_value.cc ${VALUE_SOURCES} ${ABSTRACT_SOURCES})
 target_include_directories(test_value PRIVATE
   "${CMAKE_CURRENT_BINARY_DIR}/idl" "${RUSTORB_ROOT}/interop/impls/rustorbcpp")
 target_link_libraries(test_value PRIVATE rustorb)
