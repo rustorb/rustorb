@@ -47,6 +47,8 @@ impl MessageEncoder {
             message_size: 0,
         };
         let mut enc = Encoder::new(order, version.cdr_version());
+        // Room for the headers and a small body without growing.
+        enc.reserve(256);
         enc.write_octets(&header.to_bytes());
         Ok(MessageEncoder {
             enc,
@@ -242,6 +244,11 @@ impl OutMessage {
     /// Whether the message has no bytes.
     pub fn is_empty(&self) -> bool {
         self.len == 0
+    }
+
+    /// The whole message, if it is one piece.
+    pub fn as_single(&self) -> Option<&[u8]> {
+        self.shared.is_empty().then_some(&self.bytes[..])
     }
 
     /// The pieces of the message from offset `from` on, in order, for a

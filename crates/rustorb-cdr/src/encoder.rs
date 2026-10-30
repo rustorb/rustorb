@@ -148,6 +148,11 @@ impl Encoder {
         (self.buf, self.shared)
     }
 
+    /// Makes room for at least `additional` more bytes in the buffer.
+    pub fn reserve(&mut self, additional: usize) {
+        self.buf.reserve(additional);
+    }
+
     /// Lets [`write_octet_seq_shared`](Encoder::write_octet_seq_shared)
     /// keep large octet sequences apart from the buffer. Only for an
     /// encoder whose result goes out through

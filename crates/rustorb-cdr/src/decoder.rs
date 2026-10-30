@@ -300,7 +300,10 @@ impl<'a> Decoder<'a> {
             let at = bytes.as_ptr() as usize;
             if at >= base && at + bytes.len() <= base + buf.len() {
                 let start = at - base;
-                return Ok(Octets::slice_of(Arc::clone(buf), start..start + bytes.len()));
+                return Ok(Octets::slice_of(
+                    Arc::clone(buf),
+                    start..start + bytes.len(),
+                ));
             }
         }
         Ok(Octets::from(bytes))

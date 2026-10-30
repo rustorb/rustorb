@@ -159,6 +159,18 @@ impl Server {
             let listener =
                 std::net::TcpListener::bind((bind_host, ep.port)).map_err(|_| initialize())?;
             listener.set_nonblocking(true).map_err(|_| initialize())?;
+            // Accepted connections take the listener's buffer sizes.
+            let socket = socket2::SockRef::from(&listener);
+            if let Some(size) = options.socket_send_buffer {
+                socket
+                    .set_send_buffer_size(size)
+                    .map_err(|_| initialize())?;
+            }
+            if let Some(size) = options.socket_receive_buffer {
+                socket
+                    .set_recv_buffer_size(size)
+                    .map_err(|_| initialize())?;
+            }
             let port = listener.local_addr().map_err(|_| initialize())?.port();
             if ep.host.is_empty() || is_loopback(&ep.host) {
                 loopback_ports.push(port);
@@ -383,7 +395,7 @@ impl Server {
             header.request_id,
             header.response_expected(),
         );
-        let Some(key) = target_key(&header.target) else {
+        let Some(key) = into_target_key(header.target) else {
             reply.system(&no_such_object());
             return None;
         };
@@ -1019,6 +1031,14 @@ fn invoke(
     }
 }
 
+/// The object key of a request's target, which it takes.
+fn into_target_key(target: TargetAddress) -> Option<Vec<u8>> {
+    match target {
+        TargetAddress::Key(key) => Some(key),
+        other => target_key(&other),
+    }
+}
+
 /// The object key of a request's target.
 fn target_key(target: &TargetAddress) -> Option<Vec<u8>> {
     match target {
@@ -1104,7 +1124,11 @@ impl Outbox {
         let mut written = 0;
         if let (true, Some(stream)) = (state.queue.is_empty(), &state.stream) {
             while written < msg.len() {
-                match stream.try_write_vectored(&msg.slices_from(written, MAX_SLICES)) {
+                let result = match msg.as_single() {
+                    Some(bytes) => stream.try_write(&bytes[written..]),
+                    None => stream.try_write_vectored(&msg.slices_from(written, MAX_SLICES)),
+                };
+                match result {
                     Ok(0) => break,
                     Ok(n) => written += n,
                     Err(e) if e.kind() == io::ErrorKind::Interrupted => {}

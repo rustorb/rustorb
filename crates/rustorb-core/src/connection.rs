@@ -7,7 +7,7 @@
 //! itself instead ([`Connection::read_reply_here`]).
 
 use std::collections::HashMap;
-use std::io;
+use std::io::{self, IoSlice};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -15,12 +15,12 @@ use std::time::{Duration, Instant};
 use rustorb_cdr::ByteOrder;
 use rustorb_giop::{Message, MessageEncoder, OutMessage, Version};
 use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
+use tokio::net::TcpSocket;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::oneshot;
 
-use crate::CodeSets;
 use crate::wire::{Here, Inbound, ReadError};
+use crate::{CodeSets, OrbOptions};
 
 /// Why a connection stopped delivering replies.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,13 +73,37 @@ pub(crate) struct Connection {
 
 impl Connection {
     /// Connects to `host:port` and starts the reader task on the current
-    /// runtime.
+    /// runtime. The socket buffers are set before connecting, so that the
+    /// window scale fits them.
     pub(crate) async fn connect(
         host: &str,
         port: u16,
-        max_message_size: usize,
+        options: &OrbOptions,
     ) -> io::Result<Arc<Connection>> {
-        let stream = TcpStream::connect((host, port)).await?;
+        let max_message_size = options.max_message_size;
+        let mut last = io::Error::new(io::ErrorKind::NotFound, "no address");
+        let mut connected = None;
+        for addr in tokio::net::lookup_host((host, port)).await? {
+            let socket = if addr.is_ipv4() {
+                TcpSocket::new_v4()?
+            } else {
+                TcpSocket::new_v6()?
+            };
+            if let Some(size) = options.socket_send_buffer {
+                socket.set_send_buffer_size(u32::try_from(size).unwrap_or(u32::MAX))?;
+            }
+            if let Some(size) = options.socket_receive_buffer {
+                socket.set_recv_buffer_size(u32::try_from(size).unwrap_or(u32::MAX))?;
+            }
+            match socket.connect(addr).await {
+                Ok(stream) => {
+                    connected = Some(stream);
+                    break;
+                }
+                Err(e) => last = e,
+            }
+        }
+        let stream = connected.ok_or(last)?;
         stream.set_nodelay(true)?;
         let (reader, writer) = stream.into_split();
         let conn = Arc::new(Connection {
@@ -219,8 +243,18 @@ impl Connection {
         };
         let mut written = 0;
         while written < msg.len() {
-            let slices = msg.slices_from(written, MAX_SLICES);
-            let write = writer.write_vectored(&slices);
+            let (one, many);
+            let slices: &[IoSlice<'_>] = match msg.as_single() {
+                Some(bytes) => {
+                    one = [IoSlice::new(&bytes[written..])];
+                    &one
+                }
+                None => {
+                    many = msg.slices_from(written, MAX_SLICES);
+                    &many
+                }
+            };
+            let write = writer.write_vectored(slices);
             let result = match deadline {
                 Some(at) => match tokio::time::timeout_at(at.into(), write).await {
                     Ok(result) => result,

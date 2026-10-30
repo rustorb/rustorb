@@ -597,7 +597,14 @@ fn shared_octet_sequences_are_not_copied() {
     assert_eq!(pieces[1].as_ptr(), big.as_ptr());
     assert_eq!(pieces.concat(), plain);
     // Slices for a write that already sent part of the message.
-    for from in [0, 1, 50, pieces[0].len(), pieces[0].len() + 7, plain.len() - 3] {
+    for from in [
+        0,
+        1,
+        50,
+        pieces[0].len(),
+        pieces[0].len() + 7,
+        plain.len() - 3,
+    ] {
         let rest: Vec<u8> = out
             .slices_from(from, usize::MAX)
             .iter()
@@ -613,7 +620,10 @@ fn shared_octet_sequences_are_not_copied() {
     // copied.
     let buf = plain.clone();
     let range = buf.as_ptr_range();
-    let joined = FragmentAssembler::default().push_owned(buf).unwrap().unwrap();
+    let joined = FragmentAssembler::default()
+        .push_owned(buf)
+        .unwrap()
+        .unwrap();
     let (_, Message::Request { body, .. }) = joined.into_decoded().unwrap() else {
         panic!("not a request");
     };
