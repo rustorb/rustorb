@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Builds the rustorb C++ client, server, POA probe server, DynAny probe and
+# Builds the rustorb C++ client, server, load client, POA probe server, DynAny probe and
 # naming check on the host, into bin/: the stubs and skeletons of InteropTest.idl, AnyTest.idl,
 # AnyTestHidden.idl (the client only), ValueTest.idl, CustomTest.idl, AbstractTest.idl, CosNaming.idl and PoaProbe.idl (the
 # probe server only) from rustorb-idl -bc++11 (in gen/), linked with
-# librustorb_ffi statically. run-matrix.sh, run-poa-probe.sh, run-dynany-probe.sh and
-# run-naming-check.sh run it; idl_parser must be importable, or IDL_PARSER_DIR set to a
-# checkout of it. CXX picks the compiler (default g++).
+# librustorb_ffi statically. run-matrix.sh, run-poa-probe.sh, run-dynany-probe.sh,
+# run-naming-check.sh and run-load-local.py run it; idl_parser must be importable, or IDL_PARSER_DIR set to a
+# checkout of it. CXX picks the compiler (default g++, c++ on macOS).
 #
 # The binaries run in the interop image (Ubuntu 24.04), so the host needs a
 # glibc no newer than that image's; libstdc++ is linked statically.
@@ -17,7 +17,12 @@ set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$here/../../.."
-cxx="${CXX:-g++}"
+case "$(uname -s)" in
+  # The system compiler and libc++; Apple's linker links no libraries
+  # statically.
+  Darwin) cxx="${CXX:-c++}"; libs=(-framework CoreFoundation -framework Security -lpthread -lm) ;;
+  *) cxx="${CXX:-g++}"; libs=(-static-libstdc++ -static-libgcc -lpthread -ldl -lm) ;;
+esac
 
 cargo build --release --locked -p rustorb-ffi --manifest-path "$root/Cargo.toml"
 
@@ -41,11 +46,12 @@ objs=("$here/gen/InteropTest.o" "$here/gen/AnyTest.o" "$here/gen/CosNaming.o"
 link() {
   local out=$1
   shift
-  "$cxx" "${flags[@]}" "$@" "$root/target/release/librustorb_ffi.a" -static-libstdc++ \
-    -static-libgcc -lpthread -ldl -lm -o "$here/bin/$out"
+  "$cxx" "${flags[@]}" "$@" "$root/target/release/librustorb_ffi.a" "${libs[@]}" \
+    -o "$here/bin/$out"
 }
 link server "$here/server.cc" "${objs[@]}"
 link client "$here/client.cc" "${objs[@]}" "$here/gen/AnyTestHidden.o"
+link load_client "$here/load_client.cc" "$here/gen/InteropTest.o" "$here/gen/CosNaming.o"
 link poa_probe_server "$here/poa_probe_server.cc" "$here/gen/PoaProbe.o"
 link dynany_probe "$here/dynany_probe.cc"
 link naming_check "$here/naming_check.cc" "$here/gen/CosNaming.o"

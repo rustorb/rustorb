@@ -1,0 +1,4 @@
+#!/bin/sh
+# rustorb C++ load client (load_client.cc). build.sh builds it on the host,
+# into bin/.
+exec "$(dirname "$0")/bin/load_client" "$@"

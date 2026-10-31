@@ -148,6 +148,13 @@ public final class Common {
     /** Calls fn until it stops throwing "not there yet" exceptions or the
      * timeout passes. */
     public static <T> T retry(String what, Attempt<T> fn, double timeout) throws Exception {
+        return retry(what, fn, timeout, 1);
+    }
+
+    /** {@link #retry(String, Attempt, double)}, exiting with exitCode when
+     * the timeout passes. */
+    public static <T> T retry(String what, Attempt<T> fn, double timeout, int exitCode)
+            throws Exception {
         long deadline = System.nanoTime() + (long) (timeout * 1e9);
         for (;;) {
             try {
@@ -157,7 +164,7 @@ public final class Common {
             }
             if (System.nanoTime() >= deadline) {
                 System.err.println("timed out waiting for " + what);
-                System.exit(1);
+                System.exit(exitCode);
             }
             Thread.sleep(200);
         }
