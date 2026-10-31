@@ -12,6 +12,7 @@
 
 #include <rustorb/rustorb.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cmath>
@@ -339,11 +340,186 @@ template <typename T> void object_reference<T>::throw_nil() {
 
 namespace IDL {
 
+template <uint16_t Digits, uint16_t Scale> class Fixed;
+
+namespace fixed_detail {
+
+// The type of a fixed result with I integer and S fraction digits, as the
+// IDL spec counts them: at most 31 digits, keeping the integer digits and
+// cutting fraction digits.
+constexpr uint16_t fixed_result_scale(int i, int s) {
+  return static_cast<uint16_t>(i >= 31 ? 0 : (i + s > 31 ? 31 - i : s));
+}
+constexpr uint16_t fixed_result_digits(int i, int s) {
+  return static_cast<uint16_t>((i >= 31 ? 31 : i) + fixed_result_scale(i, s));
+}
+template <int I, int S> using FixedResult = Fixed<fixed_result_digits(I, S), fixed_result_scale(I, S)>;
+
+[[noreturn]] inline void fixed_bad() {
+  throw CORBA::DATA_CONVERSION(0, CORBA::CompletionStatus::COMPLETED_NO);
+}
+
+// A decimal of any length for fixed arithmetic: the digits least
+// significant first, `scale` of them after the point.
+struct Decimal {
+  std::vector<uint8_t> digits;
+  int scale = 0;
+  bool negative = false;
+
+  template <uint16_t D, uint16_t S> static Decimal of(const Fixed<D, S>& f) {
+    Decimal r;
+    r.digits.assign(f._rorb_digits().rbegin(), f._rorb_digits().rend());
+    r.scale = S;
+    r.negative = f._rorb_negative();
+    return r;
+  }
+
+  // The value with S fraction digits (the rest cut off) as a Fixed<D, S>;
+  // DATA_CONVERSION if the integer part does not fit.
+  template <uint16_t D, uint16_t S> Fixed<D, S> to() const {
+    Decimal r = *this;
+    r.rescale(S);
+    r.trim();
+    if (r.digits.size() > static_cast<size_t>(D)) fixed_bad();
+    typename Fixed<D, S>::digits_type out{};
+    for (size_t i = 0; i < r.digits.size(); ++i) out[D - 1 - i] = r.digits[i];
+    Fixed<D, S> f;
+    f._rorb_set(out, r.negative);
+    return f;
+  }
+
+  // Changes the scale, appending zeros or cutting digits off.
+  void rescale(int s) {
+    if (s > scale) {
+      digits.insert(digits.begin(), static_cast<size_t>(s - scale), 0);
+    } else if (s < scale) {
+      size_t cut = std::min(digits.size(), static_cast<size_t>(scale - s));
+      digits.erase(digits.begin(), digits.begin() + static_cast<std::ptrdiff_t>(cut));
+    }
+    scale = s;
+  }
+
+  void trim() {
+    while (!digits.empty() && digits.back() == 0) digits.pop_back();
+  }
+
+  bool is_zero() const {
+    for (uint8_t d : digits) {
+      if (d != 0) return false;
+    }
+    return true;
+  }
+
+  // Compares the magnitudes of two decimals of the same scale.
+  static int compare(const Decimal& a, const Decimal& b) {
+    size_t n = std::max(a.digits.size(), b.digits.size());
+    for (size_t i = n; i-- > 0;) {
+      uint8_t x = i < a.digits.size() ? a.digits[i] : 0;
+      uint8_t y = i < b.digits.size() ? b.digits[i] : 0;
+      if (x != y) return x < y ? -1 : 1;
+    }
+    return 0;
+  }
+
+  // |a| + |b| and |a| - |b| (|a| >= |b|), same scale.
+  static std::vector<uint8_t> add_magnitudes(const Decimal& a, const Decimal& b) {
+    std::vector<uint8_t> r;
+    int carry = 0;
+    for (size_t i = 0; i < std::max(a.digits.size(), b.digits.size()) || carry; ++i) {
+      int v = carry + (i < a.digits.size() ? a.digits[i] : 0) + (i < b.digits.size() ? b.digits[i] : 0);
+      r.push_back(static_cast<uint8_t>(v % 10));
+      carry = v / 10;
+    }
+    return r;
+  }
+  static std::vector<uint8_t> subtract_magnitudes(const Decimal& a, const Decimal& b) {
+    std::vector<uint8_t> r;
+    int borrow = 0;
+    for (size_t i = 0; i < a.digits.size(); ++i) {
+      int v = a.digits[i] - borrow - (i < b.digits.size() ? b.digits[i] : 0);
+      borrow = v < 0;
+      r.push_back(static_cast<uint8_t>(v + (borrow ? 10 : 0)));
+    }
+    return r;
+  }
+
+  static Decimal add(Decimal a, Decimal b) {
+    int s = std::max(a.scale, b.scale);
+    a.rescale(s);
+    b.rescale(s);
+    Decimal r;
+    r.scale = s;
+    if (a.negative == b.negative) {
+      r.digits = add_magnitudes(a, b);
+      r.negative = a.negative;
+    } else if (compare(a, b) >= 0) {
+      r.digits = subtract_magnitudes(a, b);
+      r.negative = a.negative;
+    } else {
+      r.digits = subtract_magnitudes(b, a);
+      r.negative = b.negative;
+    }
+    r.negative = r.negative && !r.is_zero();
+    return r;
+  }
+
+  static Decimal multiply(const Decimal& a, const Decimal& b) {
+    Decimal r;
+    r.scale = a.scale + b.scale;
+    std::vector<int> acc(a.digits.size() + b.digits.size() + 1, 0);
+    for (size_t i = 0; i < a.digits.size(); ++i) {
+      for (size_t j = 0; j < b.digits.size(); ++j) acc[i + j] += a.digits[i] * b.digits[j];
+    }
+    int carry = 0;
+    for (int& v : acc) {
+      v += carry;
+      carry = v / 10;
+      r.digits.push_back(static_cast<uint8_t>(v % 10));
+    }
+    r.negative = a.negative != b.negative && !r.is_zero();
+    return r;
+  }
+
+  // a / b with s fraction digits, the rest cut off; DATA_CONVERSION when
+  // b is zero.
+  static Decimal divide(Decimal a, Decimal b, int s) {
+    if (b.is_zero()) fixed_bad();
+    // As integers: a * 10^(s - a.scale + b.scale) / b.
+    int shift = s - a.scale + b.scale;
+    if (shift >= 0) {
+      a.digits.insert(a.digits.begin(), static_cast<size_t>(shift), 0);
+    } else {
+      b.digits.insert(b.digits.begin(), static_cast<size_t>(-shift), 0);
+    }
+    a.scale = b.scale = 0;
+    b.trim();
+    Decimal r;
+    r.scale = s;
+    r.digits.assign(a.digits.size(), 0);
+    Decimal rem;
+    for (size_t i = a.digits.size(); i-- > 0;) {
+      rem.digits.insert(rem.digits.begin(), a.digits[i]);
+      uint8_t q = 0;
+      while (compare(rem, b) >= 0) {
+        rem.digits = subtract_magnitudes(rem, b);
+        rem.trim();
+        ++q;
+      }
+      r.digits[i] = q;
+    }
+    r.negative = a.negative != b.negative && !r.is_zero();
+    return r;
+  }
+};
+
+}  // namespace fixed_detail
+
 // fixed<Digits, Scale>: a decimal number of Digits digits, Scale of them
 // after the point. A value that does not fit (more integer digits, or
 // more nonzero fraction digits than the type has) is DATA_CONVERSION, so
-// a value of the type always fits its TypeCode. There is no arithmetic:
-// convert to and from text, integers and double.
+// a value of the type always fits its TypeCode. Arithmetic gives the type
+// the IDL spec gives the result (at most 31 digits, cutting fraction
+// digits); a result whose integer part does not fit is DATA_CONVERSION.
 template <uint16_t Digits, uint16_t Scale> class Fixed {
   static_assert(Digits >= 1 && Digits <= 31, "a fixed has 1 to 31 digits");
   static_assert(Scale <= Digits, "the scale of a fixed is at most its digits");
@@ -438,6 +614,98 @@ template <uint16_t Digits, uint16_t Scale> class Fixed {
 
   friend std::ostream& operator<<(std::ostream& os, const Fixed& v) { return os << v.to_string(); }
 
+  // fixed<max(d1-s1, d2-s2)+max(s1, s2)+1, max(s1, s2)>.
+  template <uint16_t D, uint16_t S>
+  friend fixed_detail::FixedResult<std::max(Digits - Scale, D - S) + 1, std::max(Scale, S)> operator+(
+      const Fixed& a, const Fixed<D, S>& b) {
+    using R = fixed_detail::FixedResult<std::max(Digits - Scale, D - S) + 1, std::max(Scale, S)>;
+    return fixed_detail::Decimal::add(fixed_detail::Decimal::of(a), fixed_detail::Decimal::of(b))
+        .template to<R::fixed_digits(), R::fixed_scale()>();
+  }
+  template <uint16_t D, uint16_t S>
+  friend fixed_detail::FixedResult<std::max(Digits - Scale, D - S) + 1, std::max(Scale, S)> operator-(
+      const Fixed& a, const Fixed<D, S>& b) {
+    return a + -b;
+  }
+  // fixed<d1+d2, s1+s2>.
+  template <uint16_t D, uint16_t S>
+  friend fixed_detail::FixedResult<(Digits - Scale) + (D - S), Scale + S> operator*(const Fixed& a,
+                                                                               const Fixed<D, S>& b) {
+    using R = fixed_detail::FixedResult<(Digits - Scale) + (D - S), Scale + S>;
+    return fixed_detail::Decimal::multiply(fixed_detail::Decimal::of(a), fixed_detail::Decimal::of(b))
+        .template to<R::fixed_digits(), R::fixed_scale()>();
+  }
+  // fixed<(d1-s1+s2) + s_inf, s_inf>: as many fraction digits as fit in
+  // 31, the rest cut off. Dividing by zero is DATA_CONVERSION.
+  template <uint16_t D, uint16_t S>
+  friend fixed_detail::FixedResult<(Digits - Scale) + S, 31> operator/(const Fixed& a, const Fixed<D, S>& b) {
+    using R = fixed_detail::FixedResult<(Digits - Scale) + S, 31>;
+    return fixed_detail::Decimal::divide(fixed_detail::Decimal::of(a), fixed_detail::Decimal::of(b), R::fixed_scale())
+        .template to<R::fixed_digits(), R::fixed_scale()>();
+  }
+
+  // An integer operand counts as a fixed<20, 0>.
+  template <typename I, typename = std::enable_if_t<std::is_integral<I>::value>>
+  friend auto operator+(const Fixed& a, I b) { return a + Fixed<20, 0>(b); }
+  template <typename I, typename = std::enable_if_t<std::is_integral<I>::value>>
+  friend auto operator+(I a, const Fixed& b) { return Fixed<20, 0>(a) + b; }
+  template <typename I, typename = std::enable_if_t<std::is_integral<I>::value>>
+  friend auto operator-(const Fixed& a, I b) { return a - Fixed<20, 0>(b); }
+  template <typename I, typename = std::enable_if_t<std::is_integral<I>::value>>
+  friend auto operator-(I a, const Fixed& b) { return Fixed<20, 0>(a) - b; }
+  template <typename I, typename = std::enable_if_t<std::is_integral<I>::value>>
+  friend auto operator*(const Fixed& a, I b) { return a * Fixed<20, 0>(b); }
+  template <typename I, typename = std::enable_if_t<std::is_integral<I>::value>>
+  friend auto operator*(I a, const Fixed& b) { return Fixed<20, 0>(a) * b; }
+  template <typename I, typename = std::enable_if_t<std::is_integral<I>::value>>
+  friend auto operator/(const Fixed& a, I b) { return a / Fixed<20, 0>(b); }
+  template <typename I, typename = std::enable_if_t<std::is_integral<I>::value>>
+  friend auto operator/(I a, const Fixed& b) { return Fixed<20, 0>(a) / b; }
+
+  // Compound assignment keeps the type: fraction digits beyond Scale are
+  // cut off, an integer part that does not fit is DATA_CONVERSION.
+  template <typename T> Fixed& operator+=(const T& b) { return *this = cut(*this + b); }
+  template <typename T> Fixed& operator-=(const T& b) { return *this = cut(*this - b); }
+  template <typename T> Fixed& operator*=(const T& b) { return *this = cut(*this * b); }
+  template <typename T> Fixed& operator/=(const T& b) { return *this = cut(*this / b); }
+  Fixed& operator++() { return *this += 1; }
+  Fixed operator++(int) {
+    Fixed r = *this;
+    *this += 1;
+    return r;
+  }
+  Fixed& operator--() { return *this -= 1; }
+  Fixed operator--(int) {
+    Fixed r = *this;
+    *this -= 1;
+    return r;
+  }
+
+  // The value with at most `scale` fraction digits, in the same type:
+  // round() rounds half away from zero (DATA_CONVERSION if that no longer
+  // fits), truncate() cuts the digits off.
+  Fixed round(uint16_t scale) const {
+    if (scale >= Scale) return *this;
+    size_t first_cut = Digits - (Scale - scale);
+    bool up = digits_[first_cut] >= 5;
+    Fixed r = truncate(scale);
+    if (!up) return r;
+    digits_type digits = r.digits_;
+    size_t i = first_cut;
+    while (i > 0 && digits[i - 1] == 9) digits[--i] = 0;
+    if (i == 0) bad();
+    ++digits[i - 1];
+    r._rorb_set(digits, negative_);
+    return r;
+  }
+  Fixed truncate(uint16_t scale) const {
+    if (scale >= Scale) return *this;
+    Fixed r = *this;
+    for (size_t i = Digits - (Scale - scale); i < Digits; ++i) r.digits_[i] = 0;
+    r.negative_ = negative_ && !r.is_zero();
+    return r;
+  }
+
   // rustorb: the Digits digits (most significant first) and the sign, as
   // on the wire. A negative zero is zero.
   const digits_type& _rorb_digits() const { return digits_; }
@@ -458,8 +726,10 @@ template <uint16_t Digits, uint16_t Scale> class Fixed {
     return true;
   }
 
-  [[noreturn]] static void bad() {
-    throw CORBA::DATA_CONVERSION(0, CORBA::CompletionStatus::COMPLETED_NO);
+  [[noreturn]] static void bad() { fixed_detail::fixed_bad(); }
+
+  template <uint16_t D, uint16_t S> static Fixed cut(const Fixed<D, S>& v) {
+    return fixed_detail::Decimal::of(v).template to<Digits, Scale>();
   }
 
   void parse(std::string_view text) {

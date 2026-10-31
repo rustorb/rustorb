@@ -39,9 +39,42 @@ C++はIDL to C++11（CPP11）を基準にし、IDL4-CPPで追加された構文�
 
 プロトコル実装はRustコアの4クレートに集約し、各言語はその上に薄く載せる。IDLからのコード生成は、既存のidl\_parserのASTを入力にする生成器クレートが担う。
 
-&#91;embedded content: クレート構成 · コア4クレート、FFI層、生成器\]
+```mermaid
+flowchart TB
+  subgraph apps["アプリケーション"]
+    rustapp["Rust"]
+    pyapp["Python"]
+    cppapp["C++"]
+    javaapp["Java"]
+  end
+  subgraph core["Rust コア"]
+    corec["rustorb-core<br/>ORB・POA・IIOP・Any / TypeCode"]
+    giop["rustorb-giop<br/>GIOP メッセージ・IOR"]
+    cdr["rustorb-cdr<br/>CDR"]
+    naming["rustorb-naming<br/>CosNaming・rustorb-names"]
+  end
+  subgraph bind["言語バインディング"]
+    python["rustorb-python<br/>PyO3（rustorb._native）"]
+    ffi["rustorb-ffi<br/>安定 C ABI"]
+    cpprt["cpp/include/rustorb<br/>ヘッダオンリー"]
+    jni["rustorb-jni<br/>JNI"]
+    javart["java/<br/>IDL to Java ランタイム"]
+  end
+  gen["rustorb-codegen<br/>rustorb-idl（idl_parser の AST）"]
 
-> **注:** 上記の図は計画書の作成元にあった埋め込み図で、このファイルには含まれていません。図は今後追加予定のプレースホルダです。
+  rustapp --> corec
+  rustapp --> naming
+  pyapp --> python --> corec
+  cppapp --> cpprt --> ffi --> corec
+  javaapp --> javart --> jni --> ffi
+  naming --> corec
+  corec --> giop --> cdr
+  corec --> cdr
+  gen -.->|"-brust"| rustapp
+  gen -.->|"-bpython"| pyapp
+  gen -.->|"-bc++11"| cppapp
+  gen -.->|"-bjava"| javaapp
+```
 
 実線は実行時の呼び出し、破線はビルド時のコード生成。C++とJavaは安定C ABI層を経由し、PythonはPyO3でコアを直接呼ぶ。
 
@@ -49,9 +82,28 @@ C++はIDL to C++11（CPP11）を基準にし、IDL4-CPPで追加された構文�
 
 M0〜M3の約4〜7か月でMVPに到達し、その後C++とJavaを順に追加する。各マイルストーンは、既存ORBとの相互接続で完了を判定する。
 
-&#91;embedded content: マイルストーン · M0〜M6と完了条件\]
+| | 内容 | 完了条件 | 実績 |
+| --- | --- | --- | --- |
+| M0 | CDR・GIOP、IOR・corbaloc、IIOP クライアント、CosNaming クライアント、相互接続環境、idl\_parser の不足の洗い出し | rustorb のクライアントから omniORB C++ / omniORBpy のサーバーを omniNames 経由で呼べる | [#14](https://github.com/rustorb/rustorb/pull/14)〜[#20](https://github.com/rustorb/rustorb/pull/20) |
+| M1 | Python 生成器 `rustorb-idl -bpython` | omniidl -bpython と同じ公開 API の生成物になる | [#25](https://github.com/rustorb/rustorb/pull/25) |
+| M2 | POA・サーバー側、Naming Service デーモン `rustorb-names` | omniORB の POA と同じプローブ結果になり、omniORB / omniORBpy のクライアントから呼べる | [#21](https://github.com/rustorb/rustorb/pull/21)〜[#24](https://github.com/rustorb/rustorb/pull/24) |
+| M3 | Python バインディング（PyO3）：MVP | omniORBpy のクライアント・サーバーの import を替えただけで動く | [#26](https://github.com/rustorb/rustorb/pull/26) |
+| M4 | C++ バインディング（C ABI、IDL to C++11、`-bc++11`） | omniORB C++・omniORBpy・rustorb とのすべての組み合わせで通る | [#27](https://github.com/rustorb/rustorb/pull/27) |
+| M5 | Any / TypeCode | `--suite any` がすべての組み合わせで通る。続けて OpenRTM-aist との接続（第2段階） | [#28](https://github.com/rustorb/rustorb/pull/28)、[#29](https://github.com/rustorb/rustorb/pull/29)（第2段階は [#30](https://github.com/rustorb/rustorb/pull/30)、[#31](https://github.com/rustorb/rustorb/pull/31)） |
+| M6 | Java バインディング（JNI、`-bjava`） | JacORB を含むすべての組み合わせで通る | [#32](https://github.com/rustorb/rustorb/pull/32) |
 
-> **注:** 上記の図は計画書の作成元にあった埋め込み図で、このファイルには含まれていません。図は今後追加予定のプレースホルダです。
+```mermaid
+flowchart LR
+  M0["M0 プロトコル・クライアント"] --> M1["M1 Python 生成器"] --> M3["M3 Python（MVP）"]
+  M0 --> M2["M2 POA・Naming"] --> M3
+  M3 --> M4["M4 C++"]
+  M3 --> M5["M5 Any / TypeCode"]
+  M5 --> S2["第2段階 OpenRTM-aist"]
+  M4 --> M6["M6 Java"]
+  M5 --> M6
+```
+
+M0〜M6 はすべて完了した。その後の作業は issue で管理している（「[残りの issue](#残りの-issue)」）。
 
 期間は1人で進める前提の目安。M4とM5はM3完了後なら並行して進められる。
 
@@ -246,7 +298,7 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - テスト：`cpp/tests/test_poa.cc` と `java` の `PoaTest`。相互接続：C++（`interop/impls/rustorbcpp/poa_probe_server.cc`）と Java（`interop/impls/rustorbjava/probe`）の POA プローブサーバーで `run-poa-probe.sh` が Rust と同じ期待出力になる
 - [x] `fixed` をすべてのバインディングに（[cpp-binding.md](cpp-binding.md#値の表現)、[java-binding.md](java-binding.md#値の表現)）
   - コア：`OutStream::write_fixed` / `InStream::read_fixed`（パック10進。`Value::Fixed` もこれを使う）、C ABI の `rorb_out_write_fixed` / `rorb_in_read_fixed`
-  - C++：`IDL::Fixed<D, S>`（収まらない値は `DATA_CONVERSION`、文字列・整数・`double` との変換と比較）、`-bc++11` の型・定数・TypeCode・Any
+  - C++：`IDL::Fixed<D, S>`（収まらない値は `DATA_CONVERSION`、文字列・整数・`double` との変換と比較。四則演算と `round` / `truncate` は後で加えた（[#47](https://github.com/rustorb/rustorb/issues/47)））、`-bc++11` の型・定数・TypeCode・Any
   - Java：`java.math.BigDecimal`、`read_fixed(D, S)` / `write_fixed(v, D, S)`、`FixedHolder`、`Any.insert_fixed` / `extract_fixed`、`-bjava` の Helper・定数
   - 相互接続：`AnyTest.idl` に `money`（別名 `Money`、`fixed<5, 2>`）と `fixed`（`fixed<31, 4>`）を加え、`--suite any` で omniORB C++・omniORBpy と rustorb（Rust・Python・C++・Java）のすべての組で確かめる
 - [x] valuetype（[valuetype.md](valuetype.md)）
@@ -277,3 +329,13 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 - [x] `long double`（[long-double.md](long-double.md)、[#41](https://github.com/rustorb/rustorb/issues/41)）
   - 送受信は仕様どおり IEEE binary128。コアの `LongDouble`、Value・Any・DynAny、C ABI、Python（`float`）・C++（`long double`、処理系の形式から変換）・Java（`double`）・Rust（`LongDouble`）と `-bc++11` / `-bjava` / `-brust`
   - 相互接続：`--suite any` に `longdouble` を足した。omniORB C++ は x87 の形式で送り、omniORBpy と JacORB は `long double` を扱わないので、それらとの組は既知の失敗
+
+### 残りの issue
+
+すべて P3。
+
+- [#44](https://github.com/rustorb/rustorb/issues/44) DII / DSI を実装するか決め、実装する（判断待ち）
+- [#46](https://github.com/rustorb/rustorb/issues/46) IDL4-CPP の構文（アノテーションなど）を C++ 生成器に取り込む
+- [#50](https://github.com/rustorb/rustorb/issues/50) Rust 向けに既存の tokio ランタイムの共有と async API を用意する
+- [#51](https://github.com/rustorb/rustorb/issues/51) Java バインディングを FFM API（Java 22 以降）に置き換えるか検討する（判断待ち）
+- [#52](https://github.com/rustorb/rustorb/issues/52) 当面の対象外にした機能のうち次に扱うものを決める（判断待ち）
