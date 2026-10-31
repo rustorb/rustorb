@@ -17,9 +17,15 @@ omniORBを置き換えられる、コアを純Rustで実装したCORBA ORBを作
 **当面の対象外**（後続フェーズで判断）
 
 - CORBA Component Model、Event / Notification Service
-- Interface Repository、DII / DSI
-- SSLIOP、CSIv2 などのセキュリティ
+- Interface Repository
+- CSIv2 などのセキュリティ（SSLIOP を除く）
 - 旧来のIDL to C++（C++98）マッピング
+- Naming の KVS 実装、omniNames のログの移行
+
+M0〜M6 の後に見直し（[#52](https://github.com/rustorb/rustorb/issues/52)）、次の2つを対象に加えた。残りは引き続き対象外で、需要が出たら issue にする。
+
+- DII / DSI：コアと Python から（[#44](https://github.com/rustorb/rustorb/issues/44)）。C++ と Java は需要が出たら
+- SSLIOP（TLS）：[#78](https://github.com/rustorb/rustorb/issues/78)
 
 ## 準拠する仕様
 
@@ -163,7 +169,7 @@ M0〜M6 はすべて完了した。その後の作業は issue で管理して�
 
 通信I/Oは内部のtokioで処理し、サーバント呼び出しはORB専用のスレッドプールに渡す。I/Oとアップコールを分けるのは、Python・Java・C++のサーバントがすべてブロッキング処理で、tokioのワーカー上で呼ぶとI/O全体が止まるため。
 
-- **I/O層**：rustorb-core が内部でマルチスレッドのtokioランタイムを持ち、接続の受け付け、GIOPメッセージの送受信、リクエストの多重化を担う。既存のtokioランタイムを使いたい利用者向けに、ハンドルを渡して共有する手段も用意する
+- **I/O層**：rustorb-core が内部でマルチスレッドのtokioランタイムを持ち、接続の受け付け、GIOPメッセージの送受信、リクエストの多重化を担う。既存のtokioランタイムを使いたい利用者向けに、ハンドルを渡して共有する手段も用意する（`Orb::with_runtime`。async API と合わせて [async-api.md](async-api.md)、[#50](https://github.com/rustorb/rustorb/issues/50)）
 - **アップコール層**：デコード済みのリクエストを、長寿命のOSスレッドからなるプールに渡してサーバントを呼ぶ。プールの上限は設定可能にする（omniORBの maxServerThreadPoolSize に相当）
 - **クライアント呼び出し**：同期APIは結果をチャネルで待つ実装にし、tokioのコンテキスト外からも、アップコール中のスレッドからも呼べるようにする。サーバント内からの入れ子呼び出しやコールバックで、プールが枯渇しないよう上限と待ち合わせを設計する
 - **言語バインディングとの協調**：プールのスレッドは入れ替わらないため、JNIの AttachCurrentThread はスレッドごとに1回で済み、Pythonはサーバント呼び出しの間だけGILを取得する
@@ -329,13 +335,16 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 - [x] `long double`（[long-double.md](long-double.md)、[#41](https://github.com/rustorb/rustorb/issues/41)）
   - 送受信は仕様どおり IEEE binary128。コアの `LongDouble`、Value・Any・DynAny、C ABI、Python（`float`）・C++（`long double`、処理系の形式から変換）・Java（`double`）・Rust（`LongDouble`）と `-bc++11` / `-bjava` / `-brust`
   - 相互接続：`--suite any` に `longdouble` を足した。omniORB C++ は x87 の形式で送り、omniORBpy と JacORB は `long double` を扱わないので、それらとの組は既知の失敗
+- [x] tokio ランタイムの共有と async API（[async-api.md](async-api.md)、[#50](https://github.com/rustorb/rustorb/issues/50)）
+  - `Orb::with_runtime`（アプリケーションのランタイムで通信 I/O を動かす。`destroy` 後にタスクを残さない）、`ObjectRef::request_async`（`Send` な `Future`、どのエグゼキュータからも poll できる）、`is_a_async` など、`Orb::run_async`
+  - tokio のワーカーからの同期 API は今までどおり `BAD_INV_ORDER`
 
 ### 残りの issue
 
 すべて P3。
 
-- [#44](https://github.com/rustorb/rustorb/issues/44) DII / DSI を実装するか決め、実装する（判断待ち）
+- [#44](https://github.com/rustorb/rustorb/issues/44) DII / DSI（コアと Python から）
 - [#46](https://github.com/rustorb/rustorb/issues/46) IDL4-CPP の構文（アノテーションなど）を C++ 生成器に取り込む
-- [#50](https://github.com/rustorb/rustorb/issues/50) Rust 向けに既存の tokio ランタイムの共有と async API を用意する
-- [#51](https://github.com/rustorb/rustorb/issues/51) Java バインディングを FFM API（Java 22 以降）に置き換えるか検討する（判断待ち）
-- [#52](https://github.com/rustorb/rustorb/issues/52) 当面の対象外にした機能のうち次に扱うものを決める（判断待ち）
+- [#51](https://github.com/rustorb/rustorb/issues/51) Java バインディングの FFM 版を試作し、JNI 版と比べる
+- [#77](https://github.com/rustorb/rustorb/issues/77) Rust の IDL 生成器で async 版のスタブを出す
+- [#78](https://github.com/rustorb/rustorb/issues/78) SSLIOP（IIOP over TLS）

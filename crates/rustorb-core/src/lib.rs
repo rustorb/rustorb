@@ -76,7 +76,7 @@ pub use exception::{
     Exception, OMG_VMCID, SystemException, SystemExceptionKind, UserException, minor,
 };
 pub use fixed::{Fixed, ParseFixedError};
-pub use object::{ObjectRef, Reply, Request};
+pub use object::{AsyncRequest, ObjectRef, Reply, Request};
 pub use orb::{EndpointAddr, Orb, OrbOptions, ResolveError};
 pub use poa::{
     IdAssignment, IdUniqueness, ImplicitActivation, Lifespan, ObjectId, Poa, PoaCurrent, PoaError,
