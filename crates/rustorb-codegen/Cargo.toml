@@ -14,3 +14,4 @@ workspace = true
 
 [dev-dependencies]
 rustorb-core.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }

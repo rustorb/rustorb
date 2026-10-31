@@ -104,6 +104,15 @@ target_link_libraries(test_mapping PRIVATE rustorb)
 target_compile_options(test_mapping PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME mapping COMMAND test_mapping)
 
+# The IDL 4 constructs of the C++ generator (int8, bitmask, bitset,
+# annotations).
+rustorb_idl_generate(IDL4_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/tests/idl/Idl4.idl")
+add_executable(test_idl4 tests/test_idl4.cc ${IDL4_SOURCES})
+target_include_directories(test_idl4 PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl")
+target_link_libraries(test_idl4 PRIVATE rustorb)
+target_compile_options(test_idl4 PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME idl4 COMMAND test_idl4)
+
 # Servant managers, adapter activators and default servants.
 add_executable(test_poa tests/test_poa.cc ${MAPPING_SOURCES})
 target_include_directories(test_poa PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl")

@@ -625,3 +625,113 @@ fn valuetype_calls() {
     drop(client);
     server.shutdown(true).unwrap();
 }
+
+/// Checks at compile time that a future can go to `tokio::spawn`.
+fn assert_send<T: Send>(t: T) -> T {
+    t
+}
+
+#[test]
+fn async_calls() {
+    rust_mapping_idl::register_value_types();
+    let server = server_orb();
+    let root = server.root_poa().unwrap();
+    root.the_poa_manager().activate().unwrap();
+    let (_, local) = DerivedPoa(DerivedImpl::default()).activate(&root).unwrap();
+    let canvas_id = root
+        .activate_object(Arc::new(CanvasPoa(CanvasImpl)))
+        .unwrap();
+    let canvas_ref = root.id_to_reference(&canvas_id).unwrap();
+    let client = Orb::with_options(OrbOptions::default()).unwrap();
+    let obj = remote(&client, &server, local.object());
+    let d = Derived::unchecked_narrow(obj.clone());
+    let canvas = Canvas::unchecked_narrow(remote(&client, &server, &canvas_ref));
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        // Attributes, inout, and the error types of the sync stubs.
+        assert_eq!(assert_send(d.id_async()).await.unwrap(), 42);
+        d.set_label_async("async").await.unwrap();
+        assert_eq!(d.label_async().await.unwrap(), "async");
+        let mut b = 10;
+        assert_eq!(
+            assert_send(d.derived_op_async(5, &mut b)).await.unwrap(),
+            (10, 15)
+        );
+        assert_eq!(b, 15);
+        match d.derived_op_async(1, &mut b).await {
+            Err(m::derived::DerivedOpError::Failure(f)) => assert_eq!(f.code, 7),
+            r => panic!("{r:?}"),
+        }
+        match d.derived_op_async(2, &mut b).await {
+            Err(m::derived::DerivedOpError::System(e)) => {
+                assert!(e.is(SystemExceptionKind::NO_PERMISSION))
+            }
+            r => panic!("{r:?}"),
+        }
+
+        // Borrowed arguments of every kind: structs, sequences, references,
+        // anys, fixed, arrays.
+        let holder = holder();
+        let any = Any::from(5i32);
+        let fixed = "1.25".parse().unwrap();
+        let pair = Pair {
+            first: 1,
+            second: 0,
+        };
+        assert_send(d.take_async(
+            &holder,
+            &pair,
+            Fruit::Apple,
+            &[1, 2],
+            None,
+            Some(&obj),
+            &any,
+            &fixed,
+            &[[1, 2], [3, 4]],
+        ))
+        .await
+        .unwrap();
+        assert_send(d.notify_async("one")).await.unwrap();
+
+        // Valuetypes: sharing is kept as with the sync stubs.
+        let c = Circle::new(CircleState {
+            base: ShapeState {
+                name: "c".into(),
+                secret: 2,
+            },
+            radius: 2.5,
+        });
+        let shape: Shape = c.into();
+        let drawing = Drawing {
+            main: Some(shape.clone()),
+            others: vec![Some(shape)],
+            count: None,
+        };
+        let back = assert_send(canvas.echo_drawing_async(&drawing))
+            .await
+            .unwrap();
+        assert!(
+            back.main
+                .as_ref()
+                .unwrap()
+                .ptr_eq(back.others[0].as_ref().unwrap())
+        );
+
+        // Calls spawned on the runtime's workers, at the same time.
+        let calls: Vec<_> = (0..8)
+            .map(|_| {
+                let d = d.clone();
+                tokio::spawn(async move { d.id_async().await })
+            })
+            .collect();
+        for c in calls {
+            assert_eq!(c.await.unwrap().unwrap(), 42);
+        }
+    });
+    drop(client);
+    server.shutdown(true).unwrap();
+}

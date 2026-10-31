@@ -47,6 +47,10 @@
 
 `crates/rustorb-core/tests/async_api.rs`：共有したマルチスレッドのランタイムでの TCP 越しの呼び出し（多数のタスクから並行に、`is_a_async` など、oneway、ワーカーからの同期 API が `BAD_INV_ORDER`、別スレッドからの同期 API）と、`destroy` 後にタスクが残らないこと。ORB 自身のランタイムの呼び出しを I/O のないランタイムで poll すること（タイムアウトを含む）。同一 ORB 内呼び出し（サーバントの中の同期呼び出しを含む）。`current_thread` のランタイム。`run_async`。ランタイムが先に終わった場合。
 
-## 残り
+## 生成コードの async 版スタブ
 
-- Rust の IDL 生成器（`-brust`）が async 版のスタブを出すこと（[#77](https://github.com/rustorb/rustorb/issues/77)）。今は `request_async` を直接使う
+`rustorb-idl -brust` のスタブは、操作ごとに同期版 `op` と並べて `async fn op_async` を出す（[#77](https://github.com/rustorb/rustorb/issues/77)）。引数・戻り値・エラー型は同期版と同じで、`request_async` と `AsyncRequest::invoke` / `send_oneway` を使う。
+
+- 名前は `<同期版の名前>_async`（属性は `id_async`・`set_label_async`）。別の操作の Rust 名と重なる IDL は生成時にエラーにする
+- 引数は借用のまま `Future` に入る。生成される型（構造体、列、参照、Any、fixed、valuetype など）はすべて `Send + Sync` なので、返す `Future` は `Send` で `tokio::spawn` できる
+- テスト：`crates/rustorb-codegen/tests/rust_mapping.rs` の `async_calls`（属性、`inout`、ユーザー例外、いろいろな型の引数、valuetype の共有、`tokio::spawn` からの並行呼び出し）

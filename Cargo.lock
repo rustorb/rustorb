@@ -429,6 +429,7 @@ name = "rustorb-codegen"
 version = "0.0.0"
 dependencies = [
  "rustorb-core",
+ "tokio",
 ]
 
 [[package]]

@@ -37,7 +37,7 @@ C++はIDL to C++11（CPP11）を基準にし、IDL4-CPPで追加された構文�
 | ネーミング | CosNaming（Naming Service） | NamingContextExt まで対応 |
 | Rust | 独自マッピング | [IDL4-Rust RFP](https://www.omg.org/gettingstarted/rfp-IDL4-RLP.htm) の動向に追随 |
 | C++ | [IDL to C++11](https://www.omg.org/spec/CPP11/Current)（v1.7） | 基準。実装・生成コードはC++17を使用 |
-| C++（IDL4） | [IDL4-CPP](https://www.omg.org/spec/IDL4-CPP)（v1.0） | アノテーション・拡張型を順次取り込み |
+| C++（IDL4） | [IDL4-CPP](https://www.omg.org/spec/IDL4-CPP)（v1.0） | GIOP で送れるもの（`int8`、`bitmask`、`bitset`、`@default`、`@range`）を取り込んだ（#46、[cpp-binding.md](cpp-binding.md#idl-4-の構文)）。`map`・`@optional` は扱わない |
 | Python | IDL to Python マッピング | 標準マッピングとomniidlの生成レイアウトは互換、omniORBpy独自拡張は厳選して互換シムで提供 |
 | Java | IDL to Java マッピング | 生成APIは標準準拠、実装はRustコア経由 |
 
@@ -121,7 +121,7 @@ M0〜M6 はすべて完了した。その後の作業は issue で管理して�
 | --- | --- | --- | --- |
 | Python | PyO3 + maturin | スタブ・スケルトンのPythonモジュール、型ヒント（.pyi） | GILとORBスレッドの協調、omniORBpy互換API |
 | C++ | C ABI（安定ABI層）＋ヘッダオンリーのC++ラッパ | CPP11準拠のヘッダ・スケルトン | RAIIと参照カウントの対応、例外の伝播 |
-| Java | JNI（将来Java 22以降のFFM APIも検討） | IDL to Java準拠のクラス群 | JavaのGCとRust側参照の解放、コールバックのスレッドアタッチ |
+| Java | JNI（FFM API は試作して比べ、Java の下限を 22 に上げられるまでは JNI のまま。[java-ffm.md](java-ffm.md)、#51） | IDL to Java準拠のクラス群 | JavaのGCとRust側参照の解放、コールバックのスレッドアタッチ |
 
 - Rustコアは`extern "C"`の安定ABI層（`rustorb-ffi`）を1つだけ公開し、C++とJavaはそこから使う。Pythonは開発効率を優先してPyO3で直接つなぐ
 - オブジェクト参照はRust側で参照カウントし、各言語のハンドルが解放されたら減算する
@@ -286,7 +286,7 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - C++ 側：`IDL::traits<T>::ref_type`、`CORBA::servant_traits<T>::base_type`、`CORBA::make_reference`、40種のシステム例外、`PortableServer` の POA 操作。struct・union・例外は取得・設定関数のクラス、enum は `enum class`、上限付きの型は `IDL::bounded_*`
   - 相互接続：`interop/impls/rustorbcpp`（他のクライアントと同じ78ケース）が omniORB C++・omniORBpy・rustorb（Rust・Python）とのすべての組み合わせで、omniNames・rustorb-names、GIOP 1.1 でも通る（失敗は既存の `known-failures.txt` の範囲だけ）
   - C++ のテスト（`cpp/tests`、CMake）：マッピング用の IDL を2つの ORB の間と同一 ORB 内で往復させ、相互接続の78ケースを1プロセスで回す。CI は g++ と clang++
-  - 残り：IDL4-CPP の構文（`fixed` は後で加えた。下記）。Java は同じ C ABI の上に載せた（M6）。servant manager・AdapterActivator は M6 の後に加えた（下記）
+  - IDL 4 の構文（`int8`、`bitmask`、`bitset`、`@default`、`@range`）は #46 で加えた。`fixed` は後で加えた（下記）。Java は同じ C ABI の上に載せた（M6）。servant manager・AdapterActivator は M6 の後に加えた（下記）
 - [x] Any / TypeCode（M5）：コアの `TypeCode`・`Any`・`Value` と CDR、Python と C++ のバインディング、omniORB C++・omniORBpy との相互接続（[any-typecode.md](any-typecode.md)）
   - [x] コア：TypeCode はアリーナと添字で表し、再帰型は後ろ向きの添字（`Arc` の循環なし）。CDR の間接参照は再帰のときだけ書き、読み込みはすべて受け付ける。`equal` / `equivalent` / `compact`、構築時の検査
   - [x] Python：`CORBA.Any` / `CORBA.TypeCode` の送受信、`ORB.create_*_tc`。生成コードにない型は TypeCode とクラスをその場で作る
@@ -338,6 +338,7 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 - [x] tokio ランタイムの共有と async API（[async-api.md](async-api.md)、[#50](https://github.com/rustorb/rustorb/issues/50)）
   - `Orb::with_runtime`（アプリケーションのランタイムで通信 I/O を動かす。`destroy` 後にタスクを残さない）、`ObjectRef::request_async`（`Send` な `Future`、どのエグゼキュータからも poll できる）、`is_a_async` など、`Orb::run_async`
   - tokio のワーカーからの同期 API は今までどおり `BAD_INV_ORDER`
+  - `rustorb-idl -brust` のスタブに操作ごとの `async fn <名前>_async`（[#77](https://github.com/rustorb/rustorb/issues/77)）
 - [x] DII / DSI（[dii-dsi.md](dii-dsi.md)、[#44](https://github.com/rustorb/rustorb/issues/44)）
   - コア：`ObjectRef::create_request` → `DiiRequest`（同期・async・oneway・deferred）、`DynamicImplementation` と `DynamicServant`、`ServerRequest`
   - Python：標準マッピングの `Request`・`NVList`・`ServerRequest`・`PortableServer.DynamicImplementation`、`orb.send_multiple_requests_*` / `get_next_response`
@@ -347,7 +348,4 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 
 すべて P3。
 
-- [#46](https://github.com/rustorb/rustorb/issues/46) IDL4-CPP の構文（アノテーションなど）を C++ 生成器に取り込む
-- [#51](https://github.com/rustorb/rustorb/issues/51) Java バインディングの FFM 版を試作し、JNI 版と比べる（試作と比較は [java-ffm.md](java-ffm.md)。置き換えるかは未定）
-- [#77](https://github.com/rustorb/rustorb/issues/77) Rust の IDL 生成器で async 版のスタブを出す
 - [#78](https://github.com/rustorb/rustorb/issues/78) SSLIOP（IIOP over TLS）

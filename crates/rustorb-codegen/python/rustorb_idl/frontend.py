@@ -12,6 +12,8 @@ helpers here:
 
 import os
 
+from idl_parser import bitmask as idl_bitmask
+from idl_parser import bitset as idl_bitset
 from idl_parser import enum as idl_enum
 from idl_parser import exception as idl_exception
 from idl_parser import interface as idl_interface
@@ -95,6 +97,7 @@ def load(path, include_dirs=(), defines=None, encoding=None):
         root = p.load(text, include_dirs=[os.path.dirname(path)], filepath=path)
     except idl_exception.IDLParserException as e:
         raise GeneratorError(str(e)) from e
+    check_annotations(root)
     return Spec(root, path)
 
 
@@ -200,6 +203,18 @@ def is_const(n):
     return isinstance(n, idl_const.IDLConst)
 
 
+def is_bitmask(n):
+    return isinstance(n, idl_bitmask.IDLBitmask)
+
+
+def is_bitset(n):
+    return isinstance(n, idl_bitset.IDLBitset)
+
+
+# Types of IDL 4 that only the C++ backend maps.
+CXX_ONLY = {"int8": "int8", "bitmask": "bitmask", "bitset": "bitset"}
+
+
 def is_native(n):
     return isinstance(n, idl_native.IDLNative)
 
@@ -270,6 +285,7 @@ BASIC = {
     "wchar": "wchar",
     "octet": "octet",
     "uint8": "octet",
+    "int8": "int8",
     "any": "any",
     "Object": "Object",
     "TypeCode": "TypeCode",
@@ -288,6 +304,8 @@ class Type(object):
     - ``"sequence"`` with ``content`` and ``bound``;
     - ``"array"`` with ``content`` and ``length`` (one dimension);
     - ``"fixed"`` with ``digits`` and ``scale``;
+    - ``"bitmask"`` / ``"bitset"`` with ``node`` (IDL 4; only the C++
+      backend maps them);
     - ``"named"`` with ``node``: a typedef, struct, union, enum,
       exception, interface or native definition.
     """
@@ -330,7 +348,11 @@ def type_of(t, where=None):
     if isinstance(t, idl_type.IDLFixed):
         return Type("fixed", digits=t.digits, scale=t.scale)
     if isinstance(t, idl_type.IDLMap):
-        raise GeneratorError("map types are not supported yet", where)
+        raise GeneratorError("map types have no form in GIOP and are not supported", where)
+    if isinstance(t, idl_bitmask.IDLBitmask):
+        return Type("bitmask", node=t)
+    if isinstance(t, idl_bitset.IDLBitset):
+        return Type("bitset", node=t)
     if isinstance(t, idl_type.IDLPrimitive):
         name = " ".join(t.name.split())
         if name.startswith("string") or name.startswith("wstring"):
@@ -416,3 +438,43 @@ def repository_id(node):
 def raised_exceptions(op):
     """The exceptions an operation raises, as definition nodes."""
     return list(op.exceptions or [])
+
+
+# ---------------------------------------------------------------------------
+# IDL 4 annotations
+
+# Annotations that change what is sent, which GIOP has no form for.
+NOT_ON_GIOP = {
+    "optional": "GIOP has no form for an absent member",
+    "external": "GIOP has no form for an external member",
+    "value": "GIOP sends an enumerator as its position, not as a value",
+}
+
+
+def annotation(node, name):
+    """The annotation ``@name`` of a node (the last one), or None."""
+    find = getattr(node, "annotation_by_name", None)
+    return find(name) if find is not None else None
+
+
+def check_annotations(root):
+    """Refuses the annotations of :data:`NOT_ON_GIOP` anywhere in ``root``.
+    The others (``@key``, ``@id``, ``@final`` and the like, which are for
+    DDS) are left to the backends, which ignore what they do not map."""
+
+    def check(node):
+        for name, why in NOT_ON_GIOP.items():
+            if annotation(node, name) is not None:
+                where = node if getattr(node, "filepath", None) else getattr(node, "parent", None)
+                raise GeneratorError("@%s is not supported: %s" % (name, why), where)
+
+    def walk(n):
+        check(n)
+        for attr in ("definitions", "members", "values"):
+            for c in getattr(n, attr, None) or []:
+                if c is not n:
+                    walk(c)
+        for c in getattr(n, "cases", None) or []:
+            walk(c)
+
+    walk(root)

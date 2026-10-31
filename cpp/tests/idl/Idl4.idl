@@ -1,0 +1,41 @@
+// The IDL 4 constructs that rustorb-idl -bc++11 maps (cpp/tests/test_idl4.cc):
+// int8, bitmask, bitset, @default and @range / @min / @max. DDS annotations
+// (@key, @id, @final, ...) are accepted and ignored.
+
+module Idl4 {
+  const int8 SMALLEST = -128;
+
+  @bit_bound(8) bitmask Flags { READ, @position(3) WRITE, EXEC };
+  @bit_bound(40) bitmask Wide { LOW, @position(39) HIGH };
+
+  bitset Header {
+    bitfield<3> kind;
+    bitfield<5, short> delta;
+    bitfield<2>;
+    bitfield<1> last;
+  };
+
+  @final struct Settings {
+    @key long id;
+    @default(7) long retries;
+    @default(TRUE) boolean enabled;
+    @default(2.5) double ratio;
+    @range(min=0, max=10) short level;
+    @min(1) @max(5) short step;
+    int8 offset;
+    uint8 raw;
+    Flags flags;
+    Wide wide;
+    Header header;
+  };
+
+  typedef sequence<int8> Bytes;
+
+  interface Echo {
+    Settings echo_settings(in Settings s);
+    Flags echo_flags(in Flags f, out Wide w);
+    Header echo_header(in Header h);
+    int8 echo_int8(in int8 v, inout Bytes b);
+    any echo_any(in any a);
+  };
+};

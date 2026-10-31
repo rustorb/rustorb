@@ -66,6 +66,7 @@ CXX_KEYWORDS = set(
 BASIC = {
     "boolean": "bool",
     "octet": "uint8_t",
+    "int8": "int8_t",
     "char": "char",
     "wchar": "wchar_t",
     "short": "int16_t",
@@ -87,6 +88,7 @@ INT_RANGES = {
     "ulong": (0, (1 << 32) - 1),
     "ulonglong": (0, (1 << 64) - 1),
     "octet": (0, 255),
+    "int8": (-128, 127),
 }
 
 TC_REF = "::IDL::traits<::CORBA::TypeCode>::ref_type"
@@ -94,6 +96,18 @@ TC_REF = "::IDL::traits<::CORBA::TypeCode>::ref_type"
 UNSUPPORTED = {
     "Principal": "Principal",
 }
+
+
+def holder_type(bits):
+    """The unsigned integer type that holds ``bits`` bits, as a bitmask or a
+    bitset is sent (IDL 4 / DDS-XTypes): octet, ushort, ulong or ulonglong."""
+    if bits <= 8:
+        return "uint8_t"
+    if bits <= 16:
+        return "uint16_t"
+    if bits <= 32:
+        return "uint32_t"
+    return "uint64_t"
 
 
 def cxx_name(name):
@@ -212,6 +226,8 @@ class CxxBackend(object):
             return "std::array<%s, %d>" % (self.ctype(t.content, where), t.length)
         if k == "fixed":
             return "::IDL::Fixed<%d, %d>" % (t.digits, t.scale)
+        if k in ("bitmask", "bitset"):
+            return self.scoped(t.node)
         if k == "named":
             n = t.node
             if fe.is_native(n):
@@ -237,7 +253,7 @@ class CxxBackend(object):
         """Whether ``in`` arguments and accessors of the type are by value
         (basic types and enums)."""
         r = t.resolved()
-        if r.kind in BASIC:
+        if r.kind in BASIC or r.kind in ("bitmask", "bitset"):
             return True
         return r.kind == "named" and fe.is_enum(r.node)
 
@@ -300,7 +316,7 @@ class CxxBackend(object):
                 return "%dU" % v
             if k == "long" and v == lo:
                 return "(-2147483647 - 1)"
-            if k in ("short", "ushort", "octet"):
+            if k in ("short", "ushort", "octet", "int8"):
                 return "static_cast<%s>(%d)" % (BASIC[k], v)
             return "%d" % v
         raise fe.GeneratorError("no C++ literal for a constant of type %r" % r)
@@ -404,6 +420,10 @@ class CxxBackend(object):
         elif fe.is_native(node):
             w("// native %s is not mapped" % node.name)
             w()
+        elif fe.is_bitmask(node):
+            self.bitmask(w, node)
+        elif fe.is_bitset(node):
+            self.bitset(w, node)
         elif fe.is_valuetype(node):
             if fe.is_forward(node):
                 w("class %s;" % cxx_name(node.name))
@@ -453,6 +473,66 @@ class CxxBackend(object):
         w("enum class %s : uint32_t { %s };" % (cxx_name(node.name), ", ".join(names)))
         w()
         self.codecs.append(("enum", node))
+
+    # IDL 4 bitmask and bitset (sent as the unsigned integer that holds
+    # their bits; their TypeCode is that integer's)
+
+    def bitmask(self, w, node):
+        name = cxx_name(node.name)
+        u = holder_type(node.bit_bound)
+        values = ", ".join(
+            "%s = static_cast<%s>(1) << %d" % (cxx_name(v.name), u, v.position)
+            for v in node.values
+        )
+        w("enum class %s : %s { %s };" % (name, u, values))
+        for op in ("|", "&", "^"):
+            w(
+                "constexpr %s operator%s(%s a, %s b) { return static_cast<%s>(static_cast<%s>(a) %s static_cast<%s>(b)); }"
+                % (name, op, name, name, name, u, op, u)
+            )
+            w("inline %s& operator%s=(%s& a, %s b) { return a = a %s b; }" % (name, op, name, name, op))
+        mask = sum(1 << v.position for v in node.values)
+        w(
+            "constexpr %s operator~(%s a) { return static_cast<%s>(~static_cast<%s>(a) & %dULL); }"
+            % (name, name, name, u, mask)
+        )
+        w("/// Whether the bits of b are all set in a.")
+        w(
+            "constexpr bool has(%s a, %s b) { return (static_cast<%s>(a) & static_cast<%s>(b)) == static_cast<%s>(b); }"
+            % (name, name, u, u, u)
+        )
+        w()
+        self.codecs.append(("bitmask", node))
+
+    def bitfield_type(self, f, where):
+        """The kind of the destination type of a bitfield: an integer or boolean."""
+        kind = fe.BASIC.get(" ".join(str(f.type).split()))
+        if kind not in INT_RANGES and kind != "boolean":
+            raise fe.GeneratorError("a bitfield of %s is not supported" % f.type, where)
+        return kind
+
+    def bitset(self, w, node):
+        name = cxx_name(node.name)
+        if node.base is not None:
+            raise fe.GeneratorError("bitset inheritance is not supported", node)
+        fields = [f for f in node.bitfields if f.name]
+        w("struct %s {" % name)
+        w.indent()
+        for f in fields:
+            w("%s %s : %d;" % (BASIC[self.bitfield_type(f, node)], cxx_name(f.name), f.bits))
+        w("friend bool operator==(const %s& a, const %s& b) {" % (name, name))
+        if fields:
+            w("  return %s;" % " && ".join("a.%s == b.%s" % ((cxx_name(f.name),) * 2) for f in fields))
+        else:
+            w("  (void)a;")
+            w("  (void)b;")
+            w("  return true;")
+        w("}")
+        w("friend bool operator!=(const %s& a, const %s& b) { return !(a == b); }" % (name, name))
+        w.dedent()
+        w("};")
+        w()
+        self.codecs.append(("bitset", node))
 
     # TypeCodes
 
@@ -541,7 +621,7 @@ class CxxBackend(object):
                 "true" if k == "wstring" else "false",
                 t.bound,
             )
-        if k == "fixed":
+        if k in ("fixed", "bitmask", "bitset"):
             return "::rustorb::cdr::type_code<%s>::get()" % self.ctype(t, where)
         if k == "sequence":
             return "::rustorb::detail::tc_sequence(%s, %d)" % (
@@ -685,6 +765,52 @@ class CxxBackend(object):
             raise fe.GeneratorError("struct inheritance is not supported", node)
         return [(m.name, fe.type_of(m.type, m)) for m in node.members]
 
+    def member_default(self, m, t):
+        """The initializer of a member from its ``@default``, or ``{}``."""
+        a = fe.annotation(m, "default")
+        if a is None:
+            return "{}"
+        r = t.resolved()
+        if r.kind not in INT_RANGES and r.kind not in ("boolean", "float", "double", "string"):
+            raise fe.GeneratorError("@default of a %s member is not supported" % r.kind, m)
+        value = a.value
+        if r.kind == "boolean":
+            value = str(value).upper() == "TRUE"
+        elif r.kind == "string":
+            value = str(value).strip('"')
+        return "{%s}" % self.literal(value, r)
+
+    def member_range(self, m, t):
+        """``(min, max)`` C++ literals from ``@range`` / ``@min`` / ``@max``
+        (either may be None), or None."""
+        lo = hi = None
+        a = fe.annotation(m, "range")
+        if a is not None:
+            lo, hi = a.params.get("min"), a.params.get("max")
+        if fe.annotation(m, "min") is not None:
+            lo = fe.annotation(m, "min").value
+        if fe.annotation(m, "max") is not None:
+            hi = fe.annotation(m, "max").value
+        if lo is None and hi is None:
+            return None
+        r = t.resolved()
+        if r.kind not in INT_RANGES and r.kind not in ("float", "double"):
+            raise fe.GeneratorError("@range of a %s member is not supported" % r.kind, m)
+        return (
+            None if lo is None else self.literal(lo, r),
+            None if hi is None else self.literal(hi, r),
+        )
+
+    def range_test(self, value, bounds):
+        """A C++ condition that ``value`` is outside ``bounds``."""
+        lo, hi = bounds
+        tests = []
+        if lo is not None:
+            tests.append("%s < %s" % (value, lo))
+        if hi is not None:
+            tests.append("%s > %s" % (value, hi))
+        return " || ".join(tests)
+
     def accessors(self, w, name, t, where, storage, before=""):
         """Accessor and modifier functions of a member; ``before`` is code
         run first by each of them (unions check or set the
@@ -743,8 +869,8 @@ class CxxBackend(object):
         w()
         w(" private:")
         w.indent()
-        for m, t in members:
-            w("%s _m_%s {};" % (self.ctype(t, node), m))
+        for (m, t), mn in zip(members, node.members):
+            w("%s _m_%s %s;" % (self.ctype(t, node), m, self.member_default(mn, t)))
         w.dedent()
         w("};")
         w()
@@ -757,6 +883,10 @@ class CxxBackend(object):
         ``(labels, member name, Type)`` per member, labels without the
         ``default`` one."""
         disc = fe.type_of(node.discriminator_type, node)
+        if disc.resolved().kind == "int8":
+            raise fe.GeneratorError(
+                "an int8 discriminator is not supported: GIOP has no TypeCode for it", node
+            )
         cases = []
         default_index = -1
         for i, m in enumerate(node.members):
@@ -1569,6 +1699,9 @@ class CxxBackend(object):
                     % (t, t, len(node.values))
                 )
                 continue
+            if kind in ("bitmask", "bitset"):
+                self.bits_codec(w, kind, node)
+                continue
             w("template <> struct codec<%s> {" % t)
             w("  static void write(rorb_out* out, const %s& v);" % t)
             w("  static void read(rorb_in* in, %s& v);" % t)
@@ -1577,6 +1710,53 @@ class CxxBackend(object):
         w("}  // namespace cdr")
         w("}  // namespace rustorb")
         w()
+
+    def bits_codec(self, w, kind, node):
+        """The TypeCode and the codec of a bitmask or a bitset, in the
+        header: the value as the unsigned integer that holds the bits."""
+        t = self.scoped(node)
+        if kind == "bitmask":
+            u = holder_type(node.bit_bound)
+        else:
+            u = holder_type(max(node.bit_size, 1))
+        w("template <> struct type_code<%s> : type_code<%s> {};" % (t, u))
+        w("template <> struct codec<%s> {" % t)
+        w.indent()
+        if kind == "bitmask":
+            w("static void write(rorb_out* out, %s v) { codec<%s>::write(out, static_cast<%s>(v)); }" % (t, u, u))
+            w("static void read(rorb_in* in, %s& v) {" % t)
+            w("  %s x = 0;" % u)
+            w("  codec<%s>::read(in, x);" % u)
+            w("  v = static_cast<%s>(x);" % t)
+            w("}")
+        else:
+            fields = [f for f in node.bitfields if f.name]
+            w("static void write(rorb_out* out, const %s& v) {" % t)
+            w("  %s x = 0;" % u)
+            for f in fields:
+                w(
+                    "  x |= static_cast<%s>((static_cast<%s>(v.%s) & %dULL) << %d);"
+                    % (u, u, cxx_name(f.name), (1 << f.bits) - 1, f.position)
+                )
+            w("  codec<%s>::write(out, x);" % u)
+            w("}")
+            w("static void read(rorb_in* in, %s& v) {" % t)
+            w("  %s x = 0;" % u)
+            w("  codec<%s>::read(in, x);" % u)
+            for f in fields:
+                c = BASIC[self.bitfield_type(f, node)]
+                bits = "((x >> %d) & %dULL)" % (f.position, (1 << f.bits) - 1)
+                if c.startswith("int"):
+                    # Signed: the top bit of the field is the sign.
+                    bits = "(%s ^ %dULL) - %dULL" % (bits, 1 << (f.bits - 1), 1 << (f.bits - 1))
+                    w("  v.%s = static_cast<%s>(static_cast<int64_t>(%s));" % (cxx_name(f.name), c, bits))
+                elif c == "bool":
+                    w("  v.%s = %s != 0;" % (cxx_name(f.name), bits))
+                else:
+                    w("  v.%s = static_cast<%s>(%s);" % (cxx_name(f.name), c, bits))
+            w("}")
+        w.dedent()
+        w("};")
 
     # -- the source ------------------------------------------------------
 
@@ -1624,7 +1804,13 @@ class CxxBackend(object):
     def struct_codec(self, w, node):
         t = self.scoped(node)
         members = self.members(node)
+        ranges = [self.member_range(mn, mt) for (m, mt), mn in zip(members, node.members)]
         w("void rustorb::cdr::codec<%s>::write(rorb_out* out, const %s& v) {" % (t, t))
+        for (m, mt), bounds in zip(members, ranges):
+            if bounds is not None:
+                # @range: values outside it are not sent.
+                w("  if (%s)" % self.range_test("v.%s()" % cxx_name(m), bounds))
+                w("    throw ::CORBA::BAD_PARAM(0, ::CORBA::CompletionStatus::COMPLETED_NO);")
         for m, mt in members:
             w("  %s::write(out, v.%s());" % (self.codec_of(mt, node), cxx_name(m)))
         if not members:
@@ -1633,8 +1819,10 @@ class CxxBackend(object):
         w("}")
         w()
         w("void rustorb::cdr::codec<%s>::read(rorb_in* in, %s& v) {" % (t, t))
-        for m, mt in members:
+        for (m, mt), bounds in zip(members, ranges):
             w("  %s::read(in, v.%s());" % (self.codec_of(mt, node), cxx_name(m)))
+            if bounds is not None:
+                w("  if (%s) rorb_in_fail(in);" % self.range_test("v.%s()" % cxx_name(m), bounds))
         if not members:
             w("  (void)in;")
             w("  (void)v;")

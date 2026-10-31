@@ -80,9 +80,7 @@ VALUE_METHODS = {
     "_write", "clone", "fmt",
 }
 
-UNSUPPORTED = {
-    "Principal": "Principal",
-}
+UNSUPPORTED = dict(fe.CXX_ONLY, Principal="Principal")
 
 
 # ---------------------------------------------------------------------------
@@ -1680,6 +1678,14 @@ class RustBackend(object):
                     "operations of %s map to the same Rust name %s" % (node.name, m), node
                 )
             methods[m] = owner
+        for opname, method, ret, params, excs, oneway, d, owner in all_ops:
+            m = self.method_name(opname, method) + "_async"
+            if m in methods:
+                raise fe.GeneratorError(
+                    "the async stub method of %s::%s is the Rust name of another operation, %s"
+                    % (node.name, method, m),
+                    node,
+                )
 
         def errors(w2, mod):
             for opname, method, ret, params, excs, oneway, d in own_ops:
@@ -1743,6 +1749,8 @@ class RustBackend(object):
         for op in all_ops:
             w()
             self.stub_method(w, cur, *op)
+            w()
+            self.stub_method(w, cur, *op, asynchronous=True)
         w.dedent()
         w("}")
         w()
@@ -1940,18 +1948,27 @@ class RustBackend(object):
         w("impl ::std::error::Error for %s {}" % ename)
         w()
 
-    def stub_method(self, w, cur, opname, method, ret, params, excs, oneway, d, owner):
+    def stub_method(self, w, cur, opname, method, ret, params, excs, oneway, d, owner,
+                    asynchronous=False):
+        """The stub method of an operation; with ``asynchronous``, its
+        ``_async`` version on the core's async API (docs/async-api.md)."""
         R, I = self.R, self.I
         m, args, rt = self.signature(opname, method, ret, params, excs, d, owner, cur)
         err = self.error_path(owner, opname, method, cur) if excs else R + "::SystemException"
-        w("/// `%s`." % opname)
+        if asynchronous:
+            w("/// `%s`, on the async API: like [`%s`](Self::%s)." % (opname, m, m))
+            m += "_async"
+        else:
+            w("/// `%s`." % opname)
         if len(args) > 6:
             w("#[allow(clippy::too_many_arguments)]")
         w("#[allow(clippy::type_complexity)]")
-        w("pub fn %s(%s) -> Result<%s, %s> {" % (m, ", ".join(["&self"] + args), rt, err))
+        w("pub %sfn %s(%s) -> Result<%s, %s> {"
+          % ("async " if asynchronous else "", m, ", ".join(["&self"] + args), rt, err))
         w.indent()
         ins = [(p, t, dr) for p, t, dr in params if dr in ("in", "inout")]
-        req = 'self.0.request("%s")' % opname
+        req = 'self.0.request%s("%s")' % ("_async" if asynchronous else "", opname)
+        wait = ".await" if asynchronous else ""
         if ins:
             w("let request = %s.args(|out| {" % req)
             w.indent()
@@ -1967,7 +1984,7 @@ class RustBackend(object):
         else:
             w("let request = %s;" % req)
         if oneway:
-            w("request.send_oneway()?;")
+            w("request.send_oneway()%s?;" % wait)
             w("Ok(())")
             w.dedent()
             w("}")
@@ -1976,10 +1993,10 @@ class RustBackend(object):
         outs = [(p, t, dr) for p, t, dr in params if dr in ("out", "inout")]
         results = []
         if ret.kind != "void" or outs:
-            w("let reply = request.invoke().map_err(%s)?;" % conv)
+            w("let reply = request.invoke()%s.map_err(%s)?;" % (wait, conv))
             w("let mut input = reply.input();")
         else:
-            w("request.invoke().map_err(%s)?;" % conv)
+            w("request.invoke()%s.map_err(%s)?;" % (wait, conv))
         if ret.kind != "void":
             w("let ret = %s(&mut input)?;" % self.call(ret, cur, "read", d))
             results.append("ret")
