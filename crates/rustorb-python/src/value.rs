@@ -56,8 +56,9 @@ impl ValueScope {
         ValueScope::open(true)
     }
 
-    /// Opens a scope if none is, for a conversion outside any request.
-    fn ensure() -> ValueScope {
+    /// Opens a scope if none is, for a conversion outside any request, or
+    /// whose values are used after it ends.
+    pub(crate) fn ensure() -> ValueScope {
         ValueScope::open(false)
     }
 

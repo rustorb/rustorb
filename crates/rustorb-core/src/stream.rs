@@ -1,7 +1,7 @@
 use std::ops::{Deref, DerefMut};
 
 use rustorb_cdr::{CdrDecode, CdrEncode, Decoder, Encoder};
-use rustorb_giop::Ior;
+use rustorb_giop::{Body, Ior};
 
 use crate::value::{self, Any, Value};
 use crate::{
@@ -177,6 +177,39 @@ pub struct InStream<'a> {
     /// The valuetypes and value boxes of generated code read, by their
     /// slot in the stream (see `idl::ValueHandle`).
     pub(crate) typed_values: Vec<Option<Box<dyn std::any::Any>>>,
+    /// The message body `dec` reads, when it reads one: for
+    /// [`detach`](InStream::detach).
+    pub(crate) body: Option<&'a Body>,
+}
+
+/// The rest of an [`InStream`] over a message body, owned, to be read
+/// later ([`ServerRequest`](crate::dii::ServerRequest)).
+pub(crate) struct DetachedInput {
+    body: Body,
+    skip: usize,
+    code_sets: CodeSets,
+    orb: Option<Orb>,
+    completed: CompletionStatus,
+    wchar_needs_code_set: bool,
+}
+
+impl DetachedInput {
+    /// A stream at the place the detached one was.
+    pub(crate) fn stream(&self) -> InStream<'_> {
+        let mut dec = self.body.decoder();
+        // Within the body: it was read that far.
+        let _ = dec.skip(self.skip);
+        InStream {
+            dec,
+            code_sets: self.code_sets,
+            orb: self.orb.as_ref(),
+            completed: self.completed,
+            wchar_needs_code_set: self.wchar_needs_code_set,
+            values: Vec::new(),
+            typed_values: Vec::new(),
+            body: Some(&self.body),
+        }
+    }
 }
 
 impl<'a> InStream<'a> {
@@ -193,7 +226,25 @@ impl<'a> InStream<'a> {
             wchar_needs_code_set: false,
             values: Vec::new(),
             typed_values: Vec::new(),
+            body: None,
         }
+    }
+
+    /// The rest of the stream, owned, if it reads a message body and no
+    /// valuetype has been read (later ones could refer to it).
+    pub(crate) fn detach(&self) -> Option<DetachedInput> {
+        let body = self.body?;
+        if !self.values.is_empty() || !self.typed_values.is_empty() {
+            return None;
+        }
+        Some(DetachedInput {
+            body: body.clone(),
+            skip: self.dec.position() - body.decoder().position(),
+            code_sets: self.code_sets,
+            orb: self.orb.cloned(),
+            completed: self.completed,
+            wchar_needs_code_set: self.wchar_needs_code_set,
+        })
     }
 
     /// The transmission code sets of the connection.

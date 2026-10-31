@@ -376,7 +376,8 @@ impl Server {
     }
 
     /// Makes a request read off `conn` ready to go to its POA. `None` when
-    /// it has been answered already.
+    /// it has been answered already, or is dropped because the server is
+    /// shutting down.
     fn prepare(
         self: &Arc<Self>,
         conn: &Arc<ServerConn>,
@@ -388,6 +389,12 @@ impl Server {
         let code_sets = conn.code_sets_for(version, &header.service_context);
         conn.saw_version(version);
         let ticket = self.ticket(Some(permit));
+        if self.is_shutting_down() {
+            // Checked again under the ticket: a shutdown that began after
+            // the check in `on_request` may have destroyed the POAs, and
+            // one that begins from here on waits for this request.
+            return None;
+        }
         let reply = ReplyTo::new(
             conn,
             version,
@@ -643,6 +650,7 @@ impl Server {
             wchar_needs_code_set: true,
             values: Vec::new(),
             typed_values: Vec::new(),
+            body: Some(&body),
         };
         let result = {
             let _upcall = UpcallGuard::enter();

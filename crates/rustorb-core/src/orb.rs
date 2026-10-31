@@ -286,10 +286,13 @@ impl From<SystemException> for ResolveError {
 
 /// An ORB: the client side, and the server side once the RootPOA is used.
 ///
-/// Network I/O runs on a tokio runtime owned by the ORB; the methods here
-/// and on [`ObjectRef`] block the calling thread. They must not be called
-/// from inside a tokio runtime (they fail with `BAD_INV_ORDER`). Servants
-/// run on a pool of upcall threads owned by the ORB.
+/// Network I/O runs on a tokio runtime owned by the ORB, or on one the
+/// application shares with it ([`with_runtime`](Orb::with_runtime)); the
+/// methods here and on [`ObjectRef`] block the calling thread. They must
+/// not be called from inside a tokio runtime, the threads of
+/// `spawn_blocking` included (they fail with `BAD_INV_ORDER`): async code
+/// uses [`ObjectRef::request_async`] and [`run_async`](Orb::run_async)
+/// instead. Servants run on a pool of upcall threads owned by the ORB.
 ///
 /// `Orb` is a cheap handle: clones share the same ORB, which shuts down
 /// when the last clone and the last [`ObjectRef`] are gone. Servants that
@@ -319,6 +322,8 @@ pub(crate) struct OrbInner {
     /// `run` waits for both.
     main: Mutex<MainQueue>,
     main_cond: Condvar,
+    /// Wakes [`Orb::run_async`] when shutdown has completed.
+    stopped: tokio::sync::Notify,
 }
 
 /// An initial reference registered at run time.
@@ -404,9 +409,35 @@ impl Orb {
                 SystemException::new(SystemExceptionKind::INITIALIZE, 0, CompletionStatus::No)
             })?;
         let handle = runtime.handle().clone();
-        Ok(Orb {
+        Ok(Orb::new(options, Some(runtime), handle))
+    }
+
+    /// Initialises an ORB with `options` whose network I/O runs on the
+    /// application's runtime `handle` instead of a runtime of its own
+    /// ([`OrbOptions::io_threads`] is not used). The runtime must have I/O
+    /// and time enabled. A `current_thread` runtime does I/O only while a
+    /// thread runs its `block_on`, so blocking calls (from servants, say)
+    /// wait until one does; a multi-thread runtime has no such limit.
+    ///
+    /// Shutting the ORB down needs the runtime to run. On a
+    /// `current_thread` runtime, a blocking [`shutdown(true)`](Orb::shutdown)
+    /// or [`destroy`](Orb::destroy) outside its `block_on` waits for it, and
+    /// inside it blocks the runtime: shut down from inside instead, with
+    /// `shutdown(false)` and [`run_async`](Orb::run_async), and destroy
+    /// after that.
+    ///
+    /// Destroy the ORB before the runtime shuts down. Destroying it closes
+    /// its connections and stops its listening tasks; the runtime keeps no
+    /// task of the ORB. Once the runtime is gone, calls fail with
+    /// `COMM_FAILURE` or `TRANSIENT`.
+    pub fn with_runtime(options: OrbOptions, handle: Handle) -> Orb {
+        Orb::new(options, None, handle)
+    }
+
+    fn new(options: OrbOptions, runtime: Option<Runtime>, handle: Handle) -> Orb {
+        Orb {
             inner: Arc::new(OrbInner {
-                runtime: Some(runtime),
+                runtime,
                 handle,
                 call_timeout: AtomicU64::new(timeout::encode(options.request_timeout)),
                 connect_timeout: AtomicU64::new(timeout::encode(options.connect_timeout)),
@@ -417,8 +448,15 @@ impl Orb {
                 server: Mutex::new(None),
                 main: Mutex::default(),
                 main_cond: Condvar::new(),
+                stopped: tokio::sync::Notify::new(),
             }),
-        })
+        }
+    }
+
+    /// The handle of the runtime the ORB's network I/O runs on: its own,
+    /// or the one given to [`with_runtime`](Orb::with_runtime).
+    pub fn runtime_handle(&self) -> &Handle {
+        &self.inner.handle
     }
 
     /// The options the ORB was created with.
@@ -805,6 +843,24 @@ impl Orb {
         }
     }
 
+    /// [`run`](Orb::run) for async code: resolves when the ORB has shut
+    /// down. It does not run MAIN_THREAD_MODEL requests, which need
+    /// [`run`](Orb::run) or [`perform_work`](Orb::perform_work) on a
+    /// thread. With [`shutdown(false)`](Orb::shutdown), the way to shut the
+    /// ORB down from async code and wait for it.
+    pub async fn run_async(&self) {
+        loop {
+            let notified = std::pin::pin!(self.inner.stopped.notified());
+            let mut notified = notified;
+            notified.as_mut().enable();
+            let stopped = self.inner.main.lock().unwrap().stopped;
+            if stopped {
+                return;
+            }
+            notified.await;
+        }
+    }
+
     /// `CORBA::ORB::work_pending`: whether a MAIN_THREAD_MODEL request
     /// waits for [`perform_work`](Orb::perform_work). `BAD_INV_ORDER` after
     /// shutdown.
@@ -896,6 +952,7 @@ impl Orb {
         self.inner.close_main();
         self.inner.main.lock().unwrap().stopped = true;
         self.inner.main_cond.notify_all();
+        self.inner.stopped.notify_waiters();
     }
 
     /// `CORBA::ORB::destroy`: [`shutdown(true)`](Orb::shutdown), and then
@@ -921,6 +978,15 @@ impl Orb {
             ));
         }
         Ok(())
+    }
+
+    /// `fut`, polled inside the ORB's runtime: the sockets, timers and
+    /// tasks it makes belong to that runtime whichever executor polls it.
+    pub(crate) fn in_runtime<F: Future>(&self, fut: F) -> InRuntime<F> {
+        InRuntime {
+            handle: self.inner.handle.clone(),
+            fut: Box::pin(fut),
+        }
     }
 
     /// Runs `fut` on the ORB's runtime and waits for it.
@@ -1001,4 +1067,23 @@ impl Orb {
 /// code themselves; this keeps the loop going if anything else panics.
 fn run_job(job: Job) {
     let _ = panic::catch_unwind(AssertUnwindSafe(job));
+}
+
+/// See [`Orb::in_runtime`].
+pub(crate) struct InRuntime<F> {
+    handle: Handle,
+    fut: std::pin::Pin<Box<F>>,
+}
+
+impl<F: Future> Future for InRuntime<F> {
+    type Output = F::Output;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<F::Output> {
+        let this = &mut *self;
+        let _runtime = this.handle.enter();
+        this.fut.as_mut().poll(cx)
+    }
 }

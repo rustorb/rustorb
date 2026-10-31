@@ -116,6 +116,7 @@ POA の操作の例外は `PortableServer.POA.ObjectNotActive` など標準の�
 
 - `python/tests/test_orb.py`：同じプロセスにサーバー用とクライアント用の2つの ORB を作り、ループバックの TCP 越しに `InteropTest.idl` と `python/tests/idl/NativeTest.idl`（char の列、上限付きの型、fixed、再帰構造体、予約語の名前、boolean・char の判別子、`Object`）を呼ぶ。POA の各操作、servant manager、POAManager の状態、同一 ORB 内の呼び出しも確かめる。CI では `RUSTORB_REQUIRE_NATIVE=1` でネイティブモジュールと idl\_parser が必須
 - `python/tests/test_dynany.py`：`rustorb.DynamicAny`（[dynany.md](dynany.md)）。生成コードの型の DynAny、valuetype の共有と循環、切り詰め
+- `python/tests/test_dii.py`：DII と DSI（[dii-dsi.md](dii-dsi.md)）
 - 相互接続：`interop/impls/rustorbpy`（omniORBpy のクライアント・サーバーの import を替えただけのもの）を、omniORB C++・omniORBpy・rustorb（Rust）とすべての組み合わせで、omniNames と rustorb-names の両方、GIOP 1.1 でも回す
 - POA プローブ・naming check・wire probe：`interop/impls/rustorbpy` の `poa_probe_server.py` と `naming_check.py`（omniORBpy のものの import を替え、servant manager と AdapterActivator はサーバントのまま渡す）で `run-poa-probe.sh`・`run-naming-check.sh`（omniNames と rustorb-names）・`run-wire-probe.sh` を回し、Rust と同じ期待出力と一致する
 

@@ -80,7 +80,9 @@ int main(int argc, char* argv[]) {
 
 C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP 上の綴りは IDL のまま）。`long double` は C++ の `long double`（[long-double.md](long-double.md)）。abstract interface は [valuetype.md](valuetype.md#abstract-interface) のとおり。`custom` の valuetype、`supports`、valuetype の操作と初期化子は [valuetype.md](valuetype.md) のとおり。
 
-`IDL::Fixed<D, S>` は D 桁（うち小数 S 桁）の10進数で、桁を配列で持つ。型に収まらない値（整数部の桁が多い、0 でない小数の桁が多い）は作るときに `DATA_CONVERSION` になるので、値はいつも TypeCode に収まる。文字列（`"-12.50"`、`d` の接尾辞も可）・整数から作り、`double` からは小数 S 桁に丸めて作る。`to_string()`（小数はいつも S 桁）、`explicit operator double`、比較演算子、単項の `-`、`<<` を持ち、四則演算はない。別の桁数の `Fixed` からは `explicit` に変換できる（収まらなければ `DATA_CONVERSION`）。`fixed` の定数はリテラルの桁数と小数の桁数の型（`const fixed C = 12.50d;` は `IDL::Fixed<4, 2>`）で、型付きの定数が型に収まらなければ rustorb-idl がエラーにする。Any には `<<=` / `>>=` で入り、TypeCode は `tk_fixed`。C ABI では `rorb_out_write_fixed` / `rorb_in_read_fixed` が桁の配列と符号を受け渡す（パック10進は Rust のコアが書く）。
+`IDL::Fixed<D, S>` は D 桁（うち小数 S 桁）の10進数で、桁を配列で持つ。型に収まらない値（整数部の桁が多い、0 でない小数の桁が多い）は作るときに `DATA_CONVERSION` になるので、値はいつも TypeCode に収まる。文字列（`"-12.50"`、`d` の接尾辞も可）・整数から作り、`double` からは小数 S 桁に丸めて作る。`to_string()`（小数はいつも S 桁）、`explicit operator double`、比較演算子、単項の `-`、`<<` を持つ。別の桁数の `Fixed` からは `explicit` に変換できる（収まらなければ `DATA_CONVERSION`）。`fixed` の定数はリテラルの桁数と小数の桁数の型（`const fixed C = 12.50d;` は `IDL::Fixed<4, 2>`）で、型付きの定数が型に収まらなければ rustorb-idl がエラーにする。Any には `<<=` / `>>=` で入り、TypeCode は `tk_fixed`。C ABI では `rorb_out_write_fixed` / `rorb_in_read_fixed` が桁の配列と符号を受け渡す（パック10進は Rust のコアが書く）。
+
+四則演算の結果の型は IDL の仕様の fixed の規則に従う。`fixed<d1, s1>` と `fixed<d2, s2>` の和と差は `fixed<max(d1-s1, d2-s2)+max(s1, s2)+1, max(s1, s2)>`、積は `fixed<d1+d2, s1+s2>`、商は `fixed<(d1-s1+s2)+s∞, s∞>`（31桁に収まるだけの小数）。31桁を超える型は整数部の桁を残して小数の桁を切り捨てた型になり（`Fixed<31, 31>` どうしの和は `Fixed<31, 30>`）、値の小数もその桁で切り捨てる。整数部が収まらない結果と 0 での除算は `DATA_CONVERSION`。整数のオペランドは `Fixed<20, 0>` として扱う（`Money + 1` は `Fixed<23, 2>`）。複合代入（`+=` など）と `++` / `--` は左辺の型のままで、小数の桁を切り捨て、整数部が収まらなければ `DATA_CONVERSION`（左辺は変わらない）。`round(s)`（0.5 は 0 から遠い方へ）と `truncate(s)` は小数を s 桁にした値を同じ型で返し、`round` で整数部があふれれば `DATA_CONVERSION`。
 
 `narrow` は、同じプロセスのスタブなら C++ の型で、そうでなければ生成コードが登録した継承関係（リポジトリID）で判定し、どちらでも決まらなければ相手に `_is_a` を問い合わせる。
 
@@ -114,7 +116,7 @@ C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP �
 
 ## テスト
 
-- `cpp/tests/test_mapping.cc`：`cpp/tests/idl/CxxMapping.idl`（定数、typedef、`fixed`（typedef・struct のメンバー・列・inout / out・定数・Any）、上限付きの型、多次元配列、再帰的な struct と union、すべての種類の判別子、入れ子の型、予約語の名前、多重継承、oneway、inout / out、ユーザー例外とシステム例外、オブジェクト参照の列）を、同じプロセスの2つの ORB の間と、同一 ORB 内で往復させる
+- `cpp/tests/test_mapping.cc`：`cpp/tests/idl/CxxMapping.idl`（定数、typedef、`fixed`（typedef・struct のメンバー・列・inout / out・定数・Any・四則演算と結果の型・`round` / `truncate`）、上限付きの型、多次元配列、再帰的な struct と union、すべての種類の判別子、入れ子の型、予約語の名前、多重継承、oneway、inout / out、ユーザー例外とシステム例外、オブジェクト参照の列）を、同じプロセスの2つの ORB の間と、同一 ORB 内で往復させる
 - `cpp/tests/test_interop.cc`：相互接続の78ケース（`interop/impls/rustorbcpp/cases.h`）を同じプロセスの2つの ORB の間で回す
 - `cpp/tests/test_poa.cc`：`ServantActivator`（初回の `incarnate`、転送、システム例外、nil、C++ 例外、`deactivate_object` と `destroy` での `etherealize`）、`ServantLocator`（cookie の受け渡し、失敗時に `postinvoke` を呼ばないこと）、`AdapterActivator`（`find_POA` と、存在しない POA への要求での作成）、ポリシーの検査（`WrongPolicy`、種類の違う manager の `OBJ_ADAPTER`、2回目の `BAD_INV_ORDER`）を、2つの ORB の間と同一 ORB 内で確かめる。POA が破棄されると manager が解放されることも見る
 - `cpp/tests/test_any.cc`：Any / TypeCode の相互接続の251ケース（DynAny の組み立て直しを含む）（`interop/impls/rustorbcpp/anytest.h`）を同じプロセスの2つの ORB の間で回し、TypeCode の操作、`ORB::create_*_tc`、`<<=` / `>>=` の規則を確かめる
@@ -128,5 +130,4 @@ C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP �
 
 ## 残り
 
-- `IDL::Fixed` の四則演算
 - IDL4-CPP の構文（アノテーションなど）

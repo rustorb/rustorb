@@ -157,6 +157,33 @@ class Servant(object):
         return _rt.servant_is_a(self, repoId)
 
 
+class DynamicImplementation(Servant):
+    """``PortableServer::DynamicImplementation``: a servant that handles
+    every operation itself (the DSI). ``invoke`` gets each request as a
+    ``CORBA.ServerRequest``; ``_primary_interface(oid, poa)`` gives the
+    repository ID of its interface. rustorb asks for it when the servant
+    is first given to a POA, with ``oid`` and ``poa`` None, and uses it for
+    every object of the servant."""
+
+    def invoke(self, request):
+        raise CORBA.NO_IMPLEMENT(0, CORBA.COMPLETED_NO)
+
+    def _primary_interface(self, oid, poa):
+        raise CORBA.NO_IMPLEMENT(0, CORBA.COMPLETED_NO)
+
+    @property
+    def _NP_RepositoryId(self):  # type: ignore[override]
+        return self._primary_interface(None, None)
+
+    def _is_a(self, repoId):
+        return repoId in ("IDL:omg.org/CORBA/Object:1.0", self._primary_interface(None, None))
+
+    def _NP_dsi_invoke(self, native):
+        request = CORBA.ServerRequest(native)
+        self.invoke(request)
+        request._NP_finish()
+
+
 # ---------------------------------------------------------------------------
 # POAManager
 

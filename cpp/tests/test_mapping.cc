@@ -180,6 +180,67 @@ static void check_fixed() {
   os << Money("-4.2");
   CHECK(os.str() == "-4.20");
 
+  // Arithmetic: the result types of the IDL spec, cut to 31 digits.
+  using F31 = IDL::Fixed<31, 0>;
+  using Tiny = IDL::Fixed<31, 31>;
+  static_assert(std::is_same<decltype(Money() + Money()), IDL::Fixed<6, 2>>::value, "+");
+  static_assert(std::is_same<decltype(Money() - IDL::Fixed<3, 3>()), IDL::Fixed<7, 3>>::value, "-");
+  static_assert(std::is_same<decltype(Money() * IDL::Fixed<4, 1>()), IDL::Fixed<9, 3>>::value, "*");
+  static_assert(std::is_same<decltype(Money() / IDL::Fixed<4, 1>()), IDL::Fixed<31, 27>>::value, "/");
+  static_assert(std::is_same<decltype(F31() + F31()), F31>::value, "+ over 31");
+  static_assert(std::is_same<decltype(Tiny() + Tiny()), IDL::Fixed<31, 30>>::value, "+ cuts fraction");
+  static_assert(std::is_same<decltype(F31() * Tiny()), IDL::Fixed<31, 0>>::value, "* cuts fraction");
+  static_assert(std::is_same<decltype(Money() + 1), IDL::Fixed<23, 2>>::value, "integer operand");
+  CHECK((Money("999.99") + Money("0.01")).to_string() == "1000.00");
+  CHECK((Money("1.25") + Money("-3.5")).to_string() == "-2.25");
+  CHECK((Money("-1.25") + Money("1.25")).to_string() == "0.00");
+  CHECK((Money("1.25") - Money("-3.5")).to_string() == "4.75");
+  CHECK((Money("1.5") - IDL::Fixed<3, 3>("0.125")).to_string() == "1.375");
+  CHECK((Money("-12.5") * IDL::Fixed<4, 1>("-0.3")).to_string() == "3.750");
+  CHECK((Money("999.99") * Money("999.99")).to_string() == "999980.0001");
+  CHECK((Money("1") / Money("3")).to_string() == "0." + std::string(26, '3'));
+  CHECK((Money("-2") / Money("3")).to_string() == "-0." + std::string(26, '6'));
+  CHECK((Money("10") / IDL::Fixed<3, 3>("0.004")).to_string().substr(0, 9) == "2500.0000");
+  CHECK((Money("1") / Money("-0.01") == IDL::Fixed<31, 26>(-100)));
+  CHECK(raises<CORBA::DATA_CONVERSION>([] { (void)(Money(1) / Money(0)); }));
+  CHECK((Money("2.5") * 2).to_string() == "5.00");
+  CHECK((7 - Money("2.5")).to_string() == "4.50");
+  CHECK((Money("7") / 2).to_string().substr(0, 6) == "3.5000");
+  F31 big("9999999999999999999999999999999");
+  CHECK(raises<CORBA::DATA_CONVERSION>([&] { (void)(big + F31(1)); }));
+  CHECK(raises<CORBA::DATA_CONVERSION>([&] { (void)(big * F31(10)); }));
+  CHECK((big - big) == F31(0));
+  CHECK((Tiny("0.0000000000000000000000000000001") + Tiny("0.0000000000000000000000000000009"))
+            .to_string() == "0.000000000000000000000000000001");
+
+  // Compound assignment keeps the type and cuts the fraction.
+  Money m("10.00");
+  m += Money("0.5");
+  CHECK(m.to_string() == "10.50");
+  m -= 1;
+  CHECK(m.to_string() == "9.50");
+  m *= IDL::Fixed<3, 3>("0.333");
+  CHECK(m.to_string() == "3.16");
+  m /= 3;
+  CHECK(m.to_string() == "1.05");
+  CHECK((++m).to_string() == "2.05" && (m--).to_string() == "2.05" && m.to_string() == "1.05");
+  Money full("999.00");
+  CHECK(raises<CORBA::DATA_CONVERSION>([&] { full += 1; }));
+  CHECK(full.to_string() == "999.00");
+
+  // round (half away from zero) and truncate.
+  CHECK(Money("1.25").round(1).to_string() == "1.30");
+  CHECK(Money("1.24").round(1).to_string() == "1.20");
+  CHECK(Money("-1.25").round(1).to_string() == "-1.30");
+  CHECK(Money("-1.25").truncate(1).to_string() == "-1.20");
+  CHECK(Money("-0.05").truncate(1).to_string() == "0.00");
+  CHECK(Money("-0.05").round(1).to_string() == "-0.10");
+  CHECK(Money("9.99").round(0).to_string() == "10.00");
+  CHECK(Money("1.99").round(2) == Money("1.99"));
+  CHECK(Money("1.99").truncate(5) == Money("1.99"));
+  CHECK(raises<CORBA::DATA_CONVERSION>([] { (void)Money("999.50").round(0); }));
+  CHECK(raises<CORBA::DATA_CONVERSION>([] { (void)IDL::Fixed<2, 2>("0.5").round(0); }));
+
   CORBA::Any a;
   a <<= Money("123.45");
   CHECK(a.type()->kind() == CORBA::TCKind::tk_fixed);

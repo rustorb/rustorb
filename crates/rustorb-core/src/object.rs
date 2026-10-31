@@ -1,4 +1,5 @@
 use std::fmt;
+use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -54,6 +55,25 @@ impl PartialEq for ObjectRef {
 }
 
 type ArgsFn<'a> = dyn Fn(&mut OutStream<'_>) -> Result<(), SystemException> + 'a;
+
+/// The arguments of an [`AsyncRequest`], whose future may move between
+/// threads.
+type SendArgsFn<'a> = dyn Fn(&mut OutStream<'_>) -> Result<(), SystemException> + Send + Sync + 'a;
+
+/// Writes the `in` and `inout` arguments of a request: either kind of
+/// argument function.
+trait WriteArgs {
+    fn write_args(&self, out: &mut OutStream<'_>) -> Result<(), SystemException>;
+}
+
+impl<F> WriteArgs for F
+where
+    F: Fn(&mut OutStream<'_>) -> Result<(), SystemException> + ?Sized,
+{
+    fn write_args(&self, out: &mut OutStream<'_>) -> Result<(), SystemException> {
+        self(out)
+    }
+}
 
 impl ObjectRef {
     pub(crate) fn new(orb: Orb, ior: Ior) -> ObjectRef {
@@ -112,6 +132,17 @@ impl ObjectRef {
         }
     }
 
+    /// Starts a request for `operation` that runs as a future
+    /// ([`AsyncRequest`]).
+    pub fn request_async<'a>(&'a self, operation: &str) -> AsyncRequest<'a> {
+        AsyncRequest {
+            obj: self,
+            operation: operation.to_owned(),
+            args: None,
+            timeout: None,
+        }
+    }
+
     /// Sets how long calls on this reference and its clones wait for a
     /// reply: `Some(t)` (where `t` is `None` for no limit) overrides the
     /// ORB's [`call_timeout`](Orb::call_timeout) and the calling thread's
@@ -135,7 +166,7 @@ impl ObjectRef {
     /// The timeout of a call on this reference from the calling thread:
     /// the reference's, else the thread's, else the ORB's (the order
     /// omniORB uses).
-    fn effective_timeout(&self) -> Option<Duration> {
+    pub(crate) fn effective_timeout(&self) -> Option<Duration> {
         self.call_timeout()
             .or_else(timeout::thread_call_timeout)
             .unwrap_or_else(|| self.orb.call_timeout())
@@ -160,14 +191,47 @@ impl ObjectRef {
         }
     }
 
+    /// The async form of [`is_a`](ObjectRef::is_a).
+    pub async fn is_a_async(&self, repository_id: &str) -> Result<bool, Exception> {
+        let id = repository_id.to_owned();
+        let reply = self
+            .request_async("_is_a")
+            .args(move |out| out.write_string(&id))
+            .invoke()
+            .await?;
+        Ok(reply.input().read::<bool>()?)
+    }
+
+    /// The async form of [`non_existent`](ObjectRef::non_existent).
+    pub async fn non_existent_async(&self) -> Result<bool, Exception> {
+        match self.request_async("_non_existent").invoke().await {
+            Ok(reply) => Ok(reply.input().read::<bool>()?),
+            Err(Exception::System(e)) if e.is(SystemExceptionKind::OBJECT_NOT_EXIST) => Ok(true),
+            Err(e) => Err(e),
+        }
+    }
+
     /// Sends a `LocateRequest`, following forwards. Returns whether the
     /// server has the object (`OBJECT_HERE`) or not (`UNKNOWN_OBJECT`).
     pub fn locate(&self) -> Result<bool, Exception> {
-        let outcome = invoke(self, Kind::Locate, self.effective_timeout())?;
+        let kind = Kind::<ArgsFn<'_>>::Locate;
+        let outcome = invoke(self, &kind, self.effective_timeout())?;
         match outcome {
             Outcome::Located(here) => Ok(here),
             Outcome::Reply(_) => unreachable!("a locate request gives a locate outcome"),
         }
+    }
+
+    /// The async form of [`locate`](ObjectRef::locate).
+    pub fn locate_async(&self) -> impl Future<Output = Result<bool, Exception>> + Send + '_ {
+        let timeout = self.effective_timeout();
+        self.orb.in_runtime(async move {
+            let kind = Kind::<SendArgsFn<'_>>::Locate;
+            match invoke_async(self, &kind, timeout).await? {
+                Outcome::Located(here) => Ok(here),
+                Outcome::Reply(_) => unreachable!("a locate request gives a locate outcome"),
+            }
+        })
     }
 
     /// `CORBA::Object::validate_connection`: binds the reference with a
@@ -248,7 +312,7 @@ impl<'a> Request<'a> {
             args: self.args.as_deref(),
             response: true,
         };
-        match invoke(self.obj, kind, self.effective_timeout())? {
+        match invoke(self.obj, &kind, self.effective_timeout())? {
             Outcome::Reply(Some(reply)) => Ok(reply),
             _ => unreachable!("a two-way request gives a reply"),
         }
@@ -262,11 +326,91 @@ impl<'a> Request<'a> {
             args: self.args.as_deref(),
             response: false,
         };
-        match invoke(self.obj, kind, self.effective_timeout()) {
+        match invoke(self.obj, &kind, self.effective_timeout()) {
             Ok(_) => Ok(()),
             Err(Exception::System(e)) => Err(e),
             Err(Exception::User(_)) => unreachable!("a oneway request has no reply"),
         }
+    }
+}
+
+/// A request that runs as a future: [`Request`] for async code.
+///
+/// The future can be polled by any executor, or none in particular: the
+/// sockets and timers of the call belong to the ORB's runtime. It does not
+/// block the thread that polls it, except that a call to an object of the
+/// ORB's own server side runs the servant on an upcall thread and waits
+/// for it without blocking. The timeout is taken when
+/// [`invoke`](AsyncRequest::invoke) is called, so a timeout of the calling
+/// thread ([`set_thread_call_timeout`](crate::set_thread_call_timeout))
+/// counts as it does for [`Request`].
+pub struct AsyncRequest<'a> {
+    obj: &'a ObjectRef,
+    operation: String,
+    args: Option<Box<SendArgsFn<'a>>>,
+    timeout: Option<Option<Duration>>,
+}
+
+impl fmt::Debug for AsyncRequest<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AsyncRequest")
+            .field("operation", &self.operation)
+            .field("timeout", &self.timeout)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<'a> AsyncRequest<'a> {
+    /// [`Request::args`]; the function must be `Send` and `Sync`, as the
+    /// future may move between threads.
+    pub fn args<F>(mut self, f: F) -> AsyncRequest<'a>
+    where
+        F: Fn(&mut OutStream<'_>) -> Result<(), SystemException> + Send + Sync + 'a,
+    {
+        self.args = Some(Box::new(f));
+        self
+    }
+
+    /// [`Request::timeout`].
+    pub fn timeout(mut self, timeout: Option<Duration>) -> AsyncRequest<'a> {
+        self.timeout = Some(timeout);
+        self
+    }
+
+    /// Sends the request; the future resolves to the reply.
+    pub fn invoke(self) -> impl Future<Output = Result<Reply, Exception>> + Send + 'a {
+        let timeout = self.timeout.unwrap_or_else(|| self.obj.effective_timeout());
+        let orb = self.obj.orb.clone();
+        orb.in_runtime(async move {
+            let kind = Kind::Request {
+                operation: &self.operation,
+                args: self.args.as_deref(),
+                response: true,
+            };
+            match invoke_async(self.obj, &kind, timeout).await? {
+                Outcome::Reply(Some(reply)) => Ok(reply),
+                _ => unreachable!("a two-way request gives a reply"),
+            }
+        })
+    }
+
+    /// Sends the request as a oneway call; the future resolves once the
+    /// message is written.
+    pub fn send_oneway(self) -> impl Future<Output = Result<(), SystemException>> + Send + 'a {
+        let timeout = self.timeout.unwrap_or_else(|| self.obj.effective_timeout());
+        let orb = self.obj.orb.clone();
+        orb.in_runtime(async move {
+            let kind = Kind::Request {
+                operation: &self.operation,
+                args: self.args.as_deref(),
+                response: false,
+            };
+            match invoke_async(self.obj, &kind, timeout).await {
+                Ok(_) => Ok(()),
+                Err(Exception::System(e)) => Err(e),
+                Err(Exception::User(_)) => unreachable!("a oneway request has no reply"),
+            }
+        })
     }
 }
 
@@ -289,6 +433,7 @@ impl Reply {
             wchar_needs_code_set: false,
             values: Vec::new(),
             typed_values: Vec::new(),
+            body: Some(&self.body),
         }
     }
 
@@ -298,10 +443,10 @@ impl Reply {
     }
 }
 
-enum Kind<'k> {
+enum Kind<'k, A: ?Sized = ArgsFn<'k>> {
     Request {
         operation: &'k str,
-        args: Option<&'k ArgsFn<'k>>,
+        args: Option<&'k A>,
         response: bool,
     },
     Locate,
@@ -386,9 +531,132 @@ fn sys(kind: SystemExceptionKind, minor: u32, completed: CompletionStatus) -> Sy
     SystemException::new(kind, minor, completed)
 }
 
-fn invoke(
+/// The walk of a call over the addresses of its target, the forwards and
+/// the addressing modes; the same for blocking and async calls.
+struct Walk<'o> {
+    obj: &'o ObjectRef,
+    max_hops: u32,
+    hops: u32,
+    ior: Arc<Ior>,
+    disposition: AddressingDisposition,
+    endpoints: std::vec::IntoIter<Endpoint>,
+    /// Why the addresses tried so far could not be used.
+    last: SystemException,
+    /// The target was just set (and is still to be checked for nil).
+    fresh: bool,
+}
+
+enum Step {
+    Try(Endpoint),
+    Done(Result<Outcome, Exception>),
+}
+
+impl<'o> Walk<'o> {
+    fn new(obj: &'o ObjectRef) -> Walk<'o> {
+        let mut walk = Walk {
+            obj,
+            max_hops: obj.orb.inner.options.max_forwards,
+            hops: 0,
+            ior: obj.current_target(),
+            disposition: AddressingDisposition::Key,
+            endpoints: Vec::new().into_iter(),
+            last: no_usable_profile(),
+            fresh: true,
+        };
+        walk.retarget(Arc::clone(&walk.ior));
+        walk
+    }
+
+    fn retarget(&mut self, ior: Arc<Ior>) {
+        self.endpoints = endpoints(&ior).into_iter();
+        self.ior = ior;
+        self.last = no_usable_profile();
+        self.fresh = true;
+    }
+
+    /// The next address to try, or the end of the call.
+    fn next(&mut self) -> Step {
+        loop {
+            if std::mem::take(&mut self.fresh) && self.ior.is_nil() {
+                return Step::Done(Err(sys(
+                    SystemExceptionKind::INV_OBJREF,
+                    0,
+                    CompletionStatus::No,
+                )
+                .into()));
+            }
+            if let Some(ep) = self.endpoints.next() {
+                return Step::Try(ep);
+            }
+            // Nothing could be reached. A forwarded target falls back to
+            // the original reference.
+            if !Arc::ptr_eq(&self.ior, &self.obj.ior) {
+                self.hops += 1;
+                if self.hops <= self.max_hops {
+                    self.obj.set_forward(None);
+                    self.disposition = AddressingDisposition::Key;
+                    self.retarget(Arc::clone(&self.obj.ior));
+                    continue;
+                }
+            }
+            return Step::Done(Err(self.last.clone().into()));
+        }
+    }
+
+    /// Takes in the attempt at the address [`next`](Walk::next) gave:
+    /// `Some` ends the call.
+    fn record(&mut self, attempt: Attempt) -> Option<Result<Outcome, Exception>> {
+        match attempt {
+            Attempt::Done(result) => Some(result),
+            Attempt::NotSent(e) => {
+                self.last = e;
+                None
+            }
+            Attempt::Forward(next) => {
+                self.hops += 1;
+                if self.hops > self.max_hops {
+                    return Some(Err(sys(
+                        SystemExceptionKind::TRANSIENT,
+                        0,
+                        CompletionStatus::No,
+                    )
+                    .into()));
+                }
+                let next = Arc::new(next);
+                self.obj.set_forward(Some(Arc::clone(&next)));
+                self.disposition = AddressingDisposition::Key;
+                self.retarget(next);
+                None
+            }
+            Attempt::Addressing(wanted) => {
+                self.hops += 1;
+                if self.hops > self.max_hops || wanted == self.disposition {
+                    return Some(Err(sys(
+                        SystemExceptionKind::MARSHAL,
+                        0,
+                        CompletionStatus::No,
+                    )
+                    .into()));
+                }
+                self.disposition = wanted;
+                self.retarget(Arc::clone(&self.ior));
+                None
+            }
+        }
+    }
+}
+
+fn no_usable_profile() -> SystemException {
+    sys(
+        SystemExceptionKind::TRANSIENT,
+        minor::NO_USABLE_PROFILE,
+        CompletionStatus::No,
+    )
+}
+
+fn invoke<A: WriteArgs + ?Sized>(
     obj: &ObjectRef,
-    kind: Kind<'_>,
+    kind: &Kind<'_, A>,
     timeout: Option<Duration>,
 ) -> Result<Outcome, Exception> {
     let orb = &obj.orb;
@@ -396,66 +664,68 @@ fn invoke(
     // The timeout covers the whole call: connecting, forwards and the
     // wait for the reply.
     let deadline = timeout.map(|t| Instant::now() + t);
-    let max_hops = orb.inner.options.max_forwards;
-    let mut hops = 0;
-    let mut ior = obj.current_target();
-    let mut disposition = AddressingDisposition::Key;
-    'target: loop {
-        if ior.is_nil() {
-            return Err(sys(SystemExceptionKind::INV_OBJREF, 0, CompletionStatus::No).into());
-        }
-        let mut last = sys(
-            SystemExceptionKind::TRANSIENT,
-            minor::NO_USABLE_PROFILE,
-            CompletionStatus::No,
-        );
-        for ep in endpoints(&ior) {
-            let result = match orb.local_server(&ep.host, ep.port) {
-                Some(server) => {
-                    attempt_local(orb, &server, &ior, &ep, &kind, deadline, disposition)
+    let mut walk = Walk::new(obj);
+    loop {
+        let ep = match walk.next() {
+            Step::Try(ep) => ep,
+            Step::Done(result) => return result,
+        };
+        let (ior, disposition) = (Arc::clone(&walk.ior), walk.disposition);
+        let attempt = match orb.local_server(&ep.host, ep.port) {
+            Some(server) => match local_call(orb, &ior, &ep, kind, deadline, disposition) {
+                Ok(call) => {
+                    let result = call.run(&server);
+                    local_outcome(orb, result)
                 }
-                None => orb.block_on(attempt(orb, &ior, &ep, &kind, deadline, disposition))?,
-            };
-            match result {
-                Attempt::Done(result) => return result,
-                Attempt::NotSent(e) => last = e,
-                Attempt::Forward(next) => {
-                    hops += 1;
-                    if hops > max_hops {
-                        return Err(
-                            sys(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No).into()
-                        );
-                    }
-                    let next = Arc::new(next);
-                    obj.set_forward(Some(Arc::clone(&next)));
-                    ior = next;
-                    disposition = AddressingDisposition::Key;
-                    continue 'target;
-                }
-                Attempt::Addressing(wanted) => {
-                    hops += 1;
-                    if hops > max_hops || wanted == disposition {
-                        return Err(
-                            sys(SystemExceptionKind::MARSHAL, 0, CompletionStatus::No).into()
-                        );
-                    }
-                    disposition = wanted;
-                    continue 'target;
-                }
-            }
+                Err(done) => done,
+            },
+            None => orb.block_on(attempt(orb, &ior, &ep, kind, deadline, disposition, true))?,
+        };
+        if let Some(result) = walk.record(attempt) {
+            return result;
         }
-        // Nothing could be reached. A forwarded target falls back to the
-        // original reference.
-        if !Arc::ptr_eq(&ior, &obj.ior) {
-            hops += 1;
-            if hops <= max_hops {
-                obj.set_forward(None);
-                ior = Arc::clone(&obj.ior);
-                disposition = AddressingDisposition::Key;
-                continue 'target;
-            }
+    }
+}
+
+/// [`invoke`] as a future, run inside the ORB's runtime
+/// ([`Orb::in_runtime`]). A call to the ORB's own server side runs on an
+/// upcall thread.
+async fn invoke_async<A: WriteArgs + ?Sized>(
+    obj: &ObjectRef,
+    kind: &Kind<'_, A>,
+    timeout: Option<Duration>,
+) -> Result<Outcome, Exception> {
+    let orb = &obj.orb;
+    orb.check_running()?;
+    let deadline = timeout.map(|t| Instant::now() + t);
+    let mut walk = Walk::new(obj);
+    loop {
+        let ep = match walk.next() {
+            Step::Try(ep) => ep,
+            Step::Done(result) => return result,
+        };
+        let (ior, disposition) = (Arc::clone(&walk.ior), walk.disposition);
+        let attempt = match orb.local_server(&ep.host, ep.port) {
+            Some(server) => match local_call(orb, &ior, &ep, kind, deadline, disposition) {
+                Ok(call) => {
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+                    let on_pool = Arc::clone(&server);
+                    server.submit(Box::new(move || {
+                        let _ = tx.send(call.run(&on_pool));
+                    }));
+                    // The pool is gone when the ORB is being destroyed.
+                    let result = rx.await.unwrap_or_else(|_| {
+                        Err(sys(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No))
+                    });
+                    local_outcome(orb, result)
+                }
+                Err(done) => done,
+            },
+            None => attempt(orb, &ior, &ep, kind, deadline, disposition, false).await,
+        };
+        if let Some(result) = walk.record(attempt) {
+            return result;
         }
-        return Err(last.into());
     }
 }
 
@@ -465,13 +735,17 @@ const CANCEL_SEND_TIME: Duration = Duration::from_millis(100);
 /// Sends the request to one endpoint. A `CloseConnection` before the reply
 /// means the server did not process it, so it is sent once more on a new
 /// connection.
-async fn attempt(
+///
+/// With `own_thread`, the caller is a thread of its own (a blocking call),
+/// which may block reading the reply.
+async fn attempt<A: WriteArgs + ?Sized>(
     orb: &Orb,
     ior: &Ior,
     ep: &Endpoint,
-    kind: &Kind<'_>,
+    kind: &Kind<'_, A>,
     deadline: Option<Instant>,
     disposition: AddressingDisposition,
+    own_thread: bool,
 ) -> Attempt {
     let mut result = Attempt::NotSent(sys(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No));
     for _ in 0..2 {
@@ -481,7 +755,7 @@ async fn attempt(
             Err(e) if e.is(SystemExceptionKind::TIMEOUT) => return Attempt::Done(Err(e.into())),
             Err(e) => return Attempt::NotSent(e),
         };
-        match attempt_on(orb, &conn, ior, ep, kind, deadline, disposition).await {
+        match attempt_on(orb, &conn, ior, ep, kind, deadline, disposition, own_thread).await {
             Ok(done) => return done,
             Err(Closed::Orderly) => {
                 orb.discard(&conn);
@@ -504,14 +778,16 @@ async fn attempt(
 
 /// `Err(Closed::Orderly)` asks for a retry on a new connection;
 /// `Err(Closed::Failed)` after the request was sent is `COMM_FAILURE`.
-async fn attempt_on(
+#[allow(clippy::too_many_arguments)]
+async fn attempt_on<A: WriteArgs + ?Sized>(
     orb: &Orb,
     conn: &Arc<Connection>,
     ior: &Ior,
     ep: &Endpoint,
-    kind: &Kind<'_>,
+    kind: &Kind<'_, A>,
     deadline: Option<Instant>,
     disposition: AddressingDisposition,
+    own_thread: bool,
 ) -> Result<Attempt, Closed> {
     let options = &orb.inner.options;
     let order = options.byte_order;
@@ -616,9 +892,14 @@ async fn attempt_on(
         return Ok(Attempt::Done(Ok(Outcome::Reply(None))));
     };
 
-    // `attempt` runs on the caller's own thread (`Orb::block_on`), which
-    // may block reading the reply.
-    let delivered = match conn.read_reply_here(request_id, deadline) {
+    // A blocking call runs on the caller's own thread (`Orb::block_on`),
+    // which may block reading the reply.
+    let here = if own_thread {
+        conn.read_reply_here(request_id, deadline)
+    } else {
+        None
+    };
+    let delivered = match here {
         Some(Some(message)) => Some(Ok(Ok(message))),
         Some(None) => None,
         None => match deadline {
@@ -713,11 +994,11 @@ fn request_header(
 }
 
 /// The whole `Request` message, with the arguments `args` writes.
-fn encode_request(
+fn encode_request<A: WriteArgs + ?Sized>(
     version: Version,
     order: rustorb_cdr::ByteOrder,
     header: &RequestHeader,
-    args: Option<&ArgsFn<'_>>,
+    args: Option<&A>,
     code_sets: CodeSets,
 ) -> Result<OutMessage, Exception> {
     let marshal = || sys(SystemExceptionKind::MARSHAL, 0, CompletionStatus::No).into();
@@ -728,24 +1009,42 @@ fn encode_request(
             code_sets,
             orb: None,
         };
-        args(&mut out)?;
+        args.write_args(&mut out)?;
     }
     m.finish_shared().map_err(|_| marshal())
 }
 
-/// Makes a request to an object of the ORB's own server side, without the
-/// network: the request is marshalled as for the server, which runs it on
-/// this thread (or queues it, as its thread policy says) and answers with
-/// a whole reply message.
-fn attempt_local(
+/// A request to an object of the ORB's own server side, without the
+/// network: marshalled as for the server, which runs it on the calling
+/// thread (or queues it, as its thread policy says) and answers with a
+/// whole reply message.
+enum LocalCall {
+    Locate(TargetAddress),
+    Request {
+        version: Version,
+        header: RequestHeader,
+        body: Body,
+        code_sets: CodeSets,
+        timeout: Option<Duration>,
+    },
+}
+
+/// The answer of the server side to a [`LocalCall`].
+enum LocalAnswer {
+    Located(bool),
+    /// The reply message (none for a oneway request).
+    Reply(Option<Vec<u8>>, CodeSets),
+}
+
+/// The [`LocalCall`] for `kind`, or the end of the attempt.
+fn local_call<A: WriteArgs + ?Sized>(
     orb: &Orb,
-    server: &Arc<Server>,
     ior: &Ior,
     ep: &Endpoint,
-    kind: &Kind<'_>,
+    kind: &Kind<'_, A>,
     deadline: Option<Instant>,
     disposition: AddressingDisposition,
-) -> Attempt {
+) -> Result<LocalCall, Attempt> {
     let options = &orb.inner.options;
     let order = options.byte_order;
     let version = ep.version.min(options.max_giop_version);
@@ -753,19 +1052,12 @@ fn attempt_local(
     let (code_sets, context) = match (&ep.code_sets, version >= Version::V1_1) {
         (Some(info), true) => match CodeSets::negotiate(info) {
             Ok(cs) => (cs, vec![cs.context().to_service_context(order)]),
-            Err(e) => return Attempt::Done(Err(e.into())),
+            Err(e) => return Err(Attempt::Done(Err(e.into()))),
         },
         _ => (CodeSets::DEFAULT, Vec::new()),
     };
     let (operation, args, response) = match kind {
-        Kind::Locate => {
-            return Attempt::Done(
-                server
-                    .locate_local(&target)
-                    .map(Outcome::Located)
-                    .map_err(Exception::from),
-            );
-        }
+        Kind::Locate => return Ok(LocalCall::Locate(target)),
         Kind::Request {
             operation,
             args,
@@ -775,23 +1067,55 @@ fn attempt_local(
     let header = request_header(0, response, target, operation, context);
     let msg = match encode_request(version, order, &header, args, code_sets) {
         Ok(msg) => msg.into_vec(),
-        Err(e) => return Attempt::Done(Err(e)),
+        Err(e) => return Err(Attempt::Done(Err(e))),
     };
-    let internal = || sys(SystemExceptionKind::INTERNAL, 0, CompletionStatus::Maybe).into();
     let Ok((_, Message::Request { header, body })) = decode_message(&msg) else {
-        return Attempt::Done(Err(internal()));
+        return Err(Attempt::Done(Err(local_internal())));
     };
     let timeout = deadline.map(|at| at.saturating_duration_since(Instant::now()));
-    match server.call_local(version, header, body, code_sets, timeout) {
-        Ok(None) => Attempt::Done(Ok(Outcome::Reply(None))),
-        Ok(Some(reply)) => match decode_message(&reply) {
+    Ok(LocalCall::Request {
+        version,
+        header,
+        body,
+        code_sets,
+        timeout,
+    })
+}
+
+impl LocalCall {
+    /// Runs the call on the calling thread.
+    fn run(self, server: &Arc<Server>) -> Result<LocalAnswer, SystemException> {
+        match self {
+            LocalCall::Locate(target) => server.locate_local(&target).map(LocalAnswer::Located),
+            LocalCall::Request {
+                version,
+                header,
+                body,
+                code_sets,
+                timeout,
+            } => server
+                .call_local(version, header, body, code_sets, timeout)
+                .map(|reply| LocalAnswer::Reply(reply, code_sets)),
+        }
+    }
+}
+
+fn local_outcome(orb: &Orb, answer: Result<LocalAnswer, SystemException>) -> Attempt {
+    match answer {
+        Ok(LocalAnswer::Located(here)) => Attempt::Done(Ok(Outcome::Located(here))),
+        Ok(LocalAnswer::Reply(None, _)) => Attempt::Done(Ok(Outcome::Reply(None))),
+        Ok(LocalAnswer::Reply(Some(reply), code_sets)) => match decode_message(&reply) {
             Ok((_, Message::Reply { header, body })) => {
                 reply_outcome(orb, header.reply_status, body, code_sets)
             }
-            _ => Attempt::Done(Err(internal())),
+            _ => Attempt::Done(Err(local_internal())),
         },
         Err(e) => Attempt::Done(Err(e.into())),
     }
+}
+
+fn local_internal() -> Exception {
+    sys(SystemExceptionKind::INTERNAL, 0, CompletionStatus::Maybe).into()
 }
 
 fn reply_outcome(orb: &Orb, status: ReplyStatus, body: Body, code_sets: CodeSets) -> Attempt {

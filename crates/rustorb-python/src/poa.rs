@@ -21,6 +21,9 @@ use rustorb_core::{
     SystemExceptionKind, ThreadPolicy, minor,
 };
 
+use rustorb_core::dii::ServerRequest;
+
+use crate::dii::NativeServerRequest;
 use crate::error::{corba, poa_err, portable_server, rt, sys, sys_err, sys_from_py};
 use crate::orb::{ObjRef, decode_all};
 use crate::tc::{CompiledOp, compile_op};
@@ -79,6 +82,9 @@ pub(crate) struct PyServant {
     obj: Py<PyAny>,
     repository_id: String,
     key: usize,
+    /// A `PortableServer.DynamicImplementation`: requests go to its
+    /// `invoke` as `CORBA.ServerRequest`s.
+    dynamic: bool,
 }
 
 impl Drop for PyServant {
@@ -113,11 +119,20 @@ pub(crate) fn servant_arc(obj: &Bound<'_, PyAny>) -> PyResult<Arc<dyn Servant>> 
     {
         return Ok(s);
     }
-    let repository_id: String = obj.getattr("_NP_RepositoryId")?.extract()?;
+    let dynamic = obj.is_instance(&portable_server(py)?.getattr("DynamicImplementation")?)?;
+    // A dynamic servant names its interface with _primary_interface; the
+    // ObjectId and POA are not known yet.
+    let repository_id: String = if dynamic {
+        obj.call_method1("_primary_interface", (py.None(), py.None()))?
+            .extract()?
+    } else {
+        obj.getattr("_NP_RepositoryId")?.extract()?
+    };
     let servant = Arc::new(PyServant {
         obj: obj.clone().unbind(),
         repository_id,
         key,
+        dynamic,
     });
     register(&servant, &servant.obj, py);
     SERVANTS
@@ -158,6 +173,9 @@ impl Servant for PyServant {
         input: &mut InStream<'_>,
         reply: &mut ServerReply,
     ) -> Result<(), SystemException> {
+        if self.dynamic {
+            return self.dispatch_dynamic(operation, input, reply);
+        }
         let op: Py<CompiledOp> = Python::attach(|py| {
             let class = self.obj.bind(py).get_type();
             let op = rt(py)
@@ -203,6 +221,34 @@ fn maybe(mut e: SystemException) -> SystemException {
 }
 
 impl PyServant {
+    /// A request to a `DynamicImplementation`: its `invoke` gets the
+    /// request, and the reply is written from what it set.
+    fn dispatch_dynamic(
+        &self,
+        operation: &str,
+        input: &mut InStream<'_>,
+        reply: &mut ServerReply,
+    ) -> Result<(), SystemException> {
+        let _scope = ValueScope::enter();
+        let request = ServerRequest::new(operation, input)?;
+        let request = Python::attach(|py| {
+            let native =
+                Py::new(py, NativeServerRequest::new(request)).map_err(|e| sys_from_py(py, &e))?;
+            let result = self
+                .obj
+                .bind(py)
+                .call_method1("_NP_dsi_invoke", (native.clone_ref(py),));
+            if let Err(e) = result {
+                return Err(sys_from_py(py, &e));
+            }
+            native
+                .get()
+                .take()
+                .ok_or_else(|| sys(SystemExceptionKind::INTERNAL, 0, CompletionStatus::Maybe))
+        })?;
+        request.write_reply(reply).map_err(maybe)
+    }
+
     /// Calls the method of `op` with `args` and converts what it returned
     /// or raised.
     fn call(

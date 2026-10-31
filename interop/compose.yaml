@@ -36,6 +36,7 @@ services:
       # The rustorb servers are built on the host (see run-matrix.sh).
       - ./impls/rustorb:/opt/interop/impls/rustorb:ro
       - ./impls/rustorbpy:/opt/interop/impls/rustorbpy:ro
+      - ./impls/rustorbpy-dii:/opt/interop/impls/rustorbpy-dii:ro
       - ./impls/rustorbcpp:/opt/interop/impls/rustorbcpp:ro
       - ./impls/rustorbjava:/opt/interop/impls/rustorbjava:ro
       - ./impls/rustorbjava-portable:/opt/interop/impls/rustorbjava-portable:ro
@@ -68,6 +69,7 @@ services:
       # The rustorb clients are built on the host (see run-matrix.sh).
       - ./impls/rustorb:/opt/interop/impls/rustorb:ro
       - ./impls/rustorbpy:/opt/interop/impls/rustorbpy:ro
+      - ./impls/rustorbpy-dii:/opt/interop/impls/rustorbpy-dii:ro
       - ./impls/rustorbcpp:/opt/interop/impls/rustorbcpp:ro
       - ./impls/rustorbjava:/opt/interop/impls/rustorbjava:ro
       - ./impls/rustorbjava-portable:/opt/interop/impls/rustorbjava-portable:ro
