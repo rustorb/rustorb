@@ -246,10 +246,11 @@ the rustorb Java binding (M6), and `jacorb`, JacORB 3.9. The system property
 options: the endpoint (`-ORBendPoint` for rustorb, `OAIAddr` / `OAPort` for
 JacORB) and the GIOP limit (`-ORBmaxGIOPVersion`, `jacorb.giop_minor_version`,
 from `ORBmaxGIOPVersion` in the environment). `impls/rustorbjava/build.sh`,
-which `run-matrix.sh` runs on the host, builds librustorb_jni with cargo and
-compiles the rustorb Java runtime, the stubs from `rustorb-idl -bjava` and the
-shared sources into `impls/rustorbjava/classes/`; the image runs it on Java
-17. The image compiles the same sources against JacORB's jars with stubs from
+which `run-matrix.sh` runs on the host, builds librustorb_ffi with cargo and
+compiles the rustorb Java runtime (on the FFM API, Java 22 or later), the
+stubs from `rustorb-idl -bjava` and the shared sources into
+`impls/rustorbjava/classes/`; the image runs it on Java 25 (`RUSTORB_JAVA`;
+`java` is Java 17, for JacORB). The image compiles the same sources against JacORB's jars with stubs from
 JacORB's IDL compiler (`impls/jacorb/idl/` has the `orb.idl` it needs).
 
 ```sh

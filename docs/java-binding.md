@@ -1,8 +1,8 @@
-# Java バインディング（JNI + IDL to Java）
+# Java バインディング（FFM + IDL to Java）
 
 Oct 29, 2026 · @ysuga · M6
 
-rustorb の Java バインディングの構成をまとめる。C++ と同じく、Rust コアの `extern "C"` の安定 ABI 層（`crates/rustorb-ffi`）の上に載せる。Java からは JNI のライブラリ `librustorb_jni`（`crates/rustorb-jni`）を通して C ABI を呼ぶ。マッピングは [IDL to Java](https://www.omg.org/spec/I2JAV/1.3)（v1.3）に従い、ランタイム（`java/`）は Java 11 以降で動く。Java 11 で JDK から `org.omg` が外れたため、`org.omg.CORBA`・`org.omg.PortableServer`・`org.omg.CosNaming` もランタイムが持つ。M6 の完了条件は「生成コードで書いた Java のクライアント・サーバーが JacORB と相互接続できること」で、`interop/run-matrix.sh` の `rustorbjava` と `jacorb` で判定する。
+rustorb の Java バインディングの構成をまとめる。C++ と同じく、Rust コアの `extern "C"` の安定 ABI 層（`crates/rustorb-ffi`）の上に載せる。Java からは FFM API（`java.lang.foreign`）で C ABI の共有ライブラリ `librustorb_ffi`（C++ と同じもの）を直接呼ぶ（2026-10-31 に JNI から移した。#81、[java-ffm.md](java-ffm.md)）。マッピングは [IDL to Java](https://www.omg.org/spec/I2JAV/1.3)（v1.3）に従い、ランタイム（`java/`）は Java 22 以降で動く。Java 11 で JDK から `org.omg` が外れたため、`org.omg.CORBA`・`org.omg.PortableServer`・`org.omg.CosNaming` もランタイムが持つ。M6 の完了条件は「生成コードで書いた Java のクライアント・サーバーが JacORB と相互接続できること」で、`interop/run-matrix.sh` の `rustorbjava` と `jacorb` で判定する。
 
 既存 ORB のソースは読まない方針（[development-plan.md](development-plan.md)）は JacORB にも適用する。Java の API は仕様書と標準の javadoc（`org.omg.CORBA` などのクラスとメソッドの一覧）だけから書き、JacORB はリリースの jar を動かした結果だけを使った。
 
@@ -10,7 +10,8 @@ rustorb の Java バインディングの構成をまとめる。C++ と同じ�
 
 | 場所 | 内容 | ライセンス |
 | --- | --- | --- |
-| `crates/rustorb-jni` | JNI ライブラリ（`librustorb_jni.so` / `.dylib` / `rustorb_jni.dll`）。`org.rustorb.Native` のネイティブメソッドで、1つずつ C ABI の関数を呼ぶ | MIT OR Apache-2.0 |
+| `crates/rustorb-ffi` | C ABI の共有ライブラリ（`librustorb_ffi.so` / `.dylib` / `rustorb_ffi.dll`）。C++ と共通 | MIT OR Apache-2.0 |
+| `java/src/main/java/org/rustorb/Native.java`・`Ffi.java` | C ABI の関数ごとの Java のメソッドと、その downcall handle（`Ffi.java` は `java/tools/gen-ffi.py` が `rustorb.h` から生成する） | MIT OR Apache-2.0 |
 | `java/src/main/java/org/omg` | 標準の API（`CORBA`、`CORBA.portable`、`CORBA.TypeCodePackage`、`PortableServer` とその Package、`CosNaming`） | MIT OR Apache-2.0 |
 | `java/src/main/java/org/rustorb` | 実装（ORB、Delegate、ストリーム、Any / TypeCode、POA）と、生成コードとの取り決め（`Stubs`、`Call`、`Anys`） | MIT OR Apache-2.0 |
 | `java/src/main/java/org/omg/CosNaming` | `rustorb-idl -bjava -Wbpackage=org.omg` で生成した CosNaming（`java/generate-stubs.sh`） | MIT OR Apache-2.0 |
@@ -23,14 +24,14 @@ rustorb の Java バインディングの構成をまとめる。C++ と同じ�
 
 ```sh
 rustorb-idl -bjava -C gen Example.idl           # gen/<module>/*.java
-cargo build --release -p rustorb-jni            # target/release/librustorb_jni.so
+cargo build --release -p rustorb-ffi            # target/release/librustorb_ffi.so
 mvn -f java/pom.xml -Didl.parser.dir=path/to/idl_parser package   # java/target/rustorb-*.jar
-javac --release 11 -cp java/target/rustorb-0.0.0-SNAPSHOT.jar -d classes $(find gen src -name '*.java')
-java -Drustorb.jni.library=target/release/librustorb_jni.so \
+javac --release 22 -cp java/target/rustorb-0.0.0-SNAPSHOT.jar -d classes $(find gen src -name '*.java')
+java --enable-native-access=ALL-UNNAMED -Drustorb.ffi.library=target/release/librustorb_ffi.so \
      -cp java/target/rustorb-0.0.0-SNAPSHOT.jar:classes Main
 ```
 
-ライブラリは、システムプロパティ `rustorb.jni.library`、環境変数 `RUSTORB_JNI_LIBRARY` のパス、`java.library.path` の `rustorb_jni` の順に探す。`-Wbpackage=PKG` はすべてのパッケージを `PKG` の下に置く（モジュールの外の定義は `PKG` に入る。名前のあるパッケージからは無名パッケージを参照できないため、モジュールの外に定義がある IDL では必要になる）。
+ライブラリは、システムプロパティ `rustorb.ffi.library`、環境変数 `RUSTORB_FFI_LIBRARY` のパス、`java.library.path` の `rustorb_ffi`、OS の動的ローダーの探す場所の順に探す。`--enable-native-access=ALL-UNNAMED`（モジュールに入れたなら `=org.rustorb` の入ったモジュール、実行可能 jar ならマニフェストの `Enable-Native-Access: ALL-UNNAMED`）がないと、Java 22 以降は起動時に警告が出る（将来は拒まれる）。`-Wbpackage=PKG` はすべてのパッケージを `PKG` の下に置く（モジュールの外の定義は `PKG` に入る。名前のあるパッケージからは無名パッケージを参照できないため、モジュールの外に定義がある IDL では必要になる）。
 
 ```java
 ORB orb = ORB.init(args, null);
@@ -43,14 +44,18 @@ orb.run();
 
 `ORB.init(args, props)` は ORB のオプション（`-ORBInitRef`、`-ORBendPoint` など、他のバインディングと同じもの）を受け、`props` の `ORBxxx`（`org.omg.CORBA.ORBxxx` も可）を `-ORBxxx 値` として足す。`ORBInitialHost` / `ORBInitialPort` は NameService の初期参照になる。引数なしの `ORB.init()` は TypeCode と Any を作るためのシングルトンで、通信はしない。
 
-## JNI と C ABI の対応
+## FFM と C ABI の対応
 
+- **関数**：`org.rustorb.Native` の static メソッドが C ABI の関数を1つずつ呼ぶ。downcall handle は `Ffi.java` にあり、`java/tools/gen-ffi.py` が `rustorb.h` の宣言から、`Native` が使う関数の分だけ生成する（CI で `--check`）。ポインタは Java の `long`（`JAVA_LONG`）で渡す。rustorb の対象はすべて 64 ビットで、ポインタと 64 ビットの整数は同じように渡る。値渡しの構造体は `rorb_bytes` だけで、これは `MemoryLayout` の構造体として渡す（Windows では参照渡しになる）
+- **引数と結果の領域**：文字列・配列・結果の書き込み先は、スレッドごとのスタック（`org.rustorb.Scratch`、16 KiB、溢れた分は呼び出しの間だけの `Arena`）に置き、呼び出しから戻ると解放する。コールバックの中の呼び出しはその上に積む
+- **`critical`**：コールバックせず止まらない短い関数（ストリームの基本型の読み書き、`string` / `wstring` / 配列の読み書き、長さ）は `Linker.Option.critical` で呼ぶ。`string` / `wstring` / 配列は Java の配列をそのまま C に渡す（`critical(true)`）ので、写しが要らない
 - **ハンドル**：C ABI のハンドルは Java の `long` で受け渡す。Java のオブジェクトは `java.lang.ref.Cleaner` で解放を登録し、ネイティブ呼び出しの間は `Reference.reachabilityFence` で生かす
-- **エラー**：失敗した C 呼び出しは、`rorb_exception` に対応する Java の例外を投げる（`org.rustorb.Bridge` の static メソッドが作る）。システム例外は40種の `org.omg.CORBA` のクラスで、POA・ORB の例外は C ABI のローカル例外コードから変換する。Rust の panic は `INTERNAL`
+- **エラー**：失敗した C 呼び出しは、`rorb_exception` に対応する Java の例外を投げる（`org.rustorb.Bridge` の static メソッドが作る）。システム例外は40種の `org.omg.CORBA` のクラスで、POA・ORB の例外は C ABI のローカル例外コードから変換する。チェック例外（`UserException` の派生）も、宣言にあるとおり投げる
 - **呼び出し**：`-bjava` のスタブは操作ごとのローカルクラス（`org.rustorb.Call` の派生）に引数の書き込み、返事の読み込み、ユーザー例外の読み込みを持たせ、`Stubs.invoke` で `rorb_object_invoke` を呼ぶ。他の IDL コンパイラが生成した標準の形（`_request` / `_invoke` / `_releaseReply`）のスタブも動く（下の「portable stub とストリーム」）
 - **スケルトン**：標準どおり `FooPOA extends Servant implements InvokeHandler` の `_invoke(op, in, ResponseHandler)`。`createExceptionReply()` のストリームは、最初に書かれた文字列を例外のリポジトリIDとして `rorb_server_reply_user_exception` を呼ぶ。クライアント側の例外のストリームは最初の `read_string` でリポジトリIDを返すので、生成された `Helper.read` がそのまま使える
-- **サーバント**：Java のサーバントごとに1つの peer（Rust 側の `Box`）を持ち、それが C ABI の `self` になる。peer はサーバントを弱参照し、C 側がサーバントを持っている間（`add_ref` / `remove_ref`）だけ強い参照（GlobalRef）も持つ。同じサーバントには同じコア側サーバントが返るので、POA の判定（`servant_to_id` など）が保たれる
-- **スレッド**：アップコール用スレッドプールのスレッドは、最初に Java を呼ぶときにデーモンとして JVM にアタッチし、スレッドの終了で自動的にデタッチする。アップコールはローカル参照のフレームの中で実行する
+- **コールバック**：C ABI のコールバック（引数の書き込み、返事の読み込み、サーバントの `dispatch`、サーバントマネージャー、値型の解決など）は、`Native` の static メソッドの upcall stub（JVM が終わるまで有効）で、`org.rustorb.Bridge` を呼ぶ。C 側に渡す `context` や `self` は、Java のオブジェクトの表（`Native.Registry`）の番号。upcall から例外が漏れると JVM が終わるので、すべて受け止めて C ABI の状態に直す
+- **サーバント**：Java のサーバントごとに1つの peer を持ち、その番号が C ABI の `self` になる。peer はサーバントを弱参照し、C 側がサーバントを持っている間（`add_ref` / `remove_ref`）だけ強い参照も持つ。同じサーバントには同じコア側サーバントが返るので、POA の判定（`servant_to_id` など）が保たれる
+- **スレッド**：アップコール用スレッドプールのスレッドが upcall stub を呼ぶと、JVM がそのスレッドをアタッチする（JNI のときの自前のアタッチ・デタッチとローカル参照のフレームは要らなくなった）
 - **文字列**：`string` は UTF-8 で、`wstring` は Java の `String` の UTF-16 の単位をそのまま渡す。`char` は C ABI と同じく1バイト（ISO 8859-1 の範囲）で、範囲外は送信時 `DATA_CONVERSION`
 
 ## portable stub とストリーム
@@ -113,7 +118,7 @@ servant manager と adapter activator は `org.omg.CORBA.LocalObject` を継承�
 
 ## テスト
 
-- `java/src/test`（`mvn -f java/pom.xml -Didl.parser.dir=... verify`。cargo で `librustorb_jni` を、`rustorb-idl -bjava` でテスト用 IDL のコードを作る）
+- `java/src/test`（`mvn -f java/pom.xml -Didl.parser.dir=... verify`。cargo で `librustorb_ffi` を、`rustorb-idl -bjava` でテスト用 IDL のコードを作る）
   - `MappingTest`：C++ と同じ `cpp/tests/idl/CxxMapping.idl`（`-Wbpackage=mapping`）の定数、union の規則、すべての型を、同じプロセスの2つの ORB の間と同一 ORB 内で往復させる
   - `PoaTest`：C++ の `test_poa.cc` と同じ内容（ServantActivator・ServantLocator・AdapterActivator、転送と例外、ポリシーの検査）を、2つの ORB の間と同一 ORB 内で確かめる
   - `InteropCasesTest`：相互接続の78ケース（`interop/impls/java/interop/Cases.java`）と Any / TypeCode の251ケース（DynAny の組み立て直しを含む）（`AnyTests.java`）を、2つの ORB の間で回す
@@ -121,8 +126,8 @@ servant manager と adapter activator は `org.omg.CORBA.LocalObject` を継承�
   - `PortableTest`：手書きの portable stub（`_request` / `_invoke` / `ApplicationException` / oneway）を2つの ORB の間と同一 ORB 内で、`_releaseReply` の後のストリーム、返事を作ってから操作を呼ぶスケルトンの例外の完了状態、`ORB.create_output_stream` の読み戻し、Any のストリーム操作と `insert_Value` / `extract_Value`
   - `ValuetypeTest`：valuetype の26ケース（`ValueTests.java`）、生成された既定のファクトリ、truncatable の切り捨て、ファクトリのない型の `MARSHAL`、`create_value_tc`
 - `crates/rustorb-codegen/python/tests/test_java_backend.py`：コマンドライン、生成物の形、対応しない構文のエラー、生成コードとランタイムの `javac -Werror` でのコンパイル
-- CI（`ci.yml` の `java`）：Linux（Java 11 と 21）、macOS、Windows で `mvn verify`。Linux では同梱の CosNaming のスタブが生成器の出力と一致することも確かめる
-- 相互接続：`interop/run-matrix.sh` に `rustorbjava`（ホストでビルドし、イメージの Java 17 で動かす）と `jacorb`（イメージの中で JacORB の IDL コンパイラで同じソースをビルドする）を加えた。Java が関わる24組（omniORBpy・omniORB C++・JacORB・rustorb の Rust・Python・C++・Java）の結果は次のとおり（ローカルで確認。失敗はすべて `known-failures.txt` の範囲）
+- CI（`ci.yml` の `java`）：Linux（Java 22 と 25）、macOS、Windows（Java 25）で `mvn verify`。Linux では同梱の CosNaming のスタブが生成器の出力と、`Ffi.java` が `rustorb.h` と一致すること（`gen-ffi.py --check`）も確かめる
+- 相互接続：`interop/run-matrix.sh` に `rustorbjava`（ホストでビルドし、イメージの Java 25 で動かす。JacORB はイメージの Java 17）と `jacorb`（イメージの中で JacORB の IDL コンパイラで同じソースをビルドする）を加えた。Java が関わる24組（omniORBpy・omniORB C++・JacORB・rustorb の Rust・Python・C++・Java）の結果は次のとおり（ローカルで確認。失敗はすべて `known-failures.txt` の範囲）
   - basic（78ケース）：omniNames と rustorb-names、GIOP 1.2 と 1.1 で、`rustorbjava` はすべての相手と通る（omniORB 側の wchar の既知の失敗を除く）。`jacorb` との組は、下の union の判別子の1ケース（`echo_value[5]`）と、GIOP 1.1 で omniORB のクライアントが分割したメッセージ（JacORB が GIOP 1.1 の Fragment を受け付けない）だけが失敗する
   - any（190ケース）：`rustorbjava` は omniORBpy・omniORB C++・rustorb（Rust・Python・C++）・自身とのすべての組で GIOP 1.2 / 1.1 とも通る。`jacorb` は下の Helper の違いで大半の `make` / `check` が失敗するため、既定では any のマトリクスに入れない（組を指定すれば回せる）
   - value（26ケース）：`rustorbjava` と `jacorb` はすべての相手と GIOP 1.2 / 1.1 とも通る。ただし JacORB は Java 17 で値の入った Any を書けない（[valuetype.md](valuetype.md)）ので、`jacorb` の組の `echo_any` の3ケースは既知の失敗
@@ -154,4 +159,3 @@ JacORB は、UTF-8 に決まった `char` のデータ（rustorb とはどちら
 ## 残り
 
 - DII / DSI（#44 でコアと Python に加えた。Java は需要が出たら）
-- Java 22 以降の FFM API への置き換え：試作して比べ、Java の下限を 22 に上げられるまでは JNI のまま（[java-ffm.md](java-ffm.md)、#51）

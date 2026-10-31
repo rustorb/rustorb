@@ -145,15 +145,15 @@ jobs:
       - run: ctest --test-dir build/cpp --output-on-failure
 
   java:
-    name: Java (rustorb-jni, the Java mapping and rustorb-idl -bjava)
+    name: Java (the Java mapping on the FFM API and rustorb-idl -bjava)
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, java: "11" }
-          - { os: ubuntu-latest, java: "21" }
-          - { os: macos-latest, java: "21" }
-          - { os: windows-latest, java: "21" }
+          - { os: ubuntu-latest, java: "22" }
+          - { os: ubuntu-latest, java: "25" }
+          - { os: macos-latest, java: "25" }
+          - { os: windows-latest, java: "25" }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -174,6 +174,8 @@ jobs:
       # bash: PowerShell would split -Didl.parser.dir=... at the dot.
       - run: mvn -B -f java/pom.xml -Dpython=python "-Didl.parser.dir=${{ github.workspace }}/idl_parser" verify
         shell: bash
+      - name: Check that Ffi.java is up to date with rustorb.h
+        run: python java/tools/gen-ffi.py --check
       - name: Check that the committed CosNaming stubs are up to date
         if: runner.os == 'Linux'
         run: java/generate-stubs.sh && git diff --exit-code -- java

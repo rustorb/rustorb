@@ -1,5 +1,5 @@
-// The Java side of librustorb_jni: the methods it calls back, and the
-// exceptions it throws.
+// The Java side of the callbacks of the C ABI (the upcalls of Native call
+// these methods), and the exceptions of failed C calls.
 //
 // Licensed under MIT OR Apache-2.0, like the rest of the rustorb core.
 

@@ -148,7 +148,11 @@ FROM ubuntu:${UBUNTU_VERSION}
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       python3 libstdc++6 libuuid1 libssl3t64 tcpdump iproute2 openjdk-17-jre-headless \
- && rm -rf /var/lib/apt/lists/*
+      openjdk-25-jre-headless \
+ && rm -rf /var/lib/apt/lists/* \
+ && arch="$(dpkg --print-architecture)" \
+ && ln -s "/usr/lib/jvm/java-25-openjdk-$arch" /usr/lib/jvm/java-25 \
+ && update-alternatives --set java "/usr/lib/jvm/java-17-openjdk-$arch/bin/java"
 
 COPY --from=omniorb-build /opt/omniorb /opt/omniorb
 COPY --from=impl-build /opt/interop /opt/interop
@@ -161,7 +165,10 @@ COPY --from=jacorb-build /src/jacorb-gen /opt/interop/impls/jacorb/gen
 COPY impls/jacorb/client impls/jacorb/server /opt/interop/impls/jacorb/
 COPY scripts /opt/interop/scripts
 
+# java is Java 17, for JacORB; the rustorb Java binding (impls/rustorbjava*)
+# needs Java 22 or later, for the FFM API.
 ENV PATH=/opt/omniorb/bin:/opt/interop/scripts:$PATH \
+    RUSTORB_JAVA=/usr/lib/jvm/java-25/bin/java \
     LD_LIBRARY_PATH=/opt/omniorb/lib:/opt/openrtm/lib \
     PYTHONPATH=/opt/omniorb/python \
     PYTHONUNBUFFERED=1

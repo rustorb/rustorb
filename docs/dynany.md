@@ -2,7 +2,7 @@
 
 Oct 29, 2026 · @ysuga · issue #40
 
-生成コードを持たない型の値を、TypeCode だけを頼りに組み立てたり分解したりする `DynamicAny` モジュールの実装をまとめる。コア（Rust）に一つの実装を持ち、Python（PyO3）、C ABI、その上の C++ と Java（JNI）のバインディングが同じ DynAny を使う。
+生成コードを持たない型の値を、TypeCode だけを頼りに組み立てたり分解したりする `DynamicAny` モジュールの実装をまとめる。コア（Rust）に一つの実装を持ち、Python（PyO3）、C ABI、その上の C++ と Java（FFM）のバインディングが同じ DynAny を使う。
 
 挙動の基準は CORBA 3.0 の `DynamicAny` の IDL（OMG の `DynamicAny.idl`）と仕様の記述で、仕様に幅があるところは omniORB 4.3.4 の C++ 版を外から測って比べた（`interop/impls/omniorb-cpp/dynany_probe.cc`。clean-room 方針どおりソースもヘッダーの実装も読んでいない）。omniORBpy には DynAny がない（`resolve_initial_references("DynAnyFactory")` が `InvalidName`）。
 
@@ -16,7 +16,7 @@ Oct 29, 2026 · @ysuga · issue #40
 | `python/rustorb/DynamicAny.py` | Python マッピングのクラス（`DynAny`、`DynStruct` ほか）、例外、`NameValuePair` |
 | `crates/rustorb-ffi/src/dynany.rs`、`include/rustorb/rustorb.h` | C ABI の `rorb_dynany_*` |
 | `cpp/include/rustorb/dynany.h` | IDL to C++11 の `DynamicAny`（`rustorb/cdr.h` が読み込む） |
-| `crates/rustorb-jni/src/dynany.rs`、`java/src/main/java/org/omg/DynamicAny/`、`org/rustorb/DynAnyImpl.java`・`DynAnyFactoryImpl.java` | Java の `org.omg.DynamicAny` と、C ABI の上の実装 |
+| `java/src/main/java/org/rustorb/Native.java`（`dyn*`）、`java/src/main/java/org/omg/DynamicAny/`、`org/rustorb/DynAnyImpl.java`・`DynAnyFactoryImpl.java` | Java の `org.omg.DynamicAny` と、C ABI の上の実装 |
 | `cpp/tests/test_dynany.cc`、`java/src/test/java/org/rustorb/test/DynAnyTest.java`、`python/tests/test_dynany.py` | 各バインディングのテスト |
 | `interop/impls/*/dynany_probe*`、`dynany-probe`、`DynAnyProbe.java` | omniORB C++・rustorb（Rust・Python・C++・Java）で同じケースを回すプローブ |
 | `interop/run-dynany-probe.sh`、`interop/expected/dynany-probe-*.txt` | プローブの実行と期待出力 |
@@ -78,7 +78,7 @@ C++ と Java の型の対応は各マッピングのとおり（`insert_ulong` �
 - `get_members` / `get_elements` は `member_count` と `member_at`、`element_count` と `element_at` で一つずつ取る
 - 失敗は `RORB_LOCAL_EXCEPTION` と `RORB_DYN_INVALID_VALUE`（17）・`_TYPE_MISMATCH`（18）・`_INCONSISTENT_TYPECODE`（19）・`_MUST_TRUNCATE`（20）、またはシステム例外
 
-C++ のクラスは C ABI のハンドルを一つ持つ `CORBA::LocalObject` で、`to_any` などの値は `CORBA::Any` と `<<=` / `>>=` で変換する。Java は `org.rustorb.Native` の `dyn*`（JNI）で同じ C ABI を呼び、値は `AnyImpl`（コアの any のハンドル）で渡す。Java では一つの DynAny に複数の Java オブジェクトがありうるので、同じ DynAny かは `_is_equivalent` で確かめる。
+C++ のクラスは C ABI のハンドルを一つ持つ `CORBA::LocalObject` で、`to_any` などの値は `CORBA::Any` と `<<=` / `>>=` で変換する。Java は `org.rustorb.Native` の `dyn*`（FFM）で同じ C ABI を呼び、値は `AnyImpl`（コアの any のハンドル）で渡す。Java では一つの DynAny に複数の Java オブジェクトがありうるので、同じ DynAny かは `_is_equivalent` で確かめる。
 
 ## 表現
 

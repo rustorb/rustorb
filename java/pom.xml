@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   The rustorb Java binding: the IDL to Java mapping runtime (org.omg.CORBA,
-  org.omg.PortableServer, org.omg.CosNaming and org.rustorb) on
-  librustorb_jni (crates/rustorb-jni), and its tests.
+  org.omg.PortableServer, org.omg.CosNaming and org.rustorb) on the C ABI
+  of librustorb_ffi (crates/rustorb-ffi) through the FFM API
+  (java.lang.foreign, Java 22 or later), and its tests.
 
     mvn -f java/pom.xml -Didl.parser.dir=path/to/idl_parser verify
 
-  The build runs cargo for librustorb_jni (-Dcargo.skip to use one built
-  elsewhere, found through -Drustorb.jni.library or java.library.path) and
+  The build runs cargo for librustorb_ffi (-Dcargo.skip to use one built
+  elsewhere, found through -Drustorb.ffi.library or java.library.path) and
   rustorb-idl -bjava for the test IDLs; rustorb-idl needs idl_parser,
   importable or in idl.parser.dir.
 -->
@@ -32,14 +33,14 @@
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <maven.compiler.release>11</maven.compiler.release>
+    <maven.compiler.release>22</maven.compiler.release>
     <rustorb.root>${project.basedir}/..</rustorb.root>
     <idl.parser.dir></idl.parser.dir>
     <idl.pythonpath>${idl.parser.dir}${path.separator}${rustorb.root}/crates/rustorb-codegen/python</idl.pythonpath>
     <idl.out>${project.build.directory}/generated-test-sources/idl</idl.out>
     <python>python3</python>
     <cargo.skip>false</cargo.skip>
-    <rustorb.jni.library></rustorb.jni.library>
+    <rustorb.ffi.library></rustorb.ffi.library>
     <junit.version>5.10.2</junit.version>
   </properties>
 
@@ -69,7 +70,7 @@
         <artifactId>exec-maven-plugin</artifactId>
         <version>3.2.0</version>
         <executions>
-          <!-- librustorb_jni, for the tests. -->
+          <!-- librustorb_ffi, for the tests. -->
           <execution>
             <id>cargo</id>
             <phase>generate-test-resources</phase>
@@ -81,7 +82,7 @@
                 <argument>build</argument>
                 <argument>--locked</argument>
                 <argument>-p</argument>
-                <argument>rustorb-jni</argument>
+                <argument>rustorb-ffi</argument>
                 <argument>--manifest-path</argument>
                 <argument>${rustorb.root}/Cargo.toml</argument>
               </arguments>
@@ -161,9 +162,9 @@
         <artifactId>maven-surefire-plugin</artifactId>
         <version>3.2.5</version>
         <configuration>
-          <argLine>-Djava.library.path=${rustorb.root}/target/debug</argLine>
+          <argLine>-Djava.library.path=${rustorb.root}/target/debug --enable-native-access=ALL-UNNAMED</argLine>
           <systemPropertyVariables>
-            <rustorb.jni.library>${rustorb.jni.library}</rustorb.jni.library>
+            <rustorb.ffi.library>${rustorb.ffi.library}</rustorb.ffi.library>
           </systemPropertyVariables>
         </configuration>
       </plugin>

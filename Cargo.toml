@@ -8,7 +8,6 @@ members = [
     "crates/rustorb-ffi",
     "crates/rustorb-codegen",
     "crates/rustorb-python",
-    "crates/rustorb-jni",
     "interop/impls/rustorb",
 ]
 
