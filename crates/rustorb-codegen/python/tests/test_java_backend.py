@@ -32,6 +32,19 @@ from rustorb_idl import cli  # noqa: E402
 OUT = tempfile.mkdtemp(prefix="rustorb-idl-java-test-")
 JAVAC = shutil.which("javac")
 
+
+def _javac_release():
+    """The newest --release javac takes (the runtime needs 22, for FFM)."""
+    try:
+        out = subprocess.run([JAVAC, "-version"], capture_output=True, text=True).stdout
+        return int(out.split()[1].split(".")[0])
+    except (OSError, IndexError, ValueError):
+        return 0
+
+
+if JAVAC and _javac_release() < 22:
+    JAVAC = None
+
 IDLS = [
     os.path.join(INTEROP_IDL, "InteropTest.idl"),
     os.path.join(INTEROP_IDL, "AnyTest.idl"),
@@ -208,7 +221,7 @@ class JavaBackendTest(unittest.TestCase):
             with open(listing, "w") as f:
                 f.write("\n".join(sources))
             subprocess.run(
-                [JAVAC, "--release", "11", "-encoding", "UTF-8", "-Xlint:all,-serial", "-Werror",
+                [JAVAC, "--release", "22", "-encoding", "UTF-8", "-Xlint:all,-serial", "-Werror",
                  "-d", os.path.join(OUT, "abstracts-classes"), "@" + listing],
                 check=True,
             )
@@ -291,7 +304,7 @@ class JavaBackendTest(unittest.TestCase):
         self.assertIn("create_recursive_tc(_id)", later)
         self.assertIn("create_value_tc(_id, \"Later\"", later)
 
-    @unittest.skipUnless(JAVAC, "no javac")
+    @unittest.skipUnless(JAVAC, "no javac for Java 22 or later")
     def test_compiles(self):
         sources = []
         for d in (RUNTIME, self.outdir):
@@ -301,7 +314,7 @@ class JavaBackendTest(unittest.TestCase):
         with open(listing, "w") as f:
             f.write("\n".join(sources))
         subprocess.run(
-            [JAVAC, "--release", "11", "-encoding", "UTF-8", "-Xlint:all,-serial", "-Werror",
+            [JAVAC, "--release", "22", "-encoding", "UTF-8", "-Xlint:all,-serial", "-Werror",
              "-d", os.path.join(OUT, "classes"), "@" + listing],
             check=True,
         )

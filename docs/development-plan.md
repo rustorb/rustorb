@@ -63,7 +63,6 @@ flowchart TB
     python["rustorb-python<br/>PyO3（rustorb._native）"]
     ffi["rustorb-ffi<br/>安定 C ABI"]
     cpprt["cpp/include/rustorb<br/>ヘッダオンリー"]
-    jni["rustorb-jni<br/>JNI"]
     javart["java/<br/>IDL to Java ランタイム"]
   end
   gen["rustorb-codegen<br/>rustorb-idl（idl_parser の AST）"]
@@ -72,7 +71,7 @@ flowchart TB
   rustapp --> naming
   pyapp --> python --> corec
   cppapp --> cpprt --> ffi --> corec
-  javaapp --> javart --> jni --> ffi
+  javaapp --> javart -- FFM --> ffi
   naming --> corec
   corec --> giop --> cdr
   corec --> cdr
@@ -121,7 +120,7 @@ M0〜M6 はすべて完了した。その後の作業は issue で管理して�
 | --- | --- | --- | --- |
 | Python | PyO3 + maturin | スタブ・スケルトンのPythonモジュール、型ヒント（.pyi） | GILとORBスレッドの協調、omniORBpy互換API |
 | C++ | C ABI（安定ABI層）＋ヘッダオンリーのC++ラッパ | CPP11準拠のヘッダ・スケルトン | RAIIと参照カウントの対応、例外の伝播 |
-| Java | JNI（FFM API は試作して比べ、Java の下限を 22 に上げられるまでは JNI のまま。[java-ffm.md](java-ffm.md)、#51） | IDL to Java準拠のクラス群 | JavaのGCとRust側参照の解放、コールバックのスレッドアタッチ |
+| Java | FFM API（Java 22 以降。M6 は JNI で作り、#81 で移した。[java-ffm.md](java-ffm.md)） | IDL to Java準拠のクラス群 | JavaのGCとRust側参照の解放、コールバックの例外 |
 
 - Rustコアは`extern "C"`の安定ABI層（`rustorb-ffi`）を1つだけ公開し、C++とJavaはそこから使う。Pythonは開発効率を優先してPyO3で直接つなぐ
 - オブジェクト参照はRust側で参照カウントし、各言語のハンドルが解放されたら減算する
@@ -172,7 +171,7 @@ M0〜M6 はすべて完了した。その後の作業は issue で管理して�
 - **I/O層**：rustorb-core が内部でマルチスレッドのtokioランタイムを持ち、接続の受け付け、GIOPメッセージの送受信、リクエストの多重化を担う。既存のtokioランタイムを使いたい利用者向けに、ハンドルを渡して共有する手段も用意する（`Orb::with_runtime`。async API と合わせて [async-api.md](async-api.md)、[#50](https://github.com/rustorb/rustorb/issues/50)）
 - **アップコール層**：デコード済みのリクエストを、長寿命のOSスレッドからなるプールに渡してサーバントを呼ぶ。プールの上限は設定可能にする（omniORBの maxServerThreadPoolSize に相当）
 - **クライアント呼び出し**：同期APIは結果をチャネルで待つ実装にし、tokioのコンテキスト外からも、アップコール中のスレッドからも呼べるようにする。サーバント内からの入れ子呼び出しやコールバックで、プールが枯渇しないよう上限と待ち合わせを設計する
-- **言語バインディングとの協調**：プールのスレッドは入れ替わらないため、JNIの AttachCurrentThread はスレッドごとに1回で済み、Pythonはサーバント呼び出しの間だけGILを取得する
+- **言語バインディングとの協調**：プールのスレッドは入れ替わらないため、Java のアップコールでの JVM へのアタッチはスレッドごとに1回で済み、Pythonはサーバント呼び出しの間だけGILを取得する
 - **omniORBとの突き合わせ**：実測では omniORB も同じ接続の要求（onewayを含む）を並行に処理し、順序を保証しない。そのため接続ごとの順序保持オプションはMVPでは設けず、順序が必要な場合は omniORB と同じく SINGLE\_THREAD\_MODEL を使う。POA・接続処理・言語バインディングからの呼び出し・`ORB::run` / `shutdown` の設計と実測結果は [poa-design.md](poa-design.md) にまとめた
 
 ## omniORBpyとの互換範囲
@@ -292,7 +291,7 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - [x] Python：`CORBA.Any` / `CORBA.TypeCode` の送受信、`ORB.create_*_tc`。生成コードにない型は TypeCode とクラスをその場で作る
   - [x] 相互接続：`run-matrix.sh --suite any`（`AnyTest.idl`、178ケース）。rustorb（Rust・Python・C++）・omniORBpy・omniORB C++ の25組すべてが GIOP 1.2 / 1.1 で通る
   - [x] C++ バインディング：C ABI の `rorb_typecode` / `rorb_any`、`CORBA::Any` / `CORBA::TypeCode`、`-bc++11` の `_tc_<名前>`、`rustorbcpp` の `--suite any`（25組すべてが GIOP 1.2 / 1.1 で通る）
-- [x] Java バインディング（M6）：`rustorb-ffi` の C ABI の上の JNI ライブラリ（`crates/rustorb-jni`）、IDL to Java のランタイム（`java/`、Java 11 以降、`org.omg.CORBA`・`PortableServer`・`CosNaming` を同梱）、`rustorb-idl -bjava` の生成器を作り、Java の rustorb と JacORB を相互接続マトリクスに入れる（[java-binding.md](java-binding.md)）
+- [x] Java バインディング（M6）：`rustorb-ffi` の C ABI の上の JNI ライブラリ（`crates/rustorb-jni`。#81 で FFM に置き換えて消した）、IDL to Java のランタイム（`java/`、Java 11 以降、`org.omg.CORBA`・`PortableServer`・`CosNaming` を同梱）、`rustorb-idl -bjava` の生成器を作り、Java の rustorb と JacORB を相互接続マトリクスに入れる（[java-binding.md](java-binding.md)）
   - JNI：ハンドルは `long` で、Java 側は `Cleaner` で解放する。スタブは操作ごとのコールバック（`org.rustorb.Call`）で `rorb_object_invoke` を呼ぶ。スケルトンは標準の `InvokeHandler` / `ResponseHandler`。アップコールのスレッドはデーモンとして JVM にアタッチする
   - 生成器：標準マッピングのクラス群（Helper・Holder・Operations・Stub・POA・POATie、`<Name>Package`、予約語の `_`）と、モジュールの外の定義のための `-Wbpackage`
   - 相互接続：`interop/impls/java` のクライアント・サーバーを、`rustorbjava`（rustorb-idl のスタブ）と `jacorb`（JacORB 3.9 のリリース jar と IDL コンパイラ）で共有する。`rustorbjava` は basic（omniNames・rustorb-names、GIOP 1.2 / 1.1）と any（GIOP 1.2 / 1.1）ですべての相手と通る。JacORB との失敗は JacORB の生成コードと GIOP 1.1 の Fragment の扱いによるもので、`known-failures.txt` に載せた。JacORB はソースを読まず、生成されたクラスを呼んだ結果だけを使った
@@ -300,7 +299,7 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - 残り：DII / DSI（コアと Python は #44 で済ませた。Java は需要が出たら。valuetype は下記、portable stub とストリームは下記）
 - [x] C++ と Java の servant manager（`ServantActivator`・`ServantLocator`）と `AdapterActivator`（[cpp-binding.md](cpp-binding.md#poa-の範囲)、[java-binding.md](java-binding.md#poa-の範囲)）
   - C ABI：`rorb_poa_set_servant_activator` / `_locator`・`rorb_poa_get_servant_manager`・`rorb_poa_set_the_activator` / `rorb_poa_the_activator` と関数表。`incarnate` / `preinvoke` の `ForwardRequest` とシステム例外は `rorb_manager_error_*` で伝える
-  - C++ は `PortableServer::ServantActivator` などのローカルインターフェースと `ForwardRequest`、Java は `org.omg.PortableServer` の同名のインターフェースと `CookieHolder`（`rustorb-jni` 経由）
+  - C++ は `PortableServer::ServantActivator` などのローカルインターフェースと `ForwardRequest`、Java は `org.omg.PortableServer` の同名のインターフェースと `CookieHolder`（C ABI 経由）
   - テスト：`cpp/tests/test_poa.cc` と `java` の `PoaTest`。相互接続：C++（`interop/impls/rustorbcpp/poa_probe_server.cc`）と Java（`interop/impls/rustorbjava/probe`）の POA プローブサーバーで `run-poa-probe.sh` が Rust と同じ期待出力になる
 - [x] `fixed` をすべてのバインディングに（[cpp-binding.md](cpp-binding.md#値の表現)、[java-binding.md](java-binding.md#値の表現)）
   - コア：`OutStream::write_fixed` / `InStream::read_fixed`（パック10進。`Value::Fixed` もこれを使う）、C ABI の `rorb_out_write_fixed` / `rorb_in_read_fixed`
@@ -347,7 +346,10 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - コア：rustls の TLS 層（今までの読み書きの作りのまま）、`giop:ssl:HOST:PORT` の待ち受け、IOR の `TAG_SSL_SEC_TRANS`、`-ORBssl*` の設定（CA・証明書・鍵・クライアント認証・ホスト名の検査）。CSIv2 は対象外のまま
   - バインディング：Python・C++・Java は ORB の引数（Java はプロパティも）で設定する
   - 相互接続：`run-matrix.sh --ssl` で omniORB C++・omniORBpy と両方向
+- [x] Java バインディングの FFM への移行（[java-ffm.md](java-ffm.md)、[#81](https://github.com/rustorb/rustorb/issues/81)）
+  - `org.rustorb.Native` を FFM で書き直し（`Ffi.java` は `rustorb.h` から生成）、`crates/rustorb-jni` を消した。Java の下限は 22
+  - 同一 ORB 内の呼び出しは約20%、大きな配列は約25%速くなった
 
 ### 残りの issue
 
-- Java バインディングの FFM への移行（[java-ffm.md](java-ffm.md)）
+- なし（新しいものは issue で受ける）

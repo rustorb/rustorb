@@ -8,7 +8,7 @@ Rust製のCORBA実装
 - [IDL to Rust マッピング（rustorb-idl -brust）](docs/rust-mapping.md)
 - [Python バインディング（PyO3）](docs/python-binding.md)
 - [C++ バインディング（C ABI + IDL to C++11）](docs/cpp-binding.md)
-- [Java バインディング（JNI + IDL to Java）](docs/java-binding.md)
+- [Java バインディング（FFM + IDL to Java）](docs/java-binding.md)
 
 ## クレート構成
 
@@ -20,7 +20,6 @@ Rust製のCORBA実装
 | `rustorb-naming` | CosNaming（Naming Service） | MIT OR Apache-2.0 |
 | `rustorb-python` | Python パッケージ `rustorb` のネイティブモジュール `rustorb._native`（PyO3、[docs/python-binding.md](docs/python-binding.md)） | MIT OR Apache-2.0 |
 | `rustorb-ffi` | C++・Javaバインディング向けの安定C ABI層 | MIT OR Apache-2.0 |
-| `rustorb-jni` | Java バインディングの JNI ライブラリ `librustorb_jni`（`rustorb-ffi` の C ABI の上、[docs/java-binding.md](docs/java-binding.md)） | MIT OR Apache-2.0 |
 | `rustorb-codegen` | IDLコード生成器（idl_parserのASTを入力）。`python/` に `rustorb-idl` コマンド（Rust・Python・C++11・Java のバックエンド、[docs/python-codegen.md](docs/python-codegen.md)、[docs/rust-mapping.md](docs/rust-mapping.md)）と、`build.rs` から `-brust` を呼ぶ `rustorb_codegen::Config` | GPL-3.0-or-later |
 
 Python パッケージ `rustorb`（`python/rustorb`）は、Python から使う rustorb です。IDL から `rustorb-idl -bpython` で生成したコードと、`from rustorb import CORBA, PortableServer` で使います。`pip install ./python` で maturin がネイティブモジュール（`crates/rustorb-python`）をビルドしてインストールします。

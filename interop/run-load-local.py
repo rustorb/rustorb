@@ -247,7 +247,8 @@ class Impls:
             return [os.path.join(IMPLS, impl, "bin", "server")]
         if impl == "rustorbjava":
             d = os.path.join(IMPLS, impl)
-            return ["java", "-Djava.library.path=" + os.path.join(d, "lib"),
+            return [os.environ.get("RUSTORB_JAVA", "java"), "--enable-native-access=ALL-UNNAMED",
+                    "-Djava.library.path=" + os.path.join(d, "lib"),
                     "-cp", os.path.join(d, "classes"), "interop.Server"]
         if impl == "omniorb-cpp":
             return [os.path.join(IMPLS, impl, "server")]
@@ -262,7 +263,8 @@ class Impls:
             return [os.path.join(IMPLS, impl, "bin", "load_client")]
         if impl == "rustorbjava":
             d = os.path.join(IMPLS, impl)
-            return ["java", "-Djava.library.path=" + os.path.join(d, "lib"),
+            return [os.environ.get("RUSTORB_JAVA", "java"), "--enable-native-access=ALL-UNNAMED",
+                    "-Djava.library.path=" + os.path.join(d, "lib"),
                     "-cp", os.path.join(d, "classes"), "interop.LoadClient"]
         raise AssertionError(impl)
 

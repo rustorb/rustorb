@@ -1,8 +1,35 @@
-# Java バインディングの FFM 版の試作と JNI 版との比較
+# Java バインディングの FFM への移行
 
-[#51](https://github.com/rustorb/rustorb/issues/51)。Java バインディングは JNI のライブラリ（`crates/rustorb-jni`）を通して `rustorb-ffi` の C ABI を呼んでいる（[java-binding.md](java-binding.md)）。Java 22 で正式になった FFM API（`java.lang.foreign`）なら、Java から C ABI を直接呼べて JNI のライブラリが要らなくなる。置き換えるかどうかを決めるために、FFM で最小のクライアントとサーバントを試作し、JNI 版と同じ呼び出しで比べた。
+[#51](https://github.com/rustorb/rustorb/issues/51) で試作して比べ、[#81](https://github.com/rustorb/rustorb/issues/81)（2026-10-31）で移した。Java バインディングは JNI のライブラリ（`crates/rustorb-jni`、Rust 約5400行）を通して `rustorb-ffi` の C ABI を呼んでいたが、今は Java 22 で正式になった FFM API（`java.lang.foreign`）で C ABI を直接呼ぶ（[java-binding.md](java-binding.md#ffm-と-c-abi-の対応)）。JNI は JEP 472 で使うのに `--enable-native-access` が要るようになり、将来さらに制限される見込みなので、試作のときの「Java の下限を上げられるまでは JNI のまま」をやめて移した。
 
-## 試作（`java/ffm-prototype`）
+## 移行（#81）
+
+- `org.rustorb.Native` の static メソッド（約260）はそのままの名前と型で、中身を FFM の呼び出しに書き直した。ランタイムの他のクラスと生成コードは変えていない。`crates/rustorb-jni`、`Loader.java`、試作（`java/ffm-prototype`）は消した
+- downcall handle（`Ffi.java`）は `java/tools/gen-ffi.py` が `rustorb.h` から生成する。`jextract` は使わない（ビルドに JDK の外の道具が増えるため。C ABI の型は少なく、生成器は約200行）。CI で `--check` し、ヘッダーとずれないようにする
+- 試作の作りをそのまま使った：サーバントの `self` は Java の表の番号、アップコールの例外はすべて受け止める、`critical(true)` で Java の配列をそのまま渡す、演算名の UTF-8 は一度だけ作る。コールバックの `context` は、試作のスレッドごとの深さではなく、呼び出しの表の番号にした（`rorb_in_new` や Any の出し入れなど、呼び出し以外のコールバックにも同じ形で使える）
+- Java の下限は 11 から 22 に上がった。相互接続のイメージは JacORB 用の Java 17 に加えて Java 25 を入れ、rustorb の Java 実装は `RUSTORB_JAVA` の Java 25 で動かす
+- `--enable-native-access=ALL-UNNAMED` を付けないと警告が出る（JNI でも Java 24 以降は同じ）。テストと相互接続のスクリプトは付けている
+
+本実装の計測（試作と同じ計測、同じ VM。`interop/impls/java` ではなく試作の `bench` を本実装の jar で回した。JNI 版は #81 の直前のコミット）：
+
+| ケース | JNI | FFM | 差 |
+| --- | ---: | ---: | ---: |
+| 同一 ORB 内 `ping` | 5.23 µs | 4.35 µs | −17% |
+| 同一 ORB 内 `echo_long` | 5.67 µs | 4.24 µs | −25% |
+| 同一 ORB 内 `echo_record`（`long` 16個の構造体） | 6.73 µs | 5.28 µs | −22% |
+| 同一 ORB 内 `echo_octets` 64 KiB | 47.9 µs | 34.2 µs | −29% |
+| TCP `ping` | 58.0 µs | 54.1 µs | −7% |
+| TCP `echo_long` | 57.2 µs | 55.4 µs | −3% |
+| TCP `echo_record` | 61.0 µs | 56.0 µs | −8% |
+| TCP `echo_long` 8スレッド | 33.9 µs | 32.5 µs | −4% |
+| TCP `echo_octets` 64 KiB | 215 µs | 191 µs | −11% |
+| TCP `echo_octets` 1 MiB | 1.85 ms | 1.41 ms | −24% |
+
+試作で見えた差（同一 ORB 内で 20〜30%、大きな配列で 20% 以上）が、生成コードの全機能を持つ本実装でもほぼそのまま出た。TCP 越しの小さい呼び出しは通信が大半で、差は回ごとのぶれと同じくらい。`interop/run-load-local.py` の負荷試験（8スレッド）でも、`rustorbjava` のクライアント・サーバーは JNI 版と同じくらいの数字が出る。
+
+以下は #51 の試作と比較の記録。
+
+## 試作（`java/ffm-prototype`、#81 で削除）
 
 - `src/org/rustorb/ffm`（約690行）：C ABI の関数の `MethodHandle`（`Ffi`）、ORB・RootPOA・参照（`Orb`）、`rorb_object_invoke` とコールバック（`Stubs`・`Call`・`Operation`）、`rorb_servant_vtable` のサーバント（`Servant`・`Reply`）、ストリームの一部（`Out`・`In`：`long` と `sequence<octet>`）
 - `bench`：同じ計測（`Harness`）を、JNI 版（`java/` のランタイムと `rustorb-idl -bjava` のスタブ・スケルトン）と FFM 版（生成器が出す形を手で書いたスタブとサーバント）で回す

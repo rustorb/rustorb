@@ -61,8 +61,6 @@ public final class Stubs {
         return n;
     }
 
-    /** obj as an instance of clz (a stub class or an interface whose stub
-     * is _NameStub in the same package), without asking the object. */
     /**
      * Writes obj as an abstract interface: true and an object reference
      * (null too), or false and a value.
@@ -85,6 +83,8 @@ public final class Stubs {
         return in.read_boolean() ? in.read_Object() : in.read_value();
     }
 
+    /** obj as an instance of clz (a stub class or an interface whose stub
+     * is _NameStub in the same package), without asking the object. */
     static org.omg.CORBA.Object narrowTo(org.omg.CORBA.Object obj, Class<?> clz) {
         if (clz.isInstance(obj)) {
             return obj;

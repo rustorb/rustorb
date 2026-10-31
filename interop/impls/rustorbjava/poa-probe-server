@@ -3,5 +3,5 @@
 # (build.sh) and mounts this directory, with classes/ and lib/, into the
 # server container.
 here="$(dirname "$0")"
-exec java -Djava.library.path="$here/lib" -cp "$here/classes" \
+exec "${RUSTORB_JAVA:-java}" --enable-native-access=ALL-UNNAMED -Djava.library.path="$here/lib" -cp "$here/classes" \
   interop.PoaProbeServer "$@"

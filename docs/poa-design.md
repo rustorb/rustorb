@@ -233,6 +233,8 @@ typedef struct rustorb_servant_vtbl {
 
 ### Java（JNI）
 
+（#81 で FFM に移した。今の作りは [java-binding.md](java-binding.md#ffm-と-c-abi-の対応)。プールのスレッドは upcall のときに JVM がアタッチし、サーバントは Java の表が持つ）
+
 - プールのスレッドは、最初の Java サーバント呼び出しで `AttachCurrentThreadAsDaemon` し、スレッドが終了するときに `DetachCurrentThread` する。スレッドは長寿命なのでアタッチは1回で済む
 - サーバントは `GlobalRef` で保持し、手放すときにアタッチ済みのスレッドで `DeleteGlobalRef` する
 - 呼び出し後に `ExceptionCheck` を行い、IDL のユーザー例外は CDR に、それ以外の Throwable は `UNKNOWN` に変換する

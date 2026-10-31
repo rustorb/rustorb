@@ -48,11 +48,12 @@ jobs:
         with:
           python-version: "3.12"
       # javac for the rustorb Java client and server
-      # (impls/rustorbjava/build.sh); the image runs them on Java 17.
+      # (impls/rustorbjava/build.sh), for Java 22 (the FFM API); the image
+      # runs them on Java 25.
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "25"
 
       # omniORB and omniORBpy are built from source; the GitHub Actions cache
       # keeps that layer, so only the test implementations are rebuilt.

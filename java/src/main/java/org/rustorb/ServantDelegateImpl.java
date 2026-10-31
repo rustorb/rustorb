@@ -1,4 +1,4 @@
-// The Delegate of a Java servant: owns its peer in librustorb_jni (the
+// The Delegate of a Java servant: owns its peer in Native (whose id is the
 // `self` of the C ABI), freed when the servant is unreachable.
 //
 // Licensed under MIT OR Apache-2.0, like the rest of the rustorb core.
