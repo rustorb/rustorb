@@ -1,0 +1,5 @@
+module Example {
+  interface Echo {
+    string echo(in string s);
+  };
+};

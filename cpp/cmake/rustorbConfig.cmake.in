@@ -1,0 +1,54 @@
+# The installed rustorb C++ binding (cpp/CMakeLists.txt):
+#
+#   find_package(rustorb 0.1 REQUIRED)
+#   rustorb_idl_generate(SOURCES Example.idl)   # idl/Example.hh, idl/Example.cc
+#   add_executable(app main.cc ${SOURCES})
+#   target_include_directories(app PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl")
+#   target_link_libraries(app PRIVATE rustorb::rustorb)
+#
+# rustorb_idl_generate() runs the rustorb-idl command (pip install
+# rustorb-idl), found on PATH or given as RUSTORB_IDL.
+#
+# Licensed under MIT OR Apache-2.0, like the rest of the rustorb core.
+
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+
+if(NOT TARGET rustorb::rustorb)
+  add_library(rustorb::rustorb STATIC IMPORTED)
+  set_target_properties(rustorb::rustorb PROPERTIES
+    IMPORTED_LOCATION "@PACKAGE_CMAKE_INSTALL_LIBDIR@/@RUSTORB_FFI_LIBRARY_NAME@"
+    INTERFACE_INCLUDE_DIRECTORIES "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@"
+    INTERFACE_LINK_LIBRARIES "Threads::Threads;@RUSTORB_SYSTEM_LIBS@"
+    INTERFACE_COMPILE_FEATURES cxx_std_17)
+endif()
+
+find_program(RUSTORB_IDL rustorb-idl)
+
+# rustorb_idl_generate(<var> <idl>...): runs rustorb-idl -bc++11 on each IDL
+# file into ${CMAKE_CURRENT_BINARY_DIR}/idl and appends the generated
+# sources to <var>.
+function(rustorb_idl_generate var)
+  if(NOT RUSTORB_IDL)
+    message(FATAL_ERROR "rustorb-idl not found: pip install rustorb-idl, or set RUSTORB_IDL")
+  endif()
+  set(outdir "${CMAKE_CURRENT_BINARY_DIR}/idl")
+  file(MAKE_DIRECTORY "${outdir}")
+  set(sources ${${var}})
+  foreach(idl ${ARGN})
+    get_filename_component(idl "${idl}" ABSOLUTE)
+    get_filename_component(base "${idl}" NAME_WE)
+    add_custom_command(
+      OUTPUT "${outdir}/${base}.hh" "${outdir}/${base}.cc"
+      COMMAND "${RUSTORB_IDL}" -bc++11 -C "${outdir}" "${idl}"
+      DEPENDS "${idl}"
+      COMMENT "rustorb-idl -bc++11 ${base}.idl"
+      VERBATIM)
+    list(APPEND sources "${outdir}/${base}.cc")
+  endforeach()
+  set(${var} ${sources} PARENT_SCOPE)
+endfunction()
+
+check_required_components(rustorb)
