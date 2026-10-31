@@ -4,7 +4,8 @@
 //! and a reader task takes every message off the stream, joins fragments
 //! and hands each `Reply` or `LocateReply` to the caller waiting for its
 //! request id. A caller that is the only one waiting reads its reply
-//! itself instead ([`Connection::read_reply_here`]).
+//! itself instead ([`Connection::read_reply_here`]). A connection to a
+//! TLS endpoint does both through [`Tls`].
 
 use std::collections::HashMap;
 use std::io::{self, IoSlice};
@@ -19,6 +20,7 @@ use tokio::net::TcpSocket;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::oneshot;
 
+use crate::tls::{self, Tls};
 use crate::wire::{Here, Inbound, ReadError};
 use crate::{CodeSets, OrbOptions};
 
@@ -48,6 +50,10 @@ pub(crate) enum SendError {
     Failed,
 }
 
+/// What the ORB pools connections by: host, port, and whether the
+/// connection uses TLS.
+pub(crate) type EndpointKey = (String, u16, bool);
+
 /// What a waiting caller receives.
 pub(crate) type Delivery = Result<Message, Closed>;
 
@@ -60,9 +66,10 @@ struct Pending {
 /// One client connection to a server endpoint.
 #[derive(Debug)]
 pub(crate) struct Connection {
-    endpoint: (String, u16),
+    endpoint: EndpointKey,
     inbound: Inbound,
     writer: tokio::sync::Mutex<OwnedWriteHalf>,
+    tls: Option<Arc<Tls>>,
     pending: Mutex<Pending>,
     next_request_id: AtomicU32,
     /// The code sets of the first request with a code set context; `None`
@@ -72,12 +79,13 @@ pub(crate) struct Connection {
 }
 
 impl Connection {
-    /// Connects to `host:port` and starts the reader task on the current
-    /// runtime. The socket buffers are set before connecting, so that the
-    /// window scale fits them.
+    /// Connects to `host:port`, with TLS when `tls` is given, and starts
+    /// the reader task on the current runtime. The socket buffers are set
+    /// before connecting, so that the window scale fits them.
     pub(crate) async fn connect(
         host: &str,
         port: u16,
+        tls: Option<Arc<rustls::ClientConfig>>,
         options: &OrbOptions,
     ) -> io::Result<Arc<Connection>> {
         let max_message_size = options.max_message_size;
@@ -105,11 +113,16 @@ impl Connection {
         }
         let stream = connected.ok_or(last)?;
         stream.set_nodelay(true)?;
+        let session = match tls {
+            Some(config) => Some(tls::connect(&stream, config, host).await?),
+            None => None,
+        };
         let (reader, writer) = stream.into_split();
         let conn = Arc::new(Connection {
-            endpoint: (host.to_owned(), port),
-            inbound: Inbound::new(reader, max_message_size),
+            endpoint: (host.to_owned(), port, session.is_some()),
+            inbound: Inbound::new(reader, session.clone(), max_message_size),
             writer: tokio::sync::Mutex::new(writer),
+            tls: session,
             pending: Mutex::new(Pending {
                 waiters: HashMap::new(),
                 closed: None,
@@ -122,7 +135,7 @@ impl Connection {
         Ok(conn)
     }
 
-    pub(crate) fn endpoint(&self) -> &(String, u16) {
+    pub(crate) fn endpoint(&self) -> &EndpointKey {
         &self.endpoint
     }
 
@@ -241,6 +254,9 @@ impl Connection {
             },
             None => self.writer.lock().await,
         };
+        if let Some(tls) = &self.tls {
+            return self.send_tls(tls, &writer, msg, deadline).await;
+        }
         let mut written = 0;
         while written < msg.len() {
             let (one, many);
@@ -286,6 +302,44 @@ impl Connection {
         Ok(())
     }
 
+    /// [`send`](Self::send) over TLS. The whole message is encrypted at
+    /// once and cannot be taken back, so a deadline passing before it is
+    /// written closes the connection: the server never gets the rest of
+    /// its last record.
+    async fn send_tls(
+        &self,
+        tls: &Tls,
+        writer: &OwnedWriteHalf,
+        msg: &OutMessage,
+        deadline: Option<Instant>,
+    ) -> Result<(), SendError> {
+        tls.encrypt(msg, 0);
+        loop {
+            match tls.flush(|bytes| writer.try_write(bytes)) {
+                Ok(true) => return Ok(()),
+                Ok(false) => {}
+                Err(e) => {
+                    self.fail(Closed::Failed(format!("write failed: {e}")));
+                    return Err(SendError::Failed);
+                }
+            }
+            let writable = match deadline {
+                Some(at) => match tokio::time::timeout_at(at.into(), writer.writable()).await {
+                    Ok(result) => result,
+                    Err(_) => {
+                        self.fail(Closed::Failed("write timed out".into()));
+                        return Err(SendError::TimedOut);
+                    }
+                },
+                None => writer.writable().await,
+            };
+            if let Err(e) = writable {
+                self.fail(Closed::Failed(format!("write failed: {e}")));
+                return Err(SendError::Failed);
+            }
+        }
+    }
+
     /// Sends `CloseConnection` if nothing is outstanding and shuts the
     /// stream down. Requests issued afterwards use a new connection.
     /// A peer that stopped reading gets [`CLOSE_TIME`] before the stream
@@ -295,7 +349,20 @@ impl Connection {
         if let Ok(msg) = MessageEncoder::close_connection(version, order) {
             let _ = tokio::time::timeout(CLOSE_TIME, async {
                 let mut writer = self.writer.lock().await;
-                let _ = writer.write_all(&msg).await;
+                match &self.tls {
+                    Some(tls) => {
+                        tls.encrypt(&msg.into(), 0);
+                        tls.close_notify();
+                        while let Ok(false) = tls.flush(|bytes| writer.try_write(bytes)) {
+                            if writer.writable().await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    None => {
+                        let _ = writer.write_all(&msg).await;
+                    }
+                }
                 let _ = writer.shutdown().await;
             })
             .await;

@@ -343,9 +343,11 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - コア：`ObjectRef::create_request` → `DiiRequest`（同期・async・oneway・deferred）、`DynamicImplementation` と `DynamicServant`、`ServerRequest`
   - Python：標準マッピングの `Request`・`NVList`・`ServerRequest`・`PortableServer.DynamicImplementation`、`orb.send_multiple_requests_*` / `get_next_response`
   - 相互接続：スタブを DII に、サーバントを DSI に差し替えた `rustorbpy-dii` を basic・any・value で回す。C++ と Java は需要が出たら
+- [x] SSLIOP（IIOP over TLS）（[ssliop.md](ssliop.md)、[#78](https://github.com/rustorb/rustorb/issues/78)）
+  - コア：rustls の TLS 層（今までの読み書きの作りのまま）、`giop:ssl:HOST:PORT` の待ち受け、IOR の `TAG_SSL_SEC_TRANS`、`-ORBssl*` の設定（CA・証明書・鍵・クライアント認証・ホスト名の検査）。CSIv2 は対象外のまま
+  - バインディング：Python・C++・Java は ORB の引数（Java はプロパティも）で設定する
+  - 相互接続：`run-matrix.sh --ssl` で omniORB C++・omniORBpy と両方向
 
 ### 残りの issue
 
-すべて P3。
-
-- [#78](https://github.com/rustorb/rustorb/issues/78) SSLIOP（IIOP over TLS）
+- Java バインディングの FFM への移行（[java-ffm.md](java-ffm.md)）

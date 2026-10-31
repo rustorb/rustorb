@@ -83,6 +83,11 @@ jobs:
       - name: Run the matrix with GIOP 1.1 clients
         run: interop/run-matrix.sh --capture --giop 1.1
 
+      # SSLIOP (#78): TLS endpoints only, certificates required both ways,
+      # between omniORB C++, omniORBpy and the rustorb implementations.
+      - name: Run the matrix over TLS
+        run: interop/run-matrix.sh --ssl
+
       # The stage 2 suite (AnyTest.idl): Any and TypeCode values.
       - name: Run the Any / TypeCode matrix
         run: interop/run-matrix.sh --suite any

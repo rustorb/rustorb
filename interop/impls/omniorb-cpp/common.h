@@ -5,6 +5,7 @@
 
 #include <omniORB4/CORBA.h>
 #include <omniORB4/Naming.hh>
+#include <omniORB4/sslContext.h>
 
 #include <chrono>
 #include <cstdlib>
@@ -59,9 +60,21 @@ inline Options parse_args(int argc, char** argv, std::vector<std::string>& orb_a
   }
   orb_args.push_back("-ORBInitRef");
   orb_args.push_back("NameService=" + opt.naming);
+  // INTEROP_SSL=DIR (run-matrix.sh --ssl): the endpoint is TLS only, with
+  // the test CA and certificate in DIR, which both sides require of the
+  // other (omniORB's default).
+  const char* ssl = std::getenv("INTEROP_SSL");
+  if (ssl && *ssl) {
+    static std::string ca = std::string(ssl) + "/ca.pem";
+    static std::string key = std::string(ssl) + "/server-bundle.pem";
+    omni::sslContext::certificate_authority_file = ca.c_str();
+    omni::sslContext::key_file = key.c_str();
+    omni::sslContext::key_file_password = "";
+  }
   if (opt.port) {
     orb_args.push_back("-ORBendPoint");
-    orb_args.push_back("giop:tcp:" + opt.host + ":" + std::to_string(opt.port));
+    orb_args.push_back(std::string(ssl && *ssl ? "giop:ssl:" : "giop:tcp:") + opt.host + ":" +
+                       std::to_string(opt.port));
   }
   return opt;
 }

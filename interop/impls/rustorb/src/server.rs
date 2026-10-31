@@ -11,6 +11,7 @@
 mod anytest;
 mod customtest;
 mod idl;
+mod ssl;
 mod valuetest;
 
 use std::process::ExitCode;
@@ -312,10 +313,7 @@ fn run() -> Result<(), String> {
     let (args, mut orb_args) = parse_args(std::env::args().skip(1).collect())?;
     if args.port != 0 || args.host.is_some() {
         let host = args.host.clone().unwrap_or_default();
-        orb_args.extend([
-            "-ORBendPoint".to_owned(),
-            format!("giop:tcp:{host}:{}", args.port),
-        ]);
+        orb_args.extend(ssl::endpoint_args(&host, args.port));
     }
     let orb = Orb::init(&mut orb_args).map_err(|e| format!("ORB_init: {e}"))?;
     if !orb_args.is_empty() {

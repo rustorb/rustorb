@@ -34,8 +34,17 @@ def parse_args(description, extra=None):
 def orb_init(args, orb_args):
     argv = [sys.argv[0]] + orb_args
     argv += ["-ORBInitRef", "NameService=" + args.naming]
+    # INTEROP_SSL=DIR (run-matrix.sh --ssl): the endpoint is TLS only, with
+    # the test CA and certificate in DIR, which both sides require of the
+    # other (omniORB's default).
+    ssl = os.environ.get("INTEROP_SSL")
+    if ssl:
+        from omniORB import sslTP
+        sslTP.certificate_authority_file(os.path.join(ssl, "ca.pem"))
+        sslTP.key_file(os.path.join(ssl, "server-bundle.pem"))
+        sslTP.key_file_password("")
     if args.port:
-        endpoint = "giop:tcp:%s:%d" % (args.host or "", args.port)
+        endpoint = "giop:%s:%s:%d" % ("ssl" if ssl else "tcp", args.host or "", args.port)
         argv += ["-ORBendPoint", endpoint]
     return CORBA.ORB_init(argv, CORBA.ORB_ID)
 

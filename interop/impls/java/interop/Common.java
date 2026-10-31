@@ -119,9 +119,23 @@ public final class Common {
                 props.setProperty("jacorb.giop_minor_version", giop.substring(giop.indexOf('.') + 1));
             }
         } else {
+            // INTEROP_SSL=DIR (run-matrix.sh --ssl): the endpoint is TLS
+            // only, with the test CA and certificate in DIR, and
+            // certificates are required both ways, as omniORB requires by
+            // default.
+            String ssl = System.getenv("INTEROP_SSL");
+            boolean tls = ssl != null && !ssl.isEmpty();
+            if (tls) {
+                args.add("-ORBsslCAFile");
+                args.add(ssl + "/ca.pem");
+                args.add("-ORBsslKeyFile");
+                args.add(ssl + "/server-bundle.pem");
+                args.add("-ORBsslVerifyClient");
+                args.add("required");
+            }
             if (opt.port != 0) {
                 args.add("-ORBendPoint");
-                args.add("giop:tcp:" + opt.host + ":" + opt.port);
+                args.add((tls ? "giop:ssl:" : "giop:tcp:") + opt.host + ":" + opt.port);
             }
             if (giop != null && !giop.isEmpty()) {
                 args.add("-ORBmaxGIOPVersion");

@@ -9,6 +9,9 @@
 //! by the thread that made them when the socket takes them at once,
 //! otherwise by a writer task per connection ([`Outbox`]).
 //!
+//! A TLS endpoint (SSLIOP, docs/ssliop.md) runs the handshake before the
+//! connection is served, and then reads and writes through [`Tls`].
+//!
 //! Calls from the ORB to its own objects do not go through the network:
 //! the request is marshalled as usual and dispatched on the calling thread
 //! ([`Server::call_local`]).
@@ -26,7 +29,8 @@ use rustorb_cdr::ByteOrder;
 use rustorb_giop::{
     AlternateIiopAddress, Body, CodeSetComponent, CodeSetComponentInfo, CodeSetContext,
     IiopProfile, Ior, LocateReplyHeader, LocateRequestHeader, LocateStatus, Message,
-    MessageEncoder, OutMessage, RequestHeader, ServiceContext, TargetAddress, Version,
+    MessageEncoder, OutMessage, RequestHeader, ServiceContext, SslSecTrans, TargetAddress, Version,
+    association_options, component_tag,
 };
 use tokio::io::AsyncWriteExt;
 use tokio::net::tcp::OwnedWriteHalf;
@@ -45,6 +49,7 @@ use crate::poa::{
 use crate::pool::{Job, Pool};
 use crate::servant::{OBJECT_ID, ServerReply, location_forward_reply, system_exception_reply};
 use crate::stream::InStream;
+use crate::tls::{self, Tls};
 use crate::wire::{Here, Inbound, ReadError};
 use crate::{
     CodeSets, CompletionStatus, EndpointAddr, Lifespan, Orb, Poa, Servant, ServantManagerError,
@@ -60,6 +65,11 @@ pub(crate) struct Server {
     /// The ports of the endpoints that listen on a loopback address or on
     /// every interface.
     loopback_ports: Vec<u16>,
+    /// The same for the TLS endpoints.
+    published_tls: Vec<(String, u16)>,
+    loopback_tls_ports: Vec<u16>,
+    /// Whether TLS clients must send a certificate.
+    client_auth_required: bool,
     fixed_port: bool,
     order: ByteOrder,
     max_message_size: usize,
@@ -139,7 +149,7 @@ impl Server {
     /// Opens the endpoints of `orb` and creates the RootPOA.
     pub(crate) fn start(orb: &Orb) -> Result<Arc<Server>, SystemException> {
         let options = &orb.inner.options;
-        let endpoints = if options.endpoints.is_empty() {
+        let endpoints = if options.endpoints.is_empty() && options.tls_endpoints.is_empty() {
             vec![EndpointAddr {
                 host: String::new(),
                 port: 0,
@@ -147,10 +157,25 @@ impl Server {
         } else {
             options.endpoints.clone()
         };
+        let tls_config = if options.tls_endpoints.is_empty() {
+            None
+        } else {
+            Some(tls::server_config(&options.tls).map_err(|_| initialize())?)
+        };
         let mut listeners = Vec::new();
         let mut published = Vec::new();
         let mut loopback_ports = Vec::new();
-        for (i, ep) in endpoints.iter().enumerate() {
+        let mut published_tls = Vec::new();
+        let mut loopback_tls_ports = Vec::new();
+        let plain = endpoints
+            .iter()
+            .map(|ep| (ep, false, options.endpoint_publish.as_ref()));
+        let secure = options
+            .tls_endpoints
+            .iter()
+            .map(|ep| (ep, true, options.tls_endpoint_publish.as_ref()));
+        let mut first = [true, true];
+        for (ep, is_tls, publish) in plain.chain(secure) {
             let bind_host = if ep.host.is_empty() {
                 "0.0.0.0"
             } else {
@@ -172,10 +197,16 @@ impl Server {
                     .map_err(|_| initialize())?;
             }
             let port = listener.local_addr().map_err(|_| initialize())?.port();
+            let (published, loopback_ports) = if is_tls {
+                (&mut published_tls, &mut loopback_tls_ports)
+            } else {
+                (&mut published, &mut loopback_ports)
+            };
             if ep.host.is_empty() || is_loopback(&ep.host) {
                 loopback_ports.push(port);
             }
-            let publish = options.endpoint_publish.as_ref().filter(|_| i == 0);
+            // The publish address applies to the first endpoint of its kind.
+            let publish = publish.filter(|_| std::mem::take(&mut first[usize::from(is_tls)]));
             let host = match publish {
                 Some(p) if !p.host.is_empty() => p.host.clone(),
                 _ if !ep.host.is_empty() => ep.host.clone(),
@@ -185,7 +216,7 @@ impl Server {
                 Some(p) if p.port != 0 => p.port,
                 _ => port,
             };
-            listeners.push(listener);
+            listeners.push((listener, is_tls));
             published.push((host, port));
         }
         let server = Arc::new(Server {
@@ -193,7 +224,13 @@ impl Server {
             boot_id: new_boot_id(),
             published,
             loopback_ports,
-            fixed_port: endpoints.iter().any(|ep| ep.port != 0),
+            published_tls,
+            loopback_tls_ports,
+            client_auth_required: options.tls.client_auth == crate::ClientAuth::Required,
+            fixed_port: endpoints
+                .iter()
+                .chain(&options.tls_endpoints)
+                .any(|ep| ep.port != 0),
             order: options.byte_order,
             max_message_size: options.max_message_size,
             max_requests: options.max_requests_per_connection.max(1),
@@ -218,9 +255,10 @@ impl Server {
         let handle = orb.inner.handle.clone();
         let _entered = handle.enter();
         let mut tasks = Vec::new();
-        for listener in listeners {
+        for (listener, is_tls) in listeners {
             let listener = TcpListener::from_std(listener).map_err(|_| initialize())?;
-            tasks.push(handle.spawn(accept_loop(Arc::downgrade(&server), listener)));
+            let tls = tls_config.clone().filter(|_| is_tls);
+            tasks.push(handle.spawn(accept_loop(Arc::downgrade(&server), listener, tls)));
         }
         *server.listeners.lock().unwrap() = tasks;
         Ok(server)
@@ -252,6 +290,11 @@ impl Server {
         &self.published
     }
 
+    /// Host and port of each TLS endpoint, as published in IORs.
+    pub(crate) fn published_tls(&self) -> &[(String, u16)] {
+        &self.published_tls
+    }
+
     pub(crate) fn register_manager(&self, manager: &Arc<ManagerInner>) {
         let mut managers = self.managers.lock().unwrap();
         managers.retain(|m| m.strong_count() > 0);
@@ -266,30 +309,87 @@ impl Server {
     }
 
     /// An IOR for `key` with one IIOP 1.2 profile: the first endpoint, the
-    /// code sets, and the other endpoints as alternate addresses.
+    /// code sets, the first TLS endpoint (`TAG_SSL_SEC_TRANS`) and the
+    /// other endpoints as alternate addresses. With TLS endpoints only,
+    /// the profile has the host of the first one and port 0. A TLS
+    /// endpoint the first profile cannot carry (another host, or not the
+    /// first) gets a profile of its own.
     pub(crate) fn ior(&self, type_id: &str, key: Vec<u8>) -> Result<Ior, SystemException> {
         let marshal =
             |_| SystemException::new(SystemExceptionKind::MARSHAL, 0, CompletionStatus::No);
-        let (host, port) = &self.published[0];
+        let (host, port) = match self.published.first() {
+            Some((host, port)) => (host.clone(), *port),
+            None => (self.published_tls[0].0.clone(), 0),
+        };
         let mut components = vec![code_set_info().to_component(self.order).map_err(marshal)?];
-        for (host, port) in &self.published[1..] {
+        let mut tls = self.published_tls.iter();
+        let mut rest_tls = Vec::new();
+        if let Some((tls_host, tls_port)) = tls.next() {
+            if tls_host.eq_ignore_ascii_case(&host) {
+                components.push(self.ssl_component(*tls_port).map_err(marshal)?);
+            } else {
+                rest_tls.push((tls_host, *tls_port));
+            }
+        }
+        rest_tls.extend(tls.map(|(h, p)| (h, *p)));
+        for (host, port) in self.published.iter().skip(1) {
             let alternate = AlternateIiopAddress {
                 host: host.clone(),
                 port: *port,
             };
             components.push(alternate.to_component(self.order).map_err(marshal)?);
         }
-        let profile = IiopProfile {
-            version: Version::V1_2,
-            host: host.clone(),
-            port: *port,
-            object_key: key,
-            components,
-        };
+        let mut profiles = vec![
+            IiopProfile {
+                version: Version::V1_2,
+                host,
+                port,
+                object_key: key.clone(),
+                components,
+            }
+            .to_tagged_profile(self.order)
+            .map_err(marshal)?,
+        ];
+        for (host, port) in rest_tls {
+            let components = vec![
+                code_set_info().to_component(self.order).map_err(marshal)?,
+                self.ssl_component(port).map_err(marshal)?,
+            ];
+            let profile = IiopProfile {
+                version: Version::V1_2,
+                host: host.clone(),
+                port: 0,
+                object_key: key.clone(),
+                components,
+            };
+            profiles.push(profile.to_tagged_profile(self.order).map_err(marshal)?);
+        }
         Ok(Ior {
             type_id: type_id.to_owned(),
-            profiles: vec![profile.to_tagged_profile(self.order).map_err(marshal)?],
+            profiles,
         })
+    }
+
+    /// The `TAG_SSL_SEC_TRANS` component of the TLS endpoint at `port`:
+    /// protection, and trust in the target and (optionally) the client,
+    /// the same options omniORB publishes; unprotected IIOP is supported
+    /// too when there are plain endpoints.
+    fn ssl_component(&self, port: u16) -> rustorb_giop::Result<rustorb_giop::TaggedComponent> {
+        use association_options::*;
+        let mut requires = INTEGRITY | CONFIDENTIALITY | ESTABLISH_TRUST_IN_TARGET;
+        let mut supports = requires | ESTABLISH_TRUST_IN_CLIENT;
+        if !self.published.is_empty() {
+            supports |= NO_PROTECTION;
+        }
+        if self.client_auth_required {
+            requires |= ESTABLISH_TRUST_IN_CLIENT;
+        }
+        SslSecTrans {
+            target_supports: supports,
+            target_requires: requires,
+            port,
+        }
+        .to_component(self.order)
     }
 
     fn orb(&self) -> Option<Orb> {
@@ -727,16 +827,33 @@ impl Server {
 
     // --- calls from this ORB ---------------------------------------------------
 
-    /// Whether `host:port` is an endpoint of this server, so that a call to
-    /// it can be made without the network.
-    pub(crate) fn is_local(&self, host: &str, port: u16) -> bool {
+    /// Whether `host:port` is an endpoint of this server (a TLS one if
+    /// `tls`), so that a call to it can be made without the network.
+    pub(crate) fn is_local(&self, host: &str, port: u16, tls: bool) -> bool {
         if self.is_shutting_down() {
             return false;
         }
-        self.published
+        let (published, loopback_ports) = if tls {
+            (&self.published_tls, &self.loopback_tls_ports)
+        } else {
+            (&self.published, &self.loopback_ports)
+        };
+        published
             .iter()
             .any(|(h, p)| *p == port && h.eq_ignore_ascii_case(host))
-            || (is_loopback(host) && self.loopback_ports.contains(&port))
+            || (is_loopback(host) && loopback_ports.contains(&port))
+    }
+
+    /// Whether `profile` names an endpoint of this server: its own address
+    /// or its TLS endpoint.
+    pub(crate) fn is_own_profile(&self, profile: &IiopProfile) -> bool {
+        self.is_local(&profile.host, profile.port, false)
+            || profile
+                .components
+                .iter()
+                .filter(|c| c.tag == component_tag::SSL_SEC_TRANS)
+                .filter_map(|c| SslSecTrans::from_component(c).ok())
+                .any(|ssl| self.is_local(&profile.host, ssl.port, true))
     }
 
     /// Runs a request of this ORB to one of its own objects, on the calling
@@ -1092,6 +1209,9 @@ impl Drop for Ticket {
 /// task while it holds the stream, so messages never interleave.
 struct Outbox {
     state: Mutex<OutState>,
+    /// TLS on the stream: messages are encrypted, and the records go out
+    /// in the order rustls made them.
+    tls: Option<Arc<Tls>>,
     /// Wakes the writer task when something is queued or the connection
     /// closes.
     ready: Notify,
@@ -1108,16 +1228,20 @@ struct OutState {
     closing: bool,
     /// Writing failed: everything is dropped.
     failed: bool,
+    /// TLS records wait for the writer task (the socket did not take them).
+    flush: bool,
 }
 
 impl Outbox {
-    fn new(stream: OwnedWriteHalf) -> Outbox {
+    fn new(stream: OwnedWriteHalf, tls: Option<Arc<Tls>>) -> Outbox {
         Outbox {
+            tls,
             state: Mutex::new(OutState {
                 stream: Some(stream),
                 queue: VecDeque::new(),
                 closing: false,
                 failed: false,
+                flush: false,
             }),
             ready: Notify::new(),
         }
@@ -1127,6 +1251,22 @@ impl Outbox {
     fn send(&self, msg: OutMessage) {
         let mut state = self.state.lock().unwrap();
         if state.closing || state.failed {
+            return;
+        }
+        if let Some(tls) = &self.tls {
+            if let (true, Some(stream)) = (state.queue.is_empty(), &state.stream) {
+                tls.encrypt(&msg, 0);
+                if let Ok(true) = tls.flush(|bytes| stream.try_write(bytes)) {
+                    return;
+                }
+                // Not writable now, or failed: the writer task waits for
+                // the socket, or finds the error again.
+                state.flush = true;
+            } else {
+                state.queue.push_back((msg, 0));
+            }
+            drop(state);
+            self.ready.notify_one();
             return;
         }
         let mut written = 0;
@@ -1376,7 +1516,14 @@ impl Drop for ReplyTo {
     }
 }
 
-async fn accept_loop(server: Weak<Server>, listener: TcpListener) {
+/// How long a client has for the TLS handshake.
+const HANDSHAKE_TIME: Duration = Duration::from_secs(30);
+
+async fn accept_loop(
+    server: Weak<Server>,
+    listener: TcpListener,
+    tls: Option<Arc<rustls::ServerConfig>>,
+) {
     loop {
         let Ok((stream, _)) = listener.accept().await else {
             // Out of file descriptors and the like: try again shortly.
@@ -1389,16 +1536,26 @@ async fn accept_loop(server: Weak<Server>, listener: TcpListener) {
         if server.is_shutting_down() {
             return;
         }
-        tokio::spawn(serve(server, stream));
+        tokio::spawn(serve(server, stream, tls.clone()));
     }
 }
 
-async fn serve(server: Arc<Server>, stream: TcpStream) {
+async fn serve(server: Arc<Server>, stream: TcpStream, tls: Option<Arc<rustls::ServerConfig>>) {
     let _ = stream.set_nodelay(true);
+    let session = match tls {
+        Some(config) => {
+            match tokio::time::timeout(HANDSHAKE_TIME, tls::accept(&stream, config)).await {
+                Ok(Ok(session)) => Some(session),
+                // A failed handshake (a certificate refused, say), or none.
+                _ => return,
+            }
+        }
+        None => None,
+    };
     let (reader, writer) = stream.into_split();
-    let out = Arc::new(Outbox::new(writer));
+    let out = Arc::new(Outbox::new(writer, session.clone()));
     let conn = Arc::new(ServerConn {
-        inbound: Inbound::new(reader, server.max_message_size),
+        inbound: Inbound::new(reader, session, server.max_message_size),
         out: Arc::clone(&out),
         code_sets: Mutex::new(None),
         requests: Mutex::default(),
@@ -1437,7 +1594,8 @@ async fn write_loop(out: Arc<Outbox>) {
             let mut state = out.state.lock().unwrap();
             if state.failed {
                 Step::End
-            } else if !state.queue.is_empty() {
+            } else if !state.queue.is_empty() || state.flush {
+                state.flush = false;
                 match state.stream.take() {
                     Some(stream) => Step::Write(stream, std::mem::take(&mut state.queue)),
                     None => Step::End,
@@ -1449,6 +1607,19 @@ async fn write_loop(out: Arc<Outbox>) {
             }
         };
         match step {
+            Step::Write(stream, batch) if out.tls.is_some() => {
+                let tls = out.tls.as_deref().unwrap();
+                for (msg, written) in &batch {
+                    tls.encrypt(msg, *written);
+                }
+                if flush_tls(tls, &stream).await.is_err() {
+                    let mut state = out.state.lock().unwrap();
+                    state.failed = true;
+                    state.queue.clear();
+                    return;
+                }
+                out.state.lock().unwrap().stream = Some(stream);
+            }
             Step::Write(mut stream, mut batch) => {
                 // Everything queued, in as few writes as the socket takes.
                 while !batch.is_empty() {
@@ -1478,6 +1649,10 @@ async fn write_loop(out: Arc<Outbox>) {
             Step::Wait => out.ready.notified().await,
             Step::Shutdown(stream) => {
                 if let Some(mut stream) = stream {
+                    if let Some(tls) = &out.tls {
+                        tls.close_notify();
+                        let _ = flush_tls(tls, &stream).await;
+                    }
                     let _ = stream.shutdown().await;
                 }
                 return;
@@ -1485,6 +1660,14 @@ async fn write_loop(out: Arc<Outbox>) {
             Step::End => return,
         }
     }
+}
+
+/// Writes the TLS records waiting, waiting for the socket as needed.
+async fn flush_tls(tls: &Tls, stream: &OwnedWriteHalf) -> io::Result<()> {
+    while !tls.flush(|bytes| stream.try_write(bytes))? {
+        stream.writable().await?;
+    }
+    Ok(())
 }
 
 /// Drops the first `n` bytes of the queued messages.

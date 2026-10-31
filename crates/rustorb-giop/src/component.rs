@@ -71,7 +71,7 @@ pub mod component_tag {
     pub const ASSOCIATION_OPTIONS: u32 = 13;
     /// `TAG_SEC_NAME`.
     pub const SEC_NAME: u32 = 14;
-    /// `TAG_SSL_SEC_TRANS`.
+    /// `TAG_SSL_SEC_TRANS`, an [`SslSecTrans`](crate::SslSecTrans).
     pub const SSL_SEC_TRANS: u32 = 20;
     /// `TAG_JAVA_CODEBASE`.
     pub const JAVA_CODEBASE: u32 = 25;
@@ -180,6 +180,60 @@ impl AlternateIiopAddress {
         let mut dec = component.decoder()?;
         Ok(AlternateIiopAddress {
             host: dec.read_string()?,
+            port: dec.read_u16()?,
+        })
+    }
+}
+
+/// `Security::AssociationOptions` bits, as in the
+/// [`SslSecTrans`] component.
+pub mod association_options {
+    /// `NoProtection`: unprotected IIOP.
+    pub const NO_PROTECTION: u16 = 1;
+    /// `Integrity`.
+    pub const INTEGRITY: u16 = 2;
+    /// `Confidentiality`.
+    pub const CONFIDENTIALITY: u16 = 4;
+    /// `DetectReplay`.
+    pub const DETECT_REPLAY: u16 = 8;
+    /// `DetectMisordering`.
+    pub const DETECT_MISORDERING: u16 = 16;
+    /// `EstablishTrustInTarget`: the server authenticates itself.
+    pub const ESTABLISH_TRUST_IN_TARGET: u16 = 32;
+    /// `EstablishTrustInClient`: the client authenticates itself.
+    pub const ESTABLISH_TRUST_IN_CLIENT: u16 = 64;
+}
+
+/// `SSLIOP::SSL`, the data of a [`component_tag::SSL_SEC_TRANS`]
+/// component: the port of the TLS endpoint at the host of the IIOP
+/// profile, and the association options of the target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SslSecTrans {
+    /// What the target supports ([`association_options`] bits).
+    pub target_supports: u16,
+    /// What the target requires of clients.
+    pub target_requires: u16,
+    /// TCP port of the TLS endpoint.
+    pub port: u16,
+}
+
+impl SslSecTrans {
+    /// Wraps the data in a [`component_tag::SSL_SEC_TRANS`] component.
+    pub fn to_component(&self, order: ByteOrder) -> Result<TaggedComponent> {
+        TaggedComponent::encapsulated(component_tag::SSL_SEC_TRANS, order, |enc| {
+            enc.write_u16(self.target_supports);
+            enc.write_u16(self.target_requires);
+            enc.write_u16(self.port);
+            Ok(())
+        })
+    }
+
+    /// Reads the data from a component's data.
+    pub fn from_component(component: &TaggedComponent) -> Result<SslSecTrans> {
+        let mut dec = component.decoder()?;
+        Ok(SslSecTrans {
+            target_supports: dec.read_u16()?,
+            target_requires: dec.read_u16()?,
             port: dec.read_u16()?,
         })
     }

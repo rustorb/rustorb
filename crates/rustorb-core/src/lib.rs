@@ -67,6 +67,7 @@ mod servant;
 mod server;
 mod stream;
 mod timeout;
+mod tls;
 pub mod typecode;
 mod value;
 mod wire;
@@ -78,7 +79,7 @@ pub use exception::{
 };
 pub use fixed::{Fixed, ParseFixedError};
 pub use object::{AsyncRequest, ObjectRef, Reply, Request};
-pub use orb::{EndpointAddr, Orb, OrbOptions, ResolveError};
+pub use orb::{ClientAuth, EndpointAddr, Orb, OrbOptions, ResolveError, TlsOptions};
 pub use poa::{
     IdAssignment, IdUniqueness, ImplicitActivation, Lifespan, ObjectId, Poa, PoaCurrent, PoaError,
     PoaManager, PoaManagerState, Policies, Policy, RequestProcessing, ServantRetention,

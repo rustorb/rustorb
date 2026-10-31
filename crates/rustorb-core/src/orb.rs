@@ -2,18 +2,20 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fmt;
 use std::future::Future;
 use std::panic::{self, AssertUnwindSafe};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use rustorb_cdr::ByteOrder;
 use rustorb_giop::{CorbaName, Corbaloc, Ior, ObjectUrl, Version};
 use tokio::runtime::{Handle, Runtime};
 
-use crate::connection::Connection;
+use crate::connection::{Connection, EndpointKey};
 use crate::poa::{self, MainThreadGuard, Poa};
 use crate::pool::Job;
 use crate::server::Server;
+use crate::tls;
 use crate::{
     CompletionStatus, Exception, ObjectRef, SystemException, SystemExceptionKind, minor, name,
     timeout,
@@ -76,9 +78,73 @@ pub struct OrbOptions {
     /// The socket receive buffer of each connection (`SO_RCVBUF`); `None`
     /// leaves the operating system's default.
     pub socket_receive_buffer: Option<usize>,
+    /// Addresses to listen on for requests over TLS (SSLIOP,
+    /// `-ORBendPoint giop:ssl:HOST:PORT`). Published in the
+    /// `TAG_SSL_SEC_TRANS` component of IORs; with TLS endpoints and none
+    /// in [`endpoints`](OrbOptions::endpoints), the ORB has no unprotected
+    /// endpoint. Needs [`tls`](OrbOptions::tls) with a key file.
+    pub tls_endpoints: Vec<EndpointAddr>,
+    /// Address published for the first TLS endpoint instead of the
+    /// listening one (`-ORBendPointPublish giop:ssl:HOST:PORT`).
+    pub tls_endpoint_publish: Option<EndpointAddr>,
+    /// Certificates, key and checks of TLS connections, client and server.
+    pub tls: TlsOptions,
 }
 
-/// A TCP address of an endpoint, as in `giop:tcp:HOST:PORT`.
+/// The TLS settings of an ORB (docs/ssliop.md). Files are PEM.
+///
+/// A client connects with TLS to the objects whose IORs offer it when
+/// [`ca_file`](TlsOptions::ca_file) is set; a server listens on the
+/// [TLS endpoints](OrbOptions::tls_endpoints).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TlsOptions {
+    /// The CA certificates trusted for the peer's certificate
+    /// (`-ORBsslCAFile`). A client needs it to use TLS, a server to check
+    /// client certificates.
+    pub ca_file: Option<PathBuf>,
+    /// This ORB's certificate, followed by its intermediate CAs
+    /// (`-ORBsslCertFile`). Without it the certificates are read from
+    /// [`key_file`](TlsOptions::key_file), which may hold both.
+    pub cert_file: Option<PathBuf>,
+    /// This ORB's private key, unencrypted (`-ORBsslKeyFile`). A server
+    /// needs it; a client sends its certificate when it has one.
+    pub key_file: Option<PathBuf>,
+    /// Whether a server asks clients for a certificate
+    /// (`-ORBsslVerifyClient none|optional|required`).
+    pub client_auth: ClientAuth,
+    /// Whether a client checks that the server's certificate is for the
+    /// host it connects to, as named in the IOR (`-ORBsslVerifyHost 0|1`).
+    /// The chain is checked either way.
+    pub verify_host: bool,
+}
+
+impl Default for TlsOptions {
+    fn default() -> TlsOptions {
+        TlsOptions {
+            ca_file: None,
+            cert_file: None,
+            key_file: None,
+            client_auth: ClientAuth::None,
+            verify_host: true,
+        }
+    }
+}
+
+/// Whether a TLS server asks clients for a certificate. A certificate a
+/// client sends is checked against [`TlsOptions::ca_file`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ClientAuth {
+    /// Clients are not asked.
+    #[default]
+    None,
+    /// Clients are asked; one without a certificate is accepted.
+    Optional,
+    /// Clients without a valid certificate are refused.
+    Required,
+}
+
+/// A TCP address of an endpoint, as in `giop:tcp:HOST:PORT` (or
+/// `giop:ssl:HOST:PORT` for a TLS endpoint).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EndpointAddr {
     /// Host name or address. Empty means every interface when listening,
@@ -92,7 +158,16 @@ impl EndpointAddr {
     /// Parses `giop:tcp:HOST:PORT`; the host and the port may be empty, and
     /// an IPv6 address is written in brackets.
     pub fn parse(s: &str) -> Option<EndpointAddr> {
-        let rest = s.strip_prefix("giop:tcp:")?;
+        EndpointAddr::parse_after(s.strip_prefix("giop:tcp:")?)
+    }
+
+    /// Parses `giop:ssl:HOST:PORT`, a TLS endpoint, like
+    /// [`parse`](EndpointAddr::parse).
+    pub fn parse_tls(s: &str) -> Option<EndpointAddr> {
+        EndpointAddr::parse_after(s.strip_prefix("giop:ssl:")?)
+    }
+
+    fn parse_after(rest: &str) -> Option<EndpointAddr> {
         let (host, port) = rest.rsplit_once(':')?;
         let port = if port.is_empty() {
             0
@@ -131,6 +206,9 @@ impl Default for OrbOptions {
             max_requests_per_connection: 256,
             socket_send_buffer: None,
             socket_receive_buffer: None,
+            tls_endpoints: Vec::new(),
+            tls_endpoint_publish: None,
+            tls: TlsOptions::default(),
         }
     }
 }
@@ -150,6 +228,13 @@ impl OrbOptions {
     /// | `-ORBendPoint giop:tcp:HOST:PORT` | [`endpoints`](OrbOptions::endpoints) (repeatable) |
     /// | `-ORBendPointPublish giop:tcp:HOST:PORT` | [`endpoint_publish`](OrbOptions::endpoint_publish) (`all(addr)` for the default) |
     /// | `-ORBmaxServerThreadPoolSize N` | [`max_server_threads`](OrbOptions::max_server_threads) |
+    /// | `-ORBendPoint giop:ssl:HOST:PORT` | [`tls_endpoints`](OrbOptions::tls_endpoints) (repeatable) |
+    /// | `-ORBendPointPublish giop:ssl:HOST:PORT` | [`tls_endpoint_publish`](OrbOptions::tls_endpoint_publish) |
+    /// | `-ORBsslCAFile PATH` | [`TlsOptions::ca_file`] |
+    /// | `-ORBsslCertFile PATH` | [`TlsOptions::cert_file`] |
+    /// | `-ORBsslKeyFile PATH` | [`TlsOptions::key_file`] |
+    /// | `-ORBsslVerifyClient none\|optional\|required` | [`TlsOptions::client_auth`] |
+    /// | `-ORBsslVerifyHost 0\|1` | [`TlsOptions::verify_host`] |
     ///
     /// The value may also follow the option name after `=`, as in
     /// `-ORBmaxGIOPVersion=1.1`.
@@ -170,6 +255,11 @@ impl OrbOptions {
                             | "clientCallTimeOutPeriod"
                             | "supportPerThreadTimeOut"
                             | "maxServerThreadPoolSize"
+                            | "sslCAFile"
+                            | "sslCertFile"
+                            | "sslKeyFile"
+                            | "sslVerifyClient"
+                            | "sslVerifyHost"
                     ) =>
                 {
                     (name.to_owned(), Some(value.to_owned()))
@@ -187,6 +277,11 @@ impl OrbOptions {
                     | "endPoint"
                     | "endPointPublish"
                     | "maxServerThreadPoolSize"
+                    | "sslCAFile"
+                    | "sslCertFile"
+                    | "sslKeyFile"
+                    | "sslVerifyClient"
+                    | "sslVerifyHost"
             ) {
                 rest.push(arg);
                 continue;
@@ -220,12 +315,19 @@ impl OrbOptions {
                         return Err(bad_option());
                     }
                 }
+                "endPoint" if value.starts_with("giop:ssl:") => self
+                    .tls_endpoints
+                    .push(EndpointAddr::parse_tls(&value).ok_or_else(bad_option)?),
                 "endPoint" => self
                     .endpoints
                     .push(EndpointAddr::parse(&value).ok_or_else(bad_option)?),
                 // `all(addr)` (every address of the host, omniORB's
                 // spelling) is what the ORB publishes anyway.
                 "endPointPublish" if value == "all(addr)" => self.endpoint_publish = None,
+                "endPointPublish" if value.starts_with("giop:ssl:") => {
+                    self.tls_endpoint_publish =
+                        Some(EndpointAddr::parse_tls(&value).ok_or_else(bad_option)?);
+                }
                 "endPointPublish" => {
                     self.endpoint_publish =
                         Some(EndpointAddr::parse(&value).ok_or_else(bad_option)?);
@@ -236,6 +338,24 @@ impl OrbOptions {
                         return Err(bad_option());
                     }
                     self.max_server_threads = n;
+                }
+                "sslCAFile" => self.tls.ca_file = Some(value.into()),
+                "sslCertFile" => self.tls.cert_file = Some(value.into()),
+                "sslKeyFile" => self.tls.key_file = Some(value.into()),
+                "sslVerifyClient" => {
+                    self.tls.client_auth = match value.as_str() {
+                        "none" => ClientAuth::None,
+                        "optional" => ClientAuth::Optional,
+                        "required" => ClientAuth::Required,
+                        _ => return Err(bad_option()),
+                    };
+                }
+                "sslVerifyHost" => {
+                    self.tls.verify_host = match value.as_str() {
+                        "0" => false,
+                        "1" => true,
+                        _ => return Err(bad_option()),
+                    };
                 }
                 _ => unreachable!(),
             }
@@ -311,7 +431,9 @@ pub(crate) struct OrbInner {
     /// [`timeout::encode`](crate::timeout::encode) stores them.
     call_timeout: AtomicU64,
     connect_timeout: AtomicU64,
-    connections: Mutex<HashMap<(String, u16), Arc<Connection>>>,
+    connections: Mutex<HashMap<EndpointKey, Arc<Connection>>>,
+    /// The configuration of client TLS connections, made when first used.
+    tls_client: OnceLock<Result<Arc<rustls::ClientConfig>, String>>,
     /// [`Orb::register_initial_reference`] and
     /// [`Orb::register_local_initial_reference`]. IORs rather than
     /// references, which would hold the ORB.
@@ -443,6 +565,7 @@ impl Orb {
                 connect_timeout: AtomicU64::new(timeout::encode(options.connect_timeout)),
                 options,
                 connections: Mutex::new(HashMap::new()),
+                tls_client: OnceLock::new(),
                 registered: Mutex::default(),
                 shut_down: AtomicBool::new(false),
                 server: Mutex::new(None),
@@ -763,7 +886,7 @@ impl Orb {
             .iiop_profiles()
             .filter_map(Result::ok)
             .find(|p| {
-                server.is_local(&p.host, p.port)
+                server.is_own_profile(p)
                     && matches!(poa::parse_key(&p.object_key), poa::ParsedKey::Poa { .. })
             })
             .map(|p| p.object_key)
@@ -787,9 +910,10 @@ impl Orb {
         self.inner.server.lock().unwrap().clone()
     }
 
-    /// The server side, if `host:port` is one of its endpoints.
-    pub(crate) fn local_server(&self, host: &str, port: u16) -> Option<Arc<Server>> {
-        self.server().filter(|s| s.is_local(host, port))
+    /// The server side, if `host:port` is one of its endpoints (a TLS one
+    /// if `tls`).
+    pub(crate) fn local_server(&self, host: &str, port: u16, tls: bool) -> Option<Arc<Server>> {
+        self.server().filter(|s| s.is_local(host, port, tls))
     }
 
     /// The addresses the server side publishes in IORs, as host and port;
@@ -797,6 +921,14 @@ impl Orb {
     pub fn endpoints(&self) -> Vec<(String, u16)> {
         self.server()
             .map(|s| s.published().to_vec())
+            .unwrap_or_default()
+    }
+
+    /// The TLS endpoints the server side publishes in IORs, as host and
+    /// port; empty until the RootPOA is used.
+    pub fn tls_endpoints(&self) -> Vec<(String, u16)> {
+        self.server()
+            .map(|s| s.published_tls().to_vec())
             .unwrap_or_default()
     }
 
@@ -1001,24 +1133,46 @@ impl Orb {
         Ok(self.inner.handle.block_on(fut))
     }
 
-    /// A usable connection to `host:port`, opened if needed.
+    /// Whether this ORB can make TLS connections: it has CA certificates
+    /// to check servers with.
+    pub(crate) fn has_tls_client(&self) -> bool {
+        self.inner.options.tls.ca_file.is_some()
+    }
+
+    /// The configuration of client TLS connections. A configuration that
+    /// cannot be loaded makes every TLS connection fail with `TRANSIENT`.
+    fn tls_client(&self) -> Result<Arc<rustls::ClientConfig>, SystemException> {
+        self.inner
+            .tls_client
+            .get_or_init(|| tls::client_config(&self.inner.options.tls))
+            .clone()
+            .map_err(|_| {
+                SystemException::new(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No)
+            })
+    }
+
+    /// A usable connection to `host:port`, with TLS if `tls`, opened if
+    /// needed.
     ///
     /// Connecting stops at the connect timeout, else at `deadline` (the
-    /// end of the call), with `TIMEOUT`, completed no, like omniORB.
+    /// end of the call), with `TIMEOUT`, completed no, like omniORB. The
+    /// TLS handshake counts as part of connecting.
     pub(crate) async fn connection(
         &self,
         host: &str,
         port: u16,
+        tls: bool,
         deadline: Option<Instant>,
     ) -> Result<Arc<Connection>, SystemException> {
         self.check_running()?;
-        let key = (host.to_owned(), port);
+        let key = (host.to_owned(), port, tls);
         if let Some(conn) = self.inner.connections.lock().unwrap().get(&key) {
             if conn.is_usable() {
                 return Ok(Arc::clone(conn));
             }
         }
-        let connect = Connection::connect(host, port, &self.inner.options);
+        let config = if tls { Some(self.tls_client()?) } else { None };
+        let connect = Connection::connect(host, port, config, &self.inner.options);
         let limit = match self.connect_timeout() {
             Some(t) => Some(Instant::now() + t),
             None => deadline,

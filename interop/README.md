@@ -56,6 +56,7 @@ interop/run-matrix.sh --suite any              # Any / TypeCode suite
 interop/run-matrix.sh --suite value            # valuetype suite
 interop/run-matrix.sh --suite custom           # custom valuetype suite
 interop/run-matrix.sh --suite abstract         # abstract interface suite
+interop/run-matrix.sh --ssl                    # TLS endpoints (SSLIOP), omniORB and rustorb
 interop/run-wire-probe.sh
 interop/run-poa-probe.sh
 interop/run-timeout-probe.sh
@@ -69,7 +70,7 @@ interop/scripts/golden-compare --all interop/out interop/golden
 ```
 
 Logs and captures go to `interop/out/<client>-to-<server>/` (with
-`-giop1.1` appended for `--giop 1.1`, `-any` for `--suite any`, `-value` for `--suite value`, `-custom` for `--suite custom` and `-abstract` for `--suite abstract`):
+`-giop1.1` appended for `--giop 1.1`, `-any` for `--suite any`, `-value` for `--suite value`, `-custom` for `--suite custom`, `-abstract` for `--suite abstract` and `-ssl` for `--ssl`):
 `client.log`, `server.log`, `naming.log`, and with `--capture`,
 `capture/capture.pcap` and `capture/messages/` (one `.bin` file per GIOP
 message, header included, and a `messages.json` index).
@@ -127,6 +128,14 @@ ISO-8859-1, omniORB's native char code set, from both clients.
 | `--host HOST` / `--port N` | host name and fixed port to listen on and publish in IORs |
 | `--timeout S` | how long to retry while the naming service or server is not up yet |
 | `--shutdown-server` | (client) call `Echo::shutdown` at the end |
+
+With `INTEROP_SSL=DIR` in the environment (`run-matrix.sh --ssl`), the
+endpoint is `giop:ssl:HOST:PORT` instead of `giop:tcp:HOST:PORT`, with the CA
+`DIR/ca.pem` and the certificate and key `DIR/server-bundle.pem` (the test
+certificates of `crates/rustorb-core/tests/tls`, whose names cover the
+containers), and certificates are required both ways, which is omniORB's
+default (rustorb: `-ORBsslVerifyClient required`). The JacORB
+implementation has no TLS set-up and is left out.
 
 Other arguments are ORB options. The server prints `server ready: PATH`
 once bound. The client prints `ok   <case>` or `FAIL <case>: <reason>` per

@@ -51,8 +51,16 @@ def orb_init(args, orb_args):
     max_giop = os.environ.get("ORBmaxGIOPVersion")
     if max_giop:
         argv += ["-ORBmaxGIOPVersion", max_giop]
+    # INTEROP_SSL=DIR (run-matrix.sh --ssl): the endpoint is TLS only, with
+    # the test CA and certificate in DIR, and certificates are required
+    # both ways, as omniORB requires by default.
+    ssl = os.environ.get("INTEROP_SSL")
+    if ssl:
+        argv += ["-ORBsslCAFile", os.path.join(ssl, "ca.pem"),
+                 "-ORBsslKeyFile", os.path.join(ssl, "server-bundle.pem"),
+                 "-ORBsslVerifyClient", "required"]
     if args.port:
-        endpoint = "giop:tcp:%s:%d" % (args.host or "", args.port)
+        endpoint = "giop:%s:%s:%d" % ("ssl" if ssl else "tcp", args.host or "", args.port)
         argv += ["-ORBendPoint", endpoint]
     return CORBA.ORB_init(argv, CORBA.ORB_ID)
 

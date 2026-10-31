@@ -10,7 +10,7 @@ OUT ?= out
 OMNIIDL = $(OMNIORB)/bin/omniidl
 CXXFLAGS ?= -O2 -g -Wall -Wno-unused
 CPPFLAGS += -I$(OMNIORB)/include -Igen
-LDLIBS += -L$(OMNIORB)/lib -lomniDynamic4 -lomniORB4 -lomnithread -lpthread
+LDLIBS += -L$(OMNIORB)/lib -lomnisslTP4 -lomniDynamic4 -lomniORB4 -lomnithread -lpthread -lssl -lcrypto
 
 STUB_SRC = gen/InteropTestSK.cc
 STUB_HDR = gen/InteropTest.hh

@@ -28,8 +28,8 @@ mod service_context;
 mod writer;
 
 pub use component::{
-    AlternateIiopAddress, CodeSetComponent, CodeSetComponentInfo, TaggedComponent, component_tag,
-    orb_type, orb_type_component,
+    AlternateIiopAddress, CodeSetComponent, CodeSetComponentInfo, SslSecTrans, TaggedComponent,
+    association_options, component_tag, orb_type, orb_type_component,
 };
 pub use corbaloc::{
     CorbaName, Corbaloc, DEFAULT_CORBALOC_PORT, DEFAULT_CORBANAME_KEY, IiopAddr, ObjAddr, ObjectUrl,
