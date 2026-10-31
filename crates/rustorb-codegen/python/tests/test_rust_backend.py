@@ -150,7 +150,6 @@ class RustBackendTest(unittest.TestCase):
             "value_raises": "module U { exception E {}; valuetype V { public long x; long f() raises (E); }; };",
             "value_op_clash": "module U { valuetype V { public long x; long get(); }; };",
             "abstract_value": "module U { abstract valuetype A {}; valuetype V : A { public long x; }; };",
-            "longdouble": "module U { struct S { long double d; }; };",
             "members": "module U { struct S { long aB; long a_b; }; };",
             "enumerators": "module U { enum E { FOO_BAR, FooBar }; };",
             "items": "module U { struct my_pair { long x; }; struct MyPair { long y; }; };",

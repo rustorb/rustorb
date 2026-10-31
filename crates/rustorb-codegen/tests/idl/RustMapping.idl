@@ -59,6 +59,14 @@ module RustMapping {
   const Money C_FIXED = 12.50d;
   typedef sequence<Pair> PairSeq;
 
+  // --- long double ---
+  const long double C_QUAD = 0.5;
+  struct Quads {
+    long double one;
+    sequence<long double> many;
+    long double pair[2];
+  };
+
   // --- recursive struct and union ---
   struct Tree {
     string label;

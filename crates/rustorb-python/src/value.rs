@@ -15,7 +15,7 @@ use std::sync::{Arc, Weak};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyList, PyString, PyTuple};
 use rustorb_core::cdr::CdrEncode;
-use rustorb_core::{CompletionStatus, InStream, OutStream, SystemException, ValueRef};
+use rustorb_core::{CompletionStatus, InStream, LongDouble, OutStream, SystemException, ValueRef};
 
 use crate::any;
 use crate::error::{bad_param, corba, marshal, rt, sys_err, sys_from_py};
@@ -516,6 +516,7 @@ pub(crate) fn from_py(tc: &Tc, obj: &Bound<'_, PyAny>) -> PyResult<Value> {
         Tc::ULongLong => Value::ULongLong(obj.extract()?),
         Tc::Float => Value::Float(obj.extract::<f64>()? as f32),
         Tc::Double => Value::Double(obj.extract()?),
+        Tc::LongDouble => Value::LongDouble(LongDouble::from_f64(obj.extract()?)),
         Tc::Boolean => Value::Bool(obj.is_truthy()?),
         Tc::Octet => Value::Octet(obj.extract()?),
         Tc::Char => Value::Char(one_char(obj)?),
@@ -733,6 +734,7 @@ pub(crate) fn to_py<'py>(py: Python<'py>, tc: &Tc, value: Value) -> PyResult<Bou
         (_, Value::ULongLong(v)) => v.into_pyobject(py)?.into_any(),
         (_, Value::Float(v)) => f64::from(v).into_pyobject(py)?.into_any(),
         (_, Value::Double(v)) => v.into_pyobject(py)?.into_any(),
+        (_, Value::LongDouble(v)) => v.to_f64().into_pyobject(py)?.into_any(),
         (_, Value::Char(c)) => PyString::new(py, c.encode_utf8(&mut [0; 4])).into_any(),
         (_, Value::WChar(c)) => py
             .import("builtins")?
@@ -848,6 +850,7 @@ pub(crate) fn encode(
         (_, Value::ULongLong(v)) => v.encode(out)?,
         (_, Value::Float(v)) => v.encode(out)?,
         (_, Value::Double(v)) => v.encode(out)?,
+        (_, Value::LongDouble(v)) => v.encode(out)?,
         (_, Value::Char(c)) => {
             let bytes = out.code_sets().encode_string(c.encode_utf8(&mut [0; 4]))?;
             match bytes[..] {
@@ -951,6 +954,7 @@ pub(crate) fn decode(
         Tc::ULongLong => Value::ULongLong(input.read()?),
         Tc::Float => Value::Float(input.read()?),
         Tc::Double => Value::Double(input.read()?),
+        Tc::LongDouble => Value::LongDouble(input.read()?),
         Tc::Boolean => Value::Bool(input.read()?),
         Tc::Octet => Value::Octet(input.read()?),
         Tc::Char => {

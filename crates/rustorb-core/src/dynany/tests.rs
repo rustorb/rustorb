@@ -263,11 +263,21 @@ fn narrowing_and_kinds() {
     ));
     assert_eq!(d.get_seq(TCKind::Long), Err(DynAnyError::TypeMismatch));
     assert!(is_sys(d.no_implement().unwrap_err(), K::NO_IMPLEMENT));
+}
+
+#[test]
+fn long_double() {
     let ld = TypeCode::simple(TCKind::LongDouble).unwrap();
-    assert_eq!(
-        f().create_dyn_any_from_type_code(&ld).unwrap_err(),
-        DynAnyError::InconsistentTypeCode
-    );
+    let d = f().create_dyn_any_from_type_code(&ld).unwrap();
+    assert_eq!(d.get_longdouble().unwrap(), LongDouble::ZERO);
+    d.insert_longdouble(LongDouble::from_f64(2.5)).unwrap();
+    assert_eq!(d.to_any().unwrap().value(), &Value::LongDouble(2.5.into()));
+    assert_eq!(d.get_double(), Err(DynAnyError::TypeMismatch));
+    let seq = TypeCode::sequence(&ld, 0).unwrap();
+    let d = f().create_dyn_any_from_type_code(&seq).unwrap();
+    let v = [LongDouble::from_f64(1.0), LongDouble::from_f64(-0.5)];
+    d.insert_longdouble_seq(&v).unwrap();
+    assert_eq!(d.get_longdouble_seq().unwrap(), v);
 }
 
 #[test]

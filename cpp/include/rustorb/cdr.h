@@ -10,9 +10,12 @@
 #include <rustorb/corba.h>
 
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <string_view>
+#include <utility>
 
 namespace rustorb {
 
@@ -161,6 +164,149 @@ template <uint16_t D, uint16_t S> struct codec<IDL::Fixed<D, S>> {
     typename IDL::Fixed<D, S>::digits_type digits{};
     bool negative = rorb_in_read_fixed(in, digits.data(), D) != 0;
     v._rorb_set(digits, negative);
+  }
+};
+
+// long double travels as IEEE 754 binary128 (CORBA 3.4 part 2, 9.3.1.2).
+// Where long double is binary128 the bits are copied; elsewhere (the x87
+// 80-bit format, or double) the value is converted: exactly to binary128,
+// and from it rounded to nearest, ties to even.
+namespace long_double {
+
+// A 128-bit unsigned integer as two halves.
+struct u128 {
+  uint64_t hi;
+  uint64_t lo;
+};
+
+inline u128 shift_right(u128 v, int n) {
+  if (n <= 0) return v;
+  if (n >= 128) return {0, 0};
+  if (n >= 64) return {0, v.hi >> (n - 64)};
+  return {v.hi >> n, (v.lo >> n) | (v.hi << (64 - n))};
+}
+
+// v >> n rounded to nearest, ties to even.
+inline u128 round_right(u128 v, int n) {
+  if (n <= 0) return v;
+  if (n > 128) return {0, 0};
+  u128 q = shift_right(v, n);
+  // The dropped bits: the half bit, and whether any bit below it is set.
+  int h = n - 1;
+  bool half = h >= 64 ? ((v.hi >> (h - 64)) & 1) != 0 : ((v.lo >> h) & 1) != 0;
+  bool below;
+  if (h >= 64) {
+    below = v.lo != 0 || (h > 64 && (v.hi & ((uint64_t{1} << (h - 64)) - 1)) != 0);
+  } else {
+    below = h > 0 && (v.lo & ((uint64_t{1} << h) - 1)) != 0;
+  }
+  if (half && (below || (q.lo & 1) != 0)) {
+    q.lo += 1;
+    if (q.lo == 0) q.hi += 1;
+  }
+  return q;
+}
+
+inline int bit_length(u128 v) {
+  int n = 0;
+  for (uint64_t w = v.hi != 0 ? v.hi : v.lo; w != 0; w >>= 1) ++n;
+  return v.hi != 0 ? n + 64 : n;
+}
+
+template <typename F>
+constexpr bool is_binary128 = std::numeric_limits<F>::digits == 113 &&
+                              std::numeric_limits<F>::max_exponent == 16384 && sizeof(F) == 16;
+
+inline bool little_endian() {
+  const uint16_t one = 1;
+  unsigned char b = 0;
+  std::memcpy(&b, &one, 1);
+  return b == 1;
+}
+
+// The bits of x, of a floating point type F (long double, or another
+// type in the tests).
+template <typename F> u128 to_bits(F x) {
+  if constexpr (is_binary128<F>) {
+    uint64_t w[2];
+    std::memcpy(w, &x, 16);
+    return little_endian() ? u128{w[1], w[0]} : u128{w[0], w[1]};
+  } else {
+    const uint64_t sign = std::signbit(x) ? uint64_t{1} << 63 : 0;
+    if (std::isnan(x)) return {sign | (uint64_t{0x7fff} << 48) | (uint64_t{1} << 47), 0};
+    if (std::isinf(x)) return {sign | (uint64_t{0x7fff} << 48), 0};
+    if (x == 0) return {sign, 0};
+    // x = m * 2^e with 0.5 <= m < 1; m * 2^128 is an integer, as F has
+    // fewer than 113 digits.
+    int e = 0;
+    F m = std::frexp(std::fabs(x), &e);
+    F t = std::ldexp(m, 64);
+    uint64_t mh = static_cast<uint64_t>(t);
+    uint64_t ml = static_cast<uint64_t>(std::ldexp(t - static_cast<F>(mh), 64));
+    int biased = e - 1 + 16383;
+    if (biased >= 0x7fff) return {sign | (uint64_t{0x7fff} << 48), 0};
+    // 113 bits with the leading one; a subnormal shifts further.
+    u128 mant = shift_right({mh, ml}, biased >= 1 ? 15 : 15 + 1 - biased);
+    uint64_t exp = biased >= 1 ? static_cast<uint64_t>(biased) : 0;
+    return {sign | (exp << 48) | (mant.hi & ((uint64_t{1} << 48) - 1)), mant.lo};
+  }
+}
+
+// The F nearest to the value of the bits v.
+template <typename F = long double> F from_bits(u128 v) {
+  if constexpr (is_binary128<F>) {
+    uint64_t w[2] = {v.hi, v.lo};
+    if (little_endian()) std::swap(w[0], w[1]);
+    F x;
+    std::memcpy(&x, w, 16);
+    return x;
+  } else {
+    using limits = std::numeric_limits<F>;
+    const bool negative = (v.hi >> 63) != 0;
+    const int exp = static_cast<int>((v.hi >> 48) & 0x7fff);
+    u128 mant{v.hi & ((uint64_t{1} << 48) - 1), v.lo};
+    F r;
+    if (exp == 0x7fff) {
+      r = (mant.hi | mant.lo) != 0 ? limits::quiet_NaN() : limits::infinity();
+    } else {
+      if (exp != 0) mant.hi |= uint64_t{1} << 48;
+      // The value is mant * 2^scale.
+      int scale = (exp != 0 ? exp : 1) - 16383 - 112;
+      int len = bit_length(mant);
+      if (len == 0) {
+        r = 0;
+      } else if (limits::digits <= 64) {
+        // Keep as many digits as F has at this exponent, fewer for its
+        // subnormals.
+        int top = len - 1 + scale;
+        int keep = limits::digits;
+        if (top < limits::min_exponent - 1) keep -= limits::min_exponent - 1 - top;
+        int drop = len - keep;
+        u128 q = round_right(mant, drop);
+        if (q.hi != 0) {  // rounding carried past 64 bits
+          q = shift_right(q, 1);
+          drop += 1;
+        }
+        r = std::ldexp(static_cast<F>(q.lo), scale + (drop > 0 ? drop : 0));
+      } else {
+        r = std::ldexp(std::ldexp(static_cast<F>(mant.hi), 64) + static_cast<F>(mant.lo), scale);
+      }
+    }
+    return negative ? -r : r;
+  }
+}
+
+}  // namespace long_double
+
+template <> struct codec<long double> {
+  static void write(rorb_out* out, long double v) {
+    auto bits = long_double::to_bits(v);
+    rorb_out_write_longdouble(out, bits.hi, bits.lo);
+  }
+  static void read(rorb_in* in, long double& v) {
+    long_double::u128 bits{0, 0};
+    rorb_in_read_longdouble(in, &bits.hi, &bits.lo);
+    v = long_double::from_bits(bits);
   }
 };
 
@@ -432,6 +578,7 @@ RUSTORB_SIMPLE_TYPE_CODE(int64_t, CORBA::TCKind::tk_longlong)
 RUSTORB_SIMPLE_TYPE_CODE(uint64_t, CORBA::TCKind::tk_ulonglong)
 RUSTORB_SIMPLE_TYPE_CODE(float, CORBA::TCKind::tk_float)
 RUSTORB_SIMPLE_TYPE_CODE(double, CORBA::TCKind::tk_double)
+RUSTORB_SIMPLE_TYPE_CODE(long double, CORBA::TCKind::tk_longdouble)
 RUSTORB_SIMPLE_TYPE_CODE(std::string, CORBA::TCKind::tk_string)
 RUSTORB_SIMPLE_TYPE_CODE(std::wstring, CORBA::TCKind::tk_wstring)
 RUSTORB_SIMPLE_TYPE_CODE(CORBA::Any, CORBA::TCKind::tk_any)
@@ -695,6 +842,8 @@ inline const IDL::traits<TypeCode>::ref_type _tc_ulong = rustorb::cdr::type_code
 inline const IDL::traits<TypeCode>::ref_type _tc_ulonglong = rustorb::cdr::type_code<uint64_t>::get();
 inline const IDL::traits<TypeCode>::ref_type _tc_float = rustorb::cdr::type_code<float>::get();
 inline const IDL::traits<TypeCode>::ref_type _tc_double = rustorb::cdr::type_code<double>::get();
+inline const IDL::traits<TypeCode>::ref_type _tc_longdouble =
+    rustorb::cdr::type_code<long double>::get();
 inline const IDL::traits<TypeCode>::ref_type _tc_boolean = rustorb::cdr::type_code<bool>::get();
 inline const IDL::traits<TypeCode>::ref_type _tc_char = rustorb::cdr::type_code<char>::get();
 inline const IDL::traits<TypeCode>::ref_type _tc_wchar = rustorb::cdr::type_code<wchar_t>::get();
@@ -772,6 +921,7 @@ class DataOutputStream {
   RUSTORB_DATA_WRITE(ulonglong, uint64_t)
   RUSTORB_DATA_WRITE(float, float)
   RUSTORB_DATA_WRITE(double, double)
+  RUSTORB_DATA_WRITE(longdouble, long double)
 #undef RUSTORB_DATA_WRITE
 
   void write_any(const Any& v) { write(v); }
@@ -834,6 +984,7 @@ class DataInputStream {
   RUSTORB_DATA_READ(ulonglong, uint64_t)
   RUSTORB_DATA_READ(float, float)
   RUSTORB_DATA_READ(double, double)
+  RUSTORB_DATA_READ(longdouble, long double)
   RUSTORB_DATA_READ(any, Any)
 #undef RUSTORB_DATA_READ
 

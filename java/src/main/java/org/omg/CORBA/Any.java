@@ -79,6 +79,17 @@ public abstract class Any implements org.omg.CORBA.portable.IDLEntity {
         throw new NO_IMPLEMENT();
     }
 
+    /** A long double as the nearest double (rustorb: the Java mapping has
+     * no long double). */
+    public double extract_longdouble() {
+        throw new NO_IMPLEMENT();
+    }
+
+    /** Puts value in as a long double (rustorb). */
+    public void insert_longdouble(double value) {
+        throw new NO_IMPLEMENT();
+    }
+
     public java.math.BigDecimal extract_fixed() {
         throw new NO_IMPLEMENT();
     }

@@ -26,7 +26,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::typecode::{TCKind, TypeCode};
 use crate::value::state_types;
-use crate::{Any, CompletionStatus, Fixed, SystemException, SystemExceptionKind, Value, ValueRef};
+use crate::{
+    Any, CompletionStatus, Fixed, LongDouble, SystemException, SystemExceptionKind, Value, ValueRef,
+};
 
 #[cfg(test)]
 mod tests;
@@ -37,7 +39,7 @@ const MAX_DEPTH: usize = 256;
 /// Why a DynAny operation failed: the exceptions of `DynamicAny`, or a
 /// system exception (`OBJECT_NOT_EXIST` after [`DynAny::destroy`],
 /// `BAD_OPERATION` for an operation of another kind of DynAny,
-/// `NO_IMPLEMENT` for `long double` and abstract interfaces).
+/// `NO_IMPLEMENT` for abstract interfaces).
 #[derive(Debug, Clone, PartialEq)]
 pub enum DynAnyError {
     /// `DynAny::InvalidValue`: the value is not one the operation accepts
@@ -105,7 +107,7 @@ impl DynAnyFactory {
     /// first label value of its TypeCode, nil references, `null` valuetypes, an empty any and a
     /// `null` TypeCode, and structs and arrays of those.
     /// `InconsistentTypeCode` for `Principal`, `native`, abstract and
-    /// local interfaces, `long double`, an enum without enumerators and
+    /// local interfaces, an enum without enumerators and
     /// an unresolved recursive TypeCode.
     pub fn create_dyn_any_from_type_code(&self, tc: &TypeCode) -> Result<DynAny> {
         let life = Arc::new(Life::default());
@@ -291,6 +293,7 @@ fn default_basic(t: &TypeCode, kind: TCKind) -> Result<Value> {
         TCKind::ULongLong => Value::ULongLong(0),
         TCKind::Float => Value::Float(0.0),
         TCKind::Double => Value::Double(0.0),
+        TCKind::LongDouble => Value::LongDouble(LongDouble::ZERO),
         TCKind::Boolean => Value::Bool(false),
         TCKind::Char => Value::Char('\0'),
         TCKind::WChar => Value::WChar(0),
@@ -512,6 +515,7 @@ fn check_basic(t: &TypeCode, kind: TCKind, value: &Value) -> Result<Value> {
         | (TCKind::ULongLong, Value::ULongLong(_))
         | (TCKind::Float, Value::Float(_))
         | (TCKind::Double, Value::Double(_))
+        | (TCKind::LongDouble, Value::LongDouble(_))
         | (TCKind::Boolean, Value::Bool(_))
         | (TCKind::Char, Value::Char(_))
         | (TCKind::WChar, Value::WChar(_))
@@ -526,7 +530,7 @@ fn check_basic(t: &TypeCode, kind: TCKind, value: &Value) -> Result<Value> {
         (TCKind::Fixed, Value::Fixed { digits, .. }) => {
             digits.len() == t.fixed_digits().unwrap_or(0) as usize && digits.iter().all(|&d| d < 10)
         }
-        (TCKind::LongDouble | TCKind::AbstractInterface | TCKind::Native, _) => {
+        (TCKind::AbstractInterface | TCKind::Native, _) => {
             return Err(system(SystemExceptionKind::NO_IMPLEMENT));
         }
         _ => false,
@@ -924,6 +928,7 @@ impl DynAny {
         insert_ulong, get_ulong, u32, ULong, ULong;
         insert_float, get_float, f32, Float, Float;
         insert_double, get_double, f64, Double, Double;
+        insert_longdouble, get_longdouble, LongDouble, LongDouble, LongDouble;
         insert_longlong, get_longlong, i64, LongLong, LongLong;
         insert_ulonglong, get_ulonglong, u64, ULongLong, ULongLong;
         insert_wchar, get_wchar, u16, WChar, WChar;
@@ -983,8 +988,7 @@ impl DynAny {
         DynAny::top(a.typecode(), a.value(), true)
     }
 
-    /// `insert_long_double` / `get_long_double` and `insert_abstract` /
-    /// `get_abstract`: `NO_IMPLEMENT`.
+    /// `insert_abstract` / `get_abstract`: `NO_IMPLEMENT`.
     pub fn no_implement(&self) -> Result<()> {
         self.check()?;
         Err(system(SystemExceptionKind::NO_IMPLEMENT))
@@ -1071,6 +1075,7 @@ impl DynAny {
         insert_ulong_seq, get_ulong_seq, u32, ULong, ULong;
         insert_float_seq, get_float_seq, f32, Float, Float;
         insert_double_seq, get_double_seq, f64, Double, Double;
+        insert_longdouble_seq, get_longdouble_seq, LongDouble, LongDouble, LongDouble;
         insert_longlong_seq, get_longlong_seq, i64, LongLong, LongLong;
         insert_ulonglong_seq, get_ulonglong_seq, u64, ULongLong, ULongLong;
         insert_wchar_seq, get_wchar_seq, u16, WChar, WChar;

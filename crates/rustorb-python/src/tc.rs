@@ -62,6 +62,7 @@ mod kind {
     pub const EXCEPT: u32 = 22;
     pub const LONGLONG: u32 = 23;
     pub const ULONGLONG: u32 = 24;
+    pub const LONGDOUBLE: u32 = 25;
     pub const WCHAR: u32 = 26;
     pub const WSTRING: u32 = 27;
     pub const FIXED: u32 = 28;
@@ -84,6 +85,7 @@ pub(crate) enum Tc {
     ULongLong,
     Float,
     Double,
+    LongDouble,
     Boolean,
     Char,
     WChar,
@@ -161,7 +163,7 @@ pub(crate) enum Tc {
     /// A reference back to an enclosing type of a recursive type, which
     /// holds it alive.
     Back(Weak<TcCell>),
-    /// A type the binding cannot marshal (valuetypes, `long double`...).
+    /// A type the binding cannot marshal (`native`, `Principal`...).
     Unsupported(String),
 }
 
@@ -184,6 +186,7 @@ impl Tc {
             Tc::Boolean | Tc::Char | Tc::Octet | Tc::WChar | Tc::Abstract { .. } => 1,
             Tc::Short | Tc::UShort => 2,
             Tc::LongLong | Tc::ULongLong | Tc::Double => 8,
+            Tc::LongDouble => 16,
             Tc::Fixed { digits, .. } => (*digits as usize + 2) / 2,
             _ => 4,
         }
@@ -378,6 +381,7 @@ impl Compiler {
             kind::ULONGLONG => Tc::ULongLong,
             kind::FLOAT => Tc::Float,
             kind::DOUBLE => Tc::Double,
+            kind::LONGDOUBLE => Tc::LongDouble,
             kind::BOOLEAN => Tc::Boolean,
             kind::CHAR => Tc::Char,
             kind::WCHAR => Tc::WChar,

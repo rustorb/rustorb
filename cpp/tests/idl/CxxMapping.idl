@@ -40,6 +40,13 @@ module CxxMapping {
   const fixed C_FIXED = 012.50d;
   const Money C_MONEY = -1.5d;
 
+  typedef long double Quad;
+  const long double C_QUAD = 2.5;
+  struct Measure {
+    Quad value;
+    sequence<long double> samples;
+  };
+
   struct Price {
     Money amount;
     fixed<31, 31> tiny;
@@ -173,6 +180,8 @@ module CxxMapping {
     ShortString echo_short_string(in ShortString s);
     Money echo_money(in Money m, inout Money total, out fixed<3, 0> whole);
     Price echo_price(in Price p);
+    Quad echo_quad(in Quad q, inout long double twice, out long double negated);
+    Measure echo_measure(in Measure m);
     void fail(in long code) raises (Failure, Empty);
     LaterSeq laters(in long n);
     void _delete(in string what);

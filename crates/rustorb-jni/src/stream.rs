@@ -41,6 +41,21 @@ out_fns! {
     Java_org_rustorb_Native_outDouble(jdouble) => rorb_out_write_double as f64;
 }
 
+/// A double, as a long double.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_rustorb_Native_outLongdouble(
+    _: JNIEnv,
+    _: JClass,
+    out: jlong,
+    v: jdouble,
+) {
+    let (mut hi, mut lo) = (0, 0);
+    unsafe {
+        rorb_longdouble_from_double(v, &mut hi, &mut lo);
+        rorb_out_write_longdouble(ptr(out), hi, lo);
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_org_rustorb_Native_outChar(_: JNIEnv, _: JClass, out: jlong, v: jchar) {
     unsafe { rorb_out_write_char(ptr(out), v as u8 as c_char) };
@@ -199,6 +214,20 @@ in_fns! {
     Java_org_rustorb_Native_inUlonglong -> jlong = rorb_in_read_ulonglong;
     Java_org_rustorb_Native_inFloat -> jfloat = rorb_in_read_float;
     Java_org_rustorb_Native_inDouble -> jdouble = rorb_in_read_double;
+}
+
+/// A long double, as the nearest double.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_rustorb_Native_inLongdouble(
+    _: JNIEnv,
+    _: JClass,
+    r#in: jlong,
+) -> jdouble {
+    let (mut hi, mut lo) = (0, 0);
+    unsafe {
+        rorb_in_read_longdouble(ptr(r#in), &mut hi, &mut lo);
+        rorb_longdouble_to_double(hi, lo)
+    }
 }
 
 #[unsafe(no_mangle)]

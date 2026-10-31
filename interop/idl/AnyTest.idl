@@ -11,6 +11,7 @@
 // | ulonglong      | ulonglong| 18446744073709551615                           |
 // | float          | float    | 0.25                                           |
 // | double         | double   | 1.5                                            |
+// | longdouble     | long double | 0.1 (the double nearest 0.1)                |
 // | boolean        | boolean  | TRUE                                           |
 // | char           | char     | 'x'                                            |
 // | octet          | octet    | 255                                            |

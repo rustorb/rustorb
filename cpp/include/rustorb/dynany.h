@@ -41,6 +41,7 @@ using LongLongSeq = std::vector<int64_t>;
 using ULongLongSeq = std::vector<uint64_t>;
 using FloatSeq = std::vector<float>;
 using DoubleSeq = std::vector<double>;
+using LongDoubleSeq = std::vector<long double>;
 }  // namespace CORBA
 
 namespace DynamicAny {
@@ -194,6 +195,7 @@ class DynAny : public virtual CORBA::LocalObject {
   RUSTORB_DYN_BASIC(ulong, uint32_t, RORB_TK_ULONG)
   RUSTORB_DYN_BASIC(float, float, RORB_TK_FLOAT)
   RUSTORB_DYN_BASIC(double, double, RORB_TK_DOUBLE)
+  RUSTORB_DYN_BASIC(longdouble, long double, RORB_TK_LONGDOUBLE)
   RUSTORB_DYN_BASIC(longlong, int64_t, RORB_TK_LONGLONG)
   RUSTORB_DYN_BASIC(ulonglong, uint64_t, RORB_TK_ULONGLONG)
   RUSTORB_DYN_BASIC(wchar, wchar_t, RORB_TK_WCHAR)
@@ -234,7 +236,7 @@ class DynAny : public virtual CORBA::LocalObject {
     return v;
   }
 
-  // long double and abstract interfaces are not supported: NO_IMPLEMENT.
+  // Abstract interfaces are not supported: NO_IMPLEMENT.
   void insert_abstract(const IDL::traits<CORBA::Object>::ref_type&) { no_implement(); }
   IDL::traits<CORBA::Object>::ref_type get_abstract() const {
     no_implement();
@@ -253,6 +255,7 @@ class DynAny : public virtual CORBA::LocalObject {
   RUSTORB_DYN_SEQ(ulong, ULongSeq, RORB_TK_ULONG)
   RUSTORB_DYN_SEQ(float, FloatSeq, RORB_TK_FLOAT)
   RUSTORB_DYN_SEQ(double, DoubleSeq, RORB_TK_DOUBLE)
+  RUSTORB_DYN_SEQ(longdouble, LongDoubleSeq, RORB_TK_LONGDOUBLE)
   RUSTORB_DYN_SEQ(longlong, LongLongSeq, RORB_TK_LONGLONG)
   RUSTORB_DYN_SEQ(ulonglong, ULongLongSeq, RORB_TK_ULONGLONG)
   RUSTORB_DYN_SEQ(wchar, WCharSeq, RORB_TK_WCHAR)

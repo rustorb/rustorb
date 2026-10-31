@@ -76,6 +76,12 @@ class TypesImpl : public CORBA::servant_traits<Types>::base_type {
     return m;
   }
   Price echo_price(const Price& p) override { return p; }
+  Quad echo_quad(Quad q, long double& twice, long double& negated) override {
+    twice = twice * 2;
+    negated = -q;
+    return q;
+  }
+  Measure echo_measure(const Measure& m) override { return m; }
   void fail(int32_t code) override {
     if (code == 0) throw Empty();
     if (code < 0) throw CORBA::NO_PERMISSION(42, CORBA::CompletionStatus::COMPLETED_YES);
@@ -190,6 +196,66 @@ static void check_fixed() {
   Price p2;
   CHECK(pa >>= p2);
   CHECK(p2 == p);
+}
+
+// long double <-> binary128 bits, whatever the format of long double.
+static void check_long_double() {
+  namespace ld = rustorb::cdr::long_double;
+  auto bits = [](long double v) { return ld::to_bits(v); };
+  auto same = [](ld::u128 a, uint64_t hi, uint64_t lo) { return a.hi == hi && a.lo == lo; };
+  CHECK(same(bits(1.0L), 0x3fff000000000000u, 0));
+  CHECK(same(bits(-2.0L), 0xc000000000000000u, 0));
+  CHECK(same(bits(1.5L), 0x3fff800000000000u, 0));
+  CHECK(same(bits(0.0L), 0, 0));
+  CHECK(same(bits(-0.0L), 0x8000000000000000u, 0));
+  CHECK(same(bits(std::numeric_limits<long double>::infinity()), 0x7fff000000000000u, 0));
+  CHECK(std::isnan(ld::from_bits(bits(std::numeric_limits<long double>::quiet_NaN()))));
+  CHECK(std::signbit(ld::from_bits({0x8000000000000000u, 0})));
+  // 0.1 as a double is exact in binary128.
+  CHECK(same(bits(static_cast<long double>(0.1)), 0x3ffb999999999999u, 0xa000000000000000u));
+  for (long double v : {1.0L, -1.0L, 0.1L, 1e300L, -1e-300L, 3.141592653589793238462643383279L,
+                        std::numeric_limits<long double>::max(),
+                        std::numeric_limits<long double>::min(),
+                        std::numeric_limits<long double>::denorm_min(),
+                        std::numeric_limits<long double>::epsilon()}) {
+    CHECK(ld::from_bits(bits(v)) == v);
+  }
+  // Rounding of the 112 fraction bits to the digits of long double.
+  if (std::numeric_limits<long double>::digits < 113) {
+    int drop = 113 - std::numeric_limits<long double>::digits;  // dropped bits
+    auto with_bit = [](int n) {  // 1 + 2^-(112 - n)
+      return n >= 64 ? ld::u128{0x3fff000000000000u | (uint64_t{1} << (n - 64)), 0}
+                     : ld::u128{0x3fff000000000000u, uint64_t{1} << n};
+    };
+    long double ulp = std::numeric_limits<long double>::epsilon();
+    // Half an ulp above 1: ties to even, 1.
+    CHECK(ld::from_bits(with_bit(drop - 1)) == 1.0L);
+    // One ulp above 1 is exact.
+    CHECK(ld::from_bits(with_bit(drop)) == 1.0L + ulp);
+    // All fraction bits set: rounds up to 2.
+    CHECK(ld::from_bits({0x3fffffffffffffffu, ~uint64_t{0}}) == 2.0L);
+  }
+  // Out of range for a long double that is a double: infinity and zero.
+  if (std::numeric_limits<long double>::max_exponent < 16384) {
+    CHECK(std::isinf(ld::from_bits({0x7ffe000000000000u, 0})));
+    CHECK(ld::from_bits({0x0001000000000000u, 0}) == 0.0L);
+  }
+  CHECK(C_QUAD == 2.5L);
+  static_assert(std::is_same<Quad, long double>::value, "long double typedef");
+  CORBA::Any a;
+  a <<= 0.25L;
+  CHECK(a.type()->kind() == CORBA::TCKind::tk_longdouble);
+  long double back = 0;
+  CHECK(a >>= back);
+  CHECK(back == 0.25L);
+  double d = 0;
+  CHECK(!(a >>= d));
+  Measure m(-7.5L, {1.0L, 0.1L, -1e100L});
+  CORBA::Any ma;
+  ma <<= m;
+  Measure m2;
+  CHECK(ma >>= m2);
+  CHECK(m2 == m);
 }
 
 static void check_unions() {
@@ -308,6 +374,14 @@ static void check_calls(IDL::traits<CORBA::ORB>::ref_type orb, const std::string
   Price price(Money("-12.34"), IDL::Fixed<31, 31>("0.9999999999999999999999999999999"),
               {Money(1), Money("2.5"), Money("-0.01")});
   CHECK(types->echo_price(price) == price);
+  {
+    long double twice = 1.25L, negated = 0;
+    long double third = 1.0L / 3;
+    CHECK(types->echo_quad(third, twice, negated) == third);
+    CHECK(twice == 2.5L && negated == -third);
+    Measure m(std::numeric_limits<long double>::min(), {third, -0.0L, 1e300L});
+    CHECK(types->echo_measure(m) == m);
+  }
   try {
     types->echo_short_string("grow");
     CHECK(false);
@@ -380,6 +454,7 @@ int main() {
   try {
     check_constants();
     check_fixed();
+    check_long_double();
     check_unions();
 
     int sargc = 3;

@@ -1,4 +1,4 @@
-use crate::{Decoder, Encoder, Result};
+use crate::{Decoder, Encoder, LongDouble, Result};
 
 /// A type that can be written as CDR.
 ///
@@ -64,6 +64,7 @@ impl_number! {
     u64 => write_u64, read_u64;
     f32 => write_f32, read_f32;
     f64 => write_f64, read_f64;
+    LongDouble => write_long_double, read_long_double;
 }
 
 impl CdrEncode for u8 {

@@ -15,7 +15,7 @@ any.get: tk_null
 any.count: 0
 objref.get: true
 principal: InconsistentTypeCode
-longdouble: InconsistentTypeCode
+longdouble: tk_longdouble
 any.get_dyn_any_shared: 5
 struct.count: 3
 struct.position: 0

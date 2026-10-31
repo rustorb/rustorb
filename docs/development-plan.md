@@ -274,3 +274,6 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - [x] Python：`rustorb.DynamicAny`、`resolve_initial_references("DynAnyFactory")`
   - [x] 相互接続：`--suite any` の `dyn_check` / `dyn_make` / `dyn_echo`、omniORB C++ と比べるプローブ（`run-dynany-probe.sh`）
   - [x] C ABI（`rorb_dynany_*`）と C++（`<rustorb/dynany.h>`）・Java（`org.omg.DynamicAny`）。C++ と Java のクライアントにも `dyn_*` のケースを足し、C++・Java に移したプローブが Rust のプローブと同じ出力になる
+- [x] `long double`（[long-double.md](long-double.md)、[#41](https://github.com/rustorb/rustorb/issues/41)）
+  - 送受信は仕様どおり IEEE binary128。コアの `LongDouble`、Value・Any・DynAny、C ABI、Python（`float`）・C++（`long double`、処理系の形式から変換）・Java（`double`）・Rust（`LongDouble`）と `-bc++11` / `-bjava` / `-brust`
+  - 相互接続：`--suite any` に `longdouble` を足した。omniORB C++ は x87 の形式で送り、omniORBpy と JacORB は `long double` を扱わないので、それらとの組は既知の失敗

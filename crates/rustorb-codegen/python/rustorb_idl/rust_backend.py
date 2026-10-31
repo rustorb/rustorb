@@ -82,7 +82,6 @@ VALUE_METHODS = {
 
 UNSUPPORTED = {
     "Principal": "Principal",
-    "longdouble": "long double",
 }
 
 
@@ -325,6 +324,8 @@ class RustBackend(object):
         self.unsupported(t, where)
         if k in BASIC:
             return BASIC[k][0]
+        if k == "longdouble":
+            return self.R + "::LongDouble"
         if k == "void":
             return "()"
         if k in ("string", "wstring"):
@@ -356,6 +357,8 @@ class RustBackend(object):
         self.unsupported(t, where)
         if k in BASIC:
             return "%s::%s" % (I, BASIC[k][1])
+        if k == "longdouble":
+            return I + "::LongDouble"
         if k == "string":
             return "%s::BoundedString<%d>" % (I, t.bound) if t.bound else I + "::String"
         if k == "wstring":
@@ -394,7 +397,7 @@ class RustBackend(object):
         types), ``str``, ``slice``, ``ref`` (an Option of a reference:
         interfaces, Object, valuetypes, value boxes) or ``borrow``."""
         r = t.resolved()
-        if r.kind in BASIC:
+        if r.kind in BASIC or r.kind == "longdouble":
             return "value"
         if r.kind in ("string", "wstring"):
             return "str"
@@ -465,6 +468,9 @@ class RustBackend(object):
         if k in BASIC:
             f = k in ("float", "double")
             return (True, True, not f, True)
+        if k == "longdouble":
+            # Compared by its bits, so Eq holds.
+            return (True, True, True, True)
         if k in ("string", "wstring"):
             return (False, True, True, True)
         if k == "any":
@@ -670,6 +676,8 @@ class RustBackend(object):
             if "e" not in expr and "." not in expr:
                 expr += ".0"
             return expr
+        if k == "longdouble":
+            return "%s::LongDouble::from_f64(%s)" % (self.R, self.literal(value, fe.Type("double"), cur))
         if k in ("char", "wchar"):
             c = value if isinstance(value, str) else chr(value)
             return "'%s'" % _escape_char(c)

@@ -143,7 +143,6 @@ class JavaBackendTest(unittest.TestCase):
     def test_unsupported(self):
         cases = {
             "supports_local": "module U { local interface I {}; valuetype V supports I { public long x; }; };",
-            "longdouble": "module U { struct S { long double d; }; };",
         }
         for name, text in cases.items():
             with self.subTest(name):

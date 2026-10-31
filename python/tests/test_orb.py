@@ -326,6 +326,9 @@ def make_types_servant():
         echo_money = echo_big = echo_node = echo_keywords = echo_chars
         echo_bool_union = echo_char_union = echo_object = echo_chars
 
+        def echo_quad(self, v):
+            return v, [v, -v]
+
         def raise_undeclared(self):
             raise NT.Undeclared()
 
@@ -384,6 +387,15 @@ class TypesTest(unittest.TestCase):
             self.t.echo_money(CORBA.fixed("1.234"))
         for text in ("123456789012345678901234567.8901", "-999999999999999999999999999.9999"):
             self.assertEqual(self.t.echo_big(CORBA.fixed(text)), CORBA.fixed(text), text)
+
+    def test_long_double(self):
+        for v in (0.0, 1.5, -1e300, 0.1, 5e-324, float("inf")):
+            self.assertEqual(self.t.echo_quad(v), (v, [v, -v]), v)
+        self.assertEqual(self.t.echo_quad(3), (3.0, [3.0, -3.0]))
+        result, _ = self.t.echo_quad(float("nan"))
+        self.assertNotEqual(result, result)
+        with self.assertRaises(CORBA.BAD_PARAM):
+            self.t.echo_quad("1")
 
     def test_recursive_struct(self):
         tree = NT.Node("root", [NT.Node("a", []), NT.Node("b", [NT.Node("c", [])])])
@@ -468,6 +480,7 @@ class AnyTypeCodeTest(unittest.TestCase):
             CORBA.Any(CORBA.TC_long, 42),
             CORBA.Any(CORBA.TC_ulonglong, 2**64 - 1),
             CORBA.Any(CORBA.TC_double, 1.5),
+            CORBA.Any(CORBA.TC_longdouble, -0.25),
             CORBA.Any(CORBA.TC_boolean, True),
             CORBA.Any(CORBA.TC_char, "x"),
             CORBA.Any(CORBA.TC_string, "hello"),

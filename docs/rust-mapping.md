@@ -134,6 +134,7 @@ pub trait IdlType {
 | `long`・`unsigned long` | `i32`・`u32` | 同じ |
 | `long long`・`unsigned long long` | `i64`・`u64` | 同じ |
 | `float`・`double` | `f32`・`f64` | 同じ |
+| `long double` | `rustorb_core::LongDouble`（binary128 のビット、[long-double.md](long-double.md)） | 同じ |
 | `char`・`wchar` | `char` | `char` |
 | `string`・`wstring`（上限付きも） | `String` | `&str` |
 | `sequence<T>`（上限付きも） | `Vec<T>` | `&[T]` |
@@ -370,7 +371,6 @@ assert_eq!(a.doubled()?, 42);
 
 ## 対象外（生成器がエラーにするもの）
 
-- `long double`（[#41](https://github.com/rustorb/rustorb/issues/41)）
 - abstract interface、local interface（コアと Python・C++・Java は abstract interface に対応した（[#43](https://github.com/rustorb/rustorb/issues/43)）。Rust は必要になったら、参照か値かの enum とトレイトの形で足す。local interface はトレイトだけを作る形で足す）
 - 抽象 valuetype、abstract・local interface を `supports` する valuetype、例外を投げる valuetype の操作（上記）
 - 操作の `context` 句

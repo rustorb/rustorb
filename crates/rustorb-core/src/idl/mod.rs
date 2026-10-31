@@ -186,6 +186,8 @@ numeric! {
     Float: f32, Float, 4;
     /// `double`: `f64`.
     Double: f64, Double, 8;
+    /// `long double`: [`LongDouble`](crate::LongDouble), the binary128 bits.
+    LongDouble: crate::LongDouble, LongDouble, 16;
 }
 
 /// `octet`: `u8`. Sequences and arrays of octets are copied at once.

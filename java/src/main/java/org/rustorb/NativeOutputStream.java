@@ -134,6 +134,11 @@ final class NativeOutputStream extends org.omg.CORBA_2_3.portable.OutputStream {
     }
 
     @Override
+    public void write_longdouble(double value) {
+        Native.outLongdouble(out(), value);
+    }
+
+    @Override
     public void write_string(String value) {
         if (out == 0 && reply != 0) {
             if (value == null) {

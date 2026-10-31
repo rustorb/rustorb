@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{ByteOrder, CdrVersion, Error, Octets, Result, SHARE_MIN};
+use crate::{ByteOrder, CdrVersion, Error, LongDouble, Octets, Result, SHARE_MIN};
 
 /// Reads CDR from a byte slice.
 ///
@@ -254,6 +254,16 @@ impl<'a> Decoder<'a> {
         read_f32: f32;
         /// Reads a `double`.
         read_f64: f64;
+    }
+
+    /// Reads a `long double`: 16 octets on an 8 octet boundary.
+    pub fn read_long_double(&mut self) -> Result<LongDouble> {
+        self.align(8)?;
+        let bytes = self.read_array()?;
+        Ok(LongDouble::from_bits(match self.order {
+            ByteOrder::Big => u128::from_be_bytes(bytes),
+            ByteOrder::Little => u128::from_le_bytes(bytes),
+        }))
     }
 
     /// Reads a sequence length and checks that `len * min_element_size`

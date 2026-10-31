@@ -150,6 +150,11 @@ class PortableOutputStream extends OutputStream {
     }
 
     @Override
+    public void write_longdouble(double value) {
+        record(o -> o.write_longdouble(value));
+    }
+
+    @Override
     public void write_string(String value) {
         if (value == null) {
             throw new BAD_PARAM("null string", 0, CompletionStatus.COMPLETED_NO);

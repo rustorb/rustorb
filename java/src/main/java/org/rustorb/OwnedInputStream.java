@@ -122,6 +122,13 @@ final class OwnedInputStream extends NativeInputStream {
     }
 
     @Override
+    public double read_longdouble() {
+        double v = super.read_longdouble();
+        check();
+        return v;
+    }
+
+    @Override
     public String read_string() {
         String v = super.read_string();
         check();

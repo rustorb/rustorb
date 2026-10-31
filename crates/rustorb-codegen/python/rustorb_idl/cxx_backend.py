@@ -76,6 +76,7 @@ BASIC = {
     "ulonglong": "uint64_t",
     "float": "float",
     "double": "double",
+    "longdouble": "long double",
 }
 
 INT_RANGES = {
@@ -92,7 +93,6 @@ TC_REF = "::IDL::traits<::CORBA::TypeCode>::ref_type"
 
 UNSUPPORTED = {
     "Principal": "Principal",
-    "longdouble": "long double",
 }
 
 
@@ -262,7 +262,7 @@ class CxxBackend(object):
             return self.enumerator_ref(value)
         if k == "boolean":
             return "true" if value else "false"
-        if k in ("float", "double"):
+        if k in ("float", "double", "longdouble"):
             v = float(value)
             if v != v:
                 expr = "std::numeric_limits<%s>::quiet_NaN()" % BASIC[k]
@@ -274,6 +274,8 @@ class CxxBackend(object):
                     expr += ".0"
                 if k == "float":
                     expr += "f"
+                elif k == "longdouble":
+                    expr += "L"
             return expr
         if k in ("char", "wchar"):
             c = value if isinstance(value, str) else chr(value)

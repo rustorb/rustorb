@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use rustorb_core::idl::{self, IdlType};
 use rustorb_core::{
-    Any, EndpointAddr, Fixed, ObjectRef, Orb, OrbOptions, Servant, SystemException,
+    Any, EndpointAddr, Fixed, LongDouble, ObjectRef, Orb, OrbOptions, Servant, SystemException,
     SystemExceptionKind, TCKind,
 };
 
@@ -148,6 +148,18 @@ fn values_round_trip() {
         kind: Fruit::Apple,
     };
     assert_eq!(round_trip::<Failure>(&e).unwrap(), e);
+
+    assert_eq!(m::C_QUAD, LongDouble::from_f64(0.5));
+    let q = Quads {
+        one: LongDouble::from_f64(-1.5),
+        many: vec![LongDouble::from_f64(0.1), LongDouble::from_bits(1)],
+        pair: [LongDouble::ZERO, LongDouble::from_f64(f64::INFINITY)],
+    };
+    assert_eq!(round_trip::<Quads>(&q).unwrap(), q);
+    assert_eq!(
+        Quads::type_code().member_type(0).unwrap().kind(),
+        TCKind::LongDouble
+    );
 }
 
 #[test]

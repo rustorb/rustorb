@@ -549,6 +549,9 @@ unsafe extern "C" {
     pub fn rorb_out_write_ulonglong(out: *mut rorb_out, v: u64);
     pub fn rorb_out_write_float(out: *mut rorb_out, v: f32);
     pub fn rorb_out_write_double(out: *mut rorb_out, v: f64);
+    pub fn rorb_out_write_longdouble(out: *mut rorb_out, hi: u64, lo: u64);
+    pub fn rorb_longdouble_from_double(v: f64, hi: *mut u64, lo: *mut u64);
+    pub fn rorb_longdouble_to_double(hi: u64, lo: u64) -> f64;
     pub fn rorb_out_write_string(out: *mut rorb_out, s: *const c_char, len: usize);
     pub fn rorb_out_write_wstring(out: *mut rorb_out, s: *const u16, len: usize);
     pub fn rorb_out_write_object(out: *mut rorb_out, obj: *mut rorb_object);
@@ -569,6 +572,7 @@ unsafe extern "C" {
     pub fn rorb_in_read_ulonglong(r#in: *mut rorb_in) -> u64;
     pub fn rorb_in_read_float(r#in: *mut rorb_in) -> f32;
     pub fn rorb_in_read_double(r#in: *mut rorb_in) -> f64;
+    pub fn rorb_in_read_longdouble(r#in: *mut rorb_in, hi: *mut u64, lo: *mut u64);
     pub fn rorb_in_read_string(r#in: *mut rorb_in, len: *mut usize) -> *const c_char;
     pub fn rorb_in_read_wstring(r#in: *mut rorb_in, len: *mut usize) -> *const u16;
     pub fn rorb_in_read_object(r#in: *mut rorb_in) -> *mut rorb_object;

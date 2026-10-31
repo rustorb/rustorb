@@ -12,7 +12,7 @@ import AnyTestHidden
 
 #: The names of the table of AnyTest.idl, in the order the client runs them.
 NAMES = [
-    "long", "short", "ulonglong", "float", "double", "boolean", "char", "octet",
+    "long", "short", "ulonglong", "float", "double", "longdouble", "boolean", "char", "octet",
     "string", "bounded", "count", "money", "fixed", "point", "shade", "choice_l", "choice_s",
     "choice_default", "longseq", "octets", "shortarray", "node", "nvlist", "any",
     "typecode", "objref", "nil", "oops", "empty",
@@ -42,6 +42,7 @@ def value(name, echo):
         "ulonglong": (CORBA.TC_ulonglong, lambda: 2**64 - 1),
         "float": (CORBA.TC_float, lambda: 0.25),
         "double": (CORBA.TC_double, lambda: 1.5),
+        "longdouble": (CORBA.TC_longdouble, lambda: 0.1),
         "boolean": (CORBA.TC_boolean, lambda: True),
         "char": (CORBA.TC_char, lambda: "x"),
         "octet": (CORBA.TC_octet, lambda: 255),
@@ -143,6 +144,7 @@ def dyn_any_factory():
 DYN_BASIC = {
     CORBA.tk_short: "short", CORBA.tk_long: "long", CORBA.tk_ushort: "ushort",
     CORBA.tk_ulong: "ulong", CORBA.tk_float: "float", CORBA.tk_double: "double",
+    CORBA.tk_longdouble: "longdouble",
     CORBA.tk_boolean: "boolean", CORBA.tk_char: "char", CORBA.tk_octet: "octet",
     CORBA.tk_TypeCode: "typecode", CORBA.tk_objref: "reference",
     CORBA.tk_string: "string", CORBA.tk_longlong: "longlong",

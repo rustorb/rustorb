@@ -119,6 +119,11 @@ class NativeInputStream extends org.omg.CORBA_2_3.portable.InputStream {
     }
 
     @Override
+    public double read_longdouble() {
+        return Native.inLongdouble(in());
+    }
+
+    @Override
     public String read_string() {
         if (injectId != null) {
             String id = injectId;

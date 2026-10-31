@@ -468,6 +468,68 @@ pub mod rust_mapping {
     /// IDL typedef `RustMapping::PairSeq`.
     pub type PairSeq = Vec<Pair>;
 
+    /// IDL constant `RustMapping::C_QUAD`.
+    pub const C_QUAD: ::rustorb_core::LongDouble = ::rustorb_core::LongDouble::from_f64(0.5);
+
+    /// IDL struct `RustMapping::Quads`.
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+    pub struct Quads {
+        pub one: ::rustorb_core::LongDouble,
+        pub many: Vec<::rustorb_core::LongDouble>,
+        pub pair: [::rustorb_core::LongDouble; 2],
+    }
+
+    impl Quads {
+        pub const REPOSITORY_ID: &'static str = "IDL:rustorb.org/RustMapping/Quads:1.0";
+
+        #[doc(hidden)]
+        pub fn _write_members(
+            &self,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            <::rustorb_core::idl::LongDouble as ::rustorb_core::idl::IdlType>::write(
+                &self.one, out,
+            )?;
+            <::rustorb_core::idl::Sequence<::rustorb_core::idl::LongDouble> as ::rustorb_core::idl::IdlType>::write(&self.many, out)?;
+            <::rustorb_core::idl::Array<::rustorb_core::idl::LongDouble, 2> as ::rustorb_core::idl::IdlType>::write(&self.pair, out)?;
+            Ok(())
+        }
+
+        #[doc(hidden)]
+        pub fn _read_members(
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<Quads> {
+            Ok(Quads {
+                one: <::rustorb_core::idl::LongDouble as ::rustorb_core::idl::IdlType>::read(input)?,
+                many: <::rustorb_core::idl::Sequence<::rustorb_core::idl::LongDouble> as ::rustorb_core::idl::IdlType>::read(input)?,
+                pair: <::rustorb_core::idl::Array<::rustorb_core::idl::LongDouble, 2> as ::rustorb_core::idl::IdlType>::read(input)?,
+            })
+        }
+    }
+
+    impl ::rustorb_core::idl::IdlType for Quads {
+        type Rust = Quads;
+        type Borrowed = Quads;
+        const MIN_SIZE: usize = <::rustorb_core::idl::LongDouble as ::rustorb_core::idl::IdlType>::MIN_SIZE + <::rustorb_core::idl::Sequence<::rustorb_core::idl::LongDouble> as ::rustorb_core::idl::IdlType>::MIN_SIZE + <::rustorb_core::idl::Array<::rustorb_core::idl::LongDouble, 2> as ::rustorb_core::idl::IdlType>::MIN_SIZE;
+
+        fn type_code() -> ::rustorb_core::TypeCode {
+            static TC: ::std::sync::OnceLock<::rustorb_core::TypeCode> =
+                ::std::sync::OnceLock::new();
+            TC.get_or_init(|| ::rustorb_core::idl::tc(::rustorb_core::TypeCode::struct_tc::<&str>("IDL:rustorb.org/RustMapping/Quads:1.0", "Quads", &[("one", <::rustorb_core::idl::LongDouble as ::rustorb_core::idl::IdlType>::type_code()), ("many", ::rustorb_core::idl::tc(::rustorb_core::TypeCode::sequence(&<::rustorb_core::idl::LongDouble as ::rustorb_core::idl::IdlType>::type_code(), 0))), ("pair", ::rustorb_core::idl::tc(::rustorb_core::TypeCode::array(&<::rustorb_core::idl::LongDouble as ::rustorb_core::idl::IdlType>::type_code(), 2)))]))).clone()
+        }
+
+        fn write(
+            v: &Quads,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            v._write_members(out)
+        }
+
+        fn read(input: &mut ::rustorb_core::InStream<'_>) -> ::rustorb_core::idl::Sys<Quads> {
+            Self::_read_members(input)
+        }
+    }
+
     /// IDL struct `RustMapping::Tree`.
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
     pub struct Tree {
