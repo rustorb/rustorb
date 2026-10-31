@@ -2,7 +2,7 @@
 
 Oct 31, 2026 · [#83](https://github.com/rustorb/rustorb/issues/83)
 
-rustorb のリリースで何を出すか、どう作るか、公開をどう行うかをまとめる。成果物は `.github/workflows/release.yml` がタグからビルドして GitHub Release の下書きに付ける。crates.io と PyPI への公開は取り消せないので、ワークフローでは行わず、メンテナーが下書きを確かめてから手で行う。
+rustorb のリリースで何を出すか、どう作るか、公開をどう行うかをまとめる。`.github/workflows/release.yml` がタグから成果物をビルドして確かめ、GitHub Release の下書きに付けたあと、crates.io と PyPI に公開し、Release を公開する。公開は取り消せないので、すべてのビルドと確認が通ったときだけ行い、公開のジョブは `release` 環境で動かす（環境の保護ルールで承認を必須にできる）。
 
 ## 出すもの
 
@@ -33,41 +33,32 @@ tools/set-version.py --check        # そろっているか（CI とリリース
 
 1. `CHANGELOG.md` の `## [x.y.z] - unreleased` を確かめ、日付を入れる。新しい版なら `tools/set-version.py x.y.z` と `cargo update --workspace` も行う
 2. main に入れたら、タグを打って push する：`git tag vx.y.z && git push origin vx.y.z`
-3. Release のワークフローが次を行う。どれかが失敗したら下書きは作られない
+3. Release のワークフローが次を行う。ビルドか確認のどれかが失敗したら、何も公開しない
    - タグとパッケージのバージョンが同じで、`CHANGELOG.md` にその版があること
    - `cargo publish --workspace --dry-run`（依存の順にパッケージにし、パッケージどうしでビルドする）と `.crate` の作成
    - wheel（各環境で入れて import する）、sdist、純 Python のパッケージ（`rustorb-idl` は PyPI の idl_parser と入れて動かす）
    - `rustorb-native`（CMake で入れ、`cpp/tests/consumer` を `find_package` でビルドして動かす）、jar
    - Release `vx.y.z` の下書きに成果物、`SHA256SUMS`、`CHANGELOG.md` のその版の節を付ける
-4. 下書きを確かめ、下の「公開」の手順で crates.io と PyPI に上げる
-5. 下書きの Release を公開する
+   - crates.io に依存の順（cdr → giop → core → codegen → ffi → naming）で公開する（`crates-io` ジョブ）
+   - PyPI に `rustorb`（wheel と sdist）、`rustorb-idl`、`rustorb-omniorb-compat` を公開する（`pypi` ジョブ）
+   - 両方が終わったら Release を公開する（`publish-release` ジョブ）
+4. 公開のジョブが途中で失敗したら、原因を直してから、失敗したジョブを Actions の画面で再実行する。公開済みのクレートとファイルは飛ばす（クレートは crates.io にその版があるか確かめ、PyPI は `skip-existing`）
+
+タグは GitHub のウェブからも打てる。[新しい Release](https://github.com/rustorb/rustorb/releases/new) でタグ `vx.y.z` を main に作り「Publish release」を押すと、タグの push と同じくワークフローが走り、成果物とノートがその Release に付く（その間、Release は成果物なしで見える）。「Save draft」ではタグができないのでワークフローは走らない。
 
 ワークフローは、タグのほか、手で実行したときと、パッケージに関わるファイルを変えたプルリクエストでも走る（ビルドだけで、成果物は実行に残る）。
 
-## 公開
+## 公開の設定
 
-下書きから成果物を落として、メンテナーの手元で行う。
+一度だけ、リポジトリの設定で次を用意する。
 
-```sh
-gh release download vx.y.z -D dist
-cd dist && sha256sum -c SHA256SUMS
-```
-
-**crates.io**：依存の順に上げる必要があるので、ワークスペースから `cargo publish` する（cargo が順を決め、それぞれが索引に載るのを待つ）。タグのコミットで行う。
-
-```sh
-git checkout vx.y.z
-cargo publish --workspace --locked --exclude rustorb-python --exclude rustorb-interop
-```
-
-**PyPI**：`rustorb`（wheel と sdist）、`rustorb-idl`、`rustorb-omniorb-compat` を上げる。`rustorb-omniorb-compat` は `rustorb` に、`rustorb-idl` は idl_parser に依存するので、`rustorb` を先に上げる。
-
-```sh
-python -m twine upload dist/rustorb-x.y.z*.whl dist/rustorb-x.y.z.tar.gz
-python -m twine upload dist/rustorb_idl-* dist/rustorb_omniorb_compat-*
-```
+- **環境 `release`**（Settings → Environments）：公開の2つのジョブが使う。Required reviewers を付けると、公開の前に承認を求める。Deployment branches and tags でタグ `v*` だけに絞るとよい
+- **crates.io**：crates.io の [API Tokens](https://crates.io/settings/tokens) で `publish-new` と `publish-update` のスコープのトークンを作り、環境 `release` のシークレット `CARGO_REGISTRY_TOKEN` に入れる。新しいクレートの最初の公開にはトークンが要る（crates.io の Trusted Publishing は、クレートができた後でしか設定できない）
+- **PyPI**：Trusted Publishing を使う。PyPI の [Publishing](https://pypi.org/manage/account/publishing/) で、`rustorb`、`rustorb-idl`、`rustorb-omniorb-compat` の3つに pending publisher を登録する（Owner `rustorb`、Repository `rustorb`、Workflow `release.yml`、Environment `release`）。トークンを使うなら、代わりに環境 `release` のシークレット `PYPI_API_TOKEN` に入れる
 
 公開した版は取り消せない（crates.io は yank、PyPI は yank か削除しても同じ版は二度と上げられない）。間違えたら次のパッチ版を出す。
+
+手で公開するときは、Release から成果物を落として（`gh release download vx.y.z -D dist`、`sha256sum -c SHA256SUMS`）、タグのコミットで `cargo publish --workspace --locked --exclude rustorb-python --exclude rustorb-interop` と `python -m twine upload dist/*.whl dist/rustorb-x.y.z.tar.gz dist/rustorb_idl-* dist/rustorb_omniorb_compat-*` を行う。
 
 ## 成果物の使い方
 
@@ -88,4 +79,4 @@ target_link_libraries(app PRIVATE rustorb::rustorb)
 ## 残り
 
 - Java を Maven Central に出すか（名前空間の確認と署名鍵が要る）、共有ライブラリを jar に同梱するか
-- PyPI の Trusted Publishing と crates.io のトークンを使って、公開もワークフローから行うか
+- 2回目以降は crates.io も Trusted Publishing にしてトークンをなくすか
