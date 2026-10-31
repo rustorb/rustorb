@@ -9,7 +9,8 @@
 # --suite any, jacorb, in the image) plus rustorb, rustorbpy, rustorbcpp and
 # rustorbjava (the Rust, the Python, the C++ and the Java client and server of
 # rustorb), which are built on the host. rustorbjava-portable (the Java client
-# and server on rustorb with JacORB's generated stubs) runs only when named
+# and server on rustorb with JacORB's generated stubs) and rustorbpy-dii (the
+# Python client and server through the DII and the DSI) run only when named
 # in a pair.
 # --build    builds the omniORB image first
 # --capture  captures each client's traffic and splits it into GIOP messages
@@ -130,10 +131,12 @@ done
 # The rustorb Python package with its native module, and the stubs from
 # rustorb-idl (idl_parser must be importable, or IDL_PARSER_DIR set).
 for pair in "${pairs[@]}"; do
-  if [ "${pair%%:*}" = rustorbpy ] || [ "${pair##*:}" = rustorbpy ]; then
-    impls/rustorbpy/build.sh
-    break
-  fi
+  case " ${pair%%:*} ${pair##*:} " in
+    *" rustorbpy "*|*" rustorbpy-dii "*)
+      impls/rustorbpy/build.sh
+      break
+      ;;
+  esac
 done
 # The rustorb C++ client and server, with stubs from rustorb-idl -bc++11.
 for pair in "${pairs[@]}"; do

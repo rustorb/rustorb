@@ -12,6 +12,7 @@ import builtins as _builtins
 import decimal as _decimal
 import reprlib as _reprlib
 import threading as _threading
+import time as _time
 from typing import Optional
 
 from . import _types
@@ -847,6 +848,23 @@ class Object(object):
     def _get_interface(self):
         raise NO_IMPLEMENT(0, COMPLETED_NO)
 
+    # -- the DII --
+
+    def _request(self, operation):
+        """A ``CORBA.Request`` for ``operation``, with no arguments and a
+        ``void`` result."""
+        return Request(self, operation)
+
+    def _create_request(self, ctx, operation, arg_list, result, exceptions=None, ctxlist=None, req_flags=0):
+        """``create_request``: a ``CORBA.Request`` for ``operation`` with
+        the arguments ``arg_list`` (an NVList, or None), the result
+        ``result`` (a NamedValue, or None for ``void``) and the user
+        exceptions ``exceptions`` (TypeCodes). Contexts are not supported:
+        ``ctx`` and ``ctxlist`` must be None."""
+        if ctx is not None or ctxlist:
+            raise NO_IMPLEMENT(0, COMPLETED_NO)
+        return Request(self, operation, arg_list, result, exceptions or ())
+
     # -- policies --
 
     def _get_client_policy(self, type):
@@ -888,6 +906,239 @@ class Object(object):
 
 def is_nil(obj):
     return obj is None
+
+
+# ---------------------------------------------------------------------------
+# The DII and the DSI
+
+#: The modes of an argument (``CORBA::Flags``).
+ARG_IN = 1
+ARG_OUT = 2
+ARG_INOUT = 3
+
+
+class NamedValue(object):
+    """``CORBA::NamedValue``: an argument's ``name``, value (``argument``,
+    a ``CORBA.Any``) and mode (``arg_modes``, ``ARG_IN``...). The Any of an
+    ``out`` argument gives its type; its value comes with the reply."""
+
+    def __init__(self, name, argument, arg_modes):
+        self.name = name
+        self.argument = argument
+        self.arg_modes = arg_modes
+
+    def __repr__(self):
+        return "CORBA.NamedValue(%r, %r, %r)" % (self.name, self.argument, self.arg_modes)
+
+
+class NVList(object):
+    """``CORBA::NVList``, a list of named values."""
+
+    def __init__(self, items=()):
+        self._items = list(items)
+
+    def count(self):
+        return len(self._items)
+
+    def add(self, flags):
+        return self.add_item("", flags)
+
+    def add_item(self, item_name, flags):
+        nv = NamedValue(item_name, Any(TC_null, None), flags)
+        self._items.append(nv)
+        return nv
+
+    def add_value(self, item_name, value, flags):
+        nv = NamedValue(item_name, value, flags)
+        self._items.append(nv)
+        return nv
+
+    def item(self, index):
+        try:
+            return self._items[index]
+        except IndexError:
+            raise Bounds()
+
+    def remove(self, index):
+        try:
+            del self._items[index]
+        except IndexError:
+            raise Bounds()
+
+    def __len__(self):
+        return len(self._items)
+
+    def __iter__(self):
+        return iter(self._items)
+
+    def __getitem__(self, index):
+        return self._items[index]
+
+    def _modes(self):
+        for nv in self._items:
+            if nv.arg_modes & 3 not in (ARG_IN, ARG_OUT, ARG_INOUT):
+                raise BAD_PARAM(0, COMPLETED_NO)
+
+
+class Bounds(UserException):
+    _NP_RepositoryId = "IDL:omg.org/CORBA/Bounds:1.0"
+
+
+class Request(object):
+    """``CORBA::Request``: a call built at run time (the DII), from
+    ``obj._request(operation)`` or ``obj._create_request(...)``.
+
+    Arguments are added with ``add_in_arg(value)``, ``add_inout_arg(value)``
+    (``CORBA.Any`` values) and ``add_out_arg(tc)``, or are the NVList given to
+    ``_create_request``; ``set_return_type(tc)`` gives the result type
+    (``void`` by default) and ``add_exception(tc)`` the user exceptions it
+    may raise. After ``invoke()`` (or ``send_deferred()`` and
+    ``get_response()``) the ``out`` and ``inout`` arguments hold the
+    values sent back and ``return_value()`` the result. A listed user
+    exception is raised; an unlisted one is ``UNKNOWN``.
+    """
+
+    def __init__(self, target, operation, arguments=None, result=None, exceptions=()):
+        self._target = target
+        self._operation = operation
+        self._arguments = arguments if arguments is not None else NVList()
+        self._result = result if result is not None else NamedValue("", Any(TC_void, None), 0)
+        self._exceptions = list(exceptions)
+        self._native = _native_module().Request(target._orb_object(), operation)
+
+    def target(self):
+        return self._target
+
+    def operation(self):
+        return self._operation
+
+    def arguments(self):
+        return self._arguments
+
+    def result(self):
+        return self._result
+
+    def exceptions(self):
+        return list(self._exceptions)
+
+    def ctx(self, *args):
+        raise NO_IMPLEMENT(0, COMPLETED_NO)
+
+    contexts = ctx
+
+    def add_in_arg(self, value, name=""):
+        self._arguments.add_value(name, value, ARG_IN)
+
+    def add_inout_arg(self, value, name=""):
+        self._arguments.add_value(name, value, ARG_INOUT)
+
+    def add_out_arg(self, tc, name=""):
+        self._arguments.add_value(name, Any(tc, None), ARG_OUT)
+
+    def set_return_type(self, tc):
+        self._result.argument = Any(tc, None)
+
+    def add_exception(self, tc):
+        self._exceptions.append(tc)
+
+    def return_value(self):
+        return self._result.argument
+
+    def _call_args(self):
+        self._arguments._modes()
+        return (
+            [(nv.name, nv.argument, nv.arg_modes & 3) for nv in self._arguments],
+            self._result.argument.typecode(),
+            list(self._exceptions),
+        )
+
+    def _collect(self, outputs):
+        result, values = outputs
+        for nv, value in zip(self._arguments, values):
+            if nv.arg_modes & 3 != ARG_IN and value is not None:
+                nv.argument = value
+        self._result.argument = result
+
+    def _new_native(self):
+        # A new native request for each call: the exception list may grow.
+        self._native = _native_module().Request(self._target._orb_object(), self._operation)
+        return self._native
+
+    def invoke(self, invoke_flags=0):
+        self._collect(self._new_native().invoke(*self._call_args()))
+
+    def send_oneway(self):
+        self._new_native().send_oneway(*self._call_args())
+
+    def send_deferred(self):
+        self._new_native().send_deferred(*self._call_args())
+
+    def send(self, invoke_flags=0):
+        self.send_deferred()
+
+    def poll_response(self):
+        return self._native.poll_response()
+
+    def get_response(self, response_flags=0):
+        self._collect(self._native.get_response())
+
+
+class ServerRequest(object):
+    """``CORBA::ServerRequest``: a request to a
+    ``PortableServer.DynamicImplementation``, given to its ``invoke``.
+
+    ``arguments(nvlist)`` reads the ``in`` and ``inout`` arguments into the
+    NVList, whose TypeCodes and modes describe the parameters (the Anys'
+    values are ignored). The servant then sets the ``argument`` of the
+    ``out`` and ``inout`` items, and calls ``set_result(any)`` or
+    ``set_exception(any)`` (an Any of a user exception). A system
+    exception is raised from ``invoke``.
+    """
+
+    def __init__(self, native):
+        self._native = native
+        self._params = None
+        self._raised = False
+
+    def operation(self):
+        return self._native.operation()
+
+    def arguments(self, nvlist):
+        if self._params is not None:
+            raise BAD_INV_ORDER(0, COMPLETED_NO)
+        nvlist._modes()
+        values = self._native.arguments(
+            [(nv.name, nv.argument.typecode(), nv.arg_modes & 3) for nv in nvlist]
+        )
+        self._unset = []
+        for nv, value in zip(nvlist, values):
+            if value is not None:
+                nv.argument = value
+            self._unset.append(nv.argument if value is None else None)
+        self._params = nvlist
+        return nvlist
+
+    def set_result(self, value):
+        self._native.set_result(value)
+
+    def set_exception(self, value):
+        self._native.set_exception(value)
+        self._raised = True
+
+    def ctx(self):
+        raise NO_IMPLEMENT(0, COMPLETED_NO)
+
+    def _NP_finish(self):
+        if self._params is None or self._raised:
+            return
+        # An out argument the servant did not set (still the Any given to
+        # arguments()) is left so: the reply then fails with BAD_PARAM.
+        self._native.set_out_values(
+            [
+                None if nv.arg_modes & 3 == ARG_IN or nv.argument is unset else nv.argument
+                for nv, unset in zip(self._params, self._unset)
+            ]
+        )
 
 
 class LocalObject(Object):
@@ -1076,9 +1327,61 @@ class ORB(object):
         self._ins_poa = None
         self._lock = _threading.Lock()
         self._destroyed = False
+        # Requests of send_multiple_requests_deferred not yet collected.
+        self._deferred = []
 
     def id(self):
         return self._id
+
+    # -- the DII --
+
+    def create_list(self, count):
+        """An empty ``CORBA.NVList`` (``count`` is only a hint)."""
+        return NVList()
+
+    def create_operation_list(self, oper):
+        raise NO_IMPLEMENT(0, COMPLETED_NO)
+
+    def create_named_value(self, name, value, flags):
+        return NamedValue(name, value, flags)
+
+    def create_exception_list(self):
+        return []
+
+    def send_multiple_requests_oneway(self, requests):
+        for r in requests:
+            r.send_oneway()
+
+    def send_multiple_requests_deferred(self, requests):
+        with self._lock:
+            for r in requests:
+                r.send_deferred()
+                self._deferred.append(r)
+
+    def poll_next_response(self):
+        """Whether a response to ``send_multiple_requests_deferred`` has
+        arrived."""
+        with self._lock:
+            return any(r.poll_response() for r in self._deferred)
+
+    def get_next_response(self):
+        """The next request of ``send_multiple_requests_deferred`` whose
+        response has arrived; waits for one. Its ``get_response()`` then
+        takes the response at once (raising its exception, if any).
+        ``BAD_INV_ORDER`` when none is outstanding."""
+        while True:
+            with self._lock:
+                if not self._deferred:
+                    raise BAD_INV_ORDER(0, COMPLETED_NO)
+                for i, r in enumerate(self._deferred):
+                    if r.poll_response():
+                        del self._deferred[i]
+                        break
+                else:
+                    r = None
+            if r is not None:
+                return r
+            _time.sleep(0.001)
 
     def string_to_object(self, s):
         from . import _rt

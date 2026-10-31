@@ -297,7 +297,7 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - 生成器：標準マッピングのクラス群（Helper・Holder・Operations・Stub・POA・POATie、`<Name>Package`、予約語の `_`）と、モジュールの外の定義のための `-Wbpackage`
   - 相互接続：`interop/impls/java` のクライアント・サーバーを、`rustorbjava`（rustorb-idl のスタブ）と `jacorb`（JacORB 3.9 のリリース jar と IDL コンパイラ）で共有する。`rustorbjava` は basic（omniNames・rustorb-names、GIOP 1.2 / 1.1）と any（GIOP 1.2 / 1.1）ですべての相手と通る。JacORB との失敗は JacORB の生成コードと GIOP 1.1 の Fragment の扱いによるもので、`known-failures.txt` に載せた。JacORB はソースを読まず、生成されたクラスを呼んだ結果だけを使った
   - Java のテスト（`java/`、Maven と JUnit）：CxxMapping.idl の往復（2つの ORB の間と同一 ORB 内）、相互接続の78ケースと any の178ケース。CI は Linux（Java 11 / 21）・macOS・Windows
-  - 残り：DII / DSI（#44。valuetype は下記、portable stub とストリームは下記）
+  - 残り：DII / DSI（コアと Python は #44 で済ませた。Java は需要が出たら。valuetype は下記、portable stub とストリームは下記）
 - [x] C++ と Java の servant manager（`ServantActivator`・`ServantLocator`）と `AdapterActivator`（[cpp-binding.md](cpp-binding.md#poa-の範囲)、[java-binding.md](java-binding.md#poa-の範囲)）
   - C ABI：`rorb_poa_set_servant_activator` / `_locator`・`rorb_poa_get_servant_manager`・`rorb_poa_set_the_activator` / `rorb_poa_the_activator` と関数表。`incarnate` / `preinvoke` の `ForwardRequest` とシステム例外は `rorb_manager_error_*` で伝える
   - C++ は `PortableServer::ServantActivator` などのローカルインターフェースと `ForwardRequest`、Java は `org.omg.PortableServer` の同名のインターフェースと `CookieHolder`（`rustorb-jni` 経由）
@@ -338,12 +338,15 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 - [x] tokio ランタイムの共有と async API（[async-api.md](async-api.md)、[#50](https://github.com/rustorb/rustorb/issues/50)）
   - `Orb::with_runtime`（アプリケーションのランタイムで通信 I/O を動かす。`destroy` 後にタスクを残さない）、`ObjectRef::request_async`（`Send` な `Future`、どのエグゼキュータからも poll できる）、`is_a_async` など、`Orb::run_async`
   - tokio のワーカーからの同期 API は今までどおり `BAD_INV_ORDER`
+- [x] DII / DSI（[dii-dsi.md](dii-dsi.md)、[#44](https://github.com/rustorb/rustorb/issues/44)）
+  - コア：`ObjectRef::create_request` → `DiiRequest`（同期・async・oneway・deferred）、`DynamicImplementation` と `DynamicServant`、`ServerRequest`
+  - Python：標準マッピングの `Request`・`NVList`・`ServerRequest`・`PortableServer.DynamicImplementation`、`orb.send_multiple_requests_*` / `get_next_response`
+  - 相互接続：スタブを DII に、サーバントを DSI に差し替えた `rustorbpy-dii` を basic・any・value で回す。C++ と Java は需要が出たら
 
 ### 残りの issue
 
 すべて P3。
 
-- [#44](https://github.com/rustorb/rustorb/issues/44) DII / DSI（コアと Python から）
 - [#46](https://github.com/rustorb/rustorb/issues/46) IDL4-CPP の構文（アノテーションなど）を C++ 生成器に取り込む
 - [#51](https://github.com/rustorb/rustorb/issues/51) Java バインディングの FFM 版を試作し、JNI 版と比べる
 - [#77](https://github.com/rustorb/rustorb/issues/77) Rust の IDL 生成器で async 版のスタブを出す

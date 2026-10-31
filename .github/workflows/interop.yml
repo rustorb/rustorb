@@ -122,6 +122,25 @@ jobs:
           interop/run-matrix.sh --giop 1.1 $pairs
           interop/run-matrix.sh --suite value $pairs
 
+      # The Python client with every call made through the DII and the
+      # Python server with every servant behind the DSI (#44), against every
+      # implementation.
+      - name: Run the matrix with the Python DII client and DSI server
+        run: |
+          p=rustorbpy-dii
+          pairs="$p:$p"
+          for x in omniorbpy omniorb-cpp jacorb rustorb rustorbpy rustorbcpp rustorbjava; do
+            pairs="$pairs $p:$x $x:$p"
+          done
+          interop/run-matrix.sh $pairs
+          interop/run-matrix.sh --giop 1.1 $pairs
+          any="$p:$p"
+          for x in omniorbpy omniorb-cpp rustorb rustorbpy rustorbcpp rustorbjava; do
+            any="$any $p:$x $x:$p"
+          done
+          interop/run-matrix.sh --suite any $any
+          interop/run-matrix.sh --suite value $pairs
+
       # omniORBpy and the rustorb clients (Rust, Python, C++, Java).
       - name: Run the naming service check
         run: interop/run-naming-check.sh

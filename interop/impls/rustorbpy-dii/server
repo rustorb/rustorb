@@ -1,0 +1,4 @@
+#!/bin/sh
+# The rustorb Python server (impls/rustorbpy) with every servant run through
+# the DSI (impls/rustorbpy/dii_adapters.py).
+RUSTORB_DII=1 exec python3 "$(dirname "$0")/../rustorbpy/server.py" "$@"

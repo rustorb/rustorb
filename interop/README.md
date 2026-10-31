@@ -20,6 +20,7 @@ and [The rustorb C++ client and server](#the-rustorb-c-client-and-server).
 | `impls/jacorb/` | the Java client and server on JacORB 3.9, with stubs from JacORB's IDL compiler (built in the image) |
 | `impls/rustorbjava/` | the Java client and server on the rustorb Java binding, with stubs from rustorb-idl -bjava (`build.sh`), and its POA probe server (`probe/`) |
 | `impls/rustorbjava-portable/` | the same Java client and server on the rustorb Java runtime with the stubs, skeletons and Helpers of JacORB's IDL compiler (taken from the image, `build.sh`): portable stubs on rustorb; run only when named in a pair |
+| `impls/rustorbpy-dii/` | the `impls/rustorbpy/` client with every call made through the DII and its server with every servant behind the DSI (`impls/rustorbpy/dii_adapters.py`, [#44](https://github.com/rustorb/rustorb/issues/44)); run only when named in a pair |
 | `docker/omniorb/Dockerfile` | omniORB 4.3.4 and omniORBpy 4.3.4 built from source, JacORB 3.9 from its release jars, with the implementations above |
 | `compose.yaml` | naming service, server and client containers |
 | `run-matrix.sh` | runs every client / server combination, with omniNames or (`--naming rustorb`) the rustorb naming service; `--suite any` runs the Any / TypeCode suite (`idl/AnyTest.idl`, `idl/AnyTestHidden.idl`, `anytest.*` in each implementation) instead of the Echo one, `--suite value` the valuetype suite (`idl/ValueTest.idl`, `valuetest.*`, `ValueTests.java`; every implementation, see [`docs/valuetype.md`](../docs/valuetype.md)), `--suite custom` the custom valuetype suite (`idl/CustomTest.idl`, `customtest.*`, `CustomTests.java`; the rustorb implementations and `jacorb`, as omniORB has no custom valuetypes) and `--suite abstract` the abstract interface suite (`idl/AbstractTest.idl`, `abstracttest.*`, `AbstractTests.java`; every implementation but `rustorb`, whose Rust mapping has no abstract interfaces) |
@@ -187,6 +188,19 @@ does, for `--giop`.
 
 ```sh
 IDL_PARSER_DIR=path/to/idl_parser interop/run-matrix.sh rustorbpy:omniorbpy omniorbpy:rustorbpy
+```
+
+`impls/rustorbpy-dii/` (`rustorbpy-dii`) runs the same client and server
+with `RUSTORB_DII` set: `common.py` then installs `dii_adapters.py`, which
+makes the generated stubs call through `CORBA.Request` (the DII) and puts
+each servant the POA activates behind a
+`PortableServer.DynamicImplementation` that reads the arguments with
+`CORBA.ServerRequest` (the DSI). The TypeCodes come from the operations of
+the generated code, so every case of every suite goes through the DII and
+the DSI.
+
+```sh
+interop/run-matrix.sh rustorbpy-dii:omniorb-cpp omniorbpy:rustorbpy-dii
 ```
 
 Without Docker, the Python client and server also run on the host against

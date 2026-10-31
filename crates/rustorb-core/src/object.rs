@@ -166,7 +166,7 @@ impl ObjectRef {
     /// The timeout of a call on this reference from the calling thread:
     /// the reference's, else the thread's, else the ORB's (the order
     /// omniORB uses).
-    fn effective_timeout(&self) -> Option<Duration> {
+    pub(crate) fn effective_timeout(&self) -> Option<Duration> {
         self.call_timeout()
             .or_else(timeout::thread_call_timeout)
             .unwrap_or_else(|| self.orb.call_timeout())
@@ -433,6 +433,7 @@ impl Reply {
             wchar_needs_code_set: false,
             values: Vec::new(),
             typed_values: Vec::new(),
+            body: Some(&self.body),
         }
     }
 

@@ -650,6 +650,7 @@ impl Server {
             wchar_needs_code_set: true,
             values: Vec::new(),
             typed_values: Vec::new(),
+            body: Some(&body),
         };
         let result = {
             let _upcall = UpcallGuard::enter();

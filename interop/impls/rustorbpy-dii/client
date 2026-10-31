@@ -1,0 +1,4 @@
+#!/bin/sh
+# The rustorb Python client (impls/rustorbpy) with every call made through
+# the DII (impls/rustorbpy/dii_adapters.py).
+RUSTORB_DII=1 exec python3 "$(dirname "$0")/../rustorbpy/client.py" "$@"

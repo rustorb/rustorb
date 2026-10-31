@@ -52,6 +52,7 @@
 
 mod codeset;
 mod connection;
+pub mod dii;
 pub mod dynany;
 mod exception;
 mod fixed;

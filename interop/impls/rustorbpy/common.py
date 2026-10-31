@@ -16,6 +16,12 @@ sys.path[:0] = [os.path.join(HERE, "lib"), os.path.join(HERE, "stubs")]
 from rustorb import CORBA  # noqa: E402
 import CosNaming  # noqa: E402
 
+# impls/rustorbpy-dii: the same client and server over the DII and the DSI.
+if os.environ.get("RUSTORB_DII"):
+    import dii_adapters  # noqa: E402
+
+    dii_adapters.install()
+
 
 def parse_args(description, extra=None):
     parser = argparse.ArgumentParser(description=description)
