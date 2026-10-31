@@ -8,6 +8,11 @@ rust-version.workspace = true
 # crate that is not MIT OR Apache-2.0. Generated code is not covered.
 license = "GPL-3.0-or-later"
 repository.workspace = true
+exclude = ["python/tests"]
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
 
 [lints]
 workspace = true

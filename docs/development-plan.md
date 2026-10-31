@@ -352,4 +352,10 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 
 ### 残りの issue
 
-- なし（新しいものは issue で受ける）
+P0〜P3 の issue がすべて終わった後（2026-10-31）、各設計書の「残り」から次を起票した。
+
+- P1：[#83](https://github.com/rustorb/rustorb/issues/83) 最初のリリース（0.1.0）の準備（[release.md](release.md)）
+- P2：[#84](https://github.com/rustorb/rustorb/issues/84) 利用者向けの入門ガイドと英語の README
+- P3：[#85](https://github.com/rustorb/rustorb/issues/85) valuetype の残り、[#86](https://github.com/rustorb/rustorb/issues/86) 読み込みの持ち主と負荷試験の残り
+
+使うアプリケーションが出てきたら足すもの（`omniORB.URI`、`setClientThreadCallDeadline` など）は起票していない。

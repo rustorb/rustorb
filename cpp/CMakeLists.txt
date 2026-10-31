@@ -8,9 +8,14 @@
 # for the test IDLs; rustorb-idl needs idl_parser, importable or in
 # IDL_PARSER_DIR. Set RUSTORB_FFI_LIBRARY to use a librustorb_ffi built
 # elsewhere instead.
+#
+# Installing (docs/release.md): with -DRUSTORB_BUILD_TESTS=OFF only
+# librustorb_ffi is built, and `cmake --install` puts the headers, the
+# library and a CMake package (find_package(rustorb), the rustorb::rustorb
+# target and rustorb_idl_generate()) under CMAKE_INSTALL_PREFIX.
 
 cmake_minimum_required(VERSION 3.16)
-project(rustorb_cpp CXX)
+project(rustorb_cpp VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -19,9 +24,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 get_filename_component(RUSTORB_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 set(IDL_PARSER_DIR "" CACHE PATH "a checkout of idl_parser, if it is not importable")
 set(RUSTORB_FFI_LIBRARY "" CACHE FILEPATH "librustorb_ffi to link (default: built with cargo)")
+option(RUSTORB_BUILD_TESTS "build the tests (needs idl_parser)" ON)
 
 find_package(Threads REQUIRED)
-find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
+if(RUSTORB_BUILD_TESTS)
+  find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
+endif()
 
 if(RUSTORB_FFI_LIBRARY)
   add_custom_target(rustorb_ffi_build)
@@ -30,7 +38,7 @@ else()
   set(RUSTORB_FFI_LIBRARY
       "${RUSTORB_ROOT}/target/release/${CMAKE_STATIC_LIBRARY_PREFIX}rustorb_ffi${CMAKE_STATIC_LIBRARY_SUFFIX}")
   # Always run: cargo knows whether it is up to date.
-  add_custom_target(rustorb_ffi_build
+  add_custom_target(rustorb_ffi_build ALL
     COMMAND "${CARGO}" build --release --locked -p rustorb-ffi
             --manifest-path "${RUSTORB_ROOT}/Cargo.toml"
     BYPRODUCTS "${RUSTORB_FFI_LIBRARY}"
@@ -43,13 +51,39 @@ add_dependencies(rustorb rustorb_ffi_build)
 target_include_directories(rustorb INTERFACE
   "${CMAKE_CURRENT_SOURCE_DIR}/include"
   "${RUSTORB_ROOT}/crates/rustorb-ffi/include")
-target_link_libraries(rustorb INTERFACE "${RUSTORB_FFI_LIBRARY}" Threads::Threads ${CMAKE_DL_LIBS})
+# What the static librustorb_ffi needs from the system (also written into
+# the installed package).
+set(RUSTORB_SYSTEM_LIBS ${CMAKE_DL_LIBS})
 if(UNIX AND NOT APPLE)
-  target_link_libraries(rustorb INTERFACE m)
+  list(APPEND RUSTORB_SYSTEM_LIBS m)
 elseif(APPLE)
-  target_link_libraries(rustorb INTERFACE "-framework CoreFoundation" "-framework Security")
+  list(APPEND RUSTORB_SYSTEM_LIBS "-framework CoreFoundation" "-framework Security")
 elseif(WIN32)
-  target_link_libraries(rustorb INTERFACE ws2_32 userenv ntdll bcrypt)
+  list(APPEND RUSTORB_SYSTEM_LIBS ws2_32 userenv ntdll bcrypt)
+endif()
+target_link_libraries(rustorb INTERFACE "${RUSTORB_FFI_LIBRARY}" Threads::Threads ${RUSTORB_SYSTEM_LIBS})
+
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+get_filename_component(RUSTORB_FFI_LIBRARY_NAME "${RUSTORB_FFI_LIBRARY}" NAME)
+install(DIRECTORY include/rustorb DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+install(FILES "${RUSTORB_ROOT}/crates/rustorb-ffi/include/rustorb/rustorb.h"
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/rustorb")
+install(FILES "${RUSTORB_FFI_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+set(RUSTORB_CMAKE_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/rustorb")
+configure_package_config_file(cmake/rustorbConfig.cmake.in
+  "${CMAKE_CURRENT_BINARY_DIR}/rustorbConfig.cmake"
+  INSTALL_DESTINATION "${RUSTORB_CMAKE_DIR}"
+  PATH_VARS CMAKE_INSTALL_INCLUDEDIR CMAKE_INSTALL_LIBDIR)
+# 0.x: a minor version may break the API.
+write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/rustorbConfigVersion.cmake"
+  COMPATIBILITY SameMinorVersion)
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/rustorbConfig.cmake"
+              "${CMAKE_CURRENT_BINARY_DIR}/rustorbConfigVersion.cmake"
+        DESTINATION "${RUSTORB_CMAKE_DIR}")
+
+if(NOT RUSTORB_BUILD_TESTS)
+  return()
 endif()
 
 # rustorb_idl_generate(<var> <idl>...): runs rustorb-idl -bc++11 on each IDL

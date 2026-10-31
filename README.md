@@ -9,6 +9,7 @@ Rust製のCORBA実装
 - [Python バインディング（PyO3）](docs/python-binding.md)
 - [C++ バインディング（C ABI + IDL to C++11）](docs/cpp-binding.md)
 - [Java バインディング（FFM + IDL to Java）](docs/java-binding.md)
+- [リリースの手順](docs/release.md)、[変更履歴](CHANGELOG.md)
 
 ## クレート構成
 

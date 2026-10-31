@@ -1,9 +1,9 @@
 //! Stable `extern "C"` ABI layer over the rustorb core.
 //!
-//! The C++ binding (`cpp/include/rustorb`) is built on this crate, and so
-//! will the Java one be; the Python binding uses PyO3 directly instead. The
-//! functions are declared, with the rules every caller follows (handles,
-//! errors, strings, the lifetime of streams), in
+//! The C++ binding (`cpp/include/rustorb`) and the Java binding (through
+//! the FFM API) are built on this crate; the Python binding uses PyO3
+//! directly instead. The functions are declared, with the rules every
+//! caller follows (handles, errors, strings, the lifetime of streams), in
 //! `include/rustorb/rustorb.h`.
 //!
 //! - [`orb`]: `ORB_init` and the ORB operations.
