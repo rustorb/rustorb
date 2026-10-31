@@ -147,6 +147,25 @@ pub mod poa_probe {
             Ok(ret)
         }
 
+        /// `work`, on the async API: like [`work`](Self::work).
+        #[allow(clippy::type_complexity)]
+        pub async fn work_async(
+            &self,
+            ms: i32,
+        ) -> Result<CallInfo, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("work").args(|out| {
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&ms, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <CallInfo as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `relay`.
         #[allow(clippy::type_complexity)]
         pub fn relay(
@@ -169,6 +188,29 @@ pub mod poa_probe {
             Ok((ret, outer_thread))
         }
 
+        /// `relay`, on the async API: like [`relay`](Self::relay).
+        #[allow(clippy::type_complexity)]
+        pub async fn relay_async(
+            &self,
+            other: Option<&Target>,
+            ms: i32,
+        ) -> Result<(CallInfo, String), ::rustorb_core::SystemException> {
+            let request = self.0.request_async("relay").args(|out| {
+                Target::_write(other, out)?;
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&ms, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <CallInfo as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            let outer_thread =
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok((ret, outer_thread))
+        }
+
         /// `post`.
         #[allow(clippy::type_complexity)]
         pub fn post(&self, seq: i32, ms: i32) -> Result<(), ::rustorb_core::SystemException> {
@@ -178,6 +220,22 @@ pub mod poa_probe {
                 Ok(())
             });
             request.send_oneway()?;
+            Ok(())
+        }
+
+        /// `post`, on the async API: like [`post`](Self::post).
+        #[allow(clippy::type_complexity)]
+        pub async fn post_async(
+            &self,
+            seq: i32,
+            ms: i32,
+        ) -> Result<(), ::rustorb_core::SystemException> {
+            let request = self.0.request_async("post").args(|out| {
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&seq, out)?;
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&ms, out)?;
+                Ok(())
+            });
+            request.send_oneway().await?;
             Ok(())
         }
     }
@@ -851,6 +909,28 @@ pub mod poa_probe {
             Ok(ret)
         }
 
+        /// `reference`, on the async API: like [`reference`](Self::reference).
+        #[allow(clippy::type_complexity)]
+        pub async fn reference_async(
+            &self,
+            poa: &str,
+            oid: &str,
+        ) -> Result<String, control::ReferenceError> {
+            let request = self.0.request_async("reference").args(|out| {
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(poa, out)?;
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(oid, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(control::ReferenceError::from_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `set_state`.
         #[allow(clippy::type_complexity)]
         pub fn set_state(&self, state: &str) -> Result<(), control::SetStateError> {
@@ -860,6 +940,20 @@ pub mod poa_probe {
             });
             request
                 .invoke()
+                .map_err(control::SetStateError::from_exception)?;
+            Ok(())
+        }
+
+        /// `set_state`, on the async API: like [`set_state`](Self::set_state).
+        #[allow(clippy::type_complexity)]
+        pub async fn set_state_async(&self, state: &str) -> Result<(), control::SetStateError> {
+            let request = self.0.request_async("set_state").args(|out| {
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(state, out)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
                 .map_err(control::SetStateError::from_exception)?;
             Ok(())
         }
@@ -882,6 +976,25 @@ pub mod poa_probe {
             Ok(())
         }
 
+        /// `deactivate_object`, on the async API: like [`deactivate_object`](Self::deactivate_object).
+        #[allow(clippy::type_complexity)]
+        pub async fn deactivate_object_async(
+            &self,
+            poa: &str,
+            oid: &str,
+        ) -> Result<(), control::DeactivateObjectError> {
+            let request = self.0.request_async("deactivate_object").args(|out| {
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(poa, out)?;
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(oid, out)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
+                .map_err(control::DeactivateObjectError::from_exception)?;
+            Ok(())
+        }
+
         /// `activate_object`.
         #[allow(clippy::type_complexity)]
         pub fn activate_object(
@@ -900,6 +1013,25 @@ pub mod poa_probe {
             Ok(())
         }
 
+        /// `activate_object`, on the async API: like [`activate_object`](Self::activate_object).
+        #[allow(clippy::type_complexity)]
+        pub async fn activate_object_async(
+            &self,
+            poa: &str,
+            oid: &str,
+        ) -> Result<(), control::ActivateObjectError> {
+            let request = self.0.request_async("activate_object").args(|out| {
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(poa, out)?;
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(oid, out)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
+                .map_err(control::ActivateObjectError::from_exception)?;
+            Ok(())
+        }
+
         /// `destroy_poa`.
         #[allow(clippy::type_complexity)]
         pub fn destroy_poa(&self, poa: &str) -> Result<(), control::DestroyPoaError> {
@@ -913,12 +1045,39 @@ pub mod poa_probe {
             Ok(())
         }
 
+        /// `destroy_poa`, on the async API: like [`destroy_poa`](Self::destroy_poa).
+        #[allow(clippy::type_complexity)]
+        pub async fn destroy_poa_async(&self, poa: &str) -> Result<(), control::DestroyPoaError> {
+            let request = self.0.request_async("destroy_poa").args(|out| {
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(poa, out)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
+                .map_err(control::DestroyPoaError::from_exception)?;
+            Ok(())
+        }
+
         /// `events`.
         #[allow(clippy::type_complexity)]
         pub fn events(&self) -> Result<StringSeq, ::rustorb_core::SystemException> {
             let request = self.0.request("events");
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <alias::StringSeq as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `events`, on the async API: like [`events`](Self::events).
+        #[allow(clippy::type_complexity)]
+        pub async fn events_async(&self) -> Result<StringSeq, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("events");
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let ret = <alias::StringSeq as ::rustorb_core::idl::IdlType>::read(&mut input)?;
@@ -947,6 +1106,29 @@ pub mod poa_probe {
             Ok(ret)
         }
 
+        /// `shutdown_inside`, on the async API: like [`shutdown_inside`](Self::shutdown_inside).
+        #[allow(clippy::type_complexity)]
+        pub async fn shutdown_inside_async(
+            &self,
+            wait_for_completion: bool,
+        ) -> Result<String, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("shutdown_inside").args(|out| {
+                <::rustorb_core::idl::Boolean as ::rustorb_core::idl::IdlType>::write(
+                    &wait_for_completion,
+                    out,
+                )?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `shutdown_later`.
         #[allow(clippy::type_complexity)]
         pub fn shutdown_later(&self, delay_ms: i32) -> Result<(), ::rustorb_core::SystemException> {
@@ -956,6 +1138,23 @@ pub mod poa_probe {
             });
             request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            Ok(())
+        }
+
+        /// `shutdown_later`, on the async API: like [`shutdown_later`](Self::shutdown_later).
+        #[allow(clippy::type_complexity)]
+        pub async fn shutdown_later_async(
+            &self,
+            delay_ms: i32,
+        ) -> Result<(), ::rustorb_core::SystemException> {
+            let request = self.0.request_async("shutdown_later").args(|out| {
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&delay_ms, out)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             Ok(())
         }

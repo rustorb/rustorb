@@ -290,6 +290,25 @@ pub mod custom_test {
             Ok(ret)
         }
 
+        /// `echo_blob`, on the async API: like [`echo_blob`](Self::echo_blob).
+        #[allow(clippy::type_complexity)]
+        pub async fn echo_blob_async(
+            &self,
+            b: Option<&Blob>,
+        ) -> Result<Option<Blob>, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("echo_blob").args(|out| {
+                Blob::_write(b, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Blob as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `echo_blob_pair`.
         #[allow(clippy::type_complexity)]
         pub fn echo_blob_pair(
@@ -302,6 +321,25 @@ pub mod custom_test {
             });
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <BlobPair as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `echo_blob_pair`, on the async API: like [`echo_blob_pair`](Self::echo_blob_pair).
+        #[allow(clippy::type_complexity)]
+        pub async fn echo_blob_pair_async(
+            &self,
+            p: &BlobPair,
+        ) -> Result<BlobPair, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("echo_blob_pair").args(|out| {
+                <BlobPair as ::rustorb_core::idl::IdlType>::write(p, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let ret = <BlobPair as ::rustorb_core::idl::IdlType>::read(&mut input)?;
@@ -326,11 +364,38 @@ pub mod custom_test {
             Ok(ret)
         }
 
+        /// `echo_blobs`, on the async API: like [`echo_blobs`](Self::echo_blobs).
+        #[allow(clippy::type_complexity)]
+        pub async fn echo_blobs_async(
+            &self,
+            s: &[Option<Blob>],
+        ) -> Result<BlobSeq, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("echo_blobs").args(|out| {
+                <alias::BlobSeq as ::rustorb_core::idl::IdlType>::write(s, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <alias::BlobSeq as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `shutdown`.
         #[allow(clippy::type_complexity)]
         pub fn shutdown(&self) -> Result<(), ::rustorb_core::SystemException> {
             let request = self.0.request("shutdown");
             request.send_oneway()?;
+            Ok(())
+        }
+
+        /// `shutdown`, on the async API: like [`shutdown`](Self::shutdown).
+        #[allow(clippy::type_complexity)]
+        pub async fn shutdown_async(&self) -> Result<(), ::rustorb_core::SystemException> {
+            let request = self.0.request_async("shutdown");
+            request.send_oneway().await?;
             Ok(())
         }
     }

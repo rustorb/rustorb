@@ -1594,6 +1594,25 @@ pub mod cos_naming {
             Ok(())
         }
 
+        /// `bind`, on the async API: like [`bind`](Self::bind).
+        #[allow(clippy::type_complexity)]
+        pub async fn bind_async(
+            &self,
+            n: &[NameComponent],
+            obj: Option<&::rustorb_core::ObjectRef>,
+        ) -> Result<(), naming_context::BindError> {
+            let request = self.0.request_async("bind").args(|out| {
+                <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
+                out.write_object(obj)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
+                .map_err(naming_context::BindError::from_exception)?;
+            Ok(())
+        }
+
         /// `rebind`.
         #[allow(clippy::type_complexity)]
         pub fn rebind(
@@ -1608,6 +1627,25 @@ pub mod cos_naming {
             });
             request
                 .invoke()
+                .map_err(naming_context::RebindError::from_exception)?;
+            Ok(())
+        }
+
+        /// `rebind`, on the async API: like [`rebind`](Self::rebind).
+        #[allow(clippy::type_complexity)]
+        pub async fn rebind_async(
+            &self,
+            n: &[NameComponent],
+            obj: Option<&::rustorb_core::ObjectRef>,
+        ) -> Result<(), naming_context::RebindError> {
+            let request = self.0.request_async("rebind").args(|out| {
+                <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
+                out.write_object(obj)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
                 .map_err(naming_context::RebindError::from_exception)?;
             Ok(())
         }
@@ -1630,6 +1668,25 @@ pub mod cos_naming {
             Ok(())
         }
 
+        /// `bind_context`, on the async API: like [`bind_context`](Self::bind_context).
+        #[allow(clippy::type_complexity)]
+        pub async fn bind_context_async(
+            &self,
+            n: &[NameComponent],
+            nc: Option<&NamingContext>,
+        ) -> Result<(), naming_context::BindContextError> {
+            let request = self.0.request_async("bind_context").args(|out| {
+                <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
+                NamingContext::_write(nc, out)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
+                .map_err(naming_context::BindContextError::from_exception)?;
+            Ok(())
+        }
+
         /// `rebind_context`.
         #[allow(clippy::type_complexity)]
         pub fn rebind_context(
@@ -1644,6 +1701,25 @@ pub mod cos_naming {
             });
             request
                 .invoke()
+                .map_err(naming_context::RebindContextError::from_exception)?;
+            Ok(())
+        }
+
+        /// `rebind_context`, on the async API: like [`rebind_context`](Self::rebind_context).
+        #[allow(clippy::type_complexity)]
+        pub async fn rebind_context_async(
+            &self,
+            n: &[NameComponent],
+            nc: Option<&NamingContext>,
+        ) -> Result<(), naming_context::RebindContextError> {
+            let request = self.0.request_async("rebind_context").args(|out| {
+                <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
+                NamingContext::_write(nc, out)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
                 .map_err(naming_context::RebindContextError::from_exception)?;
             Ok(())
         }
@@ -1667,6 +1743,26 @@ pub mod cos_naming {
             Ok(ret)
         }
 
+        /// `resolve`, on the async API: like [`resolve`](Self::resolve).
+        #[allow(clippy::type_complexity)]
+        pub async fn resolve_async(
+            &self,
+            n: &[NameComponent],
+        ) -> Result<Option<::rustorb_core::ObjectRef>, naming_context::ResolveError> {
+            let request = self.0.request_async("resolve").args(|out| {
+                <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(naming_context::ResolveError::from_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Object as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `unbind`.
         #[allow(clippy::type_complexity)]
         pub fn unbind(&self, n: &[NameComponent]) -> Result<(), naming_context::UnbindError> {
@@ -1680,6 +1776,23 @@ pub mod cos_naming {
             Ok(())
         }
 
+        /// `unbind`, on the async API: like [`unbind`](Self::unbind).
+        #[allow(clippy::type_complexity)]
+        pub async fn unbind_async(
+            &self,
+            n: &[NameComponent],
+        ) -> Result<(), naming_context::UnbindError> {
+            let request = self.0.request_async("unbind").args(|out| {
+                <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
+                .map_err(naming_context::UnbindError::from_exception)?;
+            Ok(())
+        }
+
         /// `new_context`.
         #[allow(clippy::type_complexity)]
         pub fn new_context(
@@ -1688,6 +1801,21 @@ pub mod cos_naming {
             let request = self.0.request("new_context");
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <NamingContext as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `new_context`, on the async API: like [`new_context`](Self::new_context).
+        #[allow(clippy::type_complexity)]
+        pub async fn new_context_async(
+            &self,
+        ) -> Result<Option<NamingContext>, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("new_context");
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let ret = <NamingContext as ::rustorb_core::idl::IdlType>::read(&mut input)?;
@@ -1712,12 +1840,42 @@ pub mod cos_naming {
             Ok(ret)
         }
 
+        /// `bind_new_context`, on the async API: like [`bind_new_context`](Self::bind_new_context).
+        #[allow(clippy::type_complexity)]
+        pub async fn bind_new_context_async(
+            &self,
+            n: &[NameComponent],
+        ) -> Result<Option<NamingContext>, naming_context::BindNewContextError> {
+            let request = self.0.request_async("bind_new_context").args(|out| {
+                <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(naming_context::BindNewContextError::from_exception)?;
+            let mut input = reply.input();
+            let ret = <NamingContext as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `destroy`.
         #[allow(clippy::type_complexity)]
         pub fn destroy(&self) -> Result<(), naming_context::DestroyError> {
             let request = self.0.request("destroy");
             request
                 .invoke()
+                .map_err(naming_context::DestroyError::from_exception)?;
+            Ok(())
+        }
+
+        /// `destroy`, on the async API: like [`destroy`](Self::destroy).
+        #[allow(clippy::type_complexity)]
+        pub async fn destroy_async(&self) -> Result<(), naming_context::DestroyError> {
+            let request = self.0.request_async("destroy");
+            request
+                .invoke()
+                .await
                 .map_err(naming_context::DestroyError::from_exception)?;
             Ok(())
         }
@@ -1737,6 +1895,29 @@ pub mod cos_naming {
             });
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let bl = <alias::BindingList as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            let bi = <BindingIterator as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok((bl, bi))
+        }
+
+        /// `list`, on the async API: like [`list`](Self::list).
+        #[allow(clippy::type_complexity)]
+        pub async fn list_async(
+            &self,
+            how_many: u32,
+        ) -> Result<(BindingList, Option<BindingIterator>), ::rustorb_core::SystemException>
+        {
+            let request = self.0.request_async("list").args(|out| {
+                <::rustorb_core::idl::ULong as ::rustorb_core::idl::IdlType>::write(
+                    &how_many, out,
+                )?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let bl = <alias::BindingList as ::rustorb_core::idl::IdlType>::read(&mut input)?;
@@ -2057,6 +2238,23 @@ pub mod cos_naming {
             Ok((ret, b))
         }
 
+        /// `next_one`, on the async API: like [`next_one`](Self::next_one).
+        #[allow(clippy::type_complexity)]
+        pub async fn next_one_async(
+            &self,
+        ) -> Result<(bool, Binding), ::rustorb_core::SystemException> {
+            let request = self.0.request_async("next_one");
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Boolean as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            let b = <Binding as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok((ret, b))
+        }
+
         /// `next_n`.
         #[allow(clippy::type_complexity)]
         pub fn next_n(
@@ -2079,12 +2277,46 @@ pub mod cos_naming {
             Ok((ret, bl))
         }
 
+        /// `next_n`, on the async API: like [`next_n`](Self::next_n).
+        #[allow(clippy::type_complexity)]
+        pub async fn next_n_async(
+            &self,
+            how_many: u32,
+        ) -> Result<(bool, BindingList), ::rustorb_core::SystemException> {
+            let request = self.0.request_async("next_n").args(|out| {
+                <::rustorb_core::idl::ULong as ::rustorb_core::idl::IdlType>::write(
+                    &how_many, out,
+                )?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Boolean as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            let bl = <alias::BindingList as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok((ret, bl))
+        }
+
         /// `destroy`.
         #[allow(clippy::type_complexity)]
         pub fn destroy(&self) -> Result<(), ::rustorb_core::SystemException> {
             let request = self.0.request("destroy");
             request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            Ok(())
+        }
+
+        /// `destroy`, on the async API: like [`destroy`](Self::destroy).
+        #[allow(clippy::type_complexity)]
+        pub async fn destroy_async(&self) -> Result<(), ::rustorb_core::SystemException> {
+            let request = self.0.request_async("destroy");
+            request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             Ok(())
         }
@@ -2850,6 +3082,28 @@ pub mod cos_naming {
             Ok(ret)
         }
 
+        /// `to_string`, on the async API: like [`to_string`](Self::to_string).
+        #[allow(clippy::type_complexity)]
+        pub async fn to_string_async(
+            &self,
+            n: &[NameComponent],
+        ) -> Result<naming_context_ext::StringName, naming_context_ext::ToStringError> {
+            let request = self.0.request_async("to_string").args(|out| {
+                <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(naming_context_ext::ToStringError::from_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <naming_context_ext::alias::StringName as ::rustorb_core::idl::IdlType>::read(
+                    &mut input,
+                )?;
+            Ok(ret)
+        }
+
         /// `to_name`.
         #[allow(clippy::type_complexity)]
         pub fn to_name(&self, sn: &str) -> Result<Name, naming_context_ext::ToNameError> {
@@ -2861,6 +3115,27 @@ pub mod cos_naming {
             });
             let reply = request
                 .invoke()
+                .map_err(naming_context_ext::ToNameError::from_exception)?;
+            let mut input = reply.input();
+            let ret = <alias::Name as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `to_name`, on the async API: like [`to_name`](Self::to_name).
+        #[allow(clippy::type_complexity)]
+        pub async fn to_name_async(
+            &self,
+            sn: &str,
+        ) -> Result<Name, naming_context_ext::ToNameError> {
+            let request = self.0.request_async("to_name").args(|out| {
+                <naming_context_ext::alias::StringName as ::rustorb_core::idl::IdlType>::write(
+                    sn, out,
+                )?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
                 .map_err(naming_context_ext::ToNameError::from_exception)?;
             let mut input = reply.input();
             let ret = <alias::Name as ::rustorb_core::idl::IdlType>::read(&mut input)?;
@@ -2893,6 +3168,33 @@ pub mod cos_naming {
             Ok(ret)
         }
 
+        /// `to_url`, on the async API: like [`to_url`](Self::to_url).
+        #[allow(clippy::type_complexity)]
+        pub async fn to_url_async(
+            &self,
+            addr: &str,
+            sn: &str,
+        ) -> Result<naming_context_ext::UrlString, naming_context_ext::ToUrlError> {
+            let request = self.0.request_async("to_url").args(|out| {
+                <naming_context_ext::alias::Address as ::rustorb_core::idl::IdlType>::write(
+                    addr, out,
+                )?;
+                <naming_context_ext::alias::StringName as ::rustorb_core::idl::IdlType>::write(
+                    sn, out,
+                )?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(naming_context_ext::ToUrlError::from_exception)?;
+            let mut input = reply.input();
+            let ret = <naming_context_ext::alias::UrlString as ::rustorb_core::idl::IdlType>::read(
+                &mut input,
+            )?;
+            Ok(ret)
+        }
+
         /// `resolve_str`.
         #[allow(clippy::type_complexity)]
         pub fn resolve_str(
@@ -2908,6 +3210,29 @@ pub mod cos_naming {
             });
             let reply = request
                 .invoke()
+                .map_err(naming_context_ext::ResolveStrError::from_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Object as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `resolve_str`, on the async API: like [`resolve_str`](Self::resolve_str).
+        #[allow(clippy::type_complexity)]
+        pub async fn resolve_str_async(
+            &self,
+            n: &str,
+        ) -> Result<Option<::rustorb_core::ObjectRef>, naming_context_ext::ResolveStrError>
+        {
+            let request = self.0.request_async("resolve_str").args(|out| {
+                <naming_context_ext::alias::StringName as ::rustorb_core::idl::IdlType>::write(
+                    n, out,
+                )?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
                 .map_err(naming_context_ext::ResolveStrError::from_exception)?;
             let mut input = reply.input();
             let ret =
@@ -2933,6 +3258,25 @@ pub mod cos_naming {
             Ok(())
         }
 
+        /// `bind`, on the async API: like [`bind`](Self::bind).
+        #[allow(clippy::type_complexity)]
+        pub async fn bind_async(
+            &self,
+            n: &[NameComponent],
+            obj: Option<&::rustorb_core::ObjectRef>,
+        ) -> Result<(), naming_context::BindError> {
+            let request = self.0.request_async("bind").args(|out| {
+                <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
+                out.write_object(obj)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
+                .map_err(naming_context::BindError::from_exception)?;
+            Ok(())
+        }
+
         /// `rebind`.
         #[allow(clippy::type_complexity)]
         pub fn rebind(
@@ -2947,6 +3291,25 @@ pub mod cos_naming {
             });
             request
                 .invoke()
+                .map_err(naming_context::RebindError::from_exception)?;
+            Ok(())
+        }
+
+        /// `rebind`, on the async API: like [`rebind`](Self::rebind).
+        #[allow(clippy::type_complexity)]
+        pub async fn rebind_async(
+            &self,
+            n: &[NameComponent],
+            obj: Option<&::rustorb_core::ObjectRef>,
+        ) -> Result<(), naming_context::RebindError> {
+            let request = self.0.request_async("rebind").args(|out| {
+                <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
+                out.write_object(obj)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
                 .map_err(naming_context::RebindError::from_exception)?;
             Ok(())
         }
@@ -2969,6 +3332,25 @@ pub mod cos_naming {
             Ok(())
         }
 
+        /// `bind_context`, on the async API: like [`bind_context`](Self::bind_context).
+        #[allow(clippy::type_complexity)]
+        pub async fn bind_context_async(
+            &self,
+            n: &[NameComponent],
+            nc: Option<&NamingContext>,
+        ) -> Result<(), naming_context::BindContextError> {
+            let request = self.0.request_async("bind_context").args(|out| {
+                <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
+                NamingContext::_write(nc, out)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
+                .map_err(naming_context::BindContextError::from_exception)?;
+            Ok(())
+        }
+
         /// `rebind_context`.
         #[allow(clippy::type_complexity)]
         pub fn rebind_context(
@@ -2983,6 +3365,25 @@ pub mod cos_naming {
             });
             request
                 .invoke()
+                .map_err(naming_context::RebindContextError::from_exception)?;
+            Ok(())
+        }
+
+        /// `rebind_context`, on the async API: like [`rebind_context`](Self::rebind_context).
+        #[allow(clippy::type_complexity)]
+        pub async fn rebind_context_async(
+            &self,
+            n: &[NameComponent],
+            nc: Option<&NamingContext>,
+        ) -> Result<(), naming_context::RebindContextError> {
+            let request = self.0.request_async("rebind_context").args(|out| {
+                <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
+                NamingContext::_write(nc, out)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
                 .map_err(naming_context::RebindContextError::from_exception)?;
             Ok(())
         }
@@ -3006,6 +3407,26 @@ pub mod cos_naming {
             Ok(ret)
         }
 
+        /// `resolve`, on the async API: like [`resolve`](Self::resolve).
+        #[allow(clippy::type_complexity)]
+        pub async fn resolve_async(
+            &self,
+            n: &[NameComponent],
+        ) -> Result<Option<::rustorb_core::ObjectRef>, naming_context::ResolveError> {
+            let request = self.0.request_async("resolve").args(|out| {
+                <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(naming_context::ResolveError::from_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Object as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `unbind`.
         #[allow(clippy::type_complexity)]
         pub fn unbind(&self, n: &[NameComponent]) -> Result<(), naming_context::UnbindError> {
@@ -3019,6 +3440,23 @@ pub mod cos_naming {
             Ok(())
         }
 
+        /// `unbind`, on the async API: like [`unbind`](Self::unbind).
+        #[allow(clippy::type_complexity)]
+        pub async fn unbind_async(
+            &self,
+            n: &[NameComponent],
+        ) -> Result<(), naming_context::UnbindError> {
+            let request = self.0.request_async("unbind").args(|out| {
+                <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
+                .map_err(naming_context::UnbindError::from_exception)?;
+            Ok(())
+        }
+
         /// `new_context`.
         #[allow(clippy::type_complexity)]
         pub fn new_context(
@@ -3027,6 +3465,21 @@ pub mod cos_naming {
             let request = self.0.request("new_context");
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <NamingContext as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `new_context`, on the async API: like [`new_context`](Self::new_context).
+        #[allow(clippy::type_complexity)]
+        pub async fn new_context_async(
+            &self,
+        ) -> Result<Option<NamingContext>, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("new_context");
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let ret = <NamingContext as ::rustorb_core::idl::IdlType>::read(&mut input)?;
@@ -3051,12 +3504,42 @@ pub mod cos_naming {
             Ok(ret)
         }
 
+        /// `bind_new_context`, on the async API: like [`bind_new_context`](Self::bind_new_context).
+        #[allow(clippy::type_complexity)]
+        pub async fn bind_new_context_async(
+            &self,
+            n: &[NameComponent],
+        ) -> Result<Option<NamingContext>, naming_context::BindNewContextError> {
+            let request = self.0.request_async("bind_new_context").args(|out| {
+                <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(naming_context::BindNewContextError::from_exception)?;
+            let mut input = reply.input();
+            let ret = <NamingContext as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `destroy`.
         #[allow(clippy::type_complexity)]
         pub fn destroy(&self) -> Result<(), naming_context::DestroyError> {
             let request = self.0.request("destroy");
             request
                 .invoke()
+                .map_err(naming_context::DestroyError::from_exception)?;
+            Ok(())
+        }
+
+        /// `destroy`, on the async API: like [`destroy`](Self::destroy).
+        #[allow(clippy::type_complexity)]
+        pub async fn destroy_async(&self) -> Result<(), naming_context::DestroyError> {
+            let request = self.0.request_async("destroy");
+            request
+                .invoke()
+                .await
                 .map_err(naming_context::DestroyError::from_exception)?;
             Ok(())
         }
@@ -3076,6 +3559,29 @@ pub mod cos_naming {
             });
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let bl = <alias::BindingList as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            let bi = <BindingIterator as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok((bl, bi))
+        }
+
+        /// `list`, on the async API: like [`list`](Self::list).
+        #[allow(clippy::type_complexity)]
+        pub async fn list_async(
+            &self,
+            how_many: u32,
+        ) -> Result<(BindingList, Option<BindingIterator>), ::rustorb_core::SystemException>
+        {
+            let request = self.0.request_async("list").args(|out| {
+                <::rustorb_core::idl::ULong as ::rustorb_core::idl::IdlType>::write(
+                    &how_many, out,
+                )?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let bl = <alias::BindingList as ::rustorb_core::idl::IdlType>::read(&mut input)?;

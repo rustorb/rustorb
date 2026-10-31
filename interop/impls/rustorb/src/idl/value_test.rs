@@ -1037,6 +1037,20 @@ pub mod value_test {
                 <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
             Ok(ret)
         }
+
+        /// `count`, on the async API: like [`count`](Self::count).
+        #[allow(clippy::type_complexity)]
+        pub async fn count_async(&self) -> Result<i32, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("count");
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
     }
 
     impl ::rustorb_core::idl::IdlType for Counter {
@@ -1574,6 +1588,25 @@ pub mod value_test {
             Ok(ret)
         }
 
+        /// `echo_point`, on the async API: like [`echo_point`](Self::echo_point).
+        #[allow(clippy::type_complexity)]
+        pub async fn echo_point_async(
+            &self,
+            p: Option<&Point>,
+        ) -> Result<Option<Point>, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("echo_point").args(|out| {
+                Point::_write(p, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Point as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `echo_pair`.
         #[allow(clippy::type_complexity)]
         pub fn echo_pair(&self, p: &Pair) -> Result<Pair, ::rustorb_core::SystemException> {
@@ -1583,6 +1616,25 @@ pub mod value_test {
             });
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Pair as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `echo_pair`, on the async API: like [`echo_pair`](Self::echo_pair).
+        #[allow(clippy::type_complexity)]
+        pub async fn echo_pair_async(
+            &self,
+            p: &Pair,
+        ) -> Result<Pair, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("echo_pair").args(|out| {
+                <Pair as ::rustorb_core::idl::IdlType>::write(p, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let ret = <Pair as ::rustorb_core::idl::IdlType>::read(&mut input)?;
@@ -1607,6 +1659,25 @@ pub mod value_test {
             Ok(ret)
         }
 
+        /// `echo_node`, on the async API: like [`echo_node`](Self::echo_node).
+        #[allow(clippy::type_complexity)]
+        pub async fn echo_node_async(
+            &self,
+            n: Option<&Node>,
+        ) -> Result<Option<Node>, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("echo_node").args(|out| {
+                Node::_write(n, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Node as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `echo_shape`.
         #[allow(clippy::type_complexity)]
         pub fn echo_shape(
@@ -1625,6 +1696,25 @@ pub mod value_test {
             Ok(ret)
         }
 
+        /// `echo_shape`, on the async API: like [`echo_shape`](Self::echo_shape).
+        #[allow(clippy::type_complexity)]
+        pub async fn echo_shape_async(
+            &self,
+            s: Option<&Shape>,
+        ) -> Result<Option<Shape>, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("echo_shape").args(|out| {
+                Shape::_write(s, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Shape as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `echo_points`.
         #[allow(clippy::type_complexity)]
         pub fn echo_points(
@@ -1637,6 +1727,25 @@ pub mod value_test {
             });
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <alias::PointSeq as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `echo_points`, on the async API: like [`echo_points`](Self::echo_points).
+        #[allow(clippy::type_complexity)]
+        pub async fn echo_points_async(
+            &self,
+            s: &[Option<Point>],
+        ) -> Result<PointSeq, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("echo_points").args(|out| {
+                <alias::PointSeq as ::rustorb_core::idl::IdlType>::write(s, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let ret = <alias::PointSeq as ::rustorb_core::idl::IdlType>::read(&mut input)?;
@@ -1664,6 +1773,28 @@ pub mod value_test {
             Ok(ret)
         }
 
+        /// `same`, on the async API: like [`same`](Self::same).
+        #[allow(clippy::type_complexity)]
+        pub async fn same_async(
+            &self,
+            a: Option<&Point>,
+            b: Option<&Point>,
+        ) -> Result<bool, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("same").args(|out| {
+                Point::_write(a, out)?;
+                Point::_write(b, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Boolean as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `count_nodes`.
         #[allow(clippy::type_complexity)]
         pub fn count_nodes(
@@ -1676,6 +1807,26 @@ pub mod value_test {
             });
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `count_nodes`, on the async API: like [`count_nodes`](Self::count_nodes).
+        #[allow(clippy::type_complexity)]
+        pub async fn count_nodes_async(
+            &self,
+            n: Option<&Node>,
+        ) -> Result<i32, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("count_nodes").args(|out| {
+                Node::_write(n, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let ret =
@@ -1701,6 +1852,25 @@ pub mod value_test {
             Ok(ret)
         }
 
+        /// `echo_long_box`, on the async API: like [`echo_long_box`](Self::echo_long_box).
+        #[allow(clippy::type_complexity)]
+        pub async fn echo_long_box_async(
+            &self,
+            b: Option<&LongBox>,
+        ) -> Result<Option<LongBox>, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("echo_long_box").args(|out| {
+                LongBox::_write(b, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <LongBox as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `echo_string_box`.
         #[allow(clippy::type_complexity)]
         pub fn echo_string_box(
@@ -1713,6 +1883,25 @@ pub mod value_test {
             });
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <StringBox as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `echo_string_box`, on the async API: like [`echo_string_box`](Self::echo_string_box).
+        #[allow(clippy::type_complexity)]
+        pub async fn echo_string_box_async(
+            &self,
+            b: Option<&StringBox>,
+        ) -> Result<Option<StringBox>, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("echo_string_box").args(|out| {
+                StringBox::_write(b, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let ret = <StringBox as ::rustorb_core::idl::IdlType>::read(&mut input)?;
@@ -1737,6 +1926,25 @@ pub mod value_test {
             Ok(ret)
         }
 
+        /// `echo_pair_box`, on the async API: like [`echo_pair_box`](Self::echo_pair_box).
+        #[allow(clippy::type_complexity)]
+        pub async fn echo_pair_box_async(
+            &self,
+            b: Option<&PairBox>,
+        ) -> Result<Option<PairBox>, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("echo_pair_box").args(|out| {
+                PairBox::_write(b, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <PairBox as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `echo_any`.
         #[allow(clippy::type_complexity)]
         pub fn echo_any(
@@ -1749,6 +1957,25 @@ pub mod value_test {
             });
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <::rustorb_core::idl::Any as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `echo_any`, on the async API: like [`echo_any`](Self::echo_any).
+        #[allow(clippy::type_complexity)]
+        pub async fn echo_any_async(
+            &self,
+            a: &::rustorb_core::Any,
+        ) -> Result<::rustorb_core::Any, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("echo_any").args(|out| {
+                <::rustorb_core::idl::Any as ::rustorb_core::idl::IdlType>::write(a, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let ret = <::rustorb_core::idl::Any as ::rustorb_core::idl::IdlType>::read(&mut input)?;
@@ -1773,6 +2000,25 @@ pub mod value_test {
             Ok(ret)
         }
 
+        /// `echo_tally`, on the async API: like [`echo_tally`](Self::echo_tally).
+        #[allow(clippy::type_complexity)]
+        pub async fn echo_tally_async(
+            &self,
+            t: Option<&Tally>,
+        ) -> Result<Option<Tally>, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("echo_tally").args(|out| {
+                Tally::_write(t, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Tally as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `call_count`.
         #[allow(clippy::type_complexity)]
         pub fn call_count(
@@ -1785,6 +2031,26 @@ pub mod value_test {
             });
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `call_count`, on the async API: like [`call_count`](Self::call_count).
+        #[allow(clippy::type_complexity)]
+        pub async fn call_count_async(
+            &self,
+            c: Option<&Counter>,
+        ) -> Result<i32, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("call_count").args(|out| {
+                Counter::_write(c, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let ret =
@@ -1811,6 +2077,26 @@ pub mod value_test {
             Ok(ret)
         }
 
+        /// `account_doubled`, on the async API: like [`account_doubled`](Self::account_doubled).
+        #[allow(clippy::type_complexity)]
+        pub async fn account_doubled_async(
+            &self,
+            a: Option<&Account>,
+        ) -> Result<i32, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("account_doubled").args(|out| {
+                Account::_write(a, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `make_account`.
         #[allow(clippy::type_complexity)]
         pub fn make_account(
@@ -1829,11 +2115,38 @@ pub mod value_test {
             Ok(ret)
         }
 
+        /// `make_account`, on the async API: like [`make_account`](Self::make_account).
+        #[allow(clippy::type_complexity)]
+        pub async fn make_account_async(
+            &self,
+            balance: i32,
+        ) -> Result<Option<Account>, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("make_account").args(|out| {
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&balance, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Account as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `shutdown`.
         #[allow(clippy::type_complexity)]
         pub fn shutdown(&self) -> Result<(), ::rustorb_core::SystemException> {
             let request = self.0.request("shutdown");
             request.send_oneway()?;
+            Ok(())
+        }
+
+        /// `shutdown`, on the async API: like [`shutdown`](Self::shutdown).
+        #[allow(clippy::type_complexity)]
+        pub async fn shutdown_async(&self) -> Result<(), ::rustorb_core::SystemException> {
+            let request = self.0.request_async("shutdown");
+            request.send_oneway().await?;
             Ok(())
         }
     }

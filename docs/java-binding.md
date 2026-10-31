@@ -154,4 +154,4 @@ JacORB は、UTF-8 に決まった `char` のデータ（rustorb とはどちら
 ## 残り
 
 - DII / DSI（#44 でコアと Python に加えた。Java は需要が出たら）
-- Java 22 以降の FFM API への置き換え：試作と比較は [java-ffm.md](java-ffm.md)（#51）
+- Java 22 以降の FFM API への置き換え：試作して比べ、Java の下限を 22 に上げられるまでは JNI のまま（[java-ffm.md](java-ffm.md)、#51）

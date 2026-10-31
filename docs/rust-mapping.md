@@ -11,7 +11,7 @@ rustorb の Rust 用 IDL マッピングと、その生成器 `rustorb-idl -brus
 ## 方針
 
 - **素直な Rust にする**：Rust の命名規約、`Result` による例外、所有と借用に沿った引数の渡し方、標準の型（`String`、`Vec`、配列、`Option`）を使う。IDL の型の区別（`string` と `wstring` など）は Rust の型には持ち込まず、生成コードが IDL の型を知っていることで済ませる
-- **同期 API**：コアと同じく、呼び出しはブロックする。async 版のスタブは生成しない。コアの async API（`ObjectRef::request_async`、[async-api.md](async-api.md)）は直接使える。スタブの async 版は [#77](https://github.com/rustorb/rustorb/issues/77)
+- **同期 API と async 版**：コアと同じく、スタブの呼び出しはブロックする。操作ごとに `async fn <名前>_async` も出す（コアの async API の上、[async-api.md](async-api.md#生成コードの-async-版スタブ)、[#77](https://github.com/rustorb/rustorb/issues/77)）。サーバントのトレイトは同期のまま
 - **生成コードは安全な Rust だけ**：`unsafe` を使わない。マーシャリングはコアの `OutStream` / `InStream` の上に直接書き、動的な `Value` を経由しない（Any を除く）
 - **ランタイムは `rustorb-core` に置く**：生成コードが使うトレイトと補助の型は `rustorb_core::idl` モジュールに足す。新しいクレートは作らない
 - **生成器は Python**：他の backend と同じく `crates/rustorb-codegen/python/rustorb_idl/rust_backend.py`（GPL-3.0-or-later、生成物は対象外）。フロントエンド（`frontend.py`）は共通

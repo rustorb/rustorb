@@ -121,7 +121,7 @@ M0〜M6 はすべて完了した。その後の作業は issue で管理して�
 | --- | --- | --- | --- |
 | Python | PyO3 + maturin | スタブ・スケルトンのPythonモジュール、型ヒント（.pyi） | GILとORBスレッドの協調、omniORBpy互換API |
 | C++ | C ABI（安定ABI層）＋ヘッダオンリーのC++ラッパ | CPP11準拠のヘッダ・スケルトン | RAIIと参照カウントの対応、例外の伝播 |
-| Java | JNI（将来Java 22以降のFFM APIも検討） | IDL to Java準拠のクラス群 | JavaのGCとRust側参照の解放、コールバックのスレッドアタッチ |
+| Java | JNI（FFM API は試作して比べ、Java の下限を 22 に上げられるまでは JNI のまま。[java-ffm.md](java-ffm.md)、#51） | IDL to Java準拠のクラス群 | JavaのGCとRust側参照の解放、コールバックのスレッドアタッチ |
 
 - Rustコアは`extern "C"`の安定ABI層（`rustorb-ffi`）を1つだけ公開し、C++とJavaはそこから使う。Pythonは開発効率を優先してPyO3で直接つなぐ
 - オブジェクト参照はRust側で参照カウントし、各言語のハンドルが解放されたら減算する
@@ -338,6 +338,7 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 - [x] tokio ランタイムの共有と async API（[async-api.md](async-api.md)、[#50](https://github.com/rustorb/rustorb/issues/50)）
   - `Orb::with_runtime`（アプリケーションのランタイムで通信 I/O を動かす。`destroy` 後にタスクを残さない）、`ObjectRef::request_async`（`Send` な `Future`、どのエグゼキュータからも poll できる）、`is_a_async` など、`Orb::run_async`
   - tokio のワーカーからの同期 API は今までどおり `BAD_INV_ORDER`
+  - `rustorb-idl -brust` のスタブに操作ごとの `async fn <名前>_async`（[#77](https://github.com/rustorb/rustorb/issues/77)）
 - [x] DII / DSI（[dii-dsi.md](dii-dsi.md)、[#44](https://github.com/rustorb/rustorb/issues/44)）
   - コア：`ObjectRef::create_request` → `DiiRequest`（同期・async・oneway・deferred）、`DynamicImplementation` と `DynamicServant`、`ServerRequest`
   - Python：標準マッピングの `Request`・`NVList`・`ServerRequest`・`PortableServer.DynamicImplementation`、`orb.send_multiple_requests_*` / `get_next_response`
@@ -348,6 +349,4 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 すべて P3。
 
 - [#46](https://github.com/rustorb/rustorb/issues/46) IDL4-CPP の構文（アノテーションなど）を C++ 生成器に取り込む
-- [#51](https://github.com/rustorb/rustorb/issues/51) Java バインディングの FFM 版を試作し、JNI 版と比べる（試作と比較は [java-ffm.md](java-ffm.md)。置き換えるかは未定）
-- [#77](https://github.com/rustorb/rustorb/issues/77) Rust の IDL 生成器で async 版のスタブを出す
 - [#78](https://github.com/rustorb/rustorb/issues/78) SSLIOP（IIOP over TLS）

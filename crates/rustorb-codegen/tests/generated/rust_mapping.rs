@@ -141,6 +141,22 @@ impl GlobalIface {
         let ret = <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
         Ok(ret)
     }
+
+    /// `ping`, on the async API: like [`ping`](Self::ping).
+    #[allow(clippy::type_complexity)]
+    pub async fn ping_async(&self, v: i32) -> Result<i32, ::rustorb_core::SystemException> {
+        let request = self.0.request_async("ping").args(|out| {
+            <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&v, out)?;
+            Ok(())
+        });
+        let reply = request
+            .invoke()
+            .await
+            .map_err(::rustorb_core::idl::system_exception)?;
+        let mut input = reply.input();
+        let ret = <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+        Ok(ret)
+    }
 }
 
 impl ::rustorb_core::idl::IdlType for GlobalIface {
@@ -1925,12 +1941,40 @@ pub mod rust_mapping {
             Ok(ret)
         }
 
+        /// `_get_id`, on the async API: like [`id`](Self::id).
+        #[allow(clippy::type_complexity)]
+        pub async fn id_async(&self) -> Result<i32, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("_get_id");
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `_get_label`.
         #[allow(clippy::type_complexity)]
         pub fn label(&self) -> Result<String, ::rustorb_core::SystemException> {
             let request = self.0.request("_get_label");
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `_get_label`, on the async API: like [`label`](Self::label).
+        #[allow(clippy::type_complexity)]
+        pub async fn label_async(&self) -> Result<String, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("_get_label");
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let ret =
@@ -1951,12 +1995,40 @@ pub mod rust_mapping {
             Ok(())
         }
 
+        /// `_set_label`, on the async API: like [`set_label`](Self::set_label).
+        #[allow(clippy::type_complexity)]
+        pub async fn set_label_async(
+            &self,
+            value: &str,
+        ) -> Result<(), ::rustorb_core::SystemException> {
+            let request = self.0.request_async("_set_label").args(|out| {
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(value, out)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            Ok(())
+        }
+
         /// `base_op`.
         #[allow(clippy::type_complexity)]
         pub fn base_op(&self) -> Result<(), base::BaseOpError> {
             let request = self.0.request("base_op");
             request
                 .invoke()
+                .map_err(base::BaseOpError::from_exception)?;
+            Ok(())
+        }
+
+        /// `base_op`, on the async API: like [`base_op`](Self::base_op).
+        #[allow(clippy::type_complexity)]
+        pub async fn base_op_async(&self) -> Result<(), base::BaseOpError> {
+            let request = self.0.request_async("base_op");
+            request
+                .invoke()
+                .await
                 .map_err(base::BaseOpError::from_exception)?;
             Ok(())
         }
@@ -2273,6 +2345,30 @@ pub mod rust_mapping {
             Ok((ret, c))
         }
 
+        /// `derived_op`, on the async API: like [`derived_op`](Self::derived_op).
+        #[allow(clippy::type_complexity)]
+        pub async fn derived_op_async(
+            &self,
+            a: i32,
+            b: &mut i32,
+        ) -> Result<(i32, i32), derived::DerivedOpError> {
+            let request = self.0.request_async("derived_op").args(|out| {
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&a, out)?;
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&*b, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(derived::DerivedOpError::from_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            *b = <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            let c = <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok((ret, c))
+        }
+
         /// `notify`.
         #[allow(clippy::type_complexity)]
         pub fn notify(&self, msg: &str) -> Result<(), ::rustorb_core::SystemException> {
@@ -2281,6 +2377,17 @@ pub mod rust_mapping {
                 Ok(())
             });
             request.send_oneway()?;
+            Ok(())
+        }
+
+        /// `notify`, on the async API: like [`notify`](Self::notify).
+        #[allow(clippy::type_complexity)]
+        pub async fn notify_async(&self, msg: &str) -> Result<(), ::rustorb_core::SystemException> {
+            let request = self.0.request_async("notify").args(|out| {
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(msg, out)?;
+                Ok(())
+            });
+            request.send_oneway().await?;
             Ok(())
         }
 
@@ -2296,12 +2403,40 @@ pub mod rust_mapping {
             Ok(ret)
         }
 
+        /// `as_base`, on the async API: like [`as_base`](Self::as_base).
+        #[allow(clippy::type_complexity)]
+        pub async fn as_base_async(&self) -> Result<Option<Base>, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("as_base");
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Base as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `laters`.
         #[allow(clippy::type_complexity)]
         pub fn laters(&self) -> Result<base::LaterSeq, ::rustorb_core::SystemException> {
             let request = self.0.request("laters");
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <base::alias::LaterSeq as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `laters`, on the async API: like [`laters`](Self::laters).
+        #[allow(clippy::type_complexity)]
+        pub async fn laters_async(
+            &self,
+        ) -> Result<base::LaterSeq, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("laters");
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let ret = <base::alias::LaterSeq as ::rustorb_core::idl::IdlType>::read(&mut input)?;
@@ -2322,6 +2457,29 @@ pub mod rust_mapping {
             });
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let result =
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            *pair = <Pair as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(result)
+        }
+
+        /// `getValue`, on the async API: like [`get_value`](Self::get_value).
+        #[allow(clippy::type_complexity)]
+        pub async fn get_value_async(
+            &self,
+            r#match: &str,
+            pair: &mut Pair,
+        ) -> Result<String, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("getValue").args(|out| {
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(r#match, out)?;
+                <Pair as ::rustorb_core::idl::IdlType>::write(&*pair, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let result =
@@ -2363,12 +2521,60 @@ pub mod rust_mapping {
             Ok(())
         }
 
+        /// `take`, on the async API: like [`take`](Self::take).
+        #[allow(clippy::too_many_arguments)]
+        #[allow(clippy::type_complexity)]
+        pub async fn take_async(
+            &self,
+            h: &Holder,
+            p: &Pair,
+            f: Fruit,
+            o: &[u8],
+            l: Option<&Later>,
+            x: Option<&::rustorb_core::ObjectRef>,
+            a: &::rustorb_core::Any,
+            m: &Money,
+            g: &Grid,
+        ) -> Result<(), ::rustorb_core::SystemException> {
+            let request = self.0.request_async("take").args(|out| {
+                <Holder as ::rustorb_core::idl::IdlType>::write(h, out)?;
+                <Pair as ::rustorb_core::idl::IdlType>::write(p, out)?;
+                <Fruit as ::rustorb_core::idl::IdlType>::write(&f, out)?;
+                <alias::Octets as ::rustorb_core::idl::IdlType>::write(o, out)?;
+                Later::_write(l, out)?;
+                out.write_object(x)?;
+                <::rustorb_core::idl::Any as ::rustorb_core::idl::IdlType>::write(a, out)?;
+                <alias::Money as ::rustorb_core::idl::IdlType>::write(m, out)?;
+                <alias::Grid as ::rustorb_core::idl::IdlType>::write(g, out)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            Ok(())
+        }
+
         /// `_get_id`.
         #[allow(clippy::type_complexity)]
         pub fn id(&self) -> Result<i32, ::rustorb_core::SystemException> {
             let request = self.0.request("_get_id");
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `_get_id`, on the async API: like [`id`](Self::id).
+        #[allow(clippy::type_complexity)]
+        pub async fn id_async(&self) -> Result<i32, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("_get_id");
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let ret =
@@ -2389,6 +2595,20 @@ pub mod rust_mapping {
             Ok(ret)
         }
 
+        /// `_get_label`, on the async API: like [`label`](Self::label).
+        #[allow(clippy::type_complexity)]
+        pub async fn label_async(&self) -> Result<String, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("_get_label");
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `_set_label`.
         #[allow(clippy::type_complexity)]
         pub fn set_label(&self, value: &str) -> Result<(), ::rustorb_core::SystemException> {
@@ -2402,12 +2622,40 @@ pub mod rust_mapping {
             Ok(())
         }
 
+        /// `_set_label`, on the async API: like [`set_label`](Self::set_label).
+        #[allow(clippy::type_complexity)]
+        pub async fn set_label_async(
+            &self,
+            value: &str,
+        ) -> Result<(), ::rustorb_core::SystemException> {
+            let request = self.0.request_async("_set_label").args(|out| {
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(value, out)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            Ok(())
+        }
+
         /// `base_op`.
         #[allow(clippy::type_complexity)]
         pub fn base_op(&self) -> Result<(), base::BaseOpError> {
             let request = self.0.request("base_op");
             request
                 .invoke()
+                .map_err(base::BaseOpError::from_exception)?;
+            Ok(())
+        }
+
+        /// `base_op`, on the async API: like [`base_op`](Self::base_op).
+        #[allow(clippy::type_complexity)]
+        pub async fn base_op_async(&self) -> Result<(), base::BaseOpError> {
+            let request = self.0.request_async("base_op");
+            request
+                .invoke()
+                .await
                 .map_err(base::BaseOpError::from_exception)?;
             Ok(())
         }
@@ -2702,6 +2950,17 @@ pub mod rust_mapping {
                 .map_err(::rustorb_core::idl::system_exception)?;
             Ok(())
         }
+
+        /// `other_op`, on the async API: like [`other_op`](Self::other_op).
+        #[allow(clippy::type_complexity)]
+        pub async fn other_op_async(&self) -> Result<(), ::rustorb_core::SystemException> {
+            let request = self.0.request_async("other_op");
+            request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            Ok(())
+        }
     }
 
     impl ::rustorb_core::idl::IdlType for Other {
@@ -2887,6 +3146,23 @@ pub mod rust_mapping {
             Ok(())
         }
 
+        /// `multi_op`, on the async API: like [`multi_op`](Self::multi_op).
+        #[allow(clippy::type_complexity)]
+        pub async fn multi_op_async(
+            &self,
+            info: &base::BaseInfo,
+        ) -> Result<(), ::rustorb_core::SystemException> {
+            let request = self.0.request_async("multi_op").args(|out| {
+                <base::BaseInfo as ::rustorb_core::idl::IdlType>::write(info, out)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            Ok(())
+        }
+
         /// `derived_op`.
         #[allow(clippy::type_complexity)]
         pub fn derived_op(
@@ -2910,6 +3186,30 @@ pub mod rust_mapping {
             Ok((ret, c))
         }
 
+        /// `derived_op`, on the async API: like [`derived_op`](Self::derived_op).
+        #[allow(clippy::type_complexity)]
+        pub async fn derived_op_async(
+            &self,
+            a: i32,
+            b: &mut i32,
+        ) -> Result<(i32, i32), derived::DerivedOpError> {
+            let request = self.0.request_async("derived_op").args(|out| {
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&a, out)?;
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&*b, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(derived::DerivedOpError::from_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            *b = <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            let c = <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok((ret, c))
+        }
+
         /// `notify`.
         #[allow(clippy::type_complexity)]
         pub fn notify(&self, msg: &str) -> Result<(), ::rustorb_core::SystemException> {
@@ -2918,6 +3218,17 @@ pub mod rust_mapping {
                 Ok(())
             });
             request.send_oneway()?;
+            Ok(())
+        }
+
+        /// `notify`, on the async API: like [`notify`](Self::notify).
+        #[allow(clippy::type_complexity)]
+        pub async fn notify_async(&self, msg: &str) -> Result<(), ::rustorb_core::SystemException> {
+            let request = self.0.request_async("notify").args(|out| {
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(msg, out)?;
+                Ok(())
+            });
+            request.send_oneway().await?;
             Ok(())
         }
 
@@ -2933,12 +3244,40 @@ pub mod rust_mapping {
             Ok(ret)
         }
 
+        /// `as_base`, on the async API: like [`as_base`](Self::as_base).
+        #[allow(clippy::type_complexity)]
+        pub async fn as_base_async(&self) -> Result<Option<Base>, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("as_base");
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Base as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `laters`.
         #[allow(clippy::type_complexity)]
         pub fn laters(&self) -> Result<base::LaterSeq, ::rustorb_core::SystemException> {
             let request = self.0.request("laters");
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <base::alias::LaterSeq as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `laters`, on the async API: like [`laters`](Self::laters).
+        #[allow(clippy::type_complexity)]
+        pub async fn laters_async(
+            &self,
+        ) -> Result<base::LaterSeq, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("laters");
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let ret = <base::alias::LaterSeq as ::rustorb_core::idl::IdlType>::read(&mut input)?;
@@ -2959,6 +3298,29 @@ pub mod rust_mapping {
             });
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let result =
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            *pair = <Pair as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(result)
+        }
+
+        /// `getValue`, on the async API: like [`get_value`](Self::get_value).
+        #[allow(clippy::type_complexity)]
+        pub async fn get_value_async(
+            &self,
+            r#match: &str,
+            pair: &mut Pair,
+        ) -> Result<String, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("getValue").args(|out| {
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(r#match, out)?;
+                <Pair as ::rustorb_core::idl::IdlType>::write(&*pair, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let result =
@@ -3000,6 +3362,40 @@ pub mod rust_mapping {
             Ok(())
         }
 
+        /// `take`, on the async API: like [`take`](Self::take).
+        #[allow(clippy::too_many_arguments)]
+        #[allow(clippy::type_complexity)]
+        pub async fn take_async(
+            &self,
+            h: &Holder,
+            p: &Pair,
+            f: Fruit,
+            o: &[u8],
+            l: Option<&Later>,
+            x: Option<&::rustorb_core::ObjectRef>,
+            a: &::rustorb_core::Any,
+            m: &Money,
+            g: &Grid,
+        ) -> Result<(), ::rustorb_core::SystemException> {
+            let request = self.0.request_async("take").args(|out| {
+                <Holder as ::rustorb_core::idl::IdlType>::write(h, out)?;
+                <Pair as ::rustorb_core::idl::IdlType>::write(p, out)?;
+                <Fruit as ::rustorb_core::idl::IdlType>::write(&f, out)?;
+                <alias::Octets as ::rustorb_core::idl::IdlType>::write(o, out)?;
+                Later::_write(l, out)?;
+                out.write_object(x)?;
+                <::rustorb_core::idl::Any as ::rustorb_core::idl::IdlType>::write(a, out)?;
+                <alias::Money as ::rustorb_core::idl::IdlType>::write(m, out)?;
+                <alias::Grid as ::rustorb_core::idl::IdlType>::write(g, out)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            Ok(())
+        }
+
         /// `other_op`.
         #[allow(clippy::type_complexity)]
         pub fn other_op(&self) -> Result<(), ::rustorb_core::SystemException> {
@@ -3010,12 +3406,37 @@ pub mod rust_mapping {
             Ok(())
         }
 
+        /// `other_op`, on the async API: like [`other_op`](Self::other_op).
+        #[allow(clippy::type_complexity)]
+        pub async fn other_op_async(&self) -> Result<(), ::rustorb_core::SystemException> {
+            let request = self.0.request_async("other_op");
+            request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            Ok(())
+        }
+
         /// `_get_id`.
         #[allow(clippy::type_complexity)]
         pub fn id(&self) -> Result<i32, ::rustorb_core::SystemException> {
             let request = self.0.request("_get_id");
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `_get_id`, on the async API: like [`id`](Self::id).
+        #[allow(clippy::type_complexity)]
+        pub async fn id_async(&self) -> Result<i32, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("_get_id");
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let ret =
@@ -3036,6 +3457,20 @@ pub mod rust_mapping {
             Ok(ret)
         }
 
+        /// `_get_label`, on the async API: like [`label`](Self::label).
+        #[allow(clippy::type_complexity)]
+        pub async fn label_async(&self) -> Result<String, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("_get_label");
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `_set_label`.
         #[allow(clippy::type_complexity)]
         pub fn set_label(&self, value: &str) -> Result<(), ::rustorb_core::SystemException> {
@@ -3049,12 +3484,40 @@ pub mod rust_mapping {
             Ok(())
         }
 
+        /// `_set_label`, on the async API: like [`set_label`](Self::set_label).
+        #[allow(clippy::type_complexity)]
+        pub async fn set_label_async(
+            &self,
+            value: &str,
+        ) -> Result<(), ::rustorb_core::SystemException> {
+            let request = self.0.request_async("_set_label").args(|out| {
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(value, out)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            Ok(())
+        }
+
         /// `base_op`.
         #[allow(clippy::type_complexity)]
         pub fn base_op(&self) -> Result<(), base::BaseOpError> {
             let request = self.0.request("base_op");
             request
                 .invoke()
+                .map_err(base::BaseOpError::from_exception)?;
+            Ok(())
+        }
+
+        /// `base_op`, on the async API: like [`base_op`](Self::base_op).
+        #[allow(clippy::type_complexity)]
+        pub async fn base_op_async(&self) -> Result<(), base::BaseOpError> {
+            let request = self.0.request_async("base_op");
+            request
+                .invoke()
+                .await
                 .map_err(base::BaseOpError::from_exception)?;
             Ok(())
         }
@@ -3322,6 +3785,19 @@ pub mod rust_mapping {
             let request = self.0.request("next");
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Later as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `next`, on the async API: like [`next`](Self::next).
+        #[allow(clippy::type_complexity)]
+        pub async fn next_async(&self) -> Result<Option<Later>, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("next");
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let ret = <Later as ::rustorb_core::idl::IdlType>::read(&mut input)?;
@@ -4316,6 +4792,20 @@ pub mod rust_mapping {
                 <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
             Ok(ret)
         }
+
+        /// `reading`, on the async API: like [`reading`](Self::reading).
+        #[allow(clippy::type_complexity)]
+        pub async fn reading_async(&self) -> Result<i32, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("reading");
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
     }
 
     impl ::rustorb_core::idl::IdlType for Meter {
@@ -4767,6 +5257,25 @@ pub mod rust_mapping {
             Ok(ret)
         }
 
+        /// `echo_shape`, on the async API: like [`echo_shape`](Self::echo_shape).
+        #[allow(clippy::type_complexity)]
+        pub async fn echo_shape_async(
+            &self,
+            s: Option<&Shape>,
+        ) -> Result<Option<Shape>, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("echo_shape").args(|out| {
+                Shape::_write(s, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Shape as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `echo_drawing`.
         #[allow(clippy::type_complexity)]
         pub fn echo_drawing(
@@ -4779,6 +5288,25 @@ pub mod rust_mapping {
             });
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Drawing as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `echo_drawing`, on the async API: like [`echo_drawing`](Self::echo_drawing).
+        #[allow(clippy::type_complexity)]
+        pub async fn echo_drawing_async(
+            &self,
+            d: &Drawing,
+        ) -> Result<Drawing, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("echo_drawing").args(|out| {
+                <Drawing as ::rustorb_core::idl::IdlType>::write(d, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let ret = <Drawing as ::rustorb_core::idl::IdlType>::read(&mut input)?;
@@ -4803,6 +5331,25 @@ pub mod rust_mapping {
             Ok(ret)
         }
 
+        /// `echo_box`, on the async API: like [`echo_box`](Self::echo_box).
+        #[allow(clippy::type_complexity)]
+        pub async fn echo_box_async(
+            &self,
+            b: Option<&LongBox>,
+        ) -> Result<Option<LongBox>, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("echo_box").args(|out| {
+                LongBox::_write(b, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <LongBox as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `echo_tagged`.
         #[allow(clippy::type_complexity)]
         pub fn echo_tagged(
@@ -4815,6 +5362,25 @@ pub mod rust_mapping {
             });
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Tagged as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `echo_tagged`, on the async API: like [`echo_tagged`](Self::echo_tagged).
+        #[allow(clippy::type_complexity)]
+        pub async fn echo_tagged_async(
+            &self,
+            t: Option<&Tagged>,
+        ) -> Result<Option<Tagged>, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("echo_tagged").args(|out| {
+                Tagged::_write(t, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let ret = <Tagged as ::rustorb_core::idl::IdlType>::read(&mut input)?;
@@ -4839,6 +5405,25 @@ pub mod rust_mapping {
             Ok(ret)
         }
 
+        /// `echo_gauge`, on the async API: like [`echo_gauge`](Self::echo_gauge).
+        #[allow(clippy::type_complexity)]
+        pub async fn echo_gauge_async(
+            &self,
+            g: Option<&Gauge>,
+        ) -> Result<Option<Gauge>, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("echo_gauge").args(|out| {
+                Gauge::_write(g, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Gauge as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
         /// `read_meter`.
         #[allow(clippy::type_complexity)]
         pub fn read_meter(
@@ -4851,6 +5436,26 @@ pub mod rust_mapping {
             });
             let reply = request
                 .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `read_meter`, on the async API: like [`read_meter`](Self::read_meter).
+        #[allow(clippy::type_complexity)]
+        pub async fn read_meter_async(
+            &self,
+            m: Option<&Meter>,
+        ) -> Result<i32, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("read_meter").args(|out| {
+                Meter::_write(m, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
                 .map_err(::rustorb_core::idl::system_exception)?;
             let mut input = reply.input();
             let ret =
@@ -5171,6 +5776,19 @@ pub mod rust_mapping {
                 Ok(ret)
             }
 
+            /// `get`, on the async API: like [`get`](Self::get).
+            #[allow(clippy::type_complexity)]
+            pub async fn get_async(&self) -> Result<InnerStruct, ::rustorb_core::SystemException> {
+                let request = self.0.request_async("get");
+                let reply = request
+                    .invoke()
+                    .await
+                    .map_err(::rustorb_core::idl::system_exception)?;
+                let mut input = reply.input();
+                let ret = <InnerStruct as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+                Ok(ret)
+            }
+
             /// `_get_id`.
             #[allow(clippy::type_complexity)]
             pub fn id(&self) -> Result<i32, ::rustorb_core::SystemException> {
@@ -5184,12 +5802,41 @@ pub mod rust_mapping {
                 Ok(ret)
             }
 
+            /// `_get_id`, on the async API: like [`id`](Self::id).
+            #[allow(clippy::type_complexity)]
+            pub async fn id_async(&self) -> Result<i32, ::rustorb_core::SystemException> {
+                let request = self.0.request_async("_get_id");
+                let reply = request
+                    .invoke()
+                    .await
+                    .map_err(::rustorb_core::idl::system_exception)?;
+                let mut input = reply.input();
+                let ret =
+                    <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+                Ok(ret)
+            }
+
             /// `_get_label`.
             #[allow(clippy::type_complexity)]
             pub fn label(&self) -> Result<String, ::rustorb_core::SystemException> {
                 let request = self.0.request("_get_label");
                 let reply = request
                     .invoke()
+                    .map_err(::rustorb_core::idl::system_exception)?;
+                let mut input = reply.input();
+                let ret = <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(
+                    &mut input,
+                )?;
+                Ok(ret)
+            }
+
+            /// `_get_label`, on the async API: like [`label`](Self::label).
+            #[allow(clippy::type_complexity)]
+            pub async fn label_async(&self) -> Result<String, ::rustorb_core::SystemException> {
+                let request = self.0.request_async("_get_label");
+                let reply = request
+                    .invoke()
+                    .await
                     .map_err(::rustorb_core::idl::system_exception)?;
                 let mut input = reply.input();
                 let ret = <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(
@@ -5213,12 +5860,42 @@ pub mod rust_mapping {
                 Ok(())
             }
 
+            /// `_set_label`, on the async API: like [`set_label`](Self::set_label).
+            #[allow(clippy::type_complexity)]
+            pub async fn set_label_async(
+                &self,
+                value: &str,
+            ) -> Result<(), ::rustorb_core::SystemException> {
+                let request = self.0.request_async("_set_label").args(|out| {
+                    <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(
+                        value, out,
+                    )?;
+                    Ok(())
+                });
+                request
+                    .invoke()
+                    .await
+                    .map_err(::rustorb_core::idl::system_exception)?;
+                Ok(())
+            }
+
             /// `base_op`.
             #[allow(clippy::type_complexity)]
             pub fn base_op(&self) -> Result<(), super::base::BaseOpError> {
                 let request = self.0.request("base_op");
                 request
                     .invoke()
+                    .map_err(super::base::BaseOpError::from_exception)?;
+                Ok(())
+            }
+
+            /// `base_op`, on the async API: like [`base_op`](Self::base_op).
+            #[allow(clippy::type_complexity)]
+            pub async fn base_op_async(&self) -> Result<(), super::base::BaseOpError> {
+                let request = self.0.request_async("base_op");
+                request
+                    .invoke()
+                    .await
                     .map_err(super::base::BaseOpError::from_exception)?;
                 Ok(())
             }
