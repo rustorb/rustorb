@@ -347,7 +347,7 @@ rorb_status rorb_dynany_insert_dyn_any(const rorb_dynany* d, const rorb_dynany* 
                                        rorb_exception* exc);
 rorb_status rorb_dynany_get_dyn_any(const rorb_dynany* d, rorb_dynany** out,
                                     rorb_exception* exc);
-/* NO_IMPLEMENT (long double, abstract interfaces), or OBJECT_NOT_EXIST. */
+/* NO_IMPLEMENT (abstract interfaces), or OBJECT_NOT_EXIST. */
 rorb_status rorb_dynany_no_implement(const rorb_dynany* d, rorb_exception* exc);
 rorb_status rorb_dynany_seek(const rorb_dynany* d, int32_t index, int32_t* out,
                              rorb_exception* exc);
@@ -626,6 +626,11 @@ void rorb_out_write_typecode(rorb_out* out, const rorb_typecode* tc);
 void rorb_out_write_any(rorb_out* out, const rorb_any* any);
 /* The value of the any, without its TypeCode. */
 void rorb_out_write_any_value(rorb_out* out, const rorb_any* any);
+/* A long double as its IEEE 754 binary128 bits: the high and the low 64. */
+void rorb_out_write_longdouble(rorb_out* out, uint64_t hi, uint64_t lo);
+/* binary128 bits from a double (exact), and the nearest double to them. */
+void rorb_longdouble_from_double(double v, uint64_t* hi, uint64_t* lo);
+double rorb_longdouble_to_double(uint64_t hi, uint64_t lo);
 /* A fixed of count digits (0 to 9, most significant first) as packed
    decimal; the scale is not on the wire. More than 31 digits is BAD_PARAM. */
 void rorb_out_write_fixed(rorb_out* out, const uint8_t* digits, size_t count, int32_t negative);
@@ -646,6 +651,7 @@ int64_t rorb_in_read_longlong(rorb_in* in);
 uint64_t rorb_in_read_ulonglong(rorb_in* in);
 float rorb_in_read_float(rorb_in* in);
 double rorb_in_read_double(rorb_in* in);
+void rorb_in_read_longdouble(rorb_in* in, uint64_t* hi, uint64_t* lo);
 /* A string as UTF-8, valid until the next call on the stream. */
 const char* rorb_in_read_string(rorb_in* in, size_t* len);
 /* A wstring as UTF-16, valid until the next call on the stream. */

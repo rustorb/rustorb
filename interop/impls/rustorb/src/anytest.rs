@@ -9,7 +9,7 @@ use std::sync::{Arc, OnceLock};
 
 use rustorb_core::idl::{self as rt, IdlType, Sys, bad_param};
 use rustorb_core::{
-    Any, DynAny, DynAnyError, DynAnyFactory, SystemExceptionKind, TCKind, TypeCode,
+    Any, DynAny, DynAnyError, DynAnyFactory, LongDouble, SystemExceptionKind, TCKind, TypeCode,
 };
 
 use crate::idl::any_test::{
@@ -25,6 +25,7 @@ pub const NAMES: &[&str] = &[
     "ulonglong",
     "float",
     "double",
+    "longdouble",
     "boolean",
     "char",
     "octet",
@@ -92,6 +93,7 @@ pub fn value(name: &str, echo: &AnyEcho) -> Option<Any> {
         "ulonglong" => any::<rt::ULongLong>(&u64::MAX),
         "float" => any::<rt::Float>(&0.25),
         "double" => any::<rt::Double>(&1.5),
+        "longdouble" => any::<rt::LongDouble>(&LongDouble::from_f64(0.1)),
         "boolean" => any::<rt::Boolean>(&true),
         "char" => any::<rt::Char>(&'x'),
         "octet" => any::<rt::Octet>(&255),

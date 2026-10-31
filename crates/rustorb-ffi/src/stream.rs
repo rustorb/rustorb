@@ -7,7 +7,7 @@
 use std::ffi::{c_char, c_void};
 
 use rustorb_core::{
-    CompletionStatus, InStream, ObjectRef, OutStream, ServerReply, SystemException,
+    CompletionStatus, InStream, LongDouble, ObjectRef, OutStream, ServerReply, SystemException,
     SystemExceptionKind,
 };
 
@@ -190,6 +190,32 @@ pub unsafe extern "C" fn rorb_out_write_fixed(
 ) {
     unsafe { &mut *out }
         .with(|s| s.write_fixed(unsafe { slice::<u8>(digits.cast(), count) }, negative != 0));
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_out_write_longdouble(out: *mut RorbOut, hi: u64, lo: u64) {
+    unsafe { &mut *out }.with(|s| {
+        s.write_long_double(LongDouble::from_bits(
+            (u128::from(hi) << 64) | u128::from(lo),
+        ));
+        Ok(())
+    });
+}
+
+/// The binary128 bits of `v` (exact).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_longdouble_from_double(v: f64, hi: *mut u64, lo: *mut u64) {
+    let bits = LongDouble::from_f64(v).to_bits();
+    unsafe {
+        *hi = (bits >> 64) as u64;
+        *lo = bits as u64;
+    }
+}
+
+/// The double nearest to the binary128 bits (ties to even).
+#[unsafe(no_mangle)]
+pub extern "C" fn rorb_longdouble_to_double(hi: u64, lo: u64) -> f64 {
+    LongDouble::from_bits((u128::from(hi) << 64) | u128::from(lo)).to_f64()
 }
 
 /// Element kinds of the array functions (`RORB_PRIM_*`).
@@ -443,6 +469,17 @@ pub unsafe extern "C" fn rorb_in_read_fixed(
         out.fill(0);
     }
     i32::from(negative)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_in_read_longdouble(input: *mut RorbIn, hi: *mut u64, lo: *mut u64) {
+    let bits = unsafe { &mut *input }
+        .read(|s| s.read::<LongDouble>())
+        .to_bits();
+    unsafe {
+        *hi = (bits >> 64) as u64;
+        *lo = bits as u64;
+    }
 }
 
 #[unsafe(no_mangle)]

@@ -1,4 +1,6 @@
-use rustorb_cdr::{ByteOrder, CdrDecode, CdrEncode, CdrVersion, Decoder, Encoder, Error, Segment};
+use rustorb_cdr::{
+    ByteOrder, CdrDecode, CdrEncode, CdrVersion, Decoder, Encoder, Error, LongDouble, Segment,
+};
 
 const V12: CdrVersion = CdrVersion::Giop1_2;
 
@@ -56,6 +58,38 @@ fn primitives_big_endian() {
     assert_eq!(dec.read_f32().unwrap(), 1.0);
     assert_eq!(dec.read_f64().unwrap(), -2.0);
     assert!(dec.is_empty());
+}
+
+#[test]
+fn long_double_is_16_octets_on_an_8_octet_boundary() {
+    for (order, bytes) in [
+        (
+            ByteOrder::Big,
+            [
+                0x01, 0, 0, 0, 0, 0, 0, 0, // octet, pad to 8
+                0xC0, 0x00, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // -3.0
+            ],
+        ),
+        (
+            ByteOrder::Little,
+            [
+                0x01, 0, 0, 0, 0, 0, 0, 0, // octet, pad to 8
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x80, 0x00, 0xC0, // -3.0
+            ],
+        ),
+    ] {
+        let mut enc = Encoder::new(order, V12);
+        enc.write_octet(1);
+        enc.write_long_double(LongDouble::from_f64(-3.0));
+        assert_eq!(enc.as_bytes(), bytes, "{order:?}");
+        let mut dec = Decoder::new(&bytes, order, V12);
+        assert_eq!(dec.read_octet().unwrap(), 1);
+        assert_eq!(dec.read_long_double().unwrap().to_f64(), -3.0);
+        assert!(dec.is_empty());
+    }
+    roundtrip(vec![LongDouble::from_bits(
+        0x3fff_8000_0000_0000_0000_0000_0000_0001,
+    )]);
 }
 
 #[test]

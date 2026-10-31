@@ -93,6 +93,7 @@ final class Native {
     static native void outUlonglong(long out, long v);
     static native void outFloat(long out, float v);
     static native void outDouble(long out, double v);
+    static native void outLongdouble(long out, double v);
     static native void outString(long out, String v);
     static native void outWstring(long out, String v);
     static native void outObject(long out, long obj);
@@ -119,6 +120,7 @@ final class Native {
     static native long inUlonglong(long in);
     static native float inFloat(long in);
     static native double inDouble(long in);
+    static native double inLongdouble(long in);
     static native String inString(long in);
     static native String inWstring(long in);
     static native long inObject(long in);

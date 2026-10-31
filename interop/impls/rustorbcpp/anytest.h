@@ -24,7 +24,7 @@ using TypeCodeRef = IDL::traits<CORBA::TypeCode>::ref_type;
 
 inline const std::vector<std::string>& names() {
   static const std::vector<std::string> n = {
-      "long", "short", "ulonglong", "float", "double", "boolean", "char", "octet",
+      "long", "short", "ulonglong", "float", "double", "longdouble", "boolean", "char", "octet",
       "string", "bounded", "count", "money", "fixed", "point", "shade", "choice_l", "choice_s",
       "choice_default", "longseq", "octets", "shortarray", "node", "nvlist", "any",
       "typecode", "objref", "nil", "oops", "empty"};
@@ -56,6 +56,7 @@ inline CORBA::Any make(const std::string& name, const EchoRef& self) {
   else if (name == "ulonglong") a <<= uint64_t{18446744073709551615ULL};
   else if (name == "float") a <<= 0.25f;
   else if (name == "double") a <<= 1.5;
+  else if (name == "longdouble") a <<= static_cast<long double>(0.1);
   else if (name == "boolean") a <<= true;
   else if (name == "char") a <<= 'x';
   else if (name == "octet") a <<= uint8_t{255};
@@ -147,6 +148,7 @@ inline bool same(const std::string& name, const CORBA::Any& got, const EchoRef& 
   if (name == "ulonglong") return holds(got, uint64_t{18446744073709551615ULL});
   if (name == "float") return holds(got, 0.25f);
   if (name == "double") return holds(got, 1.5);
+  if (name == "longdouble") return holds(got, static_cast<long double>(0.1));
   if (name == "boolean") return holds(got, true);
   if (name == "char") return holds(got, 'x');
   if (name == "octet") return holds(got, uint8_t{255});
@@ -333,6 +335,7 @@ inline void dyn_copy(const DynamicAny::DynAny_ref& src, const DynamicAny::DynAny
     case K::tk_ulonglong: return dst->insert_ulonglong(src->get_ulonglong());
     case K::tk_float: return dst->insert_float(src->get_float());
     case K::tk_double: return dst->insert_double(src->get_double());
+    case K::tk_longdouble: return dst->insert_longdouble(src->get_longdouble());
     case K::tk_boolean: return dst->insert_boolean(src->get_boolean());
     case K::tk_char: return dst->insert_char(src->get_char());
     case K::tk_wchar: return dst->insert_wchar(src->get_wchar());

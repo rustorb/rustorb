@@ -428,6 +428,16 @@ final class AnyImpl extends Any {
     }
 
     @Override
+    public double extract_longdouble() {
+        return extractKind(TCKind._tk_longdouble, InputStream::read_longdouble);
+    }
+
+    @Override
+    public void insert_longdouble(double d) {
+        insertKind(TCKind._tk_longdouble, out -> out.write_longdouble(d));
+    }
+
+    @Override
     public boolean extract_boolean() {
         return extractKind(TCKind._tk_boolean, InputStream::read_boolean);
     }

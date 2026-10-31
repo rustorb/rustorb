@@ -10,6 +10,7 @@ module NativeTest {
   typedef sequence<long, 2> Pair;
   typedef fixed<5, 2> Money;
   typedef fixed<31, 4> Big;
+  typedef sequence<long double> Quads;
 
   struct Node;
   typedef sequence<Node> NodeSeq;
@@ -44,6 +45,7 @@ module NativeTest {
     Pair echo_pair(in Pair v);
     Money echo_money(in Money v);
     Big echo_big(in Big v);
+    long double echo_quad(in long double v, out Quads both);
     Node echo_node(in Node v);
     Keywords echo_keywords(in Keywords v);
     BoolUnion echo_bool_union(in BoolUnion v);

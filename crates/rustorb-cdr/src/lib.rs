@@ -20,7 +20,7 @@
 //! bytes (UTF-8 when converted to [`String`]), and `wchar`/`wstring` use
 //! UTF-16. Negotiating other code sets is left to the ORB core.
 //! `any`, `TypeCode` and `fixed` are in the ORB core, which knows the
-//! types; `long double` is not implemented.
+//! types. `long double` is [`LongDouble`], the IEEE 754 binary128 bits.
 //!
 //! Valuetypes are written and read in pieces: [`Encoder::begin_value`] /
 //! [`Encoder::end_value`] and [`Decoder::read_value_header`] /
@@ -37,6 +37,7 @@ pub const SHARE_MIN: usize = 4096;
 mod decoder;
 mod encoder;
 mod error;
+mod long_double;
 mod octets;
 mod traits;
 mod value;
@@ -44,6 +45,7 @@ mod value;
 pub use decoder::{Decoder, Segment};
 pub use encoder::Encoder;
 pub use error::{Error, Result};
+pub use long_double::LongDouble;
 pub use octets::Octets;
 pub use traits::{CdrDecode, CdrEncode};
 pub use value::ValueHeader;

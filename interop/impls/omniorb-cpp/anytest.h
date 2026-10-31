@@ -20,7 +20,7 @@ using namespace AnyTest;
 
 inline const std::vector<std::string>& names() {
   static const std::vector<std::string> n = {
-      "long", "short", "ulonglong", "float", "double", "boolean", "char", "octet",
+      "long", "short", "ulonglong", "float", "double", "longdouble", "boolean", "char", "octet",
       "string", "bounded", "count", "money", "fixed", "point", "shade", "choice_l", "choice_s",
       "choice_default", "longseq", "octets", "shortarray", "node", "nvlist", "any",
       "typecode", "objref", "nil", "oops", "empty"};
@@ -58,6 +58,7 @@ inline CORBA::Any* make(const std::string& name, AnyEcho_ptr self) {
   else if (name == "ulonglong") *a <<= static_cast<CORBA::ULongLong>(18446744073709551615ULL);
   else if (name == "float") *a <<= static_cast<CORBA::Float>(0.25);
   else if (name == "double") *a <<= static_cast<CORBA::Double>(1.5);
+  else if (name == "longdouble") *a <<= static_cast<CORBA::LongDouble>(0.1);
   else if (name == "boolean") *a <<= CORBA::Any::from_boolean(1);
   else if (name == "char") *a <<= CORBA::Any::from_char('x');
   else if (name == "octet") *a <<= CORBA::Any::from_octet(255);
@@ -197,6 +198,10 @@ inline bool same(const std::string& name, const CORBA::Any& got, AnyEcho_ptr sel
   if (name == "double") {
     CORBA::Double v;
     return (got >>= v) && v == 1.5;
+  }
+  if (name == "longdouble") {
+    CORBA::LongDouble v;
+    return (got >>= v) && v == static_cast<CORBA::LongDouble>(0.1);
   }
   if (name == "boolean") {
     CORBA::Boolean v;

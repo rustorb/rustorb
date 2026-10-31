@@ -85,7 +85,7 @@ pub use poa::{
 };
 pub use policy::{PolicyError, PolicyType, PolicyValue, SetOverrideType};
 pub use rustorb_cdr as cdr;
-pub use rustorb_cdr::Octets;
+pub use rustorb_cdr::{LongDouble, Octets};
 pub use rustorb_giop as giop;
 pub use rustorb_giop::CompletionStatus;
 pub use servant::{

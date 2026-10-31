@@ -33,6 +33,7 @@ const MAX_DEPTH: usize = 256;
 /// | other `sequence`s and arrays, struct, exception | `List`: the elements or the members in order (an exception is written with its repository id first, as in a reply) |
 /// | union | `Union`: the discriminator, and the index of the TypeCode member with its value, `None` when no member is selected |
 /// | enum | `Enum`: the position of the enumerator |
+/// | `long double` | `LongDouble`: the binary128 bits ([`LongDouble`](rustorb_cdr::LongDouble)) |
 /// | `fixed` | `Fixed`: the digits (as many as the type has, most significant first) and the sign |
 /// | object reference | `Objref`, `None` for nil |
 /// | `TypeCode` | `TypeCode` |
@@ -43,7 +44,6 @@ const MAX_DEPTH: usize = 256;
 /// Aliases take the value of the type they stand for. The state of a
 /// custom valuetype is the items its marshaling code writes, each a
 /// `Value::Any` of the item's type and value (see [`register_custom_reader`]).
-/// `long double` is not supported (`NO_IMPLEMENT`).
 #[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub enum Value {
@@ -58,6 +58,7 @@ pub enum Value {
     ULongLong(u64),
     Float(f32),
     Double(f64),
+    LongDouble(rustorb_cdr::LongDouble),
     Char(char),
     WChar(u16),
     String(String),
@@ -117,6 +118,7 @@ impl PartialEq for Value {
             (ULongLong(a), ULongLong(b)) => a == b,
             (Float(a), Float(b)) => a == b,
             (Double(a), Double(b)) => a == b,
+            (LongDouble(a), LongDouble(b)) => a == b,
             (Char(a), Char(b)) => a == b,
             (WChar(a), WChar(b)) => a == b,
             (String(a), String(b)) | (Chars(a), Chars(b)) => a == b,
@@ -563,6 +565,7 @@ any_from! {
     u64 => ULongLong, ULongLong;
     f32 => Float, Float;
     f64 => Double, Double;
+    rustorb_cdr::LongDouble => LongDouble, LongDouble;
     char => Char, Char;
 }
 
@@ -617,6 +620,7 @@ pub(crate) fn write(
         (TCKind::ULongLong, Value::ULongLong(v)) => v.encode(out)?,
         (TCKind::Float, Value::Float(v)) => v.encode(out)?,
         (TCKind::Double, Value::Double(v)) => v.encode(out)?,
+        (TCKind::LongDouble, Value::LongDouble(v)) => v.encode(out)?,
         (TCKind::Boolean, Value::Bool(v)) => v.encode(out)?,
         (TCKind::Octet, Value::Octet(v)) => out.write_octet(*v),
         (TCKind::Char, Value::Char(c)) => write_char(out, *c)?,
@@ -686,7 +690,7 @@ pub(crate) fn write(
             out.write_bool(false);
             write_valuetype(out, value_base_tc(), v.as_ref())?
         }
-        (TCKind::LongDouble | TCKind::Native, _) => {
+        (TCKind::Native, _) => {
             return Err(sys(SystemExceptionKind::NO_IMPLEMENT, CompletionStatus::No));
         }
         _ => return Err(bad_param()),
@@ -873,6 +877,7 @@ impl Reader {
             TCKind::ULongLong => Value::ULongLong(input.read()?),
             TCKind::Float => Value::Float(input.read()?),
             TCKind::Double => Value::Double(input.read()?),
+            TCKind::LongDouble => Value::LongDouble(input.read()?),
             TCKind::Boolean => Value::Bool(input.read()?),
             TCKind::Octet => Value::Octet(input.read()?),
             TCKind::Char => Value::Char(input.read_char_value()?),
@@ -1101,6 +1106,7 @@ fn min_size(tc: &TypeCode, depth: usize) -> usize {
         | TCKind::ValueBox
         | TCKind::Event => 4,
         TCKind::LongLong | TCKind::ULongLong | TCKind::Double => 8,
+        TCKind::LongDouble => 16,
         TCKind::Fixed => (tc.fixed_digits().unwrap_or(0) as usize + 2) / 2,
         TCKind::Array => {
             let content = tc.content_type().map(|c| min_size(&c, depth + 1));

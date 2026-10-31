@@ -97,20 +97,11 @@ class DynAny(CORBA.LocalObject):
     def get_val(self):
         return self._n.get_val()
 
-    def insert_longdouble(self, value):
-        self._n.no_implement()
-
-    def get_longdouble(self):
-        self._n.no_implement()
-
     def insert_abstract(self, value):
         self._n.no_implement()
 
     def get_abstract(self):
         self._n.no_implement()
-
-    insert_longdouble_seq = insert_longdouble
-    get_longdouble_seq = get_longdouble
 
     def seek(self, index):
         return self._n.seek(index)
@@ -167,6 +158,7 @@ for _name, _tc in [
     ("ulong", CORBA.TC_ulong),
     ("float", CORBA.TC_float),
     ("double", CORBA.TC_double),
+    ("longdouble", CORBA.TC_longdouble),
     ("longlong", CORBA.TC_longlong),
     ("ulonglong", CORBA.TC_ulonglong),
     ("wchar", CORBA.TC_wchar),

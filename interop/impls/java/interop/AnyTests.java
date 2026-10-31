@@ -52,7 +52,7 @@ public final class AnyTests {
     private AnyTests() {}
 
     static final List<String> NAMES = Arrays.asList(
-            "long", "short", "ulonglong", "float", "double", "boolean", "char", "octet",
+            "long", "short", "ulonglong", "float", "double", "longdouble", "boolean", "char", "octet",
             "string", "bounded", "count", "money", "fixed", "point", "shade", "choice_l", "choice_s",
             "choice_default", "longseq", "octets", "shortarray", "node", "nvlist", "any",
             "typecode", "objref", "nil", "oops", "empty");
@@ -60,6 +60,34 @@ public final class AnyTests {
     static final java.math.BigDecimal MONEY = new java.math.BigDecimal("-123.45");
     static final java.math.BigDecimal FIXED =
             new java.math.BigDecimal("123456789012345678901234567.8901");
+
+    // long double is not in the Java mapping: the rustorb Any has
+    // insert_longdouble / extract_longdouble (as doubles), other ORBs fail.
+    static void longDouble(org.omg.CORBA.Any a, double v) {
+        try {
+            org.omg.CORBA.Any.class.getMethod("insert_longdouble", double.class).invoke(a, v);
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            if (e.getCause() instanceof RuntimeException) {
+                throw (RuntimeException) e.getCause();
+            }
+            throw new org.omg.CORBA.NO_IMPLEMENT("no long double: " + e);
+        } catch (ReflectiveOperationException e) {
+            throw new org.omg.CORBA.NO_IMPLEMENT("no long double: " + e);
+        }
+    }
+
+    static double longDouble(org.omg.CORBA.Any a) {
+        try {
+            return (Double) org.omg.CORBA.Any.class.getMethod("extract_longdouble").invoke(a);
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            if (e.getCause() instanceof RuntimeException) {
+                throw (RuntimeException) e.getCause();
+            }
+            throw new org.omg.CORBA.NO_IMPLEMENT("no long double: " + e);
+        } catch (ReflectiveOperationException e) {
+            throw new org.omg.CORBA.NO_IMPLEMENT("no long double: " + e);
+        }
+    }
 
     static Node node(String name, Node... children) {
         return new Node(name, children);
@@ -101,6 +129,7 @@ public final class AnyTests {
             case "ulonglong": a.insert_ulonglong(-1L); break;
             case "float": a.insert_float(0.25f); break;
             case "double": a.insert_double(1.5); break;
+            case "longdouble": longDouble(a, 0.1); break;
             case "boolean": a.insert_boolean(true); break;
             case "char": a.insert_char('x'); break;
             case "octet": a.insert_octet((byte) 255); break;
@@ -183,6 +212,7 @@ public final class AnyTests {
             case "ulonglong": return got.extract_ulonglong() == -1L;
             case "float": return got.extract_float() == 0.25f;
             case "double": return got.extract_double() == 1.5;
+            case "longdouble": return longDouble(got) == 0.1;
             case "boolean": return got.extract_boolean();
             case "char": return got.extract_char() == 'x';
             case "octet": return got.extract_octet() == (byte) 255;

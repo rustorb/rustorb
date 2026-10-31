@@ -145,6 +145,19 @@ class DynAnyTest(unittest.TestCase):
         o.insert_octet_seq(b"ab")
         self.assertEqual(o.to_any().value(), b"ab")
 
+    def test_long_double(self):
+        d = factory.create_dyn_any_from_type_code(CORBA.TC_longdouble)
+        self.assertEqual(d.get_longdouble(), 0.0)
+        d.insert_longdouble(-2.5)
+        self.assertEqual(d.get_longdouble(), -2.5)
+        self.assertEqual(d.to_any().value(), -2.5)
+        with self.assertRaises(DynamicAny.DynAny.TypeMismatch):
+            d.get_double()
+        seq = CORBA.ORB_init([], "dynany").create_sequence_tc(0, CORBA.TC_longdouble)
+        s = factory.create_dyn_any_from_type_code(seq)
+        s.insert_longdouble_seq([1.0, 0.5])
+        self.assertEqual(s.get_longdouble_seq(), [1.0, 0.5])
+
     def test_any_and_typecode(self):
         d = factory.create_dyn_any_from_type_code(CORBA.TC_any)
         inner = factory.create_dyn_any_from_type_code(A._tc_Point)

@@ -52,6 +52,12 @@ public abstract class InputStream extends java.io.InputStream {
         throw new org.omg.CORBA.NO_IMPLEMENT();
     }
 
+    /** Reads a long double as the nearest double (rustorb: the Java
+     * mapping has no long double); NO_IMPLEMENT on streams that cannot. */
+    public double read_longdouble() {
+        throw new org.omg.CORBA.NO_IMPLEMENT();
+    }
+
     /** Reads a fixed of any number of digits, up to its sign, as an
      * integer (scale 0). */
     public java.math.BigDecimal read_fixed() {

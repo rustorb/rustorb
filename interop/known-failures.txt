@@ -126,3 +126,38 @@ suite=abstract * jacorb echo_any[value] JacORB on Java 17 cannot write values
 # JacORB's NamedHelper.insert puts an object in an any with the TypeCode of
 # its stub's type (tk_objref IDL:AbstractTest/Person:1.0), not tk_abstract_interface.
 suite=abstract jacorb * echo_any[object] JacORB abstract interface Helpers insert objects as objrefs
+
+# long double (#41): rustorb sends IEEE binary128, as the CORBA spec says.
+# omniORB 4.3.4 C++ (x86_64) sends the x87 80-bit memory image in the 16
+# octets instead, so each side reads the other's value as another number
+# (an echo through rustorb Rust, C++ or Java keeps the bits and passes;
+# rustorbpy turns them into a float). omniORBpy has no long double at all:
+# BAD_TYPECODE (UnknownKind) for its TypeCode and NO_IMPLEMENT for values.
+# Found by running them (docs/long-double.md).
+suite=any omniorbpy * check[longdouble] omniORBpy has no long double
+suite=any omniorbpy * check_tc[longdouble] omniORBpy has no long double
+suite=any omniorbpy * echo[longdouble] omniORBpy has no long double
+suite=any omniorbpy * echo_tc[longdouble] omniORBpy has no long double
+suite=any omniorbpy * make[longdouble] omniORBpy has no long double
+suite=any omniorbpy * make_tc[longdouble] omniORBpy has no long double
+suite=any omniorb-cpp omniorbpy check[longdouble] omniORBpy has no long double
+suite=any omniorb-cpp omniorbpy check_tc[longdouble] omniORBpy has no long double
+suite=any omniorb-cpp omniorbpy echo[longdouble] omniORBpy has no long double
+suite=any omniorb-cpp omniorbpy echo_tc[longdouble] omniORBpy has no long double
+suite=any omniorb-cpp omniorbpy make[longdouble] omniORBpy has no long double
+suite=any omniorb-cpp omniorbpy make_tc[longdouble] omniORBpy has no long double
+suite=any rustorb* omniorbpy check[longdouble] omniORBpy has no long double
+suite=any rustorb* omniorbpy check_tc[longdouble] omniORBpy has no long double
+suite=any rustorb* omniorbpy echo[longdouble] omniORBpy has no long double
+suite=any rustorb* omniorbpy echo_tc[longdouble] omniORBpy has no long double
+suite=any rustorb* omniorbpy make[longdouble] omniORBpy has no long double
+suite=any rustorb* omniorbpy make_tc[longdouble] omniORBpy has no long double
+suite=any rustorb* omniorbpy dyn_check[longdouble] omniORBpy has no long double
+suite=any rustorb* omniorbpy dyn_make[longdouble] omniORBpy has no long double
+suite=any omniorb-cpp rustorb* check[longdouble] omniORB sends long double in the x87 format
+suite=any omniorb-cpp rustorb* make[longdouble] omniORB sends long double in the x87 format
+suite=any omniorb-cpp rustorbpy echo[longdouble] omniORB sends long double in the x87 format
+suite=any rustorb* omniorb-cpp check[longdouble] omniORB sends long double in the x87 format
+suite=any rustorb* omniorb-cpp dyn_check[longdouble] omniORB sends long double in the x87 format
+suite=any rustorb* omniorb-cpp dyn_make[longdouble] omniORB sends long double in the x87 format
+suite=any rustorb* omniorb-cpp make[longdouble] omniORB sends long double in the x87 format

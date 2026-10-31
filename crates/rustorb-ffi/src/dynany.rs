@@ -326,7 +326,7 @@ pub unsafe extern "C" fn rorb_dynany_get_dyn_any(
     unsafe { put(exc, out, || arg(d)?.get_dyn_any().map(handle)) }
 }
 
-/// `insert_longdouble`, `insert_abstract` and their gets: `NO_IMPLEMENT`.
+/// `insert_abstract` and `get_abstract`: `NO_IMPLEMENT`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rorb_dynany_no_implement(d: *const D, exc: *mut Exception) -> Status {
     unsafe { run(exc, || arg(d)?.no_implement()) }

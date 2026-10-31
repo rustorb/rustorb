@@ -66,7 +66,7 @@ d.insert_long(1); d.next(); d.insert_double(2.5);
 Point p = PointHelper.extract(d.to_any());
 ```
 
-C++ と Java の型の対応は各マッピングのとおり（`insert_ulong` は C++ が `uint32_t`、Java が `int`、`*_seq` は C++ が `std::vector`、Java が配列）。どちらも `long double` の操作を持たない（C++ にも Java にも対応する型を置いていない）。`insert_abstract` / `get_abstract` は `NO_IMPLEMENT`。
+C++ と Java の型の対応は各マッピングのとおり（`insert_ulong` は C++ が `uint32_t`、Java が `int`、`*_seq` は C++ が `std::vector`、Java が配列）。`insert_longdouble` / `get_longdouble`（と `_seq`）は C++ が `long double` で持ち、Java は持たない（Java のマッピングに `long double` がない。`from_any` / `to_any` で扱える）。`insert_abstract` / `get_abstract` は `NO_IMPLEMENT`。
 
 ### C ABI
 
@@ -100,20 +100,19 @@ DynAny は TypeCode（別名を含めて渡されたまま）と状態の組で�
 - `next()` は -1 から 0 に進む。範囲外の `seek` と末尾の `next` は位置を -1 にして false
 - `current_component` は、構成要素を持てない型・メンバーのない例外・`null` の valuetype と value box で `TypeMismatch`、空の sequence や位置 -1 では nil
 - `current_member_name` / `current_member_kind` は、メンバーがない（`null` を含む）と `TypeMismatch`、位置 -1 で `InvalidValue`。`*_kind` は別名を外さない種類を返す（`tk_alias`）
-- TypeCode から作る値：0、false、空の文字列と sequence、最初の列挙子、nil、空の any（`tk_null`）、`tk_null` の TypeCode、`null` の valuetype と value box。共用体は TypeCode で最初のラベルの値を判別子にし（ラベルが default だけなら使われていない値）、それが選ぶメンバーを既定値にする（omniORB と同じ）。`Principal`・`native`・抽象インターフェース・ローカルインターフェース・`long double`・解決されていない再帰の TypeCode は `InconsistentTypeCode`
+- TypeCode から作る値：0、false、空の文字列と sequence、最初の列挙子、nil、空の any（`tk_null`）、`tk_null` の TypeCode、`null` の valuetype と value box。共用体は TypeCode で最初のラベルの値を判別子にし（ラベルが default だけなら使われていない値）、それが選ぶメンバーを既定値にする（omniORB と同じ）。`Principal`・`native`・抽象インターフェース・ローカルインターフェース・解決されていない再帰の TypeCode は `InconsistentTypeCode`
 - 共用体の判別子を構成要素の DynAny で変えると、次の操作でメンバーがそれに合わせて変わる。複数のラベルを持つ一つのメンバー（TypeCode では同じ名前で並ぶ）の中で判別子が動いたときは値を保つ（omniORB と同じ）
 - `set_to_default_member` / `set_to_no_active_member` は、どのラベルも使っていない値のうち 0 から数えて最初のものを判別子にする
 - `get_dyn_any` は中の any の新しい DynAny（共有しない、omniORB と同じ）、`insert_dyn_any` は値を写す
 - `DynFixed::get_value` は小数部の末尾の 0 を落とした文字列（`0`、`-12.5`）。`set_value` は前後の空白と `d` / `D` の接尾辞を受け付け、整数部が入らなければ `InvalidValue`、数値でなければ `TypeMismatch`、小数部を切り捨てたら false
 - valuetype の切り詰め：Any の型より派生した型のインスタンスは、`create_dyn_any` では宣言された型の状態メンバー（基底の型のメンバーが先にある）だけにし、`create_dyn_any_without_truncation` と `allow_truncate` が false の `create_multiple_dyn_anys` では `MustTruncate`。`to_any` は宣言された型のインスタンスを作る
 - `insert_reference` はインターフェースの型を確かめない（確かめるには `_is_a` で相手に問い合わせることになる）
-- `long double` と抽象インターフェース（`insert_longdouble`、`insert_abstract` など）は `NO_IMPLEMENT`
+- 抽象インターフェース（`insert_abstract` / `get_abstract`）は `NO_IMPLEMENT`
 
 ### omniORB との違い
 
 | ケース | omniORB 4.3.4 | rustorb | 理由 |
 | --- | --- | --- | --- |
-| `long double` の TypeCode から作る | 作れる | `InconsistentTypeCode` | rustorb は `long double` を扱わない（#41） |
 | 最上位を `destroy()` したあとの構成要素 | 使える | `OBJECT_NOT_EXIST` | 仕様は構成要素も破棄されるとしている |
 | `set_to_default_member` の判別子（ラベル 1〜3 の long） | `-2147483647` | `0` | 使われていない値ならどれでもよい |
 | `set_to_no_active_member` の判別子（ラベル 2・5 の short） | `-32767` | `0` | 同上 |
@@ -137,4 +136,4 @@ interop/run-dynany-probe.sh               # omniorb-cpp、rustorb、rustorbpy、
 
 ## 残り
 
-- `long double`（#41）、抽象インターフェース（DynAny の中身にできない）
+- 抽象インターフェース（DynAny の中身にできない）

@@ -1,4 +1,4 @@
-use crate::{ByteOrder, CdrVersion, Error, Octets, Result, SHARE_MIN};
+use crate::{ByteOrder, CdrVersion, Error, LongDouble, Octets, Result, SHARE_MIN};
 
 /// Writes CDR into a growable buffer.
 ///
@@ -203,6 +203,16 @@ impl Encoder {
         write_f32: f32;
         /// Writes a `double`.
         write_f64: f64;
+    }
+
+    /// Writes a `long double`: 16 octets on an 8 octet boundary.
+    pub fn write_long_double(&mut self, value: LongDouble) {
+        self.align(8);
+        let bits = value.to_bits();
+        self.buf.extend_from_slice(&match self.order {
+            ByteOrder::Big => bits.to_be_bytes(),
+            ByteOrder::Little => bits.to_le_bytes(),
+        });
     }
 
     /// Writes raw octets without alignment or a length.

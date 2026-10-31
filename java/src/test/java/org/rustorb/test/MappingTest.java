@@ -34,6 +34,9 @@ import mapping.CxxMapping.C_EXPR;
 import mapping.CxxMapping.C_FIXED;
 import mapping.CxxMapping.C_MONEY;
 import mapping.CxxMapping.C_OCTET;
+import mapping.CxxMapping.C_QUAD;
+import mapping.CxxMapping.Measure;
+import mapping.CxxMapping.MeasureHelper;
 import mapping.CxxMapping.C_SHORT;
 import mapping.CxxMapping.C_STRING;
 import mapping.CxxMapping.C_TRUE;
@@ -122,6 +125,15 @@ class MappingTest {
         }
 
         public Price echo_price(Price p) { return p; }
+
+        public double echo_quad(double q, org.omg.CORBA.DoubleHolder twice,
+                org.omg.CORBA.DoubleHolder negated) {
+            twice.value = twice.value * 2;
+            negated.value = -q;
+            return q;
+        }
+
+        public Measure echo_measure(Measure m) { return m; }
 
         public void fail(int code) throws Failure, Empty {
             if (code == 0) {
@@ -417,6 +429,24 @@ class MappingTest {
         assertEquals(price.amount, echoed.amount);
         assertEquals(price.tiny, echoed.tiny);
         assertEquals(new BigDecimal("2.50"), echoed.history[1]);
+        // long double travels as binary128; Java holds the nearest double.
+        org.omg.CORBA.DoubleHolder twice = new org.omg.CORBA.DoubleHolder(1.25);
+        org.omg.CORBA.DoubleHolder negated = new org.omg.CORBA.DoubleHolder();
+        assertEquals(0.1, types.echo_quad(0.1, twice, negated));
+        assertEquals(2.5, twice.value);
+        assertEquals(-0.1, negated.value);
+        assertEquals(2.5, C_QUAD.value);
+        Measure measure = types.echo_measure(new Measure(Double.MIN_VALUE, new double[] {1e300, -0.0}));
+        assertEquals(Double.MIN_VALUE, measure.value);
+        assertArrayEquals(new double[] {1e300, -0.0}, measure.samples);
+        org.omg.CORBA.Any la = org.omg.CORBA.ORB.init().create_any();
+        la.insert_longdouble(-3.5);
+        assertEquals(org.omg.CORBA.TCKind.tk_longdouble, la.type().kind());
+        assertEquals(-3.5, la.extract_longdouble());
+        assertThrows(org.omg.CORBA.BAD_OPERATION.class, la::extract_double);
+        org.omg.CORBA.Any ma = org.omg.CORBA.ORB.init().create_any();
+        MeasureHelper.insert(ma, measure);
+        assertEquals(Double.MIN_VALUE, MeasureHelper.extract(ma).value);
         BAD_PARAM grow = assertThrows(BAD_PARAM.class, () -> types.echo_short_string("grow"));
         assertEquals(CompletionStatus._COMPLETED_YES, grow.completed.value());
 

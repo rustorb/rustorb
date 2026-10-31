@@ -70,6 +70,7 @@ BASIC = {
     "ulonglong": "long",
     "float": "float",
     "double": "double",
+    "longdouble": "double",
 }
 
 # The suffix of read_X / write_X and of the _array variants.
@@ -86,6 +87,7 @@ STREAM = {
     "ulonglong": "ulonglong",
     "float": "float",
     "double": "double",
+    "longdouble": "longdouble",
 }
 
 HOLDER = {
@@ -101,6 +103,9 @@ HOLDER = {
     "ulonglong": "org.omg.CORBA.LongHolder",
     "float": "org.omg.CORBA.FloatHolder",
     "double": "org.omg.CORBA.DoubleHolder",
+    # A long double is a Java double (the Java mapping has none); the
+    # Holder only carries the value.
+    "longdouble": "org.omg.CORBA.DoubleHolder",
     "string": "org.omg.CORBA.StringHolder",
     "wstring": "org.omg.CORBA.StringHolder",
     "any": "org.omg.CORBA.AnyHolder",
@@ -122,6 +127,7 @@ TCKIND = {
     "ulonglong": "tk_ulonglong",
     "float": "tk_float",
     "double": "tk_double",
+    "longdouble": "tk_longdouble",
     "any": "tk_any",
     "TypeCode": "tk_TypeCode",
 }
@@ -140,6 +146,7 @@ MIN_SIZE = {
     "longlong": 8,
     "ulonglong": 8,
     "double": 8,
+    "longdouble": 16,
     "string": 4,
     "wstring": 4,
     "sequence": 4,
@@ -150,7 +157,6 @@ INT_RANGES = cxx_backend.INT_RANGES
 
 UNSUPPORTED = {
     "Principal": "Principal",
-    "longdouble": "long double",
 }
 
 ORB = "org.omg.CORBA.ORB.init()"
@@ -297,7 +303,7 @@ class JavaBackend(object):
             return "%s.%s" % (self.scoped(r.node), java_name(value.name))
         if k == "boolean":
             return "true" if value else "false"
-        if k in ("float", "double"):
+        if k in ("float", "double", "longdouble"):
             v = float(value)
             box = "Float" if k == "float" else "Double"
             if v != v:
@@ -389,7 +395,7 @@ class JavaBackend(object):
 
     def write_elements(self, w, content, expr, length, depth, where):
         c = content
-        if c.kind in STREAM and c.kind != "boolean" and c.kind not in ("char", "wchar"):
+        if c.kind in STREAM and c.kind not in ("boolean", "char", "wchar", "longdouble"):
             w("$out.write_%s_array(%s, 0, %s);" % (STREAM[c.kind], expr, length))
             return
         i = "$i%d" % depth
@@ -448,7 +454,7 @@ class JavaBackend(object):
 
     def read_elements(self, w, content, target, length, depth, where):
         c = content
-        if c.kind in STREAM and c.kind != "boolean" and c.kind not in ("char", "wchar"):
+        if c.kind in STREAM and c.kind not in ("boolean", "char", "wchar", "longdouble"):
             w("$in.read_%s_array(%s, 0, %s);" % (STREAM[c.kind], target, length))
             return
         i = "$i%d" % depth

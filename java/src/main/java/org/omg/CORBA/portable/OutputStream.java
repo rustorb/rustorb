@@ -46,6 +46,12 @@ public abstract class OutputStream extends java.io.OutputStream {
         throw new org.omg.CORBA.NO_IMPLEMENT();
     }
 
+    /** Writes value as a long double (rustorb: the Java mapping has no
+     * long double); NO_IMPLEMENT on streams that cannot. */
+    public void write_longdouble(double value) {
+        throw new org.omg.CORBA.NO_IMPLEMENT();
+    }
+
     /** Writes value with the digits of its unscaled value (the scale is
      * not written; read it back with read_fixed()). */
     public void write_fixed(java.math.BigDecimal value) {

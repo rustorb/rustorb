@@ -679,6 +679,7 @@ def _data_types():
         ("ulonglong", TC_ulonglong),
         ("float", TC_float),
         ("double", TC_double),
+        ("longdouble", TC_longdouble),
     ]
 
 
@@ -719,9 +720,6 @@ class DataOutputStream(object):
 
     def write_TypeCode(self, value):
         self._write(TC_TypeCode, value)
-
-    def write_longdouble(self, value):
-        raise NO_IMPLEMENT(0, COMPLETED_NO)
 
 
 class DataInputStream(object):
@@ -765,9 +763,6 @@ class DataInputStream(object):
 
     def read_TypeCode(self):
         return self._n.read(TC_TypeCode)
-
-    def read_longdouble(self):
-        raise NO_IMPLEMENT(0, COMPLETED_NO)
 
 
 def _data_methods():
