@@ -21,9 +21,14 @@ The options follow omniidl where they mean the same thing:
                     the Rust path PATH instead of writing them (rust)
   -Wbcore=PATH      the path of rustorb-core (rust, default ::rustorb_core)
   -Wbno_rustfmt     do not pass the output through rustfmt (rust)
+
+The standard IDL files that come with rustorb-idl (CosNaming.idl) are in the
+directory `rustorb-idl --idl-dir` prints, which is also searched for
+#include files after the -I directories.
 """
 
 import argparse
+import os
 import sys
 
 from . import __version__
@@ -32,6 +37,9 @@ from . import frontend
 from . import java_backend
 from . import python_backend
 from . import rust_backend
+
+
+IDL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "idl")
 
 
 def parse_args(argv):
@@ -51,12 +59,21 @@ def parse_args(argv):
     ap.add_argument("-W", dest="backend_options", action="append", default=[], metavar="bOPTION")
     ap.add_argument("--encoding", default=None, help="character encoding of the IDL files")
     ap.add_argument("--version", action="version", version="rustorb-idl " + __version__)
+    ap.add_argument(
+        "--idl-dir",
+        action="store_true",
+        help="print the directory of the standard IDL files (CosNaming.idl) and exit",
+    )
     ap.add_argument("files", nargs="+", metavar="FILE.idl")
     return ap.parse_args(argv)
 
 
 def main(argv=None):
-    args = parse_args(sys.argv[1:] if argv is None else argv)
+    argv = sys.argv[1:] if argv is None else argv
+    if "--idl-dir" in argv:
+        print(IDL_DIR)
+        return 0
+    args = parse_args(argv)
     if args.backend == "python":
         backend, options = python_backend, python_backend.Options()
     elif args.backend in ("c++11", "cxx11"):
@@ -105,7 +122,7 @@ def main(argv=None):
     status = 0
     for path in args.files:
         try:
-            spec = frontend.load(path, args.include, defines, args.encoding)
+            spec = frontend.load(path, args.include + [IDL_DIR], defines, args.encoding)
             if backend is python_backend:
                 generator = python_backend.PythonBackend(spec, options)
             elif backend is java_backend:

@@ -1006,8 +1006,10 @@ impl DynAny {
         self.target()
     }
 
-    /// `insert_<type>_seq`: sets the elements of the [target](DynAny::seq_target),
-    /// a sequence or array of elements of the kind `kind`, else
+    /// `insert_<type>_seq`: sets the elements of the target (this DynAny
+    /// if it is a sequence or array of that kind or has no components,
+    /// else its current component), a sequence or array of elements of
+    /// the kind `kind`, else
     /// `TypeMismatch`. Too many elements for a bounded sequence, or not
     /// as many as an array has, is `InvalidValue`. The position becomes
     /// the first element.
@@ -1026,8 +1028,10 @@ impl DynAny {
         Ok(())
     }
 
-    /// `get_<type>_seq`: the elements of the [target](DynAny::seq_target),
-    /// a sequence or array of elements of the kind `kind`, else
+    /// `get_<type>_seq`: the elements of the target (this DynAny if it is
+    /// a sequence or array of that kind or has no components, else its
+    /// current component), a sequence or array of elements of the kind
+    /// `kind`, else
     /// `TypeMismatch`.
     pub fn get_seq(&self, kind: TCKind) -> Result<Vec<Value>> {
         let target = self.seq_target(kind)?;

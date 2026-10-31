@@ -1,0 +1,16 @@
+# The Rust example (examples/README.md). Not a member of the rustorb
+# workspace: building it needs rustorb-idl on PATH.
+[package]
+name = "rustorb-example"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+rustorb-core = { path = "../../crates/rustorb-core", version = "0.1" }
+rustorb-naming = { path = "../../crates/rustorb-naming", version = "0.1" }
+
+[build-dependencies]
+rustorb-codegen = { path = "../../crates/rustorb-codegen", version = "0.1" }

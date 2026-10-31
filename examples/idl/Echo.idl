@@ -1,0 +1,9 @@
+// The interface of the examples: every server implements it, and every
+// client calls it through the naming service.
+module Example {
+  interface Echo {
+    string echo(in string message);
+    // Stops the server.
+    oneway void shutdown();
+  };
+};
