@@ -46,6 +46,7 @@ and omniORBpy, which takes a few minutes.
 interop/run-matrix.sh --build --capture        # all pairs, with GIOP captures
 interop/run-matrix.sh --capture --giop 1.1     # all pairs, clients limited to GIOP 1.1
 interop/run-matrix.sh omniorbpy:omniorb-cpp    # one pair: CLIENT:SERVER
+interop/run-matrix.sh --jobs 4 --capture       # 4 pairs at a time (or INTEROP_JOBS=4)
 interop/run-naming-check.sh
 interop/run-naming-check.sh --naming rustorb   # against rustorb-names, with a restart
 interop/run-matrix.sh --naming rustorb         # all pairs, rustorb-names instead of omniNames
@@ -69,6 +70,12 @@ Logs and captures go to `interop/out/<client>-to-<server>/` (with
 `client.log`, `server.log`, `naming.log`, and with `--capture`,
 `capture/capture.pcap` and `capture/messages/` (one `.bin` file per GIOP
 message, header included, and a `messages.json` index).
+With `--jobs N` above 1, each pair's output also goes to its `run.log` and
+is printed when the pair ends.
+
+The scripts build the rustorb clients and servers each time they run
+(`impls/rustorb*/build.sh`); once they are built, `INTEROP_PREBUILT=1`
+skips those builds, as `interop.yml` does after building them once.
 
 Each line of the summary is `PASS`, `XFAIL` (only failures listed in
 `known-failures.txt`) or `FAIL`. A listed failure that starts passing is also

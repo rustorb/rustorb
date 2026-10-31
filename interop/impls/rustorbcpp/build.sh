@@ -11,6 +11,10 @@
 # glibc no newer than that image's; libstdc++ is linked statically.
 set -euo pipefail
 
+# Built already (interop.yml builds every implementation once, then sets
+# INTEROP_PREBUILT for the steps that run the scripts).
+[ -n "${INTEROP_PREBUILT:-}" ] && exit 0
+
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$here/../../.."
 cxx="${CXX:-g++}"

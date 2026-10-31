@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Runs the interop test matrix with Docker Compose.
 #
-#   ./run-matrix.sh [--build] [--capture] [--giop VER] [--naming IMPL] [--out DIR]
-#                   [--suite SUITE] [CLIENT:SERVER ...]
+#   ./run-matrix.sh [--build] [--capture] [--giop VER] [--jobs N] [--naming IMPL]
+#                   [--out DIR] [--suite SUITE] [CLIENT:SERVER ...]
 #
 # Without pairs, every client in $CLIENT_IMPLS is paired with every server in
 # $SERVER_IMPLS. Both default to $IMPLS (omniorbpy, omniorb-cpp and, but for
@@ -15,6 +15,9 @@
 # --capture  captures each client's traffic and splits it into GIOP messages
 # --giop VER limits the client to GIOP VER (e.g. 1.1); the results go to
 #            <client>-to-<server>-giop<VER>
+# --jobs N   runs N pairs at a time (default: $INTEROP_JOBS, or 1); each pair
+#            has its own Compose project, and its output is printed when it
+#            ends
 # --naming IMPL  the naming service: omninames (default) or rustorb; with
 #            rustorb the results go to <client>-to-<server>-naming-rustorb
 # --out DIR  where logs and captures go (default: interop/out)
@@ -43,6 +46,7 @@ giop=
 naming=omninames
 suite=basic
 out="$PWD/out"
+jobs="${INTEROP_JOBS:-1}"
 pairs=()
 
 while [ $# -gt 0 ]; do
@@ -50,6 +54,7 @@ while [ $# -gt 0 ]; do
     --build) build=1 ;;
     --capture) capture=1 ;;
     --giop) giop="$2"; shift ;;
+    --jobs) jobs="$2"; shift ;;
     --naming) naming="$2"; shift ;;
     --suite) suite="$2"; shift ;;
     --out) out="$(realpath -m "$2")"; shift ;;
@@ -207,24 +212,14 @@ judge() {
   fi
 }
 
-mkdir -p "$out"
-summary=()
-failed=0
-
-for pair in "${pairs[@]}"; do
+# Runs one CLIENT:SERVER pair and writes its verdict line to $dir/verdict.
+run_pair() {
+  local pair="$1" client server name dir project status verdict detail
   client="${pair%%:*}"
   server="${pair##*:}"
-  name="${client}-to-${server}${giop:+-giop$giop}"
-  if [ "$suite" != basic ]; then
-    name+="-$suite"
-  fi
-  if [ "$naming" != omninames ]; then
-    name+="-naming-$naming"
-  fi
+  name="$(pair_name "$pair")"
   dir="$out/$name"
   project="interop-$(echo "$name" | tr -c 'a-z0-9\n' '-')"
-  rm -rf "$dir"
-  mkdir -p "$dir"
 
   echo "=== client $client -> server $server"
   export CLIENT_IMPL="$client" SERVER_IMPL="$server" OUT_DIR="$dir" CLIENT_MAX_GIOP="$giop"
@@ -234,7 +229,7 @@ for pair in "${pairs[@]}"; do
     export CAPTURE_DIR=
   fi
 
-  compose=(docker compose -p "$project" -f compose.yaml)
+  local compose=(docker compose -p "$project" -f compose.yaml)
   "${compose[@]}" up -d naming server
   set +e
   "${compose[@]}" run --rm -T client 2>&1 | tee "$dir/client.log"
@@ -247,11 +242,72 @@ for pair in "${pairs[@]}"; do
   "${compose[@]}" down -t 2 >/dev/null 2>&1
 
   read -r verdict detail < <(judge "$client" "$server" "$dir/client.log" "$status")
-  summary+=("$verdict  $name${detail:+ ($detail)}")
-  if [ "$verdict" = FAIL ]; then
-    summary[-1]+=" logs in $dir"
-    failed=1
+  local line="$verdict  $name${detail:+ ($detail)}"
+  [ "$verdict" = FAIL ] && line+=" logs in $dir"
+  echo "$line" > "$dir/verdict"
+}
+
+pair_name() {
+  local pair="$1" name
+  name="${pair%%:*}-to-${pair##*:}${giop:+-giop$giop}"
+  if [ "$suite" != basic ]; then
+    name+="-$suite"
   fi
+  if [ "$naming" != omninames ]; then
+    name+="-naming-$naming"
+  fi
+  echo "$name"
+}
+
+mkdir -p "$out"
+for pair in "${pairs[@]}"; do
+  dir="$out/$(pair_name "$pair")"
+  rm -rf "$dir"
+  mkdir -p "$dir"
+done
+
+if [ "$jobs" -le 1 ]; then
+  for pair in "${pairs[@]}"; do
+    run_pair "$pair"
+  done
+else
+  # Each pair's output goes to $dir/run.log and is printed when it ends.
+  print_done() {
+    local pid
+    for pid in "${!running[@]}"; do
+      if ! kill -0 "$pid" 2>/dev/null; then
+        wait "$pid" || true
+        cat "${running[$pid]}/run.log"
+        unset "running[$pid]"
+      fi
+    done
+  }
+  declare -A running=()
+  for pair in "${pairs[@]}"; do
+    while [ ${#running[@]} -ge "$jobs" ]; do
+      wait -n || true
+      print_done
+    done
+    dir="$out/$(pair_name "$pair")"
+    run_pair "$pair" > "$dir/run.log" 2>&1 &
+    running[$!]="$dir"
+  done
+  while [ ${#running[@]} -gt 0 ]; do
+    wait -n || true
+    print_done
+  done
+fi
+
+summary=()
+failed=0
+for pair in "${pairs[@]}"; do
+  dir="$out/$(pair_name "$pair")"
+  if [ -s "$dir/verdict" ]; then
+    summary+=("$(cat "$dir/verdict")")
+  else
+    summary+=("FAIL  $(pair_name "$pair") (did not finish) logs in $dir")
+  fi
+  case "${summary[-1]}" in FAIL*) failed=1 ;; esac
 done
 
 echo

@@ -14,6 +14,10 @@
 # a glibc no newer than that image's.
 set -euo pipefail
 
+# Built already (interop.yml builds every implementation once, then sets
+# INTEROP_PREBUILT for the steps that run the scripts).
+[ -n "${INTEROP_PREBUILT:-}" ] && exit 0
+
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$here/../../.."
 
