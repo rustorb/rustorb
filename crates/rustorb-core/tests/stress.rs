@@ -902,7 +902,19 @@ fn a_stalled_connection_does_not_hold_up_the_others() {
     })
     .unwrap();
     let stuck = via_port(&stuck_client, &obj, proxy.port);
-    assert_eq!(echo_long(&stuck, 1).unwrap(), 1);
+    // The first call also connects through the proxy, which can take more
+    // than the 500 ms call timeout on a loaded CI machine (seen on
+    // Windows): only a timeout is tried again.
+    let mut tries = 0;
+    loop {
+        match echo_long(&stuck, 1) {
+            Ok(v) => break assert_eq!(v, 1),
+            Err(Exception::System(e)) if tries < 5 && e.is(SystemExceptionKind::TIMEOUT) => {
+                tries += 1
+            }
+            Err(e) => panic!("{e:?}"),
+        }
+    }
     let big = vec![1; 16 << 20];
 
     // The server stops reading: the client cannot write the whole request
