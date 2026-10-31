@@ -7,7 +7,9 @@
 #   target_link_libraries(app PRIVATE rustorb::rustorb)
 #
 # rustorb_idl_generate() runs the rustorb-idl command (pip install
-# rustorb-idl), found on PATH or given as RUSTORB_IDL.
+# rustorb-idl), found on PATH or given as RUSTORB_IDL. RUSTORB_IDL_DIR is
+# the directory of the standard IDL files that come with it
+# (CosNaming.idl).
 #
 # Licensed under MIT OR Apache-2.0, like the rest of the rustorb core.
 
@@ -26,6 +28,11 @@ if(NOT TARGET rustorb::rustorb)
 endif()
 
 find_program(RUSTORB_IDL rustorb-idl)
+if(RUSTORB_IDL AND NOT RUSTORB_IDL_DIR)
+  execute_process(COMMAND "${RUSTORB_IDL}" --idl-dir
+    OUTPUT_VARIABLE RUSTORB_IDL_DIR OUTPUT_STRIP_TRAILING_WHITESPACE)
+  set(RUSTORB_IDL_DIR "${RUSTORB_IDL_DIR}" CACHE PATH "the standard IDL files of rustorb-idl")
+endif()
 
 # rustorb_idl_generate(<var> <idl>...): runs rustorb-idl -bc++11 on each IDL
 # file into ${CMAKE_CURRENT_BINARY_DIR}/idl and appends the generated

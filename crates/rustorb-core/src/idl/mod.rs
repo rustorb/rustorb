@@ -11,7 +11,8 @@
 //!
 //! The same Rust type can stand for several IDL types (`String` is both
 //! `string` and `wstring`, `char` both `char` and `wchar`); the descriptor
-//! says which. [`Any::insert`] and [`Any::extract`] take one.
+//! says which. [`Any::insert`](crate::Any::insert) and
+//! [`Any::extract`](crate::Any::extract) take one.
 
 use std::borrow::Borrow;
 use std::marker::PhantomData;
