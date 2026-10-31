@@ -37,7 +37,7 @@ C++はIDL to C++11（CPP11）を基準にし、IDL4-CPPで追加された構文�
 | ネーミング | CosNaming（Naming Service） | NamingContextExt まで対応 |
 | Rust | 独自マッピング | [IDL4-Rust RFP](https://www.omg.org/gettingstarted/rfp-IDL4-RLP.htm) の動向に追随 |
 | C++ | [IDL to C++11](https://www.omg.org/spec/CPP11/Current)（v1.7） | 基準。実装・生成コードはC++17を使用 |
-| C++（IDL4） | [IDL4-CPP](https://www.omg.org/spec/IDL4-CPP)（v1.0） | アノテーション・拡張型を順次取り込み |
+| C++（IDL4） | [IDL4-CPP](https://www.omg.org/spec/IDL4-CPP)（v1.0） | GIOP で送れるもの（`int8`、`bitmask`、`bitset`、`@default`、`@range`）を取り込んだ（#46、[cpp-binding.md](cpp-binding.md#idl-4-の構文)）。`map`・`@optional` は扱わない |
 | Python | IDL to Python マッピング | 標準マッピングとomniidlの生成レイアウトは互換、omniORBpy独自拡張は厳選して互換シムで提供 |
 | Java | IDL to Java マッピング | 生成APIは標準準拠、実装はRustコア経由 |
 
@@ -286,7 +286,7 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - C++ 側：`IDL::traits<T>::ref_type`、`CORBA::servant_traits<T>::base_type`、`CORBA::make_reference`、40種のシステム例外、`PortableServer` の POA 操作。struct・union・例外は取得・設定関数のクラス、enum は `enum class`、上限付きの型は `IDL::bounded_*`
   - 相互接続：`interop/impls/rustorbcpp`（他のクライアントと同じ78ケース）が omniORB C++・omniORBpy・rustorb（Rust・Python）とのすべての組み合わせで、omniNames・rustorb-names、GIOP 1.1 でも通る（失敗は既存の `known-failures.txt` の範囲だけ）
   - C++ のテスト（`cpp/tests`、CMake）：マッピング用の IDL を2つの ORB の間と同一 ORB 内で往復させ、相互接続の78ケースを1プロセスで回す。CI は g++ と clang++
-  - 残り：IDL4-CPP の構文（`fixed` は後で加えた。下記）。Java は同じ C ABI の上に載せた（M6）。servant manager・AdapterActivator は M6 の後に加えた（下記）
+  - IDL 4 の構文（`int8`、`bitmask`、`bitset`、`@default`、`@range`）は #46 で加えた。`fixed` は後で加えた（下記）。Java は同じ C ABI の上に載せた（M6）。servant manager・AdapterActivator は M6 の後に加えた（下記）
 - [x] Any / TypeCode（M5）：コアの `TypeCode`・`Any`・`Value` と CDR、Python と C++ のバインディング、omniORB C++・omniORBpy との相互接続（[any-typecode.md](any-typecode.md)）
   - [x] コア：TypeCode はアリーナと添字で表し、再帰型は後ろ向きの添字（`Arc` の循環なし）。CDR の間接参照は再帰のときだけ書き、読み込みはすべて受け付ける。`equal` / `equivalent` / `compact`、構築時の検査
   - [x] Python：`CORBA.Any` / `CORBA.TypeCode` の送受信、`ORB.create_*_tc`。生成コードにない型は TypeCode とクラスをその場で作る
@@ -348,5 +348,4 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 
 すべて P3。
 
-- [#46](https://github.com/rustorb/rustorb/issues/46) IDL4-CPP の構文（アノテーションなど）を C++ 生成器に取り込む
 - [#78](https://github.com/rustorb/rustorb/issues/78) SSLIOP（IIOP over TLS）

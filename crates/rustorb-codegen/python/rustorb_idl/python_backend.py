@@ -158,6 +158,10 @@ class PythonBackend(object):
     def tc(self, t):
         """Expression for the TypeCode of a :class:`frontend.Type`."""
         k = t.kind
+        if k in fe.CXX_ONLY:
+            raise fe.GeneratorError(
+                "%s is not supported by the Python backend yet" % fe.CXX_ONLY[k], t.node
+            )
         if k in TC_BASIC:
             return "_0_CORBA." + TC_BASIC[k]
         if k in ("string", "wstring"):

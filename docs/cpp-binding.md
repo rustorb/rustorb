@@ -84,6 +84,24 @@ C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP �
 
 四則演算の結果の型は IDL の仕様の fixed の規則に従う。`fixed<d1, s1>` と `fixed<d2, s2>` の和と差は `fixed<max(d1-s1, d2-s2)+max(s1, s2)+1, max(s1, s2)>`、積は `fixed<d1+d2, s1+s2>`、商は `fixed<(d1-s1+s2)+s∞, s∞>`（31桁に収まるだけの小数）。31桁を超える型は整数部の桁を残して小数の桁を切り捨てた型になり（`Fixed<31, 31>` どうしの和は `Fixed<31, 30>`）、値の小数もその桁で切り捨てる。整数部が収まらない結果と 0 での除算は `DATA_CONVERSION`。整数のオペランドは `Fixed<20, 0>` として扱う（`Money + 1` は `Fixed<23, 2>`）。複合代入（`+=` など）と `++` / `--` は左辺の型のままで、小数の桁を切り捨て、整数部が収まらなければ `DATA_CONVERSION`（左辺は変わらない）。`round(s)`（0.5 は 0 から遠い方へ）と `truncate(s)` は小数を s 桁にした値を同じ型で返し、`round` で整数部があふれれば `DATA_CONVERSION`。
 
+### IDL 4 の構文
+
+IDL 4 で加わった構文のうち、GIOP で送れるものを取り込んだ（[#46](https://github.com/rustorb/rustorb/issues/46)）。どれも GIOP に専用の形がないので、送るときは決まった整数の形にする。rustorb 以外の ORB とは、その整数として通じる。
+
+| IDL 4 | C++ | 送る形と TypeCode |
+| --- | --- | --- |
+| `int8` | `int8_t` | `octet`（`tk_octet`） |
+| `uint8`、`int16` 〜 `uint64` | `uint8_t`、`int16_t` 〜 `uint64_t` | `octet`、`short` 〜 `unsigned long long`（今までと同じ） |
+| `bitmask`（`@bit_bound`、`@position`） | `enum class : uintN_t`（N は `@bit_bound` が収まる 8 / 16 / 32 / 64、既定は 32）。値は `1 << 位置`。`|` `&` `^` `~`（宣言したビットだけ）と複合代入、`has(a, b)` | `uintN_t` |
+| `bitset`（`bitfield<N>`、`bitfield<N, 型>`、名前のない bitfield） | 公開のビットフィールドを持つ `struct` と `==`。型を書かない bitfield は IDL 4 の既定（1ビットは `bool`、8ビットまで `uint8_t` など） | 全ビットが収まる `uintN_t`。各 bitfield を宣言の順に下位ビットから詰める。符号付きの型は読むときに符号を広げる |
+| `@default(v)`（struct と例外のメンバー） | メンバーの初期値。整数・浮動小数・`boolean`・`string` | 変わらない |
+| `@range(min=, max=)`、`@min`、`@max`（struct と例外のメンバー） | 範囲外の値は送るときに `BAD_PARAM`、受け取るときに `MARSHAL` | 変わらない |
+
+- **エラーにするもの**：`map`、`@optional`、`@external`、`@value`（GIOP は enum を位置で送る）、`int8` の union の判別子（TypeCode がない）、`bitset` の継承、enum の `@default`。`map`・`@optional`・`@external`・`@value` はすべてのバックエンドでエラーになる
+- **無視するもの**：`@key`、`@id`、`@autoid`、`@final` / `@appendable` / `@mutable`、`@topic`、`@nested`、`@verbatim` など DDS のためのアノテーションと、利用者が定義したアノテーション
+- **他の言語**：`int8`・`bitmask`・`bitset` は C++ だけで、Python・Java・Rust の生成器はエラーにする。`@default` と `@range` はそれらの生成器では無視する
+- idl_parser は IDL 4 の構文をすべて読める（足りないものはなかった）
+
 `narrow` は、同じプロセスのスタブなら C++ の型で、そうでなければ生成コードが登録した継承関係（リポジトリID）で判定し、どちらでも決まらなければ相手に `_is_a` を問い合わせる。
 
 ## 例外
@@ -117,6 +135,7 @@ C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP �
 ## テスト
 
 - `cpp/tests/test_mapping.cc`：`cpp/tests/idl/CxxMapping.idl`（定数、typedef、`fixed`（typedef・struct のメンバー・列・inout / out・定数・Any・四則演算と結果の型・`round` / `truncate`）、上限付きの型、多次元配列、再帰的な struct と union、すべての種類の判別子、入れ子の型、予約語の名前、多重継承、oneway、inout / out、ユーザー例外とシステム例外、オブジェクト参照の列）を、同じプロセスの2つの ORB の間と、同一 ORB 内で往復させる
+- `cpp/tests/test_idl4.cc`：`cpp/tests/idl/Idl4.idl`（`int8`、`bitmask`、`bitset`、`@default`、`@range` / `@min` / `@max`）を、ローカルと、同じプロセスの2つの ORB の間と同一 ORB 内で往復させる。Any の中の TypeCode も確かめる
 - `cpp/tests/test_interop.cc`：相互接続の78ケース（`interop/impls/rustorbcpp/cases.h`）を同じプロセスの2つの ORB の間で回す
 - `cpp/tests/test_poa.cc`：`ServantActivator`（初回の `incarnate`、転送、システム例外、nil、C++ 例外、`deactivate_object` と `destroy` での `etherealize`）、`ServantLocator`（cookie の受け渡し、失敗時に `postinvoke` を呼ばないこと）、`AdapterActivator`（`find_POA` と、存在しない POA への要求での作成）、ポリシーの検査（`WrongPolicy`、種類の違う manager の `OBJ_ADAPTER`、2回目の `BAD_INV_ORDER`）を、2つの ORB の間と同一 ORB 内で確かめる。POA が破棄されると manager が解放されることも見る
 - `cpp/tests/test_any.cc`：Any / TypeCode の相互接続の251ケース（DynAny の組み立て直しを含む）（`interop/impls/rustorbcpp/anytest.h`）を同じプロセスの2つの ORB の間で回し、TypeCode の操作、`ORB::create_*_tc`、`<<=` / `>>=` の規則を確かめる
@@ -130,4 +149,4 @@ C++ の予約語と同じ識別子には `_cxx_` が付く（操作名の GIOP �
 
 ## 残り
 
-- IDL4-CPP の構文（アノテーションなど）
+- IDL 4 の `map` と `@optional`：GIOP に形がないので扱わない（上記）

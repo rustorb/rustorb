@@ -155,9 +155,7 @@ MIN_SIZE = {
 
 INT_RANGES = cxx_backend.INT_RANGES
 
-UNSUPPORTED = {
-    "Principal": "Principal",
-}
+UNSUPPORTED = dict(fe.CXX_ONLY, Principal="Principal")
 
 ORB = "org.omg.CORBA.ORB.init()"
 IN = "org.omg.CORBA.portable.InputStream"

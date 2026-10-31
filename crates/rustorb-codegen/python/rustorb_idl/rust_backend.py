@@ -80,9 +80,7 @@ VALUE_METHODS = {
     "_write", "clone", "fmt",
 }
 
-UNSUPPORTED = {
-    "Principal": "Principal",
-}
+UNSUPPORTED = dict(fe.CXX_ONLY, Principal="Principal")
 
 
 # ---------------------------------------------------------------------------

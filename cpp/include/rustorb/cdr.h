@@ -570,6 +570,8 @@ RUSTORB_SIMPLE_TYPE_CODE(bool, CORBA::TCKind::tk_boolean)
 RUSTORB_SIMPLE_TYPE_CODE(char, CORBA::TCKind::tk_char)
 RUSTORB_SIMPLE_TYPE_CODE(wchar_t, CORBA::TCKind::tk_wchar)
 RUSTORB_SIMPLE_TYPE_CODE(uint8_t, CORBA::TCKind::tk_octet)
+// IDL 4 int8 is sent as an octet; GIOP has no TypeCode of its own for it.
+RUSTORB_SIMPLE_TYPE_CODE(int8_t, CORBA::TCKind::tk_octet)
 RUSTORB_SIMPLE_TYPE_CODE(int16_t, CORBA::TCKind::tk_short)
 RUSTORB_SIMPLE_TYPE_CODE(uint16_t, CORBA::TCKind::tk_ushort)
 RUSTORB_SIMPLE_TYPE_CODE(int32_t, CORBA::TCKind::tk_long)

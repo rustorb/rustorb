@@ -35,6 +35,7 @@ IDLS = [
     os.path.join(TEST_IDL, "CosNaming.idl"),
     os.path.join(INTEROP_IDL, "InteropTest.idl"),
     os.path.join(INTEROP_IDL, "AnyTest.idl"),
+    os.path.join(CPP_IDL, "Idl4.idl"),
 ]
 
 
@@ -126,11 +127,46 @@ class CxxBackendTest(unittest.TestCase):
     def test_unsupported(self):
         cases = {
             "supports_local": "module U { local interface I {}; valuetype V supports I { public long x; }; };",
+            # IDL 4 constructs that GIOP has no form for.
+            "optional": "module U { struct S { @optional long x; }; };",
+            "external": "module U { struct S { @external long x; }; };",
+            "value": "module U { enum E { @value(3) A, B }; };",
+            "map": "module U { typedef map<string, long> M; };",
+            "int8_discriminator": "module U { union X switch (int8) { case 1: long a; }; };",
+            "enum_default": "module U { enum E { A, B }; struct S { @default(B) E e; }; };",
+            "bitset_base": "module U { bitset A { bitfield<2> a; }; bitset B : A { bitfield<2> b; }; };",
         }
         for name, text in cases.items():
             with self.subTest(name):
                 path = write_idl("Unsupported_%s.idl" % name, text)
                 self.assertEqual(cli.main(["-bc++11", "-C", OUT, path]), 1)
+
+    def test_idl4(self):
+        hh = read(os.path.join(self.outdir, "Idl4.hh"))
+        cc = read(os.path.join(self.outdir, "Idl4.cc"))
+        self.assertIn("enum class Flags : uint8_t", hh)
+        self.assertIn("WRITE = static_cast<uint8_t>(1) << 3", hh)
+        self.assertIn("enum class Wide : uint64_t", hh)
+        self.assertIn("int16_t delta : 5;", hh)
+        self.assertIn("template <> struct type_code<::Idl4::Header> : type_code<uint16_t> {};", hh)
+        self.assertIn("int32_t _m_retries {7};", hh)
+        self.assertIn("bool _m_enabled {true};", hh)
+        self.assertIn("v.level() < static_cast<int16_t>(0) || v.level() > static_cast<int16_t>(10)", cc)
+        self.assertIn("inline constexpr int8_t SMALLEST = static_cast<int8_t>(-128);", hh)
+
+    def test_idl4_only_in_cxx(self):
+        cases = {
+            "int8": "module U { struct S { int8 x; }; };",
+            "bitmask": "module U { bitmask F { A }; };",
+            "bitset": "module U { bitset B { bitfield<2> a; }; };",
+        }
+        for name, text in cases.items():
+            path = write_idl("Idl4Only_%s.idl" % name, text)
+            for backend in ("-bpython", "-bjava", "-brust"):
+                with self.subTest(name, backend=backend):
+                    self.assertEqual(cli.main([backend, "-C", OUT, path]), 1)
+            with self.subTest(name, backend="-bc++11"):
+                self.assertEqual(cli.main(["-bc++11", "-C", OUT, path]), 0)
 
     def test_abstract_interfaces(self):
         path = write_idl(
