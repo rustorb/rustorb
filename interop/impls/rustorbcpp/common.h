@@ -98,9 +98,9 @@ inline CosNaming::Name to_name(const std::string& path) {
 }
 
 // Calls fn until it stops throwing "not there yet" exceptions or the timeout
-// passes.
+// passes, when the process exits with exit_code.
 template <typename F>
-auto retry(const char* what, F fn, double timeout) -> decltype(fn()) {
+auto retry(const char* what, F fn, double timeout, int exit_code = 1) -> decltype(fn()) {
   auto deadline = std::chrono::steady_clock::now() +
                   std::chrono::milliseconds(static_cast<long>(timeout * 1000));
   for (;;) {
@@ -113,7 +113,7 @@ auto retry(const char* what, F fn, double timeout) -> decltype(fn()) {
     }
     if (std::chrono::steady_clock::now() >= deadline) {
       std::cerr << "timed out waiting for " << what << std::endl;
-      std::exit(1);
+      std::exit(exit_code);
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
   }

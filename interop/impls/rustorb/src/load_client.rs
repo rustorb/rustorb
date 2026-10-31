@@ -3,8 +3,8 @@
 //! prints the rate of each phase.
 //!
 //! Options: `--naming CORBALOC --name PATH [--seconds S] [--threads N]
-//! [--connections N] [--phases LIST]`. The phases, each `--seconds` long
-//! (`--phases` runs only the comma-separated ones named):
+//! [--connections N] [--phases LIST] [--timeout S]`. The phases, each
+//! `--seconds` long (`--phases` runs only the comma-separated ones named):
 //!
 //! - `small`: `echo_long` from N threads, all on one connection
 //! - `string`: `echo_string` of 100 characters, the same way
@@ -12,7 +12,8 @@
 //! - `large`: `echo_octets` of 1 MiB from 4 threads
 //!
 //! Each line reads `PHASE calls=N errors=N rate=N/s`; a failed call
-//! makes the exit status 1.
+//! makes the exit status 1. When the Echo object is not found within
+//! `--timeout` seconds (30 by default) the exit status is 2.
 
 mod idl;
 
@@ -29,10 +30,11 @@ use rustorb_naming::{NamingContext, to_name};
 struct Args {
     naming: String,
     name: String,
-    seconds: u64,
+    seconds: f64,
     threads: usize,
     connections: usize,
     phases: Vec<String>,
+    timeout: f64,
 }
 
 impl Args {
@@ -45,10 +47,11 @@ fn parse_args() -> Result<Args, String> {
     let mut args = Args {
         naming: String::new(),
         name: String::new(),
-        seconds: 5,
+        seconds: 5.0,
         threads: 8,
         connections: 16,
         phases: Vec::new(),
+        timeout: 30.0,
     };
     let mut iter = std::env::args().skip(1);
     while let Some(a) = iter.next() {
@@ -62,6 +65,7 @@ fn parse_args() -> Result<Args, String> {
                 args.connections = value()?.parse().map_err(|e| format!("{a}: {e}"))?
             }
             "--phases" => args.phases = value()?.split(',').map(str::to_owned).collect(),
+            "--timeout" => args.timeout = value()?.parse().map_err(|e| format!("{a}: {e}"))?,
             _ => return Err(format!("unknown argument: {a}")),
         }
     }
@@ -79,7 +83,7 @@ fn resolve(orb: &Orb, args: &Args) -> Result<Echo, String> {
         .ok_or("nil naming service")?;
     let root = NamingContext::unchecked_narrow(root);
     let name = to_name(&args.name).map_err(|e| format!("--name {}: {e}", args.name))?;
-    let deadline = Instant::now() + Duration::from_secs(30);
+    let deadline = Instant::now() + Duration::from_secs_f64(args.timeout);
     loop {
         let found = root
             .resolve(&name)
@@ -105,7 +109,7 @@ fn resolve(orb: &Orb, args: &Args) -> Result<Echo, String> {
 /// totals. Returns whether every call succeeded.
 fn phase<W: Send + 'static>(
     label: &str,
-    seconds: u64,
+    seconds: f64,
     workers: Vec<W>,
     call: impl Fn(&W, usize) -> bool + Send + Sync + 'static,
 ) -> bool {
@@ -132,7 +136,7 @@ fn phase<W: Send + 'static>(
             })
         })
         .collect();
-    thread::sleep(Duration::from_secs(seconds));
+    thread::sleep(Duration::from_secs_f64(seconds));
     stop.store(true, Ordering::Relaxed);
     for h in handles {
         let _ = h.join();
@@ -152,7 +156,13 @@ fn phase<W: Send + 'static>(
 fn run() -> Result<bool, String> {
     let args = parse_args()?;
     let orb = Orb::with_options(OrbOptions::default()).map_err(|e| format!("ORB_init: {e}"))?;
-    let echo = resolve(&orb, &args)?;
+    let echo = match resolve(&orb, &args) {
+        Ok(echo) => echo,
+        Err(e) => {
+            eprintln!("rustorb-load-client: {e}");
+            std::process::exit(2);
+        }
+    };
     let mut ok = true;
 
     let echoes = vec![echo.clone(); args.threads];

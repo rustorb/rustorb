@@ -1,0 +1,5 @@
+#!/bin/sh
+# rustorb Java load client (impls/java/interop/LoadClient.java). build.sh
+# builds it on the host, into classes/ and lib/.
+here="$(dirname "$0")"
+exec java -Djava.library.path="$here/lib" -cp "$here/classes" interop.LoadClient "$@"

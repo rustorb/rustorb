@@ -12,6 +12,7 @@ issue #49。計画書のテスト6（[development-plan.md](development-plan.md#�
 | リーク（C++） | `cpp/tests/test_leak.cc` と全 C++ テスト | ci.yml の `cpp-sanitize`（ASan / LSan） | `RUSTORB_LEAK_ROUNDS=20` |
 | リーク（Java） | `java/src/test/java/org/rustorb/test/LeakTest.java` | ci.yml の Java ジョブ | `RUSTORB_LEAK_ROUNDS=20` |
 | omniORB との負荷 | `interop/run-load.sh` | interop.yml（各フェーズ 2 秒） | 各フェーズ 20 秒、16 スレッド、64 接続。結果はジョブのサマリーと成果物に残す |
+| 手元のマシン（ネイティブ） | `interop/run-load-local.py` | — | 3 OS で負荷・stress・soak（300 秒）。結果はジョブのサマリーと成果物に残す |
 
 ## 負荷試験（Rust コア）
 
@@ -50,12 +51,18 @@ issue #49。計画書のテスト6（[development-plan.md](development-plan.md#�
 
 `soak.rs` は1つのテストだけを持つファイルで、プロセスの中でほかのテストと混ざらない。一周ごとに、クライアント ORB（自分の接続と tokio ランタイム）を作り、4 スレッドから呼び、oneway を送り、サーバー側で子 POA を作ってオブジェクトを活性化・呼び出し・非活性化し、POA を壊し、クライアント ORB を `destroy` する。
 
-最初の 2 割（最低 10 周）を慣らしにして、その後の常駐メモリ（`VmRSS`）、ファイル記述子（`/proc/self/fd`）、スレッド数（`/proc/self/status`）を見る。
+最初の 2 割（最低 10 周）を慣らしにして、その後の常駐メモリ、ファイル記述子、スレッド数を見る。OS ごとの読み方は次のとおり（#63 で macOS と Windows を足した）。
 
-- ファイル記述子とスレッド数は、慣らしの後と最後でほぼ同じ（それぞれ +2 まで）。プールの最小数を超えたスレッドはアイドルで終わるので、測る前に 0.5 秒待つ
+| OS | 常駐メモリ | ファイル記述子 | スレッド数 |
+| --- | --- | --- | --- |
+| Linux | `/proc/self/status` の `VmRSS` | `/proc/self/fd` | `/proc/self/status` の `Threads` |
+| macOS | `proc_pidinfo(PROC_PIDTASKINFO)` の `pti_resident_size` | `proc_pidinfo(PROC_PIDLISTFDS)` | `pti_threadnum` |
+| Windows | `K32GetProcessMemoryInfo` の `WorkingSetSize` | ハンドル数（`GetProcessHandleCount`） | Tool Help のスナップショット（`TH32CS_SNAPTHREAD`）でこのプロセスのもの |
+
+- ファイル記述子とスレッド数は、慣らしの後と最後でほぼ同じ（それぞれ +2 まで。Windows はハンドルにイベントなど OS がしばらく持つものも入るので +16 まで）。プールの最小数を超えたスレッドはアイドルで終わるので、測る前に 0.5 秒待つ
 - 常駐メモリは、走行の 6 割の時点から最後までの増加が、その時点の 1 割（最低 8 MiB）まで
 
-/proc がない macOS と Windows では、負荷だけかけて数値は見ない。手元で 150 秒走らせたときは、慣らしの後 6.7 MiB、6 割の時点 6.9 MiB、最後 7.0 MiB、記述子 8・スレッド 6 のまま（ピークは 21・14）だった。
+ほかの OS では、負荷だけかけて数値は見ない。手元で 150 秒走らせたときは、慣らしの後 6.7 MiB、6 割の時点 6.9 MiB、最後 7.0 MiB、記述子 8・スレッド 6 のまま（ピークは 21・14）だった。
 
 ## リーク検出
 
@@ -173,7 +180,7 @@ Docker を使わず、同じマシンで `rustorb-names`・`rustorb-interop-serv
 
 - **多接続**：#64 の時点では、I/O スレッドからアップコール用プールへの受け渡しがサーバーの CPU の 3 割ほどを使っていた。#66 で leader/follower にして詰めた（下の「性能の改善（#66〜#69）」）
 - **大きなメッセージ**：#64 の時点では、octet 列を言語マッピングの値へ復号するときと、送るメッセージへ書き出すときにコピーがあった。#68 でコアの Rust API と Python からはコピーをなくした（下の節）
-- omniORB C++ / omniORBpy と比べた改善後の数字は、PR #65 の CI（interop.yml の負荷の短い版、GitHub Actions のランナー、8 スレッド・16 接続、各フェーズ 2 秒）で次のとおりだった。上の表とはマシンも長さも違うので、比べるのは同じ行の中だけにする。connections は omniORB C++ のサーバー 73,358 回に対し rustorb のサーバー 51,337 回（1.4 倍の差）、large は omniORBpy どうし 4,193 回に対し rustorb どうし 1,406 回（3 倍の差）。手元のマシンで測り直すのは #63
+- omniORB C++ / omniORBpy と比べた改善後の数字は、PR #65 の CI（interop.yml の負荷の短い版、GitHub Actions のランナー、8 スレッド・16 接続、各フェーズ 2 秒）で次のとおりだった。上の表とはマシンも長さも違うので、比べるのは同じ行の中だけにする。connections は omniORB C++ のサーバー 73,358 回に対し rustorb のサーバー 51,337 回（1.4 倍の差）、large は omniORBpy どうし 4,193 回に対し rustorb どうし 1,406 回（3 倍の差）。手元のマシンで測り直す手段は下の「手元のマシンで回す（#63）」
 
 ## 性能の改善（#66〜#69）
 
@@ -202,13 +209,116 @@ Docker を使わず、同じマシンで `rustorb-names`・`rustorb-interop-serv
 
 - サーバーの返事も `OutMessage` で書き、書き込みタスクは溜まった返事をまとめて `write_vectored` で書く
 - 要求を組み立てるバッファを最初に 256 バイト確保し、要求ごとの再確保を減らした。計測ではぶれの範囲で、はっきりした差は出なかった
-- ソケットの送受信バッファの大きさを `OrbOptions::socket_send_buffer`、`socket_receive_buffer` で設定できるようにした（既定は OS のまま）。ループバックでは、既定、256 KiB、4 MiB のどれでも 64 KiB で約 154 µs、1 MiB で約 630 µs、8 MiB で約 3.7 ms と差がなかった。実際のネットワークで効くかは #63 で見る
+- ソケットの送受信バッファの大きさを `OrbOptions::socket_send_buffer`、`socket_receive_buffer` で設定できるようにした（既定は OS のまま）。ループバックでは、既定、256 KiB、4 MiB のどれでも 64 KiB で約 154 µs、1 MiB で約 630 µs、8 MiB で約 3.7 ms と差がなかった。実際のネットワークで効くかは「手元のマシンで回す（#63）」の別マシンの測り方で見る
 - 多接続のベンチマークを perf で見ると、時間の多くはスレッドの切り替えで、malloc と free は 5% ほどだった。I/O スレッドが CPU の 2 割ほどを使っているのは、スレッドが読んでいる間もソケットが epoll に登録されたままで、届いたデータでタスクが起こされるため（[read-ownership.md](read-ownership.md) の「残り」）
+
+## 手元のマシンで回す（#63）
+
+CI のランナーも開発用のサンドボックスも共有のマシンで、Docker の中でクライアントとサーバーとネーミングが同じコアを取り合うので、上の数字は実機の目安にならない。`interop/run-load-local.py` は、同じ試験を Docker を使わずに自分のマシン（Linux、macOS、Windows）で回し、結果をマシンの情報と一緒に残す。
+
+```sh
+# 負荷（全組）と stress と soak（60 秒）
+interop/run-load-local.py --idl-parser ../idl_parser
+# 長く・大きく。leak は Python・C++（ASan/LSan）・Java のリーク検出
+interop/run-load-local.py --tests all --seconds 20 --threads 16 --connections 64 \
+  --stress-scale 10 --soak-secs 1800 --leak-rounds 20 --idl-parser ../idl_parser
+# 一部だけ
+interop/run-load-local.py --tests load --servers rustorb,omniorb-cpp --clients rustorb
+```
+
+| 引数 | 内容 |
+| --- | --- |
+| `--tests` | `load`、`stress`、`soak`、`leak-python`、`leak-cpp`、`leak-java`（`leak` で三つとも、`all` で全部）。既定は `load,stress,soak` |
+| `--seconds` `--threads` `--connections` | 負荷の各フェーズの長さ、スレッド数、`connections` の接続数（既定 5 秒、8、16） |
+| `--servers` `--clients` | 負荷で使う実装（既定は使えるもの全部） |
+| `--stress-scale` `--soak-secs` `--leak-rounds` | `RUSTORB_STRESS_SCALE`（既定 1）、`RUSTORB_SOAK_SECS`（既定 60）、`RUSTORB_LEAK_ROUNDS`（既定 1） |
+| `--idl-parser DIR` | idl_parser のチェックアウト（`IDL_PARSER_DIR` でもよい）。C++・Java・Python の実装の生成に使う |
+| `--no-build` | ビルド済みのものをそのまま使う |
+| `--out DIR` | 結果の置き場所（既定 `interop/out/load-local/日時/`） |
+
+### 負荷の組
+
+ネーミングは `rustorb-names`（`-memory`）。サーバーを一つずつ起動し、そのサーバーに各クライアントを順に当てる。フェーズは上の「omniORB を相手にした性能の目安」と同じで、`connections` は Rust のクライアントだけが回す。
+
+| 実装 | サーバー | 負荷クライアント | 要るもの |
+| --- | --- | --- | --- |
+| rustorb（Rust） | `rustorb-interop-server` | `rustorb-load-client` | cargo |
+| rustorbpy | `impls/rustorbpy/server.py` | `scripts/load-client` | bash、idl_parser |
+| rustorbcpp | `impls/rustorbcpp/bin/server` | `bin/load_client`（`load_client.cc`） | bash、C++ コンパイラ、idl_parser |
+| rustorbjava | `interop.Server` | `interop.LoadClient`（`impls/java/interop/LoadClient.java`） | bash、JDK、idl_parser |
+| omniorb-cpp | `impls/omniorb-cpp/server`（`make` でビルド） | — | `omniidl` が PATH にある omniORB |
+| omniorbpy | `impls/omniorbpy/server.py` | `scripts/load-client` | 上に加えて omniORBpy |
+
+omniORB は `omniidl` の場所から接頭辞を求め、その `lib` を `LD_LIBRARY_PATH`（macOS は `DYLD_LIBRARY_PATH`）に、`python`・`lib/pythonX.Y/site-packages` を `PYTHONPATH` に足す。道具が足りない実装は飛ばし、理由を結果に書く。Windows では C++・Java・Python の生成スクリプト（bash）を使わないので、Rust の実装だけを回す。
+
+### 別のマシンに置く
+
+サーバーのマシンで `--serve` を付けると、ネーミング（2809 番）と全サーバー（2810 番から）を、クライアントのマシンから届くアドレスで起動して待つ（Ctrl-C で止める）。
+
+```sh
+# サーバーのマシン（192.168.1.10）
+interop/run-load-local.py --serve --host 192.168.1.10
+# クライアントのマシン
+interop/run-load-local.py --server-host 192.168.1.10
+```
+
+クライアントのマシンでは負荷だけを回す。サーバーのマシンで束縛されていないサーバー（道具がなくて飛ばしたもの）は、最初のクライアントが 10 秒で見つけられなければ飛ばす。負荷クライアントは Echo が見つからないとき終了コード 2 を返す（Rust・Python・C++・Java とも `--timeout` 秒、既定 30）。
+
+### 出力
+
+`result.json`（マシン・引数・組ごとのフェーズの回数と失敗数と毎秒の回数・試験ごとの結果と時間と標準エラーの要点・飛ばした実装）と、下の欄に貼れる `result.md`、各組と各試験のログを書く。マシンの情報は CPU の名前、論理 CPU 数、メモリ、OS、rustc・Python・Java の版、rustorb のコミット（作業ツリーに変更があれば `-dirty`）。失敗した呼び出しか試験が一つでもあれば終了コードは 1。
+
+soak.yml の `local` ジョブが 3 OS でこのスクリプトを回す（負荷 5 秒・soak 300 秒）。
+
+### 実機の結果
+
+自分のマシンで回したら、`result.md` をここに足す。比べるのは同じ表の中だけにする。
+
+#### 開発用のサンドボックス（参考）
+
+実機ではない。仕組みを確かめるために回したもの。4 コアの共有マシン（Intel Xeon 2.80GHz、16 GiB、Linux）、全プロセスが同じマシン、8 スレッド・16 接続・各フェーズ 1 秒、release ビルド、rustorb b036e4c に #63 の変更を足したもの。omniORB 4.3.4 / omniORBpy 4.3.4 は配布物からビルドして `/opt/omniorb` に入れた。30 組すべてエラーなし。
+
+| client | server | small | string | connections | large (1 MiB) |
+| --- | --- | ---: | ---: | ---: | ---: |
+| rustorb | rustorb | 16466 | 16113 | 31212 | 451 |
+| rustorbpy | rustorb | 15553 | 15816 | - | 481 |
+| rustorbcpp | rustorb | 15383 | 16901 | - | 481 |
+| rustorbjava | rustorb | 10188 | 13680 | - | 274 |
+| omniorbpy | rustorb | 14809 | 13109 | - | 921 |
+| rustorb | rustorbpy | 6665 | 6458 | 6842 | 610 |
+| rustorbpy | rustorbpy | 6503 | 6201 | - | 597 |
+| rustorbcpp | rustorbpy | 7090 | 6372 | - | 599 |
+| rustorbjava | rustorbpy | 6614 | 6644 | - | 500 |
+| omniorbpy | rustorbpy | 7226 | 7385 | - | 890 |
+| rustorb | rustorbcpp | 15300 | 16160 | 30442 | 438 |
+| rustorbpy | rustorbcpp | 15677 | 15102 | - | 452 |
+| rustorbcpp | rustorbcpp | 15752 | 14906 | - | 432 |
+| rustorbjava | rustorbcpp | 14386 | 15237 | - | 363 |
+| omniorbpy | rustorbcpp | 15920 | 15248 | - | 1003 |
+| rustorb | rustorbjava | 15495 | 15849 | 27880 | 556 |
+| rustorbpy | rustorbjava | 14541 | 15210 | - | 572 |
+| rustorbcpp | rustorbjava | 15490 | 15518 | - | 629 |
+| rustorbjava | rustorbjava | 14668 | 14340 | - | 485 |
+| omniorbpy | rustorbjava | 15911 | 14279 | - | 886 |
+| rustorb | omniorb-cpp | 18106 | 17601 | 45374 | 730 |
+| rustorbpy | omniorb-cpp | 16356 | 18048 | - | 718 |
+| rustorbcpp | omniorb-cpp | 18242 | 17974 | - | 766 |
+| rustorbjava | omniorb-cpp | 18244 | 17619 | - | 604 |
+| omniorbpy | omniorb-cpp | 18121 | 14870 | - | 2317 |
+| rustorb | omniorbpy | 16236 | 18084 | 8013 | 922 |
+| rustorbpy | omniorbpy | 17476 | 15789 | - | 809 |
+| rustorbcpp | omniorbpy | 16596 | 18061 | - | 943 |
+| rustorbjava | omniorbpy | 16316 | 15913 | - | 733 |
+| omniorbpy | omniorbpy | 16209 | 13502 | - | 2667 |
+
+- small と string は、ここでもどの組も毎秒 1.5 万〜1.8 万回で頭打ちになる（4 コアを全プロセスで取り合う）。rustorbpy のサーバーは GIL のため半分ほど
+- connections は omniORB C++ のサーバー 4.5 万回に対し rustorb（Rust・C++・Java）のサーバーは 2.8 万〜3.1 万回
+- large は omniORBpy どうしの 2,700 回に対し、rustorb どうしは 300〜600 回。片方を omniORBpy にするとどちら向きでも 750〜1,000 回なので、クライアントとサーバーの両方に差がある
 
 ## 残り
 
 - スレッドが読んでいる間も、届いたデータで I/O タスクが起こされる（上の「要求ごとの小さなコスト（#69）」）
 - C++、Java、`-brust` の生成コードで octet 列を共有する型を出すかどうか（#68）
-- 手元のマシンでの omniORB との比べ直し（#63）
+- 実機での結果を「手元のマシンで回す」の欄に足す（#63 の仕組みで、開発者のマシンで）
 - 再起動中の `OBJ_ADAPTER` について、omniORB が同じ場面で何を返すかを測る
 - 循環した valuetype を手放す API（コアの `Value::break_cycles` に当たるもの）を C++ と Java にも出すかどうか

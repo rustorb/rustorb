@@ -4,7 +4,7 @@ calls an Echo server, resolved from the naming service, as fast as it can
 for a while and prints the rate of each phase.
 
     load-client --impl omniorbpy|rustorbpy --naming CORBALOC --name PATH
-                [--seconds S] [--threads N]
+                [--seconds S] [--threads N] [--timeout S]
 
 The phases, each --seconds long, are those of the Rust load client
 (impls/rustorb/src/load_client.rs) but for `connections`, which one ORB
@@ -12,6 +12,8 @@ per process does not give: `small` (echo_long from N threads on one
 connection), `string` (echo_string of 100 characters) and `large`
 (echo_octets of 1 MiB from 4 threads). Each line reads
 `PHASE calls=N errors=N rate=N/s`; a failed call makes the exit status 1.
+When the Echo object is not found within --timeout seconds (30 by
+default) the exit status is 2.
 """
 
 import argparse
@@ -24,13 +26,15 @@ parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
 parser.add_argument("--impl", required=True, choices=["omniorbpy", "rustorbpy"])
 parser.add_argument("--seconds", type=float, default=5)
 parser.add_argument("--threads", type=int, default=8)
+parser.add_argument("--timeout", type=float, default=30)
 parser.add_argument("--naming", required=True)
 parser.add_argument("--name", required=True)
 args = parser.parse_args()
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "impls", args.impl))
-sys.argv = [sys.argv[0], "--naming", args.naming, "--name", args.name]
-from common import orb_init, parse_args, retry, root_context, to_name  # noqa: E402
+sys.argv = [sys.argv[0], "--naming", args.naming, "--name", args.name,
+            "--timeout", str(args.timeout)]
+from common import CORBA, orb_init, parse_args, retry, root_context, to_name  # noqa: E402
 import InteropTest  # noqa: E402
 
 
@@ -74,7 +78,11 @@ def main():
         echo.echo_long(1)
         return echo
 
-    echo = retry("the Echo server", resolve, a.timeout)
+    try:
+        echo = retry("the Echo server", resolve, a.timeout)
+    except CORBA.Exception as e:
+        print("load-client: %s: %r" % (args.name, e), file=sys.stderr)
+        return 2
     ok = phase("small", [echo] * args.threads, lambda e, i: e.echo_long(i) == i)
     text = "x" * 100
     ok &= phase("string", [echo] * args.threads, lambda e, i: e.echo_string(text) == text)

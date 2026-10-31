@@ -2,5 +2,5 @@
 # rustorb Java DynAny probe (probe/interop/DynAnyProbe.java), run on the
 # host by run-dynany-probe.sh after build.sh.
 here="$(dirname "$0")"
-exec java -Drustorb.jni.library="$here/lib/librustorb_jni.so" -cp "$here/classes" \
+exec java -Djava.library.path="$here/lib" -cp "$here/classes" \
   interop.DynAnyProbe "$@"
