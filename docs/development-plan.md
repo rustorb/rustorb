@@ -348,6 +348,6 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 すべて P3。
 
 - [#46](https://github.com/rustorb/rustorb/issues/46) IDL4-CPP の構文（アノテーションなど）を C++ 生成器に取り込む
-- [#51](https://github.com/rustorb/rustorb/issues/51) Java バインディングの FFM 版を試作し、JNI 版と比べる
+- [#51](https://github.com/rustorb/rustorb/issues/51) Java バインディングの FFM 版を試作し、JNI 版と比べる（試作と比較は [java-ffm.md](java-ffm.md)。置き換えるかは未定）
 - [#77](https://github.com/rustorb/rustorb/issues/77) Rust の IDL 生成器で async 版のスタブを出す
 - [#78](https://github.com/rustorb/rustorb/issues/78) SSLIOP（IIOP over TLS）

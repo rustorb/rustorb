@@ -10,3 +10,4 @@ __pycache__/
 /python/omniorb-compat/*.egg-info
 # Maven output of java/
 /java/target
+/java/ffm-prototype/target
