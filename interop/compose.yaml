@@ -13,6 +13,9 @@
 #   SUITE / ECHO_NAME           the test suite (basic: InteropTest.idl, any:
 #                               AnyTest.idl, value: ValueTest.idl) and the
 #                               name of its object
+#   INTEROP_SSL                 /opt/interop/tls for TLS endpoints (with the
+#                               certificates of crates/rustorb-core/tests/tls),
+#                               empty for TCP
 #
 # Use run-matrix.sh rather than calling docker compose directly.
 
@@ -32,7 +35,10 @@ services:
     image: ${SERVER_IMAGE:-rustorb-interop-omniorb:latest}
     hostname: server
     depends_on: [naming]
+    environment:
+      INTEROP_SSL: ${INTEROP_SSL:-}
     volumes:
+      - ../crates/rustorb-core/tests/tls:/opt/interop/tls:ro
       # The rustorb servers are built on the host (see run-matrix.sh).
       - ./impls/rustorb:/opt/interop/impls/rustorb:ro
       - ./impls/rustorbpy:/opt/interop/impls/rustorbpy:ro
@@ -63,9 +69,11 @@ services:
       CAPTURE_DIR: ${CAPTURE_DIR:-}
       # omniORB reads ORB<option> from the environment; empty means unset.
       ORBmaxGIOPVersion: ${CLIENT_MAX_GIOP:-}
+      INTEROP_SSL: ${INTEROP_SSL:-}
       CAPTURE_LABELS: --port-label 2809=naming --port-label 2810=server --port-label 2811=client
     volumes:
       - ${OUT_DIR:-./out}:/out
+      - ../crates/rustorb-core/tests/tls:/opt/interop/tls:ro
       # The rustorb clients are built on the host (see run-matrix.sh).
       - ./impls/rustorb:/opt/interop/impls/rustorb:ro
       - ./impls/rustorbpy:/opt/interop/impls/rustorbpy:ro

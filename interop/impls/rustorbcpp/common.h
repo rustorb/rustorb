@@ -62,9 +62,22 @@ inline Options parse_args(int argc, char** argv, std::vector<std::string>& orb_a
   }
   orb_args.push_back("-ORBInitRef");
   orb_args.push_back("NameService=" + opt.naming);
+  // INTEROP_SSL=DIR (run-matrix.sh --ssl): the endpoint is TLS only, with
+  // the test CA and certificate in DIR, and certificates are required both
+  // ways, as omniORB requires by default.
+  const char* ssl = std::getenv("INTEROP_SSL");
+  bool tls = ssl && *ssl;
+  if (tls) {
+    for (const char* a : {"-ORBsslCAFile", "/ca.pem", "-ORBsslKeyFile", "/server-bundle.pem"}) {
+      orb_args.push_back(a[0] == '/' ? std::string(ssl) + a : std::string(a));
+    }
+    orb_args.push_back("-ORBsslVerifyClient");
+    orb_args.push_back("required");
+  }
   if (opt.port) {
     orb_args.push_back("-ORBendPoint");
-    orb_args.push_back("giop:tcp:" + opt.host + ":" + std::to_string(opt.port));
+    orb_args.push_back((tls ? "giop:ssl:" : "giop:tcp:") + opt.host + ":" +
+                       std::to_string(opt.port));
   }
   // The omniORB C++ client takes the GIOP limit from the environment
   // (ORBmaxGIOPVersion, set by compose.yaml); rustorb takes an option.

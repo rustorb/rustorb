@@ -8,8 +8,8 @@ use rustorb_cdr::CdrDecode;
 use rustorb_giop::{
     AddressingDisposition, AlternateIiopAddress, Body, CancelRequestHeader, CodeSetComponentInfo,
     Ior, LocateRequestHeader, LocateStatus, Message, MessageEncoder, OutMessage, ReplyStatus,
-    RequestHeader, SystemExceptionBody, TAG_INTERNET_IOP, TAG_MULTIPLE_COMPONENTS, TargetAddress,
-    Version, component_tag, decode_message, response_flags,
+    RequestHeader, SslSecTrans, SystemExceptionBody, TAG_INTERNET_IOP, TAG_MULTIPLE_COMPONENTS,
+    TargetAddress, Version, component_tag, decode_message, response_flags,
 };
 
 use crate::connection::{Closed, Connection, SendError};
@@ -471,13 +471,17 @@ struct Endpoint {
     version: Version,
     host: String,
     port: u16,
+    /// A TLS endpoint (from `TAG_SSL_SEC_TRANS`).
+    tls: bool,
     object_key: Vec<u8>,
     code_sets: Option<CodeSetComponentInfo>,
 }
 
-/// Every IIOP address in `ior`, in order: each profile's own address and
-/// then its alternate addresses.
-fn endpoints(ior: &Ior) -> Vec<Endpoint> {
+/// Every IIOP address in `ior` this ORB can use, in order: for each
+/// profile, its TLS endpoint if it has one and the ORB can use TLS
+/// (docs/ssliop.md), else its own address and its alternate addresses.
+/// A port of 0 is no address.
+fn endpoints(ior: &Ior, can_tls: bool) -> Vec<Endpoint> {
     let shared: Vec<_> = ior
         .profiles
         .iter()
@@ -505,20 +509,34 @@ fn endpoints(ior: &Ior) -> Vec<Endpoint> {
             .iter()
             .find(|c| c.tag == component_tag::CODE_SETS)
             .and_then(|c| CodeSetComponentInfo::from_component(c).ok());
-        let mut addrs = vec![(iiop.host.clone(), iiop.port)];
-        addrs.extend(
-            components
-                .iter()
-                .filter(|c| c.tag == component_tag::ALTERNATE_IIOP_ADDRESS)
-                .filter_map(|c| AlternateIiopAddress::from_component(c).ok())
-                .map(|a| (a.host, a.port)),
-        );
-        for (host, port) in addrs {
+        let ssl = components
+            .iter()
+            .find(|c| c.tag == component_tag::SSL_SEC_TRANS)
+            .and_then(|c| SslSecTrans::from_component(c).ok());
+        let mut addrs = Vec::new();
+        if let (Some(ssl), true) = (ssl, can_tls) {
+            // Not unprotected instead, should the TLS endpoint fail.
+            addrs.push((iiop.host.clone(), ssl.port, true));
+        } else {
+            addrs.push((iiop.host.clone(), iiop.port, false));
+            addrs.extend(
+                components
+                    .iter()
+                    .filter(|c| c.tag == component_tag::ALTERNATE_IIOP_ADDRESS)
+                    .filter_map(|c| AlternateIiopAddress::from_component(c).ok())
+                    .map(|a| (a.host, a.port, false)),
+            );
+        }
+        for (host, port, tls) in addrs {
+            if port == 0 {
+                continue;
+            }
             out.push(Endpoint {
                 profile_index: index,
                 version: iiop.version,
                 host,
                 port,
+                tls,
                 object_key: iiop.object_key.clone(),
                 code_sets: code_sets.clone(),
             });
@@ -568,7 +586,7 @@ impl<'o> Walk<'o> {
     }
 
     fn retarget(&mut self, ior: Arc<Ior>) {
-        self.endpoints = endpoints(&ior).into_iter();
+        self.endpoints = endpoints(&ior, self.obj.orb.has_tls_client()).into_iter();
         self.ior = ior;
         self.last = no_usable_profile();
         self.fresh = true;
@@ -671,7 +689,7 @@ fn invoke<A: WriteArgs + ?Sized>(
             Step::Done(result) => return result,
         };
         let (ior, disposition) = (Arc::clone(&walk.ior), walk.disposition);
-        let attempt = match orb.local_server(&ep.host, ep.port) {
+        let attempt = match orb.local_server(&ep.host, ep.port, ep.tls) {
             Some(server) => match local_call(orb, &ior, &ep, kind, deadline, disposition) {
                 Ok(call) => {
                     let result = call.run(&server);
@@ -705,7 +723,7 @@ async fn invoke_async<A: WriteArgs + ?Sized>(
             Step::Done(result) => return result,
         };
         let (ior, disposition) = (Arc::clone(&walk.ior), walk.disposition);
-        let attempt = match orb.local_server(&ep.host, ep.port) {
+        let attempt = match orb.local_server(&ep.host, ep.port, ep.tls) {
             Some(server) => match local_call(orb, &ior, &ep, kind, deadline, disposition) {
                 Ok(call) => {
                     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -749,7 +767,7 @@ async fn attempt<A: WriteArgs + ?Sized>(
 ) -> Attempt {
     let mut result = Attempt::NotSent(sys(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No));
     for _ in 0..2 {
-        let conn = match orb.connection(&ep.host, ep.port, deadline).await {
+        let conn = match orb.connection(&ep.host, ep.port, ep.tls, deadline).await {
             Ok(conn) => conn,
             // Out of time: the other addresses are not tried.
             Err(e) if e.is(SystemExceptionKind::TIMEOUT) => return Attempt::Done(Err(e.into())),

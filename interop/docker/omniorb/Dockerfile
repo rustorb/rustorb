@@ -8,6 +8,7 @@
 # omniORBpy is not packaged for Ubuntu 24.04, so both omniORB and omniORBpy
 # are built from the upstream release tarballs, pinned by version and sha256.
 # JacORB comes from its release jars on Maven Central (the jacorb-build stage).
+# Both are built with OpenSSL, for the TLS transport (run-matrix.sh --ssl).
 
 ARG UBUNTU_VERSION=24.04
 
@@ -19,7 +20,7 @@ ARG OMNIORBPY_SHA256=a709c3c77b9c6b08616e1c9e12a5a9b9d5ccc1f2dcf6f647f205018d77f
 
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      build-essential pkg-config python3 python3-dev bzip2 \
+      build-essential pkg-config python3 python3-dev bzip2 libssl-dev \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
@@ -32,11 +33,12 @@ ADD --checksum=sha256:${OMNIORBPY_SHA256} \
 RUN tar xjf omniORB.tar.bz2 && tar xjf omniORBpy.tar.bz2
 
 RUN cd omniORB-${OMNIORB_VERSION} && mkdir build && cd build \
- && ../configure --prefix=/opt/omniorb --disable-static PYTHON=/usr/bin/python3 \
+ && ../configure --prefix=/opt/omniorb --disable-static --with-openssl=/usr PYTHON=/usr/bin/python3 \
  && make -j"$(nproc)" && make install
 
 RUN cd omniORBpy-${OMNIORB_VERSION} && mkdir build && cd build \
- && ../configure --prefix=/opt/omniorb --with-omniorb=/opt/omniorb PYTHON=/usr/bin/python3 \
+ && ../configure --prefix=/opt/omniorb --with-omniorb=/opt/omniorb --with-openssl=/usr \
+      PYTHON=/usr/bin/python3 \
  && make -j"$(nproc)" && make install
 
 # Make the omniORBpy site-packages directory version independent.
@@ -145,7 +147,7 @@ FROM ubuntu:${UBUNTU_VERSION}
 
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      python3 libstdc++6 libuuid1 tcpdump iproute2 openjdk-17-jre-headless \
+      python3 libstdc++6 libuuid1 libssl3t64 tcpdump iproute2 openjdk-17-jre-headless \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=omniorb-build /opt/omniorb /opt/omniorb

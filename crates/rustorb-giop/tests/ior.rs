@@ -2,15 +2,16 @@
 //!
 //! The fixtures were produced by omniORB 4.3.4: `genior`, the root context
 //! IOR printed by `omniNames`, `object_to_string` of `string_to_object`
-//! on corbaloc URLs, and a reply captured by the interop environment
-//! (`interop/golden/`).
+//! on corbaloc URLs, a reply captured by the interop environment
+//! (`interop/golden/`), and `object_to_string` of an omniORBpy object on
+//! a TLS endpoint.
 
 use rustorb_cdr::{ByteOrder, CdrDecode};
 use rustorb_giop::{
     AlternateIiopAddress, CodeSetComponent, CodeSetComponentInfo, CorbaName, Corbaloc,
     DEFAULT_CORBALOC_PORT, Error, IiopAddr, IiopProfile, Ior, Message, ObjAddr, ObjectUrl,
-    TAG_INTERNET_IOP, TAG_MULTIPLE_COMPONENTS, TaggedComponent, TaggedProfile, Version, code_set,
-    component_tag, decode_message, orb_type, orb_type_component,
+    SslSecTrans, TAG_INTERNET_IOP, TAG_MULTIPLE_COMPONENTS, TaggedComponent, TaggedProfile,
+    Version, code_set, component_tag, decode_message, orb_type, orb_type_component,
 };
 
 /// `genior IDL:rustorb.org/Test/Echo:1.0 example.com 2809 MyKey`.
@@ -543,4 +544,33 @@ fn object_url_dispatch() {
     for s in [GENIOR, "corbaloc:iiop:h:1/k", "corbaname:iiop:h:1/k#a/b"] {
         assert_eq!(ObjectUrl::parse(s).unwrap().to_string(), s);
     }
+}
+
+/// An omniORBpy 4.3.4 object with the endpoints `giop:tcp:127.0.0.1:24102`
+/// and `giop:ssl:127.0.0.1:24101`, from `object_to_string`.
+const OMNIORB_SSL: &str = "IOR:010000002500000049444c3a727573746f72622e6f72672f496e7465726f70546573742f4563686f3a312e3000000000010000000000000074000000010102000a0000003132372e302e302e3100265e11000000ff496e7465726f7054657374004563686f0000000300000000000000080000000100000000545441010000001c000000010000000100010001000000010001050901010001000000090101001400000008000000010066006600255e";
+
+#[test]
+fn omniorb_ssl_sec_trans() {
+    let ior: Ior = OMNIORB_SSL.parse().unwrap();
+    let profile = ior.iiop_profiles().next().unwrap().unwrap();
+    assert_eq!((profile.host.as_str(), profile.port), ("127.0.0.1", 24102));
+    let component = profile
+        .components
+        .iter()
+        .find(|c| c.tag == component_tag::SSL_SEC_TRANS)
+        .unwrap();
+    let ssl = SslSecTrans::from_component(component).unwrap();
+    // Integrity, Confidentiality, EstablishTrustInTarget and
+    // EstablishTrustInClient, both ways.
+    assert_eq!(
+        ssl,
+        SslSecTrans {
+            target_supports: 102,
+            target_requires: 102,
+            port: 24101,
+        }
+    );
+    let again = ssl.to_component(ByteOrder::Little).unwrap();
+    assert_eq!(&again, component);
 }

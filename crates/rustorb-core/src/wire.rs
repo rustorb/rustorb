@@ -11,7 +11,7 @@
 use std::io;
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
 use rustorb_giop::{FragmentAssembler, Message, MessageHeader, Version};
@@ -19,6 +19,8 @@ use socket2::SockRef;
 use tokio::io::Interest;
 use tokio::net::tcp::OwnedReadHalf;
 use tokio::sync::Notify;
+
+use crate::tls::Tls;
 
 /// How much a connection reads ahead: a small message and the header of
 /// the next one usually come in with one read. Bodies larger than this
@@ -272,6 +274,8 @@ pub(crate) enum Here {
 #[derive(Debug)]
 pub(crate) struct Inbound {
     stream: OwnedReadHalf,
+    /// TLS on the stream: every read goes through it.
+    tls: Option<Arc<Tls>>,
     holder: Mutex<Holder>,
     side: Mutex<ReadSide>,
     /// Wakes the task when a thread hands the reading back with something
@@ -284,9 +288,14 @@ pub(crate) struct Inbound {
 }
 
 impl Inbound {
-    pub(crate) fn new(stream: OwnedReadHalf, max_message_size: usize) -> Inbound {
+    pub(crate) fn new(
+        stream: OwnedReadHalf,
+        tls: Option<Arc<Tls>>,
+        max_message_size: usize,
+    ) -> Inbound {
         Inbound {
             stream,
+            tls,
             holder: Mutex::new(Holder::Task { active: true }),
             side: Mutex::new(ReadSide {
                 reader: MessageReader::new(max_message_size),
@@ -295,6 +304,14 @@ impl Inbound {
             }),
             back: Notify::new(),
             handed_back: AtomicBool::new(false),
+        }
+    }
+
+    /// Reads `buf` with `raw`, through TLS if the stream has it.
+    fn read(&self, raw: &mut ReadFn<'_>, buf: &mut [MaybeUninit<u8>]) -> io::Result<usize> {
+        match &self.tls {
+            Some(tls) => tls.read(buf, raw),
+            None => raw(buf),
         }
     }
 
@@ -316,13 +333,14 @@ impl Inbound {
             if self.task_may_read() {
                 let stream = self.stream.as_ref();
                 let direct = self.handed_back.swap(false, Ordering::AcqRel);
-                let mut read = |buf: &mut [MaybeUninit<u8>]| {
+                let mut raw = |buf: &mut [MaybeUninit<u8>]| {
                     if direct {
                         SockRef::from(stream).recv(buf)
                     } else {
                         stream.try_io(Interest::READABLE, || SockRef::from(stream).recv(buf))
                     }
                 };
+                let mut read = |buf: &mut [MaybeUninit<u8>]| self.read(&mut raw, buf);
                 if let Some(msg) = self.side().next(&mut read, false)? {
                     return Ok(msg);
                 }
@@ -345,9 +363,10 @@ impl Inbound {
                 // so that requests on one connection run side by side.
                 let stream = self.stream.as_ref();
                 let mut side = self.side.lock().unwrap();
-                let more = side.reader.drain(&mut |buf| {
+                let mut raw = |buf: &mut [MaybeUninit<u8>]| {
                     stream.try_io(Interest::READABLE, || SockRef::from(stream).recv(buf))
-                });
+                };
+                let more = side.reader.drain(&mut |buf| self.read(&mut raw, buf));
                 if more {
                     *holder = Holder::Task { active: true };
                     true
@@ -410,7 +429,8 @@ impl Inbound {
     pub(crate) fn read_here(&self, until: Option<Instant>) -> Here {
         let mut side = self.side();
         let stream = self.stream.as_ref();
-        let mut read = |buf: &mut [MaybeUninit<u8>]| SockRef::from(stream).recv(buf);
+        let mut raw = |buf: &mut [MaybeUninit<u8>]| SockRef::from(stream).recv(buf);
+        let mut read = |buf: &mut [MaybeUninit<u8>]| self.read(&mut raw, buf);
         loop {
             match side.next(&mut read, true) {
                 Ok(Some((version, msg))) => return Here::Message(version, msg),
@@ -453,9 +473,8 @@ impl Inbound {
         let mut holder = self.holder.lock().unwrap();
         let stream = self.stream.as_ref();
         let mut side = self.side.lock().unwrap();
-        let more = side
-            .reader
-            .drain(&mut |buf| SockRef::from(stream).recv(buf));
+        let mut raw = |buf: &mut [MaybeUninit<u8>]| SockRef::from(stream).recv(buf);
+        let more = side.reader.drain(&mut |buf| self.read(&mut raw, buf));
         if more || side.held.is_some() {
             *holder = Holder::Task { active: false };
             drop(side);
@@ -489,9 +508,8 @@ impl Inbound {
             Holder::Thread => {
                 let stream = self.stream.as_ref();
                 let mut side = self.side.lock().unwrap();
-                let more = side
-                    .reader
-                    .drain(&mut |buf| SockRef::from(stream).recv(buf));
+                let mut raw = |buf: &mut [MaybeUninit<u8>]| SockRef::from(stream).recv(buf);
+                let more = side.reader.drain(&mut |buf| self.read(&mut raw, buf));
                 *holder = Holder::Task { active: false };
                 if more || side.held.is_some() {
                     drop(side);

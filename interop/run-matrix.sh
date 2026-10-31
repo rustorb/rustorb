@@ -2,7 +2,7 @@
 # Runs the interop test matrix with Docker Compose.
 #
 #   ./run-matrix.sh [--build] [--capture] [--giop VER] [--jobs N] [--naming IMPL]
-#                   [--out DIR] [--suite SUITE] [CLIENT:SERVER ...]
+#                   [--out DIR] [--ssl] [--suite SUITE] [CLIENT:SERVER ...]
 #
 # Without pairs, every client in $CLIENT_IMPLS is paired with every server in
 # $SERVER_IMPLS. Both default to $IMPLS (omniorbpy, omniorb-cpp and, but for
@@ -22,6 +22,11 @@
 # --naming IMPL  the naming service: omninames (default) or rustorb; with
 #            rustorb the results go to <client>-to-<server>-naming-rustorb
 # --out DIR  where logs and captures go (default: interop/out)
+# --ssl      the servers and the clients' callback objects listen on TLS
+#            endpoints only (giop:ssl), with the certificates of
+#            crates/rustorb-core/tests/tls, and require certificates both
+#            ways (omniORB's default); jacorb is left out unless named in a
+#            pair. The results go to <client>-to-<server>-ssl
 # --suite SUITE  basic (default): the InteropTest.idl cases; any: the
 #            AnyTest.idl cases (Any and TypeCode), whose results go to
 #            <client>-to-<server>-any; value: the ValueTest.idl cases
@@ -47,6 +52,7 @@ giop=
 naming=omninames
 suite=basic
 out="$PWD/out"
+ssl=0
 jobs="${INTEROP_JOBS:-1}"
 pairs=()
 
@@ -59,7 +65,8 @@ while [ $# -gt 0 ]; do
     --naming) naming="$2"; shift ;;
     --suite) suite="$2"; shift ;;
     --out) out="$(realpath -m "$2")"; shift ;;
-    -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
+    --ssl) ssl=1 ;;
+    -h|--help) sed -n '2,38p' "$0"; exit 0 ;;
     *:*) pairs+=("$1") ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -81,8 +88,16 @@ if [ "$suite" = any ]; then
   IMPLS="${IMPLS:-omniorbpy omniorb-cpp}"
 elif [ "$suite" = custom ]; then
   IMPLS="${IMPLS:-jacorb}"
+elif [ $ssl -eq 1 ]; then
+  # The JacORB implementation has no TLS set-up.
+  IMPLS="${IMPLS:-omniorbpy omniorb-cpp}"
 else
   IMPLS="${IMPLS:-omniorbpy omniorb-cpp jacorb}"
+fi
+if [ $ssl -eq 1 ]; then
+  export INTEROP_SSL=/opt/interop/tls
+else
+  export INTEROP_SSL=
 fi
 rustorb_impls="rustorb rustorbpy rustorbcpp rustorbjava"
 # The Rust mapping has no abstract interfaces (see docs/rust-mapping.md).
@@ -255,6 +270,9 @@ pair_name() {
   name="${pair%%:*}-to-${pair##*:}${giop:+-giop$giop}"
   if [ "$suite" != basic ]; then
     name+="-$suite"
+  fi
+  if [ $ssl -eq 1 ]; then
+    name+="-ssl"
   fi
   if [ "$naming" != omninames ]; then
     name+="-naming-$naming"
