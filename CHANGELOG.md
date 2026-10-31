@@ -5,7 +5,7 @@ All notable changes to rustorb are written here. The format follows
 [Semantic Versioning](https://semver.org/) (before 1.0, a minor version may
 break the API).
 
-## [0.1.0] - unreleased
+## [0.1.0] - 2026-10-31
 
 The first release: a CORBA ORB with its core in Rust, and bindings for Rust,
 Python, C++ and Java.
@@ -47,6 +47,7 @@ Python, C++ and Java.
   C++
 - `rustorb_codegen::Config` runs `-brust` from a build script
 - Built on idl_parser 0.6.2 or later
+- Ships `CosNaming.idl` (`rustorb-idl --idl-dir`, also searched for `#include`)
 
 ### Bindings
 
@@ -59,6 +60,11 @@ Python, C++ and Java.
   (`find_package(rustorb)`, `rustorb::rustorb`, `rustorb_idl_generate()`)
 - Java (`java/`): the IDL to Java mapping on the C ABI through the FFM API;
   needs Java 22 or later and `--enable-native-access=ALL-UNNAMED`
+
+### Documentation
+
+- A getting started guide (`docs/getting-started.md`) and examples in the four
+  languages (`examples/`), run against each other in CI
 
 ### Interoperability
 
