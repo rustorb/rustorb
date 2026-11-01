@@ -359,3 +359,8 @@ P0〜P3 の issue がすべて終わった後（2026-10-31）、各設計書の�
 - P3：[#85](https://github.com/rustorb/rustorb/issues/85) valuetype の残り、[#86](https://github.com/rustorb/rustorb/issues/86) 読み込みの持ち主と負荷試験の残り
 
 使うアプリケーションが出てきたら足すもの（`omniORB.URI`、`setClientThreadCallDeadline` など）は起票していない。
+
+0.1.0 の後（2026-11-01）、未対応の CORBA 機能を洗い出し（[unsupported-features.md](unsupported-features.md)）、次を起票した。
+
+- P1：[#100](https://github.com/rustorb/rustorb/issues/100) Portable Interceptors、[#101](https://github.com/rustorb/rustorb/issues/101) 使っていない接続を閉じる、[#102](https://github.com/rustorb/rustorb/issues/102) GIOP メッセージの最大長の設定と送信側の Fragment
+- P2：[#103](https://github.com/rustorb/rustorb/issues/103) 双方向 GIOP、[#104](https://github.com/rustorb/rustorb/issues/104) `-brust` の abstract / local interface など、[#105](https://github.com/rustorb/rustorb/issues/105) ログ・トレースの出力
