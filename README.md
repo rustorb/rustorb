@@ -99,7 +99,8 @@ service; the code is in [examples/](examples/), and
   [C++ binding](docs/cpp-binding.md), [Java binding](docs/java-binding.md),
   [POA](docs/poa-design.md), [Any and TypeCode](docs/any-typecode.md),
   [valuetypes](docs/valuetype.md), [SSLIOP](docs/ssliop.md),
-  [timeouts](docs/timeouts.md), [async API](docs/async-api.md)
+  [timeouts](docs/timeouts.md), [async API](docs/async-api.md),
+  [unsupported CORBA features](docs/unsupported-features.md)
 - Interoperability tests: [interop/](interop/README.md)
 
 ## Building from source
