@@ -43,6 +43,7 @@ tools/set-version.py --check        # そろっているか（CI とリリース
    - PyPI に `rustorb`（wheel と sdist）、`rustorb-idl`、`rustorb-omniorb-compat` を公開する（`pypi` ジョブ）
    - 両方が終わったら Release を公開する（`publish-release` ジョブ）
 4. 公開のジョブが途中で失敗したら、原因を直してから、失敗したジョブを Actions の画面で再実行する。公開済みのクレートとファイルは飛ばす（クレートは crates.io にその版があるか確かめ、PyPI は `skip-existing`）
+5. 何も公開する前に失敗し、直すのにワークフローかソースの変更が要るときは（再実行はタグのコミットのワークフローで走るので）、直したものを main に入れてから、Release とタグ `vx.y.z` を消し（Release の画面の Delete と、Tags の画面のタグの Delete）、main の上に作り直す
 
 タグは GitHub のウェブからも打てる。[新しい Release](https://github.com/rustorb/rustorb/releases/new) でタグ `vx.y.z` を main に作り「Publish release」を押すと、タグの push と同じくワークフローが走り、成果物とノートがその Release に付く（その間、Release は成果物なしで見える）。「Save draft」ではタグができないのでワークフローは走らない。
 
