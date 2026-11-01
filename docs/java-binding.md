@@ -26,9 +26,9 @@ rustorb の Java バインディングの構成をまとめる。C++ と同じ�
 rustorb-idl -bjava -C gen Example.idl           # gen/<module>/*.java
 cargo build --release -p rustorb-ffi            # target/release/librustorb_ffi.so
 mvn -f java/pom.xml -Didl.parser.dir=path/to/idl_parser package   # java/target/rustorb-*.jar
-javac --release 22 -cp java/target/rustorb-0.1.0.jar -d classes $(find gen src -name '*.java')
+javac --release 22 -cp java/target/rustorb-0.1.1.jar -d classes $(find gen src -name '*.java')
 java --enable-native-access=ALL-UNNAMED -Drustorb.ffi.library=target/release/librustorb_ffi.so \
-     -cp java/target/rustorb-0.1.0.jar:classes Main
+     -cp java/target/rustorb-0.1.1.jar:classes Main
 ```
 
 ライブラリは、システムプロパティ `rustorb.ffi.library`、環境変数 `RUSTORB_FFI_LIBRARY` のパス、`java.library.path` の `rustorb_ffi`、OS の動的ローダーの探す場所の順に探す。`--enable-native-access=ALL-UNNAMED`（モジュールに入れたなら `=org.rustorb` の入ったモジュール、実行可能 jar ならマニフェストの `Enable-Native-Access: ALL-UNNAMED`）がないと、Java 22 以降は起動時に警告が出る（将来は拒まれる）。`-Wbpackage=PKG` はすべてのパッケージを `PKG` の下に置く（モジュールの外の定義は `PKG` に入る。名前のあるパッケージからは無名パッケージを参照できないため、モジュールの外に定義がある IDL では必要になる）。

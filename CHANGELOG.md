@@ -9,14 +9,6 @@ break the API).
 
 ### Added
 
-- `Value::release`: drops a value and frees the valuetypes in it that form
-  cycles and that nothing else refers to (#85)
-- Custom valuetypes of the Rust mapping go in an Any: `register_value_types()`
-  registers their readers with the core (#85)
-- `OrbOptions::follow_linger` and `follow_limit` (`-ORBfollowLinger US`,
-  `-ORBfollowLimit N`): how long and how many times a server thread goes on
-  reading the next request on its connection. The defaults (1 ms, 64) are the
-  old fixed values (#86)
 - Trace output (`-ORBtraceLevel N`, `-ORBtraceTime 0|1`; `OrbOptions::trace_level`,
   `trace_time`; docs/tracing.md): connections, requests and replies, system
   exceptions, `LOCATION_FORWARD`, POA events and each GIOP message, as events
@@ -30,11 +22,21 @@ break the API).
   are trace events of level 1, the default: `-ORBtraceLevel 0` silences them,
   and a `tracing` subscriber of the application receives them instead (#105)
 
+## [0.1.1] - 2026-11-02
+
+### Added
+
+- `OrbOptions::follow_linger` and `follow_limit` (`-ORBfollowLinger US`,
+  `-ORBfollowLimit N`): how long and how many times a server thread goes on
+  reading the next request on its connection. The defaults (1 ms, 64) are the
+  old fixed values (#86)
+- A comparison of the IDL to Rust mapping with other implementations
+  (`docs/rust-mapping-comparison.md`)
+
 ### Fixed
 
-- Valuetypes in cycles held by the core were never freed: those read by a
-  stream, in an Any of the C ABI (C++ and Java), in the copies `DynAny::equal`
-  makes, and those the Python binding converted (#85)
+- `rustorb-idl -C DIR` creates `DIR` when it does not exist, as `omniidl -C`
+  does, instead of stopping with `FileNotFoundError` (#95)
 
 ## [0.1.0] - 2026-10-31
 
@@ -57,6 +59,10 @@ Python, C++ and Java.
   wire), valuetypes (sharing, cycles, truncatable, value boxes, custom
   marshaling, `supports`, factories and initializers), abstract interfaces
 - DII and DSI (core and Python)
+- `Value::release`, which frees valuetypes in cycles that nothing else refers
+  to; the core uses it for the values read by a stream, in an Any of the C
+  ABI (C++ and Java), in the copies `DynAny::equal` makes, and those the
+  Python binding converted (#85)
 - `create_policy`, `register_initial_reference`, policy overrides, and call
   timeouts (`RelativeRoundtripTimeoutPolicy` and ORB options)
 - A synchronous API on an internal tokio runtime, with servants on a
@@ -77,6 +83,8 @@ Python, C++ and Java.
   and streams); IDL 4 int8 / uint8, bitmask, bitset and some annotations in
   C++
 - `rustorb_codegen::Config` runs `-brust` from a build script
+- Custom valuetypes of the Rust mapping go in an Any:
+  `register_value_types()` registers their readers with the core (#85)
 - Built on idl_parser 0.6.2 or later
 - Ships `CosNaming.idl` (`rustorb-idl --idl-dir`, also searched for `#include`)
 
@@ -111,8 +119,11 @@ omniORBpy, and valuetypes in JacORB on Java 17).
 - Out of scope: CORBA Component Model, Event / Notification Service, the
   Interface Repository, CSIv2, the C++98 mapping
 - IDL 4 `map` and `@optional` have no GIOP encoding and are rejected
-- Valuetype codebase URLs are skipped when read; custom values cannot go in
-  an Any in Rust; C++ and Java have no API to break valuetype cycles (#85)
+- Valuetype codebase URLs are skipped when read; C++ and Java have no API to
+  break valuetype cycles (a C++ application breaks its own `shared_ptr`
+  cycles; Java relies on the GC) (#85)
 - On Windows the read path of #66 / #67 falls back to the I/O task (#86)
 
+[Unreleased]: https://github.com/rustorb/rustorb/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/rustorb/rustorb/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/rustorb/rustorb/releases/tag/v0.1.0
