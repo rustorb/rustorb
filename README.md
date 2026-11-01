@@ -93,7 +93,8 @@ service; the code is in [examples/](examples/), and
 - [Getting started](docs/getting-started.md) and [examples](examples/)
 - [Changelog](CHANGELOG.md) and [how releases are made](docs/release.md)
 - Design documents (in Japanese): [development plan](docs/development-plan.md),
-  [Rust mapping](docs/rust-mapping.md), [Python binding](docs/python-binding.md),
+  [Rust mapping](docs/rust-mapping.md)
+  ([compared with other IDL-to-Rust mappings](docs/rust-mapping-comparison.md)), [Python binding](docs/python-binding.md),
   [Python generator](docs/python-codegen.md), [omniORBpy compatibility](docs/omniorb-compat.md),
   [C++ binding](docs/cpp-binding.md), [Java binding](docs/java-binding.md),
   [POA](docs/poa-design.md), [Any and TypeCode](docs/any-typecode.md),
