@@ -44,7 +44,7 @@ tools/set-version.py --check        # そろっているか（CI とリリース
    - 両方が終わったら Release を公開する（`publish-release` ジョブ）
 4. 公開のジョブが途中で失敗したら、原因を直してから、失敗したジョブを Actions の画面で再実行する。公開済みのクレートとファイルは飛ばす（クレートは crates.io にその版があるか確かめ、PyPI は `skip-existing`）
 
-タグは GitHub のウェブからも打てる。[新しい Release](https://github.com/rustorb/rustorb/releases/new) でタグ `vx.y.z` を main に作り「Publish release」を押すと、タグの push と同じくワークフローが走り、成果物とノートがその Release に付く（その間、Release は成果物なしで見える）。「Save draft」ではタグができないのでワークフローは走らない。
+タグは GitHub のウェブからも打てる。[新しい Release](https://github.com/rustorb/rustorb/releases/new) でタグ `vx.y.z` を main に作り「Publish release」を押すと、ワークフローが走り（ウェブで作ったタグでは push のイベントが来ないので、Release の公開のイベント `release: published` で走る）、成果物とノートがその Release に付く（その間、Release は成果物なしで見える）。「Save draft」ではタグができないのでワークフローは走らない。
 
 ワークフローは、タグのほか、手で実行したときと、パッケージに関わるファイルを変えたプルリクエストでも走る（ビルドだけで、成果物は実行に残る）。
 
