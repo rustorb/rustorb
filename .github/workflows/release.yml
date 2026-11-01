@@ -190,7 +190,12 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: native-${{ matrix.name }}
-          path: dist/rustorb-native-*.*
+          # the archive only: rustorb-native-*.* also matches the directory,
+          # whose name has the dots of the version
+          path: |
+            dist/${{ env.ARCHIVE }}.tar.gz
+            dist/${{ env.ARCHIVE }}.zip
+          if-no-files-found: error
 
   java:
     needs: version
@@ -214,8 +219,8 @@ jobs:
           name: java
           path: java/target/rustorb-*.jar
 
+  # Also runs without a tag, to check the notes and SHA256SUMS
   draft:
-    if: github.ref_type == 'tag'
     needs: [version, crates, wheels, python-sdist, native, java]
     runs-on: ubuntu-latest
     permissions:
@@ -231,8 +236,11 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           awk -v v="$VERSION" '/^## \[/{p = index($0, "## [" v "]") == 1; next} p' CHANGELOG.md > notes.md
+          test -s notes.md
           (cd artifacts && sha256sum * > SHA256SUMS)
+          cat artifacts/SHA256SUMS
       - name: Create or update the draft release
+        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
