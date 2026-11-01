@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "rustorb"
-version = "0.1.0"
+version = "0.1.1"
 description = "CORBA ORB with its core in Rust: the Python binding"
 readme = "README.md"
 license = { text = "MIT OR Apache-2.0" }
