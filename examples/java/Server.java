@@ -1,9 +1,9 @@
 // Serves Example::Echo and binds it in the naming service as "Echo".
 //
 //   rustorb-idl -bjava -C gen ../idl/Echo.idl
-//   javac --release 22 -cp rustorb-0.1.0.jar -d classes Server.java Client.java $(find gen -name '*.java')
+//   javac --release 22 -cp rustorb-0.1.1.jar -d classes Server.java Client.java $(find gen -name '*.java')
 //   java --enable-native-access=ALL-UNNAMED -Drustorb.ffi.library=path/to/librustorb_ffi.so \
-//        -cp rustorb-0.1.0.jar:classes Server -ORBInitRef NameService=corbaloc::localhost:2809/NameService
+//        -cp rustorb-0.1.1.jar:classes Server -ORBInitRef NameService=corbaloc::localhost:2809/NameService
 
 import Example.Echo;
 import Example.EchoHelper;
