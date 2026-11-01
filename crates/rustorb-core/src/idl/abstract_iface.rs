@@ -1,4 +1,4 @@
-//! Abstract interfaces of generated code.
+//! Abstract interfaces and abstract valuetypes of generated code.
 //!
 //! An abstract interface `A` is passed either as an object reference or as
 //! a value of a valuetype that supports it (CORBA 3.4 part 2, 9.3.7). The
@@ -134,6 +134,16 @@ pub fn read_abstract<A: 'static>(
     if input.read_bool().map_err(|_| input.marshal_error())? {
         return Ok(input.read_object()?.map(object));
     }
+    read_abstract_value(input, abstract_id)
+}
+
+/// Reads a value of the abstract valuetype or interface `abstract_id`:
+/// as a `ValueBase`, made into an `A` by [`supported`]. A value of a type
+/// that is not known to derive from it (or support it) is `MARSHAL`.
+pub fn read_abstract_value<A: 'static>(
+    input: &mut InStream<'_>,
+    abstract_id: &str,
+) -> Sys<Option<A>> {
     match ValueHandle::read_base(input)? {
         None => Ok(None),
         Some(v) => supported(abstract_id, &v)

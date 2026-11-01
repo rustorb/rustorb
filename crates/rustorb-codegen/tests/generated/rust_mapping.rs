@@ -7462,6 +7462,845 @@ pub mod rust_mapping {
         }
     }
 
+    /// The IDL abstract valuetype `RustMapping::Priced`.
+    ///
+    /// A shared reference to an instance of a valuetype derived from it.
+    /// The methods run the operations on the instance, in this process.
+    #[derive(Debug, Clone)]
+    pub struct Priced(::rustorb_core::idl::AbstractValue<dyn PricedMethods>);
+
+    impl Priced {
+        pub const REPOSITORY_ID: &'static str = "IDL:rustorb.org/RustMapping/Priced:1.0";
+
+        /// The untyped handle.
+        pub fn handle(&self) -> &::rustorb_core::idl::ValueHandle {
+            self.0.handle()
+        }
+
+        /// Whether both are the same instance.
+        pub fn ptr_eq(&self, other: &Priced) -> bool {
+            self.0.ptr_eq(&other.0)
+        }
+
+        /// The instance of `h` as this type, if its valuetype derives from it
+        /// (and was registered with `register_value_types`).
+        pub fn from_handle(h: ::rustorb_core::idl::ValueHandle) -> Option<Priced> {
+            ::rustorb_core::idl::supported(Self::REPOSITORY_ID, &h)
+        }
+
+        #[doc(hidden)]
+        pub fn _new(v: ::rustorb_core::idl::AbstractValue<dyn PricedMethods>) -> Priced {
+            Priced(v)
+        }
+
+        #[doc(hidden)]
+        pub fn _write(
+            v: Option<&Priced>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            ::rustorb_core::idl::ValueHandle::write(v.map(|v| v.0.handle()), out)
+        }
+
+        /// `price`, on the instance.
+        #[allow(clippy::type_complexity)]
+        pub fn price(&self) -> Result<f64, ::rustorb_core::SystemException> {
+            self.0.ops().price()
+        }
+    }
+
+    impl ::rustorb_core::idl::IdlType for Priced {
+        type Rust = Option<Priced>;
+        type Borrowed = Option<Priced>;
+        const MIN_SIZE: usize = 4;
+
+        fn type_code() -> ::rustorb_core::TypeCode {
+            static TC: ::std::sync::OnceLock<::rustorb_core::TypeCode> =
+                ::std::sync::OnceLock::new();
+            TC.get_or_init(|| {
+                ::rustorb_core::idl::tc(::rustorb_core::TypeCode::value_tc::<&str>(
+                    ::rustorb_core::TCKind::Value,
+                    "IDL:rustorb.org/RustMapping/Priced:1.0",
+                    "Priced",
+                    2,
+                    None,
+                    &[],
+                ))
+            })
+            .clone()
+        }
+
+        fn write(
+            v: &Option<Priced>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            Self::_write(v.as_ref(), out)
+        }
+
+        fn read(
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<Option<Priced>> {
+            ::rustorb_core::idl::read_abstract_value(input, Self::REPOSITORY_ID)
+        }
+    }
+
+    /// The operations of the IDL abstract valuetype `RustMapping::Priced`, which the
+    /// generator implements for the handles of the valuetypes derived from
+    /// it (with the state locked, through their `Operations` trait).
+    pub trait PricedMethods: Send + Sync {
+        /// `price`.
+        #[allow(clippy::type_complexity)]
+        fn price(&self) -> Result<f64, ::rustorb_core::SystemException>;
+    }
+
+    impl<T: ?Sized + PricedMethods> PricedMethods for ::rustorb_core::idl::Upcast<T> {
+        #[allow(clippy::type_complexity)]
+        fn price(&self) -> Result<f64, ::rustorb_core::SystemException> {
+            self.0.price()
+        }
+    }
+
+    /// The definitions inside `RustMapping::Discounted`.
+    pub mod discounted {
+        /// What `Discounted::discounted` raises.
+        #[derive(Debug, Clone)]
+        #[allow(clippy::enum_variant_names, clippy::large_enum_variant)]
+        pub enum DiscountedError {
+            Failure(super::Failure),
+            /// A system exception.
+            System(::rustorb_core::SystemException),
+        }
+
+        impl DiscountedError {
+            /// The repository id of the exception.
+            pub fn repository_id(&self) -> &str {
+                match self {
+                    DiscountedError::Failure(_) => super::Failure::REPOSITORY_ID,
+                    DiscountedError::System(e) => &e.repository_id,
+                }
+            }
+
+            /// The error of an exception a call failed with.
+            pub fn from_exception(e: ::rustorb_core::Exception) -> DiscountedError {
+                fn user(
+                    u: &::rustorb_core::UserException,
+                ) -> ::rustorb_core::idl::Sys<DiscountedError> {
+                    let mut input = u.input()?;
+                    Ok(match u.repository_id() {
+                        super::Failure::REPOSITORY_ID => {
+                            DiscountedError::Failure(super::Failure::_read_members(&mut input)?)
+                        }
+                        _ => {
+                            DiscountedError::System(::rustorb_core::idl::unlisted_user_exception())
+                        }
+                    })
+                }
+                match e {
+                    ::rustorb_core::Exception::System(e) => DiscountedError::System(e),
+                    ::rustorb_core::Exception::User(u) => {
+                        user(&u).unwrap_or_else(DiscountedError::System)
+                    }
+                }
+            }
+
+            #[doc(hidden)]
+            pub fn _write_reply(
+                self,
+                reply: &mut ::rustorb_core::ServerReply,
+            ) -> ::rustorb_core::idl::Sys<()> {
+                match self {
+                    DiscountedError::Failure(e) => {
+                        e._write_members(&mut reply.user_exception(super::Failure::REPOSITORY_ID)?)
+                    }
+                    DiscountedError::System(e) => Err(e),
+                }
+            }
+        }
+
+        impl From<::rustorb_core::SystemException> for DiscountedError {
+            fn from(e: ::rustorb_core::SystemException) -> DiscountedError {
+                DiscountedError::System(e)
+            }
+        }
+
+        impl From<super::Failure> for DiscountedError {
+            fn from(e: super::Failure) -> DiscountedError {
+                DiscountedError::Failure(e)
+            }
+        }
+
+        impl ::std::fmt::Display for DiscountedError {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                match self {
+                    DiscountedError::Failure(e) => e.fmt(f),
+                    DiscountedError::System(e) => e.fmt(f),
+                }
+            }
+        }
+
+        impl ::std::error::Error for DiscountedError {}
+    }
+
+    /// The IDL abstract valuetype `RustMapping::Discounted`.
+    ///
+    /// A shared reference to an instance of a valuetype derived from it.
+    /// The methods run the operations on the instance, in this process.
+    #[derive(Debug, Clone)]
+    pub struct Discounted(::rustorb_core::idl::AbstractValue<dyn DiscountedMethods>);
+
+    impl From<Discounted> for Priced {
+        fn from(v: Discounted) -> Priced {
+            let ops: ::std::sync::Arc<dyn PricedMethods> =
+                ::std::sync::Arc::new(::rustorb_core::idl::Upcast(v.0.ops().clone()));
+            Priced::_new(::rustorb_core::idl::AbstractValue::new(
+                v.0.handle().clone(),
+                ops,
+            ))
+        }
+    }
+
+    impl Discounted {
+        pub const REPOSITORY_ID: &'static str = "IDL:rustorb.org/RustMapping/Discounted:1.0";
+
+        /// The untyped handle.
+        pub fn handle(&self) -> &::rustorb_core::idl::ValueHandle {
+            self.0.handle()
+        }
+
+        /// Whether both are the same instance.
+        pub fn ptr_eq(&self, other: &Discounted) -> bool {
+            self.0.ptr_eq(&other.0)
+        }
+
+        /// The instance of `h` as this type, if its valuetype derives from it
+        /// (and was registered with `register_value_types`).
+        pub fn from_handle(h: ::rustorb_core::idl::ValueHandle) -> Option<Discounted> {
+            ::rustorb_core::idl::supported(Self::REPOSITORY_ID, &h)
+        }
+
+        #[doc(hidden)]
+        pub fn _new(v: ::rustorb_core::idl::AbstractValue<dyn DiscountedMethods>) -> Discounted {
+            Discounted(v)
+        }
+
+        #[doc(hidden)]
+        pub fn _write(
+            v: Option<&Discounted>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            ::rustorb_core::idl::ValueHandle::write(v.map(|v| v.0.handle()), out)
+        }
+
+        /// `discounted`, on the instance.
+        #[allow(clippy::type_complexity)]
+        pub fn discounted(&self, rate: f64) -> Result<f64, discounted::DiscountedError> {
+            self.0.ops().discounted(rate)
+        }
+
+        /// `price`, on the instance.
+        #[allow(clippy::type_complexity)]
+        pub fn price(&self) -> Result<f64, ::rustorb_core::SystemException> {
+            self.0.ops().price()
+        }
+    }
+
+    impl ::rustorb_core::idl::IdlType for Discounted {
+        type Rust = Option<Discounted>;
+        type Borrowed = Option<Discounted>;
+        const MIN_SIZE: usize = 4;
+
+        fn type_code() -> ::rustorb_core::TypeCode {
+            static TC: ::std::sync::OnceLock<::rustorb_core::TypeCode> =
+                ::std::sync::OnceLock::new();
+            TC.get_or_init(|| {
+                ::rustorb_core::idl::tc(::rustorb_core::TypeCode::value_tc::<&str>(
+                    ::rustorb_core::TCKind::Value,
+                    "IDL:rustorb.org/RustMapping/Discounted:1.0",
+                    "Discounted",
+                    2,
+                    None,
+                    &[],
+                ))
+            })
+            .clone()
+        }
+
+        fn write(
+            v: &Option<Discounted>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            Self::_write(v.as_ref(), out)
+        }
+
+        fn read(
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<Option<Discounted>> {
+            ::rustorb_core::idl::read_abstract_value(input, Self::REPOSITORY_ID)
+        }
+    }
+
+    /// The operations of the IDL abstract valuetype `RustMapping::Discounted`, which the
+    /// generator implements for the handles of the valuetypes derived from
+    /// it (with the state locked, through their `Operations` trait).
+    pub trait DiscountedMethods: Send + Sync + PricedMethods {
+        /// `discounted`.
+        #[allow(clippy::type_complexity)]
+        fn discounted(&self, rate: f64) -> Result<f64, discounted::DiscountedError>;
+    }
+
+    impl<T: ?Sized + DiscountedMethods> DiscountedMethods for ::rustorb_core::idl::Upcast<T> {
+        #[allow(clippy::type_complexity)]
+        fn discounted(&self, rate: f64) -> Result<f64, discounted::DiscountedError> {
+            self.0.discounted(rate)
+        }
+    }
+
+    /// The definitions inside `RustMapping::Item`.
+    pub mod item {
+        /// What `Item::stock` raises.
+        #[derive(Debug, Clone)]
+        #[allow(clippy::enum_variant_names, clippy::large_enum_variant)]
+        pub enum StockError {
+            Empty(super::Empty),
+            /// A system exception.
+            System(::rustorb_core::SystemException),
+        }
+
+        impl StockError {
+            /// The repository id of the exception.
+            pub fn repository_id(&self) -> &str {
+                match self {
+                    StockError::Empty(_) => super::Empty::REPOSITORY_ID,
+                    StockError::System(e) => &e.repository_id,
+                }
+            }
+
+            /// The error of an exception a call failed with.
+            pub fn from_exception(e: ::rustorb_core::Exception) -> StockError {
+                fn user(u: &::rustorb_core::UserException) -> ::rustorb_core::idl::Sys<StockError> {
+                    let mut input = u.input()?;
+                    Ok(match u.repository_id() {
+                        super::Empty::REPOSITORY_ID => {
+                            StockError::Empty(super::Empty::_read_members(&mut input)?)
+                        }
+                        _ => StockError::System(::rustorb_core::idl::unlisted_user_exception()),
+                    })
+                }
+                match e {
+                    ::rustorb_core::Exception::System(e) => StockError::System(e),
+                    ::rustorb_core::Exception::User(u) => {
+                        user(&u).unwrap_or_else(StockError::System)
+                    }
+                }
+            }
+
+            #[doc(hidden)]
+            pub fn _write_reply(
+                self,
+                reply: &mut ::rustorb_core::ServerReply,
+            ) -> ::rustorb_core::idl::Sys<()> {
+                match self {
+                    StockError::Empty(e) => {
+                        e._write_members(&mut reply.user_exception(super::Empty::REPOSITORY_ID)?)
+                    }
+                    StockError::System(e) => Err(e),
+                }
+            }
+        }
+
+        impl From<::rustorb_core::SystemException> for StockError {
+            fn from(e: ::rustorb_core::SystemException) -> StockError {
+                StockError::System(e)
+            }
+        }
+
+        impl From<super::Empty> for StockError {
+            fn from(e: super::Empty) -> StockError {
+                StockError::Empty(e)
+            }
+        }
+
+        impl ::std::fmt::Display for StockError {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                match self {
+                    StockError::Empty(e) => e.fmt(f),
+                    StockError::System(e) => e.fmt(f),
+                }
+            }
+        }
+
+        impl ::std::error::Error for StockError {}
+    }
+
+    /// The state of the IDL valuetype `RustMapping::Item`.
+    #[derive(Debug, Clone, PartialEq, Default)]
+    pub struct ItemState {
+        pub base: f64,
+    }
+
+    impl ::rustorb_core::idl::ValueState for ItemState {
+        fn info(&self) -> &'static ::rustorb_core::idl::ValueInfo {
+            Item::_info()
+        }
+
+        fn write_state(
+            &self,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            <::rustorb_core::idl::Double as ::rustorb_core::idl::IdlType>::write(&self.base, out)?;
+            Ok(())
+        }
+
+        fn read_state(
+            &mut self,
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            self.base = <::rustorb_core::idl::Double as ::rustorb_core::idl::IdlType>::read(input)?;
+            Ok(())
+        }
+
+        fn view(&self, ty: ::std::any::TypeId) -> Option<&dyn ::std::any::Any> {
+            if ty == ::std::any::TypeId::of::<Self>() {
+                return Some(self);
+            }
+            None
+        }
+
+        fn view_mut(&mut self, ty: ::std::any::TypeId) -> Option<&mut dyn ::std::any::Any> {
+            if ty == ::std::any::TypeId::of::<Self>() {
+                return Some(self);
+            }
+            None
+        }
+    }
+
+    /// The IDL valuetype `RustMapping::Item`: a shared reference to an instance of it
+    /// or of a type derived from it.
+    #[derive(Clone)]
+    pub struct Item(::rustorb_core::idl::ValueHandle);
+
+    impl ::std::fmt::Debug for Item {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            self.0.fmt(f)
+        }
+    }
+
+    impl Item {
+        pub const REPOSITORY_ID: &'static str = "IDL:rustorb.org/RustMapping/Item:1.0";
+
+        /// A new instance with the state `state`.
+        pub fn new(state: ItemState) -> Item {
+            Item(::rustorb_core::idl::ValueHandle::new(state))
+        }
+
+        /// A copy of the state (of this type, for an instance of a derived
+        /// type).
+        pub fn get(&self) -> ItemState {
+            self.0.with(|s: &ItemState| s.clone())
+        }
+
+        /// Replaces the state.
+        pub fn set(&self, state: ItemState) {
+            self.0.with_mut(|s: &mut ItemState| *s = state)
+        }
+
+        /// Runs `f` on the state. Touching the same instance in `f`
+        /// deadlocks.
+        pub fn with<T>(&self, f: impl FnOnce(&ItemState) -> T) -> T {
+            self.0.with(f)
+        }
+
+        /// Runs `f` on the state, to change it.
+        pub fn with_mut<T>(&self, f: impl FnOnce(&mut ItemState) -> T) -> T {
+            self.0.with_mut(f)
+        }
+
+        /// Whether both are the same instance.
+        pub fn ptr_eq(&self, other: &Item) -> bool {
+            self.0.ptr_eq(&other.0)
+        }
+
+        /// The untyped handle.
+        pub fn handle(&self) -> &::rustorb_core::idl::ValueHandle {
+            &self.0
+        }
+
+        /// The instance of `h`, if it is of this type or a derived one.
+        pub fn from_handle(h: ::rustorb_core::idl::ValueHandle) -> Option<Item> {
+            if h.is_a(Self::REPOSITORY_ID) {
+                Some(Item(h))
+            } else {
+                None
+            }
+        }
+
+        #[doc(hidden)]
+        pub fn _info() -> &'static ::rustorb_core::idl::ValueInfo {
+            static INFO: ::rustorb_core::idl::ValueInfo = ::rustorb_core::idl::ValueInfo {
+                id: Item::REPOSITORY_ID,
+                sent_ids: &["IDL:rustorb.org/RustMapping/Item:1.0"],
+                ancestors: &["IDL:rustorb.org/RustMapping/Item:1.0"],
+                custom: false,
+                make: || ::rustorb_core::idl::ValueHandle::new(ItemState::default()),
+                type_code: <Item as ::rustorb_core::idl::IdlType>::type_code,
+            };
+            &INFO
+        }
+
+        #[doc(hidden)]
+        pub fn _write(
+            v: Option<&Item>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            ::rustorb_core::idl::ValueHandle::write(v.map(|v| &v.0), out)
+        }
+    }
+
+    impl ::rustorb_core::idl::IdlType for Item {
+        type Rust = Option<Item>;
+        type Borrowed = Option<Item>;
+        const MIN_SIZE: usize = 4;
+
+        fn type_code() -> ::rustorb_core::TypeCode {
+            static TC: ::std::sync::OnceLock<::rustorb_core::TypeCode> =
+                ::std::sync::OnceLock::new();
+            TC.get_or_init(|| {
+                ::rustorb_core::idl::tc(::rustorb_core::TypeCode::value_tc::<&str>(
+                    ::rustorb_core::TCKind::Value,
+                    "IDL:rustorb.org/RustMapping/Item:1.0",
+                    "Item",
+                    0,
+                    None,
+                    &[(
+                        "base",
+                        <::rustorb_core::idl::Double as ::rustorb_core::idl::IdlType>::type_code(),
+                        1,
+                    )],
+                ))
+            })
+            .clone()
+        }
+
+        fn write(
+            v: &Option<Item>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            Self::_write(v.as_ref(), out)
+        }
+
+        fn read(
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<Option<Item>> {
+            Ok(::rustorb_core::idl::ValueHandle::read(input, Self::_info())?.map(Item))
+        }
+    }
+
+    /// The operations of the IDL valuetype `RustMapping::Item`, which the application
+    /// implements for its state. They run with the state locked: touching
+    /// the same instance in them deadlocks.
+    pub trait ItemOperations {
+        /// `stock`.
+        #[allow(clippy::type_complexity)]
+        fn stock(&mut self) -> Result<i32, item::StockError>;
+
+        /// `discounted`.
+        #[allow(clippy::type_complexity)]
+        fn discounted(&mut self, rate: f64) -> Result<f64, discounted::DiscountedError>;
+
+        /// `price`.
+        #[allow(clippy::type_complexity)]
+        fn price(&mut self) -> Result<f64, ::rustorb_core::SystemException>;
+    }
+
+    impl Item {
+        /// `stock`, on the state.
+        #[allow(clippy::type_complexity)]
+        pub fn stock(&self) -> Result<i32, item::StockError> {
+            self.0
+                .with_mut(|s: &mut ItemState| ItemOperations::stock(s))
+        }
+    }
+
+    impl DiscountedMethods for Item {
+        #[allow(clippy::type_complexity)]
+        fn discounted(&self, rate: f64) -> Result<f64, discounted::DiscountedError> {
+            self.0
+                .with_mut(|s: &mut ItemState| ItemOperations::discounted(s, rate))
+        }
+    }
+
+    impl From<Item> for Discounted {
+        fn from(v: Item) -> Discounted {
+            let handle = v.handle().clone();
+            Discounted::_new(::rustorb_core::idl::AbstractValue::new(
+                handle,
+                ::std::sync::Arc::new(v),
+            ))
+        }
+    }
+
+    impl PricedMethods for Item {
+        #[allow(clippy::type_complexity)]
+        fn price(&self) -> Result<f64, ::rustorb_core::SystemException> {
+            self.0
+                .with_mut(|s: &mut ItemState| ItemOperations::price(s))
+        }
+    }
+
+    impl From<Item> for Priced {
+        fn from(v: Item) -> Priced {
+            let handle = v.handle().clone();
+            Priced::_new(::rustorb_core::idl::AbstractValue::new(
+                handle,
+                ::std::sync::Arc::new(v),
+            ))
+        }
+    }
+
+    /// IDL typedef `RustMapping::PricedSeq`.
+    pub type PricedSeq = Vec<Option<Priced>>;
+
+    /// A reference to an object of the IDL interface `RustMapping::Shop`.
+    ///
+    /// `==` compares the IORs ([`ObjectRef::is_equivalent`](::rustorb_core::ObjectRef::is_equivalent)).
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct Shop(::rustorb_core::ObjectRef);
+
+    impl AsRef<::rustorb_core::ObjectRef> for Shop {
+        fn as_ref(&self) -> &::rustorb_core::ObjectRef {
+            &self.0
+        }
+    }
+
+    impl Shop {
+        pub const REPOSITORY_ID: &'static str = "IDL:rustorb.org/RustMapping/Shop:1.0";
+
+        /// `obj` as a reference to this interface, if the object supports it
+        /// (from the type id of its IOR, else by asking it with `_is_a`).
+        pub fn narrow(obj: &::rustorb_core::ObjectRef) -> ::rustorb_core::idl::Sys<Option<Shop>> {
+            Ok(if ::rustorb_core::idl::is_a(obj, Self::REPOSITORY_ID)? {
+                Some(Shop(obj.clone()))
+            } else {
+                None
+            })
+        }
+
+        /// `obj` as a reference to this interface, unchecked.
+        pub fn unchecked_narrow(obj: ::rustorb_core::ObjectRef) -> Shop {
+            Shop(obj)
+        }
+
+        /// The object reference.
+        pub fn object(&self) -> &::rustorb_core::ObjectRef {
+            &self.0
+        }
+
+        /// The object reference.
+        pub fn into_object(self) -> ::rustorb_core::ObjectRef {
+            self.0
+        }
+
+        #[doc(hidden)]
+        pub fn _write(
+            v: Option<&Shop>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            out.write_object(v.map(|v| &v.0))
+        }
+
+        /// `echo_priced`.
+        #[allow(clippy::type_complexity)]
+        pub fn echo_priced(
+            &self,
+            p: Option<&Priced>,
+        ) -> Result<Option<Priced>, ::rustorb_core::SystemException> {
+            let request = self.0.request("echo_priced").args(|out| {
+                Priced::_write(p, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Priced as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `echo_priced`, on the async API: like [`echo_priced`](Self::echo_priced).
+        #[allow(clippy::type_complexity)]
+        pub async fn echo_priced_async(
+            &self,
+            p: Option<&Priced>,
+        ) -> Result<Option<Priced>, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("echo_priced").args(|out| {
+                Priced::_write(p, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Priced as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `total`.
+        #[allow(clippy::type_complexity)]
+        pub fn total(&self, ps: &[Option<Priced>]) -> Result<f64, ::rustorb_core::SystemException> {
+            let request = self.0.request("total").args(|out| {
+                <alias::PricedSeq as ::rustorb_core::idl::IdlType>::write(ps, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Double as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `total`, on the async API: like [`total`](Self::total).
+        #[allow(clippy::type_complexity)]
+        pub async fn total_async(
+            &self,
+            ps: &[Option<Priced>],
+        ) -> Result<f64, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("total").args(|out| {
+                <alias::PricedSeq as ::rustorb_core::idl::IdlType>::write(ps, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Double as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+    }
+
+    impl ::rustorb_core::idl::IdlType for Shop {
+        type Rust = Option<Shop>;
+        type Borrowed = Option<Shop>;
+        const MIN_SIZE: usize = 4;
+
+        fn type_code() -> ::rustorb_core::TypeCode {
+            static TC: ::std::sync::OnceLock<::rustorb_core::TypeCode> =
+                ::std::sync::OnceLock::new();
+            TC.get_or_init(|| {
+                ::rustorb_core::idl::tc(::rustorb_core::TypeCode::objref(
+                    "IDL:rustorb.org/RustMapping/Shop:1.0",
+                    "Shop",
+                ))
+            })
+            .clone()
+        }
+
+        fn write(
+            v: &Option<Shop>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            Self::_write(v.as_ref(), out)
+        }
+
+        fn read(
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<Option<Shop>> {
+            Ok(input.read_object()?.map(Shop))
+        }
+    }
+
+    /// The implementation of the IDL interface `RustMapping::Shop`.
+    pub trait ShopServant: Send + Sync {
+        /// `echo_priced`.
+        #[allow(clippy::type_complexity)]
+        fn echo_priced(
+            &self,
+            p: Option<&Priced>,
+        ) -> Result<Option<Priced>, ::rustorb_core::SystemException>;
+
+        /// `total`.
+        #[allow(clippy::type_complexity)]
+        fn total(&self, ps: &[Option<Priced>]) -> Result<f64, ::rustorb_core::SystemException>;
+    }
+
+    /// The skeleton of `Shop`: makes a `ShopServant` a servant.
+    pub struct ShopPoa<T>(pub T);
+
+    impl<T> ::std::fmt::Debug for ShopPoa<T> {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            f.write_str("ShopPoa")
+        }
+    }
+
+    impl<T: ShopServant + 'static> ShopPoa<T> {
+        /// Activates the servant in `poa` (with an id the POA assigns) and
+        /// returns its id and reference.
+        pub fn activate(
+            self,
+            poa: &::rustorb_core::Poa,
+        ) -> Result<(::rustorb_core::ObjectId, Shop), ::rustorb_core::PoaError> {
+            let servant: ::std::sync::Arc<dyn ::rustorb_core::Servant> =
+                ::std::sync::Arc::new(self);
+            let id = poa.activate_object(servant)?;
+            let obj = poa.id_to_reference(&id)?;
+            Ok((id, Shop(obj)))
+        }
+
+        /// Activates the servant in `poa` with the id `id` (a USER_ID POA)
+        /// and returns its reference.
+        pub fn activate_with_id(
+            self,
+            poa: &::rustorb_core::Poa,
+            id: &[u8],
+        ) -> Result<Shop, ::rustorb_core::PoaError> {
+            let servant: ::std::sync::Arc<dyn ::rustorb_core::Servant> =
+                ::std::sync::Arc::new(self);
+            poa.activate_object_with_id(id, servant)?;
+            Ok(Shop(poa.id_to_reference(id)?))
+        }
+    }
+
+    impl<T: ShopServant> ::rustorb_core::Servant for ShopPoa<T> {
+        fn repository_id(&self) -> &str {
+            Shop::REPOSITORY_ID
+        }
+
+        fn is_a(&self, repository_id: &str) -> bool {
+            matches!(repository_id, "IDL:rustorb.org/RustMapping/Shop:1.0")
+        }
+
+        #[allow(unused_variables)]
+        fn dispatch(
+            &self,
+            operation: &str,
+            input: &mut ::rustorb_core::InStream<'_>,
+            reply: &mut ::rustorb_core::ServerReply,
+        ) -> Result<(), ::rustorb_core::SystemException> {
+            match operation {
+                "echo_priced" => {
+                    let p = <Priced as ::rustorb_core::idl::IdlType>::read(input)?;
+                    let ret = self.0.echo_priced(p.as_ref())?;
+                    let mut out = reply.output();
+                    <Priced as ::rustorb_core::idl::IdlType>::write(&ret, &mut out)?;
+                    Ok(())
+                }
+                "total" => {
+                    let ps = <alias::PricedSeq as ::rustorb_core::idl::IdlType>::read(input)?;
+                    let ret = self.0.total(&ps)?;
+                    let mut out = reply.output();
+                    <::rustorb_core::idl::Double as ::rustorb_core::idl::IdlType>::write(
+                        &ret, &mut out,
+                    )?;
+                    Ok(())
+                }
+                _ => Err(::rustorb_core::idl::unknown_operation()),
+            }
+        }
+    }
+
     /// IDL constant `RustMapping::REOPENED`.
     pub const REOPENED: i32 = 1;
 
@@ -8421,6 +9260,47 @@ pub mod rust_mapping {
                 )
             }
         }
+
+        /// `RustMapping::PricedSeq`.
+        #[derive(Debug)]
+        pub struct PricedSeq;
+
+        impl ::rustorb_core::idl::IdlType for PricedSeq {
+            type Rust = <::rustorb_core::idl::Sequence<super::Priced> as ::rustorb_core::idl::IdlType>::Rust;
+            type Borrowed = <::rustorb_core::idl::Sequence<super::Priced> as ::rustorb_core::idl::IdlType>::Borrowed;
+            const MIN_SIZE: usize = <::rustorb_core::idl::Sequence<super::Priced> as ::rustorb_core::idl::IdlType>::MIN_SIZE;
+
+            fn type_code() -> ::rustorb_core::TypeCode {
+                static TC: ::std::sync::OnceLock<::rustorb_core::TypeCode> =
+                    ::std::sync::OnceLock::new();
+                TC.get_or_init(|| {
+                    ::rustorb_core::idl::tc(::rustorb_core::TypeCode::alias(
+                        "IDL:rustorb.org/RustMapping/PricedSeq:1.0",
+                        "PricedSeq",
+                        &::rustorb_core::idl::tc(::rustorb_core::TypeCode::sequence(
+                            &<super::Priced as ::rustorb_core::idl::IdlType>::type_code(),
+                            0,
+                        )),
+                    ))
+                })
+                .clone()
+            }
+
+            fn write(
+                v: &Self::Borrowed,
+                out: &mut ::rustorb_core::OutStream<'_>,
+            ) -> ::rustorb_core::idl::Sys<()> {
+                <::rustorb_core::idl::Sequence<super::Priced> as ::rustorb_core::idl::IdlType>::write(v, out)
+            }
+
+            fn read(
+                input: &mut ::rustorb_core::InStream<'_>,
+            ) -> ::rustorb_core::idl::Sys<Self::Rust> {
+                <::rustorb_core::idl::Sequence<super::Priced> as ::rustorb_core::idl::IdlType>::read(
+                    input,
+                )
+            }
+        }
     }
 }
 
@@ -8452,4 +9332,22 @@ pub fn register_value_types() {
         },
     );
     ::rustorb_core::idl::register_value(rust_mapping::Bell::_info());
+    ::rustorb_core::idl::register_value(rust_mapping::Item::_info());
+    ::rustorb_core::idl::register_supported(
+        rust_mapping::Discounted::REPOSITORY_ID,
+        rust_mapping::Item::REPOSITORY_ID,
+        |h| {
+            rust_mapping::Item::from_handle(h.clone()).map(|v| {
+                Box::new(rust_mapping::Discounted::from(v)) as Box<dyn ::std::any::Any + Send>
+            })
+        },
+    );
+    ::rustorb_core::idl::register_supported(
+        rust_mapping::Priced::REPOSITORY_ID,
+        rust_mapping::Item::REPOSITORY_ID,
+        |h| {
+            rust_mapping::Item::from_handle(h.clone())
+                .map(|v| Box::new(rust_mapping::Priced::from(v)) as Box<dyn ::std::any::Any + Send>)
+        },
+    );
 }

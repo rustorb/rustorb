@@ -165,15 +165,27 @@ class RustBackendTest(unittest.TestCase):
         self.assertNotIn("HookPoa", text)
         self.assertNotIn("pub struct Hook(", text)
 
+    def test_abstract_valuetypes(self):
+        text = self.gen("rust_mapping.rs")
+        self.assertIn("pub struct Priced(::rustorb_core::idl::AbstractValue<dyn PricedMethods>);", text)
+        self.assertIn("pub trait DiscountedMethods: Send + Sync + PricedMethods {", text)
+        self.assertIn("impl From<Discounted> for Priced {", text)
+        self.assertIn("impl DiscountedMethods for Item {", text)
+        self.assertIn("impl PricedMethods for Item {", text)
+        self.assertIn("impl From<Item> for Priced {", text)
+        self.assertIn("::rustorb_core::idl::read_abstract_value(input, Self::REPOSITORY_ID)", text)
+        # Operations of valuetypes that raise have error enums.
+        self.assertIn("fn stock(&mut self) -> Result<i32, item::StockError>;", text)
+
     def test_unsupported(self):
         cases = {
             "context": "module U { interface I { void f() context(\"a\", \"b*\"); }; };",
             "local_param": "module U { local interface L {}; interface I { void f(in L l); }; };",
             "local_member": "module U { local interface L {}; struct S { L l; }; };",
             "abstract_clash": "module U { abstract interface A { void narrow(); }; };",
-            "value_raises": "module U { exception E {}; valuetype V { public long x; long f() raises (E); }; };",
             "value_op_clash": "module U { valuetype V { public long x; long get(); }; };",
-            "abstract_value": "module U { abstract valuetype A {}; valuetype V : A { public long x; }; };",
+            "abstract_value_supports": "module U { interface I {}; abstract valuetype A supports I {}; };",
+            "abstract_value_clash": "module U { abstract valuetype A { void handle(); }; };",
             "members": "module U { struct S { long aB; long a_b; }; };",
             "enumerators": "module U { enum E { FOO_BAR, FooBar }; };",
             "items": "module U { struct my_pair { long x; }; struct MyPair { long y; }; };",
