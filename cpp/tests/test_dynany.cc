@@ -204,6 +204,10 @@ int main(int argc, char** argv) {
     ref<V::Node> got;
     CHECK(d->to_any() >>= got);
     CHECK(got->id() == 5 && got->next() == got);
+    // The mapping's references are shared pointers: the application
+    // breaks the cycles it makes or receives (docs/valuetype.md).
+    got->next(nullptr);
+    n->next(nullptr);
     d->destroy();
     CHECK_THROWS(CORBA::OBJECT_NOT_EXIST, d->component_count());
 

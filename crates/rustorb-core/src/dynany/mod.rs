@@ -811,7 +811,11 @@ impl DynAny {
     pub fn equal(&self, other: &DynAny) -> Result<bool> {
         let a = self.to_any()?;
         let b = other.to_any()?;
-        Ok(a.typecode().equivalent(b.typecode()) && a.value() == b.value())
+        let equal = a.typecode().equivalent(b.typecode()) && a.value() == b.value();
+        // Copies, whose valuetypes may form cycles.
+        Value::Any(Box::new(a)).release();
+        Value::Any(Box::new(b)).release();
+        Ok(equal)
     }
 
     /// `destroy`: destroys a DynAny made by the factory or by

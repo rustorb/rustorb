@@ -190,6 +190,95 @@ impl Value {
             }
         }
     }
+
+    /// Drops the value, and first breaks the reference cycles among the
+    /// valuetypes in it that nothing else refers to, so that they are
+    /// freed: for a binding that drops a value it may share. Instances
+    /// that are referred to from elsewhere (another value, a binding's
+    /// object), and those they refer to, are left as they are.
+    ///
+    /// The instances reachable from the value are counted: one whose
+    /// references are not all from the value and the instances reachable
+    /// from it is referred to from elsewhere (trial deletion).
+    pub fn release(self) {
+        use std::collections::HashMap;
+        use std::collections::hash_map::Entry;
+
+        // The instances reachable from the value: a clone of each, how
+        // many references to it there are from the value and from them,
+        // and the instances each refers to.
+        type Nodes = HashMap<u64, (ValueRef, usize, Vec<u64>)>;
+        fn visit(r: &ValueRef, nodes: &mut Nodes, pending: &mut Vec<u64>) -> u64 {
+            let key = r.key();
+            match nodes.entry(key) {
+                Entry::Occupied(mut e) => e.get_mut().1 += 1,
+                Entry::Vacant(e) => {
+                    e.insert((r.clone(), 1, Vec::new()));
+                    pending.push(key);
+                }
+            }
+            key
+        }
+        let mut nodes = Nodes::new();
+        let mut pending = Vec::new();
+        each_ref(&self, &mut |r| {
+            visit(r, &mut nodes, &mut pending);
+        });
+        if nodes.is_empty() {
+            return;
+        }
+        while let Some(key) = pending.pop() {
+            let node = nodes[&key].0.clone();
+            let mut children = Vec::new();
+            for m in node.lock().iter() {
+                each_ref(m, &mut |r| {
+                    children.push(visit(r, &mut nodes, &mut pending))
+                });
+            }
+            nodes.get_mut(&key).expect("visited").2 = children;
+        }
+        // Referred to from elsewhere: more references than those counted
+        // and the clone in `nodes`.
+        let mut live: Vec<u64> = nodes
+            .iter()
+            .filter(|(_, (r, internal, _))| Arc::strong_count(&r.0) > internal + 1)
+            .map(|(k, _)| *k)
+            .collect();
+        let mut reached: std::collections::HashSet<u64> = live.iter().copied().collect();
+        while let Some(key) = live.pop() {
+            for child in &nodes[&key].2 {
+                if reached.insert(*child) {
+                    live.push(*child);
+                }
+            }
+        }
+        let mut freed = Vec::new();
+        for (key, (r, _, _)) in &nodes {
+            if !reached.contains(key) {
+                freed.push(r.take_members());
+            }
+        }
+        drop(nodes);
+        drop(freed);
+    }
+}
+
+/// Calls `f` on each [`ValueRef`] directly in `v` (not in the state of the
+/// instances).
+fn each_ref(v: &Value, f: &mut impl FnMut(&ValueRef)) {
+    let mut stack = vec![v];
+    while let Some(v) = stack.pop() {
+        match v {
+            Value::List(items) => stack.extend(items),
+            Value::Union { disc, member } => {
+                stack.push(disc);
+                stack.extend(member.as_ref().map(|(_, v)| &**v));
+            }
+            Value::Any(a) => stack.push(&a.value),
+            Value::Valuetype(Some(r)) => f(r),
+            _ => {}
+        }
+    }
 }
 
 /// An instance of a valuetype or a value box: its type and its state.

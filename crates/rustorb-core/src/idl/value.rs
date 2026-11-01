@@ -214,6 +214,31 @@ pub fn register_value(info: &'static ValueInfo) {
         .unwrap_or_else(|e| e.into_inner())
         .insert(info.id, info);
     crate::register_value_type(&(info.type_code)());
+    if info.custom {
+        crate::register_custom_reader(
+            info.id,
+            Arc::new(move |r, input| custom_reader(info, r, input)),
+        );
+    }
+}
+
+/// How the core reads the state of the custom valuetype `info` into an
+/// Any: an instance runs its `unmarshal`, and the items it reads (through
+/// [`DataInputStream`]) are the state of the core's instance `r`, which is
+/// written from them. The instance itself is dropped: extracting the
+/// value from the Any reads it again.
+fn custom_reader(
+    info: &'static ValueInfo,
+    r: &crate::ValueRef,
+    input: &mut InStream<'_>,
+) -> Sys<()> {
+    let v = (info.make)();
+    let outer = input.custom_items.replace(Vec::new());
+    let result = v.lock().read_state(input);
+    let items = std::mem::replace(&mut input.custom_items, outer).unwrap_or_default();
+    result?;
+    r.set_members(items);
+    Ok(())
 }
 
 fn lookup(id: &str) -> Option<&'static ValueInfo> {
@@ -340,7 +365,23 @@ impl<'s, 'a> DataInputStream<'s, 'a> {
 
     /// Reads a value of the IDL type `T`.
     pub fn read<T: IdlType>(&mut self) -> Sys<T::Rust> {
-        T::read(self.input)
+        if self.input.custom_items.is_none() {
+            return T::read(self.input);
+        }
+        // The core reads the value into an Any (see `custom_reader`): the
+        // item is kept, as the state of the core's instance, and given to
+        // `unmarshal` converted.
+        let e = self.input.marshal_error();
+        let tc = T::type_code();
+        let value = self.input.read_value(&tc)?;
+        let item = crate::Any::new(tc, value);
+        let v = item.extract::<T>().ok_or_else(|| e.clone())?;
+        self.input
+            .custom_items
+            .as_mut()
+            .ok_or(e)?
+            .push(crate::Value::Any(Box::new(item)));
+        Ok(v)
     }
 
     /// Reads `len` elements of the IDL type `T`, written without a length.
@@ -349,7 +390,10 @@ impl<'s, 'a> DataInputStream<'s, 'a> {
         if len.saturating_mul(T::MIN_SIZE) > self.input.remaining() {
             return Err(e);
         }
-        T::read_items(len, self.input)
+        if self.input.custom_items.is_none() {
+            return T::read_items(len, self.input);
+        }
+        (0..len).map(|_| self.read::<T>()).collect()
     }
 
     /// The stream, for what the methods above do not cover.

@@ -177,6 +177,10 @@ pub struct InStream<'a> {
     /// The valuetypes and value boxes of generated code read, by their
     /// slot in the stream (see `idl::ValueHandle`).
     pub(crate) typed_values: Vec<Option<Box<dyn std::any::Any>>>,
+    /// While the core reads the state of a custom valuetype of generated
+    /// code (for an Any), the items its `unmarshal` has read (see
+    /// `idl::DataInputStream`).
+    pub(crate) custom_items: Option<Vec<crate::Value>>,
     /// The message body `dec` reads, when it reads one: for
     /// [`detach`](InStream::detach).
     pub(crate) body: Option<&'a Body>,
@@ -207,7 +211,25 @@ impl DetachedInput {
             wchar_needs_code_set: self.wchar_needs_code_set,
             values: Vec::new(),
             typed_values: Vec::new(),
+            custom_items: None,
             body: Some(&self.body),
+        }
+    }
+}
+
+impl Drop for InStream<'_> {
+    fn drop(&mut self) {
+        // The valuetypes read are kept for indirections until the end of
+        // the stream; those in cycles that nothing read from the stream
+        // still refers to are freed.
+        let values: Vec<_> = self
+            .values
+            .drain(..)
+            .flatten()
+            .map(|v| crate::Value::Valuetype(Some(v)))
+            .collect();
+        if !values.is_empty() {
+            crate::Value::List(values).release();
         }
     }
 }
@@ -226,6 +248,7 @@ impl<'a> InStream<'a> {
             wchar_needs_code_set: false,
             values: Vec::new(),
             typed_values: Vec::new(),
+            custom_items: None,
             body: None,
         }
     }

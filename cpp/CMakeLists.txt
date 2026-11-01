@@ -210,8 +210,9 @@ target_compile_options(test_leak PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME leak COMMAND test_leak)
 set_tests_properties(mapping poa interop any value dynany orb_ops leak PROPERTIES TIMEOUT 120)
 if(RUSTORB_SANITIZE MATCHES "address")
-  # These two make valuetype graphs with cycles on purpose, which neither
-  # the shared_ptr based mapping nor the Arc based values of the core free
-  # (docs/valuetype.md); they still run with AddressSanitizer.
-  set_tests_properties(value dynany PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0")
+  # The servant of this one receives and returns valuetype graphs with
+  # cycles, which the shared_ptr based mapping does not free (the
+  # application breaks them, but cannot for a result; docs/valuetype.md).
+  # It still runs with AddressSanitizer.
+  set_tests_properties(value PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0")
 endif()

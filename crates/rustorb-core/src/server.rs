@@ -750,6 +750,7 @@ impl Server {
             wchar_needs_code_set: true,
             values: Vec::new(),
             typed_values: Vec::new(),
+            custom_items: None,
             body: Some(&body),
         };
         let result = {

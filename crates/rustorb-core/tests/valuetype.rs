@@ -129,6 +129,69 @@ fn cycles_come_back_as_cycles() {
     v.break_cycles();
 }
 
+/// Counts the drops of the instances it is set on, as their native.
+struct Tracker(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for Tracker {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// A ring of two nodes, tracked by `drops`.
+fn ring(drops: &Arc<std::sync::atomic::AtomicUsize>) -> (ValueRef, ValueRef) {
+    let tc = node_tc();
+    let a = ValueRef::new(tc.clone(), Vec::new());
+    let b = ValueRef::new(tc, vec![Value::Long(2), Value::Valuetype(Some(a.clone()))]);
+    a.set_members(vec![Value::Long(1), Value::Valuetype(Some(b.clone()))]);
+    for r in [&a, &b] {
+        r.set_native(Some(Arc::new(Tracker(drops.clone()))));
+    }
+    (a, b)
+}
+
+#[test]
+fn release_frees_cycles_nothing_else_refers_to() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let drops = Arc::new(AtomicUsize::new(0));
+
+    // Only in the value (twice, and inside an any): freed.
+    let (a, b) = ring(&drops);
+    let any = Any::new(node_tc(), Value::Valuetype(Some(b)));
+    Value::List(vec![
+        Value::Valuetype(Some(a.clone())),
+        Value::Valuetype(Some(a)),
+        Value::Any(Box::new(any)),
+    ])
+    .release();
+    assert_eq!(drops.load(Ordering::SeqCst), 2);
+
+    // An instance referred to from elsewhere keeps what it reaches.
+    drops.store(0, Ordering::SeqCst);
+    let (a, b) = ring(&drops);
+    Value::Valuetype(Some(a)).release();
+    assert_eq!(drops.load(Ordering::SeqCst), 0);
+    let a = get(&b.members()[1]);
+    assert_eq!(a.members()[0], Value::Long(1));
+    assert!(get(&a.members()[1]).ptr_eq(&b));
+    drop(a);
+    Value::Valuetype(Some(b)).release();
+    assert_eq!(drops.load(Ordering::SeqCst), 2);
+
+    // A value held from elsewhere, referring into a ring: the ring stays.
+    drops.store(0, Ordering::SeqCst);
+    let (a, b) = ring(&drops);
+    let holder = ValueRef::new(node_tc(), vec![Value::Long(0), Value::Valuetype(Some(a))]);
+    Value::List(vec![
+        Value::Valuetype(Some(holder.clone())),
+        Value::Valuetype(Some(b)),
+    ])
+    .release();
+    assert_eq!(drops.load(Ordering::SeqCst), 0);
+    Value::Valuetype(Some(holder)).release();
+    assert_eq!(drops.load(Ordering::SeqCst), 2);
+}
+
 #[test]
 fn truncatable_values_are_read_as_a_known_base() {
     let base = base_tc("IDL:test/Trunc/Base:1.0", 0);

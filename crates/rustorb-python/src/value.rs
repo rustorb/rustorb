@@ -88,6 +88,18 @@ impl Drop for ValueScope {
                 r.set_members(Vec::new());
             }
         }
+        // The core instances converted may form cycles: those nothing
+        // else refers to are freed.
+        let refs: Vec<Value> = memo
+            .to_py
+            .into_values()
+            .map(|(r, _)| r)
+            .chain(memo.to_core.into_values().map(|(_, r)| r))
+            .map(|r| Value::Valuetype(Some(r)))
+            .collect();
+        if !refs.is_empty() {
+            Value::List(refs).release();
+        }
     }
 }
 

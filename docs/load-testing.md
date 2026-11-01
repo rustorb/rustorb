@@ -82,7 +82,7 @@ issue #49。計画書のテスト6（[development-plan.md](development-plan.md#�
 
 `cpp/tests/test_leak.cc` は、サーバント（数えて、非活性化と POA の破棄と ORB の破棄で 0 に戻ること）、オブジェクト参照、ユーザー例外とシステム例外、実行時に作る再帰型の TypeCode、AnyTest のすべての any の値を繰り返し作って捨てる。サーバント以外は LeakSanitizer が見る：`-DRUSTORB_SANITIZE=address` で全 C++ テストを AddressSanitizer つきでビルドし、終了時に LSan が解放されていないメモリを報告する。librustorb_ffi（Rust）も同じ malloc を使うので、C++ 側がハンドルを手放し忘れたときのコア側のメモリも見つかる。
 
-`test_value` と `test_dynany` は、循環した valuetype のグラフをわざと作る（共有ポインタの C++ マッピングもコアの `Arc` も循環を解放しない。[valuetype.md](valuetype.md)）ので、この二つはリーク検出を切って（`ASAN_OPTIONS=detect_leaks=0`）メモリ誤用の検出だけ行う。手元で LSan が報告したのはこの二つの循環だけだった。
+`test_value` は、サーバントが循環した valuetype のグラフを受け取って返す（共有ポインタの C++ マッピングは、返した結果の循環を解放できない。[valuetype.md](valuetype.md#循環した値の解放)）ので、リーク検出を切って（`ASAN_OPTIONS=detect_leaks=0`）メモリ誤用の検出だけ行う。手元で LSan が報告したのはこの循環だけだった。`test_dynany` は自分で作った循環を切るので、リーク検出をかけて回す（#85 まではコアの Any の中の循環もリークしていた）。
 
 ### Java
 
@@ -321,4 +321,3 @@ soak.yml の `local` ジョブが 3 OS でこのスクリプトを回す（負�
 - C++、Java、`-brust` の生成コードで octet 列を共有する型を出すかどうか（#68）
 - 実機での結果を「手元のマシンで回す」の欄に足す（#63 の仕組みで、開発者のマシンで）
 - 再起動中の `OBJ_ADAPTER` について、omniORB が同じ場面で何を返すかを測る
-- 循環した valuetype を手放す API（コアの `Value::break_cycles` に当たるもの）を C++ と Java にも出すかどうか
