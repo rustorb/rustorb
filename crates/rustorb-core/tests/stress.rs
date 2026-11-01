@@ -307,7 +307,22 @@ fn many_clients_each_on_its_own_connection() {
 /// up as `TIMEOUT`.
 #[test]
 fn back_to_back_calls_hand_the_reading_over() {
-    let server = Orb::with_options(server_options(0)).unwrap();
+    back_to_back(server_options(0), "");
+}
+
+/// The same, with the server's upcall threads never reading
+/// (`follow_linger` zero): the I/O task reads every request.
+#[test]
+fn back_to_back_calls_without_follow() {
+    let options = OrbOptions {
+        follow_linger: Duration::ZERO,
+        ..server_options(0)
+    };
+    back_to_back(options, " (no follow)");
+}
+
+fn back_to_back(server_options: OrbOptions, label: &str) {
+    let server = Orb::with_options(server_options).unwrap();
     let servant = Arc::new(LoadServant::default());
     let obj = serve(&server, servant.clone());
     let ior = server.object_to_string(Some(&obj)).unwrap();
@@ -333,7 +348,7 @@ fn back_to_back_calls_hand_the_reading_over() {
         t.join().unwrap();
     }
     eprintln!(
-        "{clients} connections back to back: {}",
+        "{clients} connections back to back{label}: {}",
         rate(clients * calls, start.elapsed())
     );
     assert_eq!(servant.calls.load(Ordering::Relaxed), clients * calls);

@@ -873,6 +873,18 @@ fn endpoint_options() {
     assert!(args.is_empty());
     assert_eq!(options.endpoint_publish, None);
 
+    // The leader / follower settings (docs/read-ownership.md).
+    let mut args: Vec<String> = ["-ORBfollowLinger=250", "-ORBfollowLimit", "8"]
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+    options.parse_args(&mut args).unwrap();
+    assert!(args.is_empty());
+    assert_eq!(options.follow_linger, std::time::Duration::from_micros(250));
+    assert_eq!(options.follow_limit, 8);
+    let mut args = vec!["-ORBfollowLimit".to_owned(), "many".to_owned()];
+    assert!(options.parse_args(&mut args).is_err());
+
     assert_eq!(
         EndpointAddr::parse("giop:tcp::"),
         Some(EndpointAddr {

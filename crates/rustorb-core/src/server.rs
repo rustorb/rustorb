@@ -74,6 +74,9 @@ pub(crate) struct Server {
     order: ByteOrder,
     max_message_size: usize,
     max_requests: usize,
+    /// [`crate::OrbOptions::follow_linger`] and [`crate::OrbOptions::follow_limit`].
+    follow_linger: Duration,
+    follow_limit: usize,
     root: OnceLock<Arc<PoaInner>>,
     /// Simple object keys registered with `Orb::register_object_key`, and
     /// the POA keys they stand for.
@@ -234,6 +237,12 @@ impl Server {
             order: options.byte_order,
             max_message_size: options.max_message_size,
             max_requests: options.max_requests_per_connection.max(1),
+            follow_linger: options.follow_linger,
+            follow_limit: if options.follow_linger.is_zero() {
+                0
+            } else {
+                options.follow_limit
+            },
             root: OnceLock::new(),
             simple_keys: Mutex::new(HashMap::new()),
             pool: Mutex::new(Some(Pool::new(
@@ -574,12 +583,13 @@ impl Server {
     /// Leader / follower: an upcall thread that answered a request of
     /// `conn` reads the connection's next request itself and runs it, so
     /// that the request needs no hand-over from the I/O task to the pool.
-    /// The thread waits [`FOLLOW_LINGER`] at most for a request, and stops
-    /// when the pool has queued work (which other connections wait for),
-    /// after [`FOLLOW_LIMIT`] requests, or when the I/O task reads the
-    /// connection. See docs/read-ownership.md.
+    /// The thread waits [`crate::OrbOptions::follow_linger`] at most for a
+    /// request, and stops when the pool has queued work (which other
+    /// connections wait for), after [`crate::OrbOptions::follow_limit`] requests,
+    /// or when the I/O task reads the connection. See
+    /// docs/read-ownership.md.
     fn follow(self: &Arc<Self>, conn: &Arc<ServerConn>) {
-        for _ in 0..FOLLOW_LIMIT {
+        for _ in 0..self.follow_limit {
             if self.is_shutting_down() || self.pool_has_queued() {
                 break;
             }
@@ -589,11 +599,13 @@ impl Server {
             if !conn.inbound.claim() {
                 return;
             }
-            let (version, message) =
-                match conn.inbound.read_here(Some(Instant::now() + FOLLOW_LINGER)) {
-                    Here::Message(version, message) => (version, message),
-                    Here::TimedOut | Here::HandedBack => return,
-                };
+            let (version, message) = match conn
+                .inbound
+                .read_here(Some(Instant::now() + self.follow_linger))
+            {
+                Here::Message(version, message) => (version, message),
+                Here::TimedOut | Here::HandedBack => return,
+            };
             let keep = match message {
                 Message::Request { header, body } => {
                     let keep = conn.inbound.busy();
@@ -1056,15 +1068,6 @@ impl Server {
 /// At most this many pieces go into one vectored write (the usual
 /// `IOV_MAX` is 1024).
 const MAX_SLICES: usize = 64;
-
-/// How long an upcall thread waits for the next request of the connection
-/// it answered (see [`Server::follow`]). A client calling one request after
-/// another sends the next within a round trip.
-const FOLLOW_LINGER: Duration = Duration::from_millis(1);
-
-/// How many requests of one connection an upcall thread reads in a row
-/// before it lets the I/O task read again.
-const FOLLOW_LIMIT: usize = 64;
 
 /// A request that [`Server::route_here`] runs on its own thread if the
 /// manager lets it run before `dispatch` returns.

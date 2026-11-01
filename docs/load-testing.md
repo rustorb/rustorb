@@ -45,7 +45,7 @@ issue #49。計画書のテスト6（[development-plan.md](development-plan.md#�
 
 ### 記録しておく挙動
 
-- **再起動中の `OBJ_ADAPTER`**：サーバーの `ORB::shutdown` が始まった後、まだ閉じていない接続に届いた要求は、POA マネージャーが非活性なので `OBJ_ADAPTER`（minor `POA_INACTIVE`）になる。クライアントには再試行してよいか分からない。CORBA の規定では非活性の POA マネージャーは `OBJ_ADAPTER` で断るので今はそのままにし、試験では許す例外に入れている。omniORB が同じ場面で何を返すかは外から測っていない
+- **再起動中の `OBJ_ADAPTER`**：サーバーの `ORB::shutdown` が始まった後、まだ閉じていない接続に届いた要求は、POA マネージャーが非活性なので `OBJ_ADAPTER`（minor `POA_INACTIVE`）になる。クライアントには再試行してよいか分からない。CORBA の規定では非活性の POA マネージャーは `OBJ_ADAPTER` で断るので、そのままにし、試験では許す例外に入れている。omniORBpy 4.3.4 のサーバーも同じ場面で同じ例外を返す（#86 で外から測った）。200 ms かかる操作を 4 スレッドから呼び続け、サーバーが 1 秒後に `orb.shutdown(True)` を呼ぶと、クライアントには `OBJ_ADAPTER`（minor `0x4f4d0001`、つまり `OMG_VMCID | 1` で rustorb の `POA_INACTIVE` と同じ値、COMPLETED_NO）が数回、処理中の呼び出しに `COMM_FAILURE`（COMPLETED_MAYBE）、その後は接続できずに `TRANSIENT`（COMPLETED_NO）が返った
 
 ## 長時間試験
 
@@ -317,7 +317,11 @@ soak.yml の `local` ジョブが 3 OS でこのスクリプトを回す（負�
 
 ## 残り
 
-- スレッドが読んでいる間も、届いたデータで I/O タスクが起こされる（上の「要求ごとの小さなコスト（#69）」）
-- C++、Java、`-brust` の生成コードで octet 列を共有する型を出すかどうか（#68）
 - 実機での結果を「手元のマシンで回す」の欄に足す（#63 の仕組みで、開発者のマシンで）
-- 再起動中の `OBJ_ADAPTER` について、omniORB が同じ場面で何を返すかを測る
+
+#86 で片づけたもの：
+
+- スレッドが読んでいる間の I/O タスクの起床は、このままにする（理由は [read-ownership.md](read-ownership.md) の「しないこと」）。follow の待ち時間と上限は設定できるようにした（同じく「設定」）
+- C++、Java、`-brust` の生成コードでは octet 列を共有する型を出さない。C++ の `std::vector<CORBA::Octet>` と Java の `byte[]` は標準のマッピングで決まっている。`-brust` は `Vec<u8>` のままにし、コピーを避けたいときはコアの `Value::Octets`（`rustorb_core::Octets`）を DII や `Any` で使う
+- 再起動中の `OBJ_ADAPTER` は、omniORBpy のサーバーも同じものを返すと分かったので、そのままにする（上の「記録しておく挙動」）
+- Windows では、スレッドがソケットを読む形にはしない（[read-ownership.md](read-ownership.md) の「しないこと」）

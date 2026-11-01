@@ -68,6 +68,15 @@ pub struct OrbOptions {
     /// How long an upcall thread beyond `min_server_threads` waits for work
     /// before it ends.
     pub server_thread_idle_timeout: Duration,
+    /// How long an upcall thread that answered a request waits for the
+    /// next request of the same connection, to read and run it itself
+    /// (`-ORBfollowLinger US`, in microseconds; docs/read-ownership.md).
+    /// Zero turns this off: the I/O task reads every request.
+    pub follow_linger: Duration,
+    /// How many requests of one connection an upcall thread reads in a
+    /// row before it lets the I/O task read again (`-ORBfollowLimit N`).
+    /// Zero turns this off.
+    pub follow_limit: usize,
     /// Requests of one connection that may wait or run at once. Beyond
     /// that the connection is not read until one completes.
     pub max_requests_per_connection: usize,
@@ -203,6 +212,8 @@ impl Default for OrbOptions {
             min_server_threads: 4,
             max_server_threads: 100,
             server_thread_idle_timeout: Duration::from_secs(60),
+            follow_linger: Duration::from_millis(1),
+            follow_limit: 64,
             max_requests_per_connection: 256,
             socket_send_buffer: None,
             socket_receive_buffer: None,
@@ -228,6 +239,8 @@ impl OrbOptions {
     /// | `-ORBendPoint giop:tcp:HOST:PORT` | [`endpoints`](OrbOptions::endpoints) (repeatable) |
     /// | `-ORBendPointPublish giop:tcp:HOST:PORT` | [`endpoint_publish`](OrbOptions::endpoint_publish) (`all(addr)` for the default) |
     /// | `-ORBmaxServerThreadPoolSize N` | [`max_server_threads`](OrbOptions::max_server_threads) |
+    /// | `-ORBfollowLinger US` | [`follow_linger`](OrbOptions::follow_linger), in microseconds |
+    /// | `-ORBfollowLimit N` | [`follow_limit`](OrbOptions::follow_limit) |
     /// | `-ORBendPoint giop:ssl:HOST:PORT` | [`tls_endpoints`](OrbOptions::tls_endpoints) (repeatable) |
     /// | `-ORBendPointPublish giop:ssl:HOST:PORT` | [`tls_endpoint_publish`](OrbOptions::tls_endpoint_publish) |
     /// | `-ORBsslCAFile PATH` | [`TlsOptions::ca_file`] |
@@ -255,6 +268,8 @@ impl OrbOptions {
                             | "clientCallTimeOutPeriod"
                             | "supportPerThreadTimeOut"
                             | "maxServerThreadPoolSize"
+                            | "followLinger"
+                            | "followLimit"
                             | "sslCAFile"
                             | "sslCertFile"
                             | "sslKeyFile"
@@ -277,6 +292,8 @@ impl OrbOptions {
                     | "endPoint"
                     | "endPointPublish"
                     | "maxServerThreadPoolSize"
+                    | "followLinger"
+                    | "followLimit"
                     | "sslCAFile"
                     | "sslCertFile"
                     | "sslKeyFile"
@@ -338,6 +355,13 @@ impl OrbOptions {
                         return Err(bad_option());
                     }
                     self.max_server_threads = n;
+                }
+                "followLinger" => {
+                    let us: u64 = value.parse().map_err(|_| bad_option())?;
+                    self.follow_linger = Duration::from_micros(us);
+                }
+                "followLimit" => {
+                    self.follow_limit = value.parse().map_err(|_| bad_option())?;
                 }
                 "sslCAFile" => self.tls.ca_file = Some(value.into()),
                 "sslCertFile" => self.tls.cert_file = Some(value.into()),

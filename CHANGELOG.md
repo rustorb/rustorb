@@ -13,6 +13,10 @@ break the API).
   cycles and that nothing else refers to (#85)
 - Custom valuetypes of the Rust mapping go in an Any: `register_value_types()`
   registers their readers with the core (#85)
+- `OrbOptions::follow_linger` and `follow_limit` (`-ORBfollowLinger US`,
+  `-ORBfollowLimit N`): how long and how many times a server thread goes on
+  reading the next request on its connection. The defaults (1 ms, 64) are the
+  old fixed values (#86)
 
 ### Fixed
 
