@@ -1,8 +1,20 @@
+<p align="center">
+  <a href="https://rustorb.github.io/">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/images/rustorb-wordmark-dark.svg">
+      <img alt="rustorb" src="docs/images/rustorb-wordmark-light.svg" width="420">
+    </picture>
+  </a>
+</p>
+
 # rustorb
 Rust製のCORBA実装（[English](README.md)）
 
+**公式ページ: <https://rustorb.github.io/ja/>**（クイックスタート、インストール、各言語のチュートリアル）
+
 ## ドキュメント
 
+- [公式ページ](https://rustorb.github.io/ja/)（クイックスタート、インストール、各言語のチュートリアル）
 - [入門ガイド（英語）](docs/getting-started.md)と[例](examples/)
 - [開発計画](docs/development-plan.md)
 - [Python生成器（rustorb-idl -bpython）](docs/python-codegen.md)

@@ -1,7 +1,19 @@
+<p align="center">
+  <a href="https://rustorb.github.io/">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/images/rustorb-wordmark-dark.svg">
+      <img alt="rustorb" src="docs/images/rustorb-wordmark-light.svg" width="420">
+    </picture>
+  </a>
+</p>
+
 # rustorb
 
 A CORBA ORB with its core written in Rust, and bindings for Rust, Python,
 C++ and Java. ([日本語](README.ja.md))
+
+**Documentation: <https://rustorb.github.io/>** (quick start, install and
+tutorials for every language)
 
 rustorb speaks GIOP 1.0 to 1.2 over IIOP and SSLIOP, and is tested in CI
 against omniORB, omniORBpy and JacORB in every combination of client, server
@@ -76,6 +88,8 @@ service; the code is in [examples/](examples/), and
 
 ## Documentation
 
+- The official site, <https://rustorb.github.io/> ([日本語](https://rustorb.github.io/ja/)):
+  quick start, installation and a tutorial for each language
 - [Getting started](docs/getting-started.md) and [examples](examples/)
 - [Changelog](CHANGELOG.md) and [how releases are made](docs/release.md)
 - Design documents (in Japanese): [development plan](docs/development-plan.md),
