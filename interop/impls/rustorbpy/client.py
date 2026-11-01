@@ -136,6 +136,8 @@ def run_cases(r, echo, poa, orb):
     r.case("echo_long_seq[empty]", echo_case(echo, "echo_long_seq", []))
     r.case("echo_string_seq", echo_case(echo, "echo_string_seq", ["a", "", "ccc"]))
     r.case("echo_octets", echo_case(echo, "echo_octets", bytes(range(256))))
+    r.case("echo_octets[large]", echo_case(echo, "echo_octets",
+                                          bytes(i % 251 for i in range(300000))))
 
     # --- parameter modes ---
     def swap():

@@ -87,6 +87,13 @@ inline Options parse_args(int argc, char** argv, std::vector<std::string>& orb_a
       orb_args.push_back(giop);
     }
   }
+  // run-matrix.sh --fragment N: rustorb splits GIOP 1.2 messages.
+  if (const char* frag = std::getenv("INTEROP_FRAGMENT_SIZE")) {
+    if (*frag) {
+      orb_args.push_back("-ORBgiopFragmentSize");
+      orb_args.push_back(frag);
+    }
+  }
   return opt;
 }
 

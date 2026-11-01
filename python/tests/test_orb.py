@@ -317,6 +317,30 @@ class RemoteTest(unittest.TestCase):
         self.assertEqual(errors, [])
 
 
+class MessageSizeTest(unittest.TestCase):
+    """``-ORBgiopMaxMsgSize``: a request over it is not sent
+    (docs/message-size.md)."""
+
+    @classmethod
+    def setUpClass(cls):
+        poa = server_orb.resolve_initial_references("RootPOA")
+        cls.oid = poa.activate_object(make_echo_servant())
+        cls.small = CORBA.ORB_init(["-ORBgiopMaxMsgSize", "65536"], "small")
+        cls.echo = remote(cls.small, poa.id_to_reference(cls.oid), T.Echo)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.small.destroy()
+        server_orb.resolve_initial_references("RootPOA").deactivate_object(cls.oid)
+
+    def test_request_over_the_limit(self):
+        self.assertEqual(len(self.echo.echo_octets(b"x" * 60000)), 60000)
+        with self.assertRaises(CORBA.MARSHAL) as cm:
+            self.echo.echo_octets(b"x" * 70000)
+        self.assertEqual(cm.exception.completed, CORBA.COMPLETED_NO)
+        self.assertEqual(self.echo.echo_octets(b"ok"), b"ok")
+
+
 def make_types_servant():
     class Types(NT__POA.Types):
         def echo_chars(self, v):

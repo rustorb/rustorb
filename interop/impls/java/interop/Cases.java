@@ -293,6 +293,13 @@ public final class Cases {
             }
             check(Arrays.equals(echo.echo_octets(seq), seq), "echo_octets");
         });
+        r.run("echo_octets[large]", () -> {
+            byte[] seq = new byte[300000];
+            for (int i = 0; i < seq.length; ++i) {
+                seq[i] = (byte) (i % 251);
+            }
+            check(Arrays.equals(echo.echo_octets(seq), seq), "echo_octets[large]");
+        });
 
         // --- parameter modes ---
         r.run("swap", () -> {

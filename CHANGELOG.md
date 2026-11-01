@@ -15,6 +15,14 @@ break the API).
   of the `tracing` crate. Without a global subscriber, the events the level
   selects go to standard error (C++ and Java use this); Python hands them to
   `logging` (loggers `rustorb.*`) and has `rustorb.set_trace_level` (#105)
+- `-ORBgiopMaxMsgSize N` sets `OrbOptions::max_message_size` from every
+  binding (docs/message-size.md). The limit now applies to what the ORB sends
+  too: a request over it is not sent (`MARSHAL`, completed no), and a reply
+  over it is replaced by `MARSHAL`, completed yes (#102)
+- `-ORBgiopFragmentSize N` (`OrbOptions::fragment_size`): GIOP 1.2 requests
+  and replies longer than N bytes are sent as a first message and `Fragment`
+  messages of at most N bytes. Off (0) by default; GIOP 1.1 messages are
+  never split (#102)
 
 ### Changed
 
