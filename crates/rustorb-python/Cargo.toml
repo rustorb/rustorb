@@ -26,6 +26,7 @@ doctest = false
 [dependencies]
 rustorb-core.workspace = true
 pyo3 = { version = "0.30", features = ["abi3-py39"] }
+tracing = { version = "0.1", default-features = false, features = ["std"] }
 
 [build-dependencies]
 pyo3-build-config = "0.30"

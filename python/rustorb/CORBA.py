@@ -1753,7 +1753,11 @@ def ORB_init(argv=None, orb_identifier=ORB_ID):
         orb = _orbs.get(orb_identifier)
         if orb is not None:
             return orb
+        from . import _log
+
+        _log.install(_native)
         native, rest = _native.Orb.init([str(a) for a in argv])
+        _log.follow_trace_level(_native)
         if isinstance(argv, list):
             argv[:] = rest
         orb = ORB(native, orb_identifier)

@@ -9,6 +9,12 @@ break the API).
 
 ### Added
 
+- Trace output (`-ORBtraceLevel N`, `-ORBtraceTime 0|1`; `OrbOptions::trace_level`,
+  `trace_time`; docs/tracing.md): connections, requests and replies, system
+  exceptions, `LOCATION_FORWARD`, POA events and each GIOP message, as events
+  of the `tracing` crate. Without a global subscriber, the events the level
+  selects go to standard error (C++ and Java use this); Python hands them to
+  `logging` (loggers `rustorb.*`) and has `rustorb.set_trace_level` (#105)
 - `rustorb-idl -brust` maps abstract interfaces (an enum of an object
   reference or a value, and the trait `AServant`) and local interfaces (a
   trait, used as `Arc<dyn L>`); the core's `idl` module has the helpers
@@ -17,6 +23,9 @@ break the API).
 
 ### Changed
 
+- The warnings the core wrote to standard error (a servant that panicked, say)
+  are trace events of level 1, the default: `-ORBtraceLevel 0` silences them,
+  and a `tracing` subscriber of the application receives them instead (#105)
 - `rustorb-idl -brust` rejects operations with a `context` clause, which it
   used to drop silently (#104)
 

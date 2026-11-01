@@ -20,6 +20,7 @@ use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{BuildHasher, Hasher};
 use std::io;
+use std::net::SocketAddr;
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak, mpsc as std_mpsc};
@@ -40,17 +41,19 @@ use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinHandle;
 
 use crate::codeset::{CONVERSION_CHAR, NATIVE_CHAR, NATIVE_WCHAR};
+use crate::connection::summary;
 use crate::orb::OrbInner;
 use crate::poa::{
     BOOT_ID_LEN, CurrentGuard, Dispatch, Disposition, Etherealization, ManagerInner, ParsedKey,
-    PoaInner, PoaManager, SerialEntry, UpcallGuard, etherealize_all, is_main_thread, log,
+    PoaInner, PoaManager, SerialEntry, UpcallGuard, etherealize_all, is_main_thread,
     no_such_object, parse_key,
 };
 use crate::pool::{Job, Pool};
 use crate::servant::{OBJECT_ID, ServerReply, location_forward_reply, system_exception_reply};
 use crate::stream::InStream;
 use crate::tls::{self, Tls};
-use crate::wire::{Here, Inbound, ReadError};
+use crate::trace;
+use crate::wire::{Here, Inbound, PeerAddr, ReadError};
 use crate::{
     CodeSets, CompletionStatus, EndpointAddr, Lifespan, Orb, Poa, Servant, ServantManagerError,
     SystemException, SystemExceptionKind, ThreadPolicy,
@@ -219,6 +222,13 @@ impl Server {
                 Some(p) if p.port != 0 => p.port,
                 _ => port,
             };
+            trace::info!(
+                "listening on {}{}, published as {host}:{port}",
+                listener
+                    .local_addr()
+                    .map_or_else(|_| format!("{bind_host}:{}", ep.port), |a| a.to_string()),
+                if is_tls { " (TLS)" } else { "" }
+            );
             listeners.push((listener, is_tls));
             published.push((host, port));
         }
@@ -497,6 +507,19 @@ impl Server {
     ) -> Option<(Vec<u8>, Incoming)> {
         let code_sets = conn.code_sets_for(version, &header.service_context);
         conn.saw_version(version);
+        trace::debug!(
+            "request {:?} (id {}{}) from {}, GIOP {}.{}",
+            header.operation,
+            header.request_id,
+            if header.response_expected() {
+                ""
+            } else {
+                ", oneway"
+            },
+            conn.inbound.peer(),
+            version.major,
+            version.minor
+        );
         let ticket = self.ticket(Some(permit));
         if self.is_shutting_down() {
             // Checked again under the ticket: a shutdown that began after
@@ -775,12 +798,15 @@ impl Server {
         resolved.finish(&adapter, id, &operation);
         match result {
             Ok(Ok(())) => match out.finish() {
-                Ok(msg) => reply.send(msg),
+                Ok(msg) => {
+                    trace::debug!("request {operation:?} (id {}) done", reply.request_id);
+                    reply.send(msg)
+                }
                 Err(e) => reply.system(&e),
             },
             Ok(Err(e)) => reply.system(&e),
             Err(_) => {
-                log::warn(&format!("servant panicked in {operation:?}"));
+                trace::warning!("servant panicked in {operation:?}");
                 reply.system(&SystemException::new(
                     SystemExceptionKind::UNKNOWN,
                     0,
@@ -800,6 +826,11 @@ impl Server {
             return;
         }
         conn.saw_version(version);
+        trace::debug!(
+            "LocateRequest (id {}) from {}",
+            header.request_id,
+            conn.inbound.peer()
+        );
         let order = self.order;
         let request_id = header.request_id;
         let conn = Arc::clone(conn);
@@ -1219,6 +1250,8 @@ struct Outbox {
     /// Wakes the writer task when something is queued or the connection
     /// closes.
     ready: Notify,
+    /// The address of the client, for trace lines.
+    peer: Option<SocketAddr>,
 }
 
 struct OutState {
@@ -1237,9 +1270,10 @@ struct OutState {
 }
 
 impl Outbox {
-    fn new(stream: OwnedWriteHalf, tls: Option<Arc<Tls>>) -> Outbox {
+    fn new(stream: OwnedWriteHalf, tls: Option<Arc<Tls>>, peer: Option<SocketAddr>) -> Outbox {
         Outbox {
             tls,
+            peer,
             state: Mutex::new(OutState {
                 stream: Some(stream),
                 queue: VecDeque::new(),
@@ -1257,6 +1291,7 @@ impl Outbox {
         if state.closing || state.failed {
             return;
         }
+        trace::trace!("sent {} to {}", summary(&msg), PeerAddr(self.peer));
         if let Some(tls) = &self.tls {
             if let (true, Some(stream)) = (state.queue.is_empty(), &state.stream) {
                 tls.encrypt(&msg, 0);
@@ -1492,6 +1527,11 @@ impl ReplyTo {
 
     /// Sends the client to `ior` with `LOCATION_FORWARD`.
     fn forward(self, ior: &Ior) {
+        trace::debug!(
+            "request id {}: replying LOCATION_FORWARD to {}",
+            self.request_id,
+            crate::trace::IorSummary(ior)
+        );
         if !self.response {
             return;
         }
@@ -1502,6 +1542,7 @@ impl ReplyTo {
     }
 
     fn system(self, e: &SystemException) {
+        trace::debug!("request id {}: replying {e}", self.request_id);
         if !self.response {
             return;
         }
@@ -1546,18 +1587,30 @@ async fn accept_loop(
 
 async fn serve(server: Arc<Server>, stream: TcpStream, tls: Option<Arc<rustls::ServerConfig>>) {
     let _ = stream.set_nodelay(true);
+    let peer = PeerAddr(stream.peer_addr().ok());
     let session = match tls {
         Some(config) => {
             match tokio::time::timeout(HANDSHAKE_TIME, tls::accept(&stream, config)).await {
                 Ok(Ok(session)) => Some(session),
                 // A failed handshake (a certificate refused, say), or none.
-                _ => return,
+                Ok(Err(e)) => {
+                    trace::info!("TLS handshake with {peer} failed: {e}");
+                    return;
+                }
+                Err(_) => {
+                    trace::info!("TLS handshake with {peer} timed out");
+                    return;
+                }
             }
         }
         None => None,
     };
+    trace::info!(
+        "accepted a connection from {peer}{}",
+        if session.is_some() { " with TLS" } else { "" }
+    );
     let (reader, writer) = stream.into_split();
-    let out = Arc::new(Outbox::new(writer, session.clone()));
+    let out = Arc::new(Outbox::new(writer, session.clone(), peer.0));
     let conn = Arc::new(ServerConn {
         inbound: Inbound::new(reader, session, server.max_message_size),
         out: Arc::clone(&out),
@@ -1572,9 +1625,13 @@ async fn serve(server: Arc<Server>, stream: TcpStream, tls: Option<Arc<rustls::S
     let ended = read_loop(&server, &conn).await;
     server.remove_connection(id);
     match ended {
-        Ok(Ended::Peer) => {}
-        Ok(Ended::CloseConnection) => conn.close(Vec::new()),
+        Ok(Ended::Peer) => trace::info!("connection from {peer} closed by the client"),
+        Ok(Ended::CloseConnection) => {
+            trace::info!("connection from {peer} closed (CloseConnection or MessageError)");
+            conn.close(Vec::new());
+        }
         Err(version) => {
+            trace::info!("malformed message from {peer}: sending MessageError and closing");
             if let Ok(msg) = MessageEncoder::message_error(version, server.order) {
                 conn.close(msg);
             }

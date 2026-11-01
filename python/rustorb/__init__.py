@@ -10,3 +10,22 @@ and the POA come from the native module ``rustorb._native``; the TypeCodes,
 values and exceptions (:mod:`rustorb.CORBA`, :mod:`rustorb.PortableServer`,
 ``_types``, ``_rt``) are plain Python and import without it.
 """
+
+
+def set_trace_level(level):
+    """Sets the trace level of the process, like ``-ORBtraceLevel``: 0 for
+    nothing, 1 for warnings (the default), 5 for connections, 10 for each
+    request, 25 for each GIOP message. The events go to :mod:`logging`
+    (see :mod:`rustorb._log`)."""
+    from . import _log, _native
+
+    _log.install(_native)
+    _native.set_trace_level(int(level))
+    _log.follow_trace_level(_native)
+
+
+def trace_level():
+    """The trace level of the process."""
+    from . import _native
+
+    return _native.trace_level()
