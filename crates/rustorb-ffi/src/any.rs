@@ -560,7 +560,12 @@ pub unsafe extern "C" fn rorb_any_clone(any: *const Any) -> *mut Any {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rorb_any_release(any: *mut Any) {
-    unsafe { release_handle(any) }
+    // The valuetypes in it may refer to each other in cycles, which only
+    // the core sees (docs/valuetype.md): those nothing else refers to are
+    // freed.
+    if !any.is_null() {
+        rustorb_core::Value::Any(unsafe { Box::from_raw(any) }).release();
+    }
 }
 
 #[unsafe(no_mangle)]

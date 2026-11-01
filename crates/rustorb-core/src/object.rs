@@ -433,6 +433,7 @@ impl Reply {
             wchar_needs_code_set: false,
             values: Vec::new(),
             typed_values: Vec::new(),
+            custom_items: None,
             body: Some(&self.body),
         }
     }

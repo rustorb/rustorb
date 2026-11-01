@@ -544,11 +544,51 @@ fn custom_and_behaviour() {
         tag: 7,
         text: "seven".into(),
     });
-    // The core cannot read the state of a custom value of the Rust
-    // mapping, so it does not go in an any (valuetype_calls sends one).
-    let e = Any::insert::<Tagged>(&Some(t)).unwrap_err();
-    assert_eq!(e.kind(), Some(SystemExceptionKind::MARSHAL));
     assert_eq!(Tagged::type_code().type_modifier().unwrap(), 1);
+
+    // In an any, the core's instance holds the items unmarshal read.
+    let any = Any::insert::<Tagged>(&Some(t)).unwrap();
+    let rustorb_core::Value::Valuetype(Some(r)) = any.value() else {
+        panic!("a value: {any:?}");
+    };
+    let items: Vec<_> = r
+        .members()
+        .into_iter()
+        .map(|i| match i {
+            rustorb_core::Value::Any(a) => a.value().clone(),
+            other => panic!("an item: {other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        items,
+        [
+            rustorb_core::Value::Long(7),
+            rustorb_core::Value::String("seven".into())
+        ]
+    );
+    let back = any.extract::<Tagged>().unwrap().unwrap();
+    assert_eq!(back.get().tag, 7);
+    assert_eq!(back.get().text, "seven");
+
+    // The any as received: read by the core, then extracted.
+    let mut enc = rustorb_core::cdr::Encoder::new(
+        rustorb_core::cdr::ByteOrder::Little,
+        rustorb_core::cdr::CdrVersion::Giop1_2,
+    );
+    rustorb_core::OutStream::standalone(&mut enc)
+        .write_any(&any)
+        .unwrap();
+    let bytes = enc.into_bytes();
+    let dec = rustorb_core::cdr::Decoder::new(
+        &bytes,
+        rustorb_core::cdr::ByteOrder::Little,
+        rustorb_core::cdr::CdrVersion::Giop1_2,
+    );
+    let received = rustorb_core::InStream::standalone(dec, None)
+        .read_any()
+        .unwrap();
+    let back = received.extract::<Tagged>().unwrap().unwrap();
+    assert_eq!(back.get().text, "seven");
 
     let g = Gauge::new(GaugeState { level: 4 });
     assert_eq!(g.scaled(3).unwrap(), 12);

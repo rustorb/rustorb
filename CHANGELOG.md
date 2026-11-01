@@ -5,6 +5,21 @@ All notable changes to rustorb are written here. The format follows
 [Semantic Versioning](https://semver.org/) (before 1.0, a minor version may
 break the API).
 
+## [Unreleased]
+
+### Added
+
+- `Value::release`: drops a value and frees the valuetypes in it that form
+  cycles and that nothing else refers to (#85)
+- Custom valuetypes of the Rust mapping go in an Any: `register_value_types()`
+  registers their readers with the core (#85)
+
+### Fixed
+
+- Valuetypes in cycles held by the core were never freed: those read by a
+  stream, in an Any of the C ABI (C++ and Java), in the copies `DynAny::equal`
+  makes, and those the Python binding converted (#85)
+
 ## [0.1.0] - 2026-10-31
 
 The first release: a CORBA ORB with its core in Rust, and bindings for Rust,
