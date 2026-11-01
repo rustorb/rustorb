@@ -6,9 +6,11 @@ name: Release
 #   checks everything, attaches it to a draft GitHub Release v0.1.0,
 #   publishes the crates to crates.io and the Python packages to PyPI, and
 #   then publishes the GitHub Release. The publishing jobs run in the
-#   `release` environment (its protection rules can require an approval)
-#   and need the CARGO_REGISTRY_TOKEN secret and a PyPI trusted publisher
-#   (or the PYPI_API_TOKEN secret). Run again after a failure, they skip
+#   `release` environment (the PyPI uploads of rustorb-idl and
+#   rustorb-omniorb-compat in release-rustorb-idl and
+#   release-rustorb-omniorb-compat; their protection rules can require an
+#   approval) and need the CARGO_REGISTRY_TOKEN secret and PyPI trusted
+#   publishers (or the PYPI_API_TOKEN secret). Run again after a failure, they skip
 #   what is already published.
 # - Run workflow (workflow_dispatch), or a pull request that changes the
 #   packaging: only builds, the artifacts stay on the run
@@ -271,24 +273,45 @@ jobs:
             fi
           done
 
+  # One job per PyPI project: a pending trusted publisher (for a project's
+  # first upload) can only be registered for one project with the same
+  # repository, workflow and environment, so each project has its own
+  # environment.
   pypi:
     if: github.ref_type == 'tag'
     needs: [version, draft]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { project: rustorb, files: "rustorb-*", environment: release }
+          - { project: rustorb-idl, files: "rustorb_idl-*", environment: release-rustorb-idl }
+          - { project: rustorb-omniorb-compat, files: "rustorb_omniorb_compat-*", environment: release-rustorb-omniorb-compat }
+    name: pypi (${{ matrix.project }})
     runs-on: ubuntu-latest
-    environment: release
+    environment: ${{ matrix.environment }}
     permissions:
       id-token: write
     steps:
       - uses: actions/download-artifact@v4
         with:
           pattern: wheels-*
-          path: dist
+          path: all
           merge-multiple: true
       - uses: actions/download-artifact@v4
         with:
           name: python-sdist
-          path: dist
-      - run: ls -l dist
+          path: all
+      - name: Pick the files of ${{ matrix.project }}
+        env:
+          FILES: ${{ matrix.files }}
+        run: |
+          mkdir dist
+          for f in all/$FILES; do
+            case "$f" in *.whl|*.tar.gz) mv "$f" dist/ ;; esac
+          done
+          ls -l dist
+          [ -n "$(ls dist)" ] || { echo "::error::no files for ${{ matrix.project }}"; exit 1; }
       # Trusted publishing (OpenID Connect) when PYPI_API_TOKEN is not set.
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:

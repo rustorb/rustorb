@@ -52,9 +52,17 @@ tools/set-version.py --check        # そろっているか（CI とリリース
 
 一度だけ、リポジトリの設定で次を用意する。
 
-- **環境 `release`**（Settings → Environments）：公開の2つのジョブが使う。Required reviewers を付けると、公開の前に承認を求める。Deployment branches and tags でタグ `v*` だけに絞るとよい
+- **環境 `release`**（Settings → Environments）：crates.io と PyPI の `rustorb` の公開が使う（PyPI の他の2つは下の表の環境）。Required reviewers を付けると、公開の前に承認を求める。Deployment branches and tags でタグ `v*` だけに絞るとよい
 - **crates.io**：crates.io の [API Tokens](https://crates.io/settings/tokens) で `publish-new` と `publish-update` のスコープのトークンを作り、環境 `release` のシークレット `CARGO_REGISTRY_TOKEN` に入れる。新しいクレートの最初の公開にはトークンが要る（crates.io の Trusted Publishing は、クレートができた後でしか設定できない）
-- **PyPI**：Trusted Publishing を使う。PyPI の [Publishing](https://pypi.org/manage/account/publishing/) で、`rustorb`、`rustorb-idl`、`rustorb-omniorb-compat` の3つに pending publisher を登録する（Owner `rustorb`、Repository `rustorb`、Workflow `release.yml`、Environment `release`）。トークンを使うなら、代わりに環境 `release` のシークレット `PYPI_API_TOKEN` に入れる
+- **PyPI**：Trusted Publishing を使う。PyPI の [Publishing](https://pypi.org/manage/account/publishing/) で、3つのプロジェクトに pending publisher を登録する。Owner `rustorb`、Repository `rustorb`、Workflow `release.yml` は共通で、Environment だけをプロジェクトごとに変える（PyPI は、同じ設定の pending publisher を1つのプロジェクトにしか登録できないため）。環境は GitHub 側にも作る
+
+  | PyPI のプロジェクト | Environment |
+  | --- | --- |
+  | `rustorb` | `release` |
+  | `rustorb-idl` | `release-rustorb-idl` |
+  | `rustorb-omniorb-compat` | `release-rustorb-omniorb-compat` |
+
+  トークンを使うなら、代わりに各環境のシークレット `PYPI_API_TOKEN` に入れる
 
 公開した版は取り消せない（crates.io は yank、PyPI は yank か削除しても同じ版は二度と上げられない）。間違えたら次のパッチ版を出す。
 
