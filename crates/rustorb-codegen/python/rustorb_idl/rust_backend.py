@@ -11,7 +11,10 @@ Writes one Rust source file per IDL file (``InteropTest.idl`` ->
   with a variant per member; typedefs are ``type`` aliases, with a
   descriptor of the same name in the ``alias`` module of their scope;
 - an interface ``I`` is the reference type ``I``, the servant trait
-  ``IServant`` and the skeleton ``IPoa<T>``;
+  ``IServant`` and the skeleton ``IPoa<T>``; an abstract interface ``A``
+  is the enum ``A`` (an object reference or a value) and the trait
+  ``AServant``; a local interface ``L`` is the trait ``L`` only, used as
+  ``Arc<dyn L>``;
 - a valuetype ``V`` is the handle ``V`` and its state ``VState``; a value
   box is a struct around an ``Arc`` of its content. The application
   implements ``CustomMarshal`` for the state of a custom valuetype, and
@@ -80,6 +83,12 @@ VALUE_METHODS = {
     "_write", "clone", "fmt",
 }
 
+# The methods of the enum of an abstract interface.
+ABSTRACT_METHODS = {
+    "narrow", "unchecked_narrow", "from_value", "object", "value", "_write", "clone", "fmt",
+    "from", "into",
+}
+
 UNSUPPORTED = dict(fe.CXX_ONLY, Principal="Principal")
 
 
@@ -128,6 +137,16 @@ def ident(name):
     if name in RUST_KEYWORDS:
         return "r#" + name
     return name
+
+
+def is_abstract(n):
+    """Whether ``n`` is an abstract interface."""
+    return fe.is_interface(n) and bool(getattr(n, "is_abstract", False))
+
+
+def is_local(n):
+    """Whether ``n`` is a local interface."""
+    return fe.is_interface(n) and bool(getattr(n, "is_local", False))
 
 
 def file_module(path):
@@ -276,22 +295,39 @@ class RustBackend(object):
             self.check_value(self.full(n))
 
     def check_interface(self, n):
-        if getattr(n, "is_abstract", False):
+        pass
+
+    def check_marshaled(self, n, where):
+        """A local interface has no marshaling: it cannot be a parameter of
+        a remote operation or a member of a marshaled type."""
+        if is_local(n):
             raise fe.GeneratorError(
-                "abstract interfaces are not supported by the Rust backend yet", n
-            )
-        if getattr(n, "is_local", False):
-            raise fe.GeneratorError(
-                "local interfaces are not supported by the Rust backend yet", n
+                "the local interface %s cannot be marshaled (used where it would be sent)"
+                % n.name,
+                where,
             )
 
-    def check_value(self, node):
+    def servant_trait(self, n, cur):
+        """The path of the trait that implements the interface ``n``: the
+        servant trait ``NServant``, or the trait ``N`` of a local
+        interface."""
+        n = self.full(n)
+        if is_local(n):
+            return self.ref(n, cur)
+        return self.ref(n, cur, name=self.item_name(n) + "Servant")
+
+    def abstract_supported(self, node):
+        """The abstract interfaces a valuetype supports, directly or as
+        bases of the interfaces it supports."""
+        out = []
         for i in fe.supported_interfaces(node):
-            if i.is_abstract or i.is_local:
-                raise fe.GeneratorError(
-                    "a valuetype can only support a non-abstract, non-local interface in Rust",
-                    node,
-                )
+            for n in [i] + self.ancestors(i):
+                n = self.full(n)
+                if is_abstract(n) and not any(n is o for o in out):
+                    out.append(n)
+        return out
+
+    def check_value(self, node):
         for opname, method, _, _, excs, _, _ in self.operations(node):
             if excs:
                 raise fe.GeneratorError(
@@ -343,6 +379,8 @@ class RustBackend(object):
         if k == "named":
             n = self.full(t.node)
             self.check_named(n, where)
+            if is_local(n):
+                return "Option<::std::sync::Arc<dyn %s>>" % self.ref(n, cur)
             if fe.is_interface(n) or fe.is_valuetype(n):
                 return "Option<%s>" % self.ref(n, cur)
             return self.ref(n, cur)
@@ -379,6 +417,7 @@ class RustBackend(object):
         if k == "named":
             n = self.full(t.node)
             self.check_named(n, where)
+            self.check_marshaled(n, where)
             if fe.is_typedef(n):
                 return self.ref(n, cur, alias=True)
             return self.ref(n, cur)
@@ -423,7 +462,10 @@ class RustBackend(object):
         if m == "ref":
             if r.kind == "Object":
                 return "Option<&%s::ObjectRef>" % self.R
-            return "Option<&%s>" % self.ref(self.full(r.node), cur)
+            n = self.full(r.node)
+            if is_local(n):
+                return "Option<&::std::sync::Arc<dyn %s>>" % self.ref(n, cur)
+            return "Option<&%s>" % self.ref(n, cur)
         return "&%s" % self.rtype(t, cur, where)
 
     def write_in(self, t, var, out, cur, where):
@@ -433,7 +475,9 @@ class RustBackend(object):
             r = t.resolved()
             if r.kind == "Object":
                 return "%s.write_object(%s)?;" % (out, var)
-            return "%s::_write(%s, %s)?;" % (self.ref(self.full(r.node), cur), var, out)
+            n = self.full(r.node)
+            self.check_marshaled(n, where)
+            return "%s::_write(%s, %s)?;" % (self.ref(n, cur), var, out)
         arg = "&" + var if m == "value" else var
         return "%s(%s, %s)?;" % (self.call(t, cur, "write", where), arg, out)
 
@@ -496,6 +540,11 @@ class RustBackend(object):
                 return self.props(fe.type_of(n.type, n), seen)
             if fe.is_enum(n):
                 return (True, True, True, True)
+            if is_local(n):
+                return (False, False, False, True)
+            if is_abstract(n):
+                # A value has no PartialEq.
+                return (False, False, False, True)
             if fe.is_interface(n):
                 return (False, True, False, True)
             if fe.is_valuetype(n):
@@ -583,6 +632,11 @@ class RustBackend(object):
                 rid,
                 name,
                 ", ".join('"%s"' % v.name for v in node.values),
+            )
+        if is_abstract(node) or is_local(node):
+            kind = "AbstractInterface" if is_abstract(node) else "LocalInterface"
+            return "%s::tc(%s::TypeCode::interface(%s::TCKind::%s, %s, %s))" % (
+                I, R, R, kind, rid, name
             )
         if fe.is_interface(node):
             return "%s::tc(%s::TypeCode::objref(%s, %s))" % (I, R, rid, name)
@@ -705,6 +759,13 @@ class RustBackend(object):
             w.indent()
             for node in self.values:
                 w("%s::register_value(%s::_info());" % (self.I, self.ref(node, ())))
+                v = self.ref(node, ())
+                for a in self.abstract_supported(node):
+                    ap = self.ref(a, ())
+                    w("%s::register_supported(%s::REPOSITORY_ID, %s::REPOSITORY_ID, |h| {" % (self.I, ap, v))
+                    w("    %s::from_handle(h.clone())" % v)
+                    w("        .map(|v| Box::new(%s::from(v)) as Box<dyn ::std::any::Any + Send>)" % ap)
+                    w("});")
             w.dedent()
             w("}")
         return w.text()
@@ -809,8 +870,11 @@ class RustBackend(object):
             self.struct(w, node, cur)
         elif fe.is_union(node):
             self.union(w, node, cur)
+        elif is_local(node):
+            self.local_interface(w, node, cur)
+        elif is_abstract(node):
+            self.abstract_interface(w, node, cur)
         elif fe.is_interface(node):
-            self.check_interface(node)
             self.interface(w, node, cur)
         elif fe.is_valuetype(node):
             if node.is_boxed:
@@ -1524,7 +1588,7 @@ class RustBackend(object):
             w("}")
             w()
         for n in ifaces:
-            servant = self.ref(n, cur, name=self.item_name(n) + "Servant")
+            servant = self.servant_trait(n, cur)
             w("impl %s for %s {" % (servant, name))
             w.indent()
             first = True
@@ -1538,6 +1602,15 @@ class RustBackend(object):
                 w("    %s" % call(m, args))
                 w("}")
             w.dedent()
+            w("}")
+            w()
+        for a in self.abstract_supported(node):
+            ap = self.ref(a, cur)
+            w("impl From<%s> for %s {" % (name, ap))
+            w("    fn from(v: %s) -> %s {" % (name, ap))
+            w("        let handle = v.handle().clone();")
+            w("        %s::Value(%s::AbstractValue::new(handle, ::std::sync::Arc::new(v)))" % (ap, self.I))
+            w("    }")
             w("}")
             w()
 
@@ -1630,6 +1703,11 @@ class RustBackend(object):
 
     def signature(self, opname, method, ret, params, excs, d, owner, cur):
         """``(method, args, return type)``."""
+        if getattr(d, "contexts", None):
+            # The core has no CORBA::Context to send after the arguments.
+            raise fe.GeneratorError(
+                "the context clause of %s is not supported by the Rust backend" % opname, d
+            )
         args = []
         for p, t, direction in params:
             pn = ident(snake(p))
@@ -1766,9 +1844,7 @@ class RustBackend(object):
         )
 
         # The servant trait.
-        supers = ["Send", "Sync"] + [
-            self.ref(b, cur, name=self.item_name(b) + "Servant") for b in self.bases(node)
-        ]
+        supers = ["Send", "Sync"] + [self.servant_trait(b, cur) for b in self.bases(node)]
         self.doc(w, node, "The implementation of the IDL interface")
         w("pub trait %s: %s {" % (servant, " + ".join(supers)))
         w.indent()
@@ -1854,6 +1930,217 @@ class RustBackend(object):
         w("}")
         w.dedent()
         w("}")
+        w.dedent()
+        w("}")
+        w()
+
+    def check_methods(self, node, all_ops):
+        methods = {}
+        for opname, method, ret, params, excs, oneway, d, owner in all_ops:
+            m = self.method_name(opname, method)
+            if m in methods and methods[m] is not owner:
+                raise fe.GeneratorError(
+                    "operations of %s map to the same Rust name %s" % (node.name, m), node
+                )
+            methods[m] = owner
+        return methods
+
+    def servant_methods(self, w, node, cur, own_ops):
+        """The declarations of the methods of the servant trait (or of the
+        trait of a local interface) for the operations ``own_ops``."""
+        R = self.R
+        for i, (opname, method, ret, params, excs, oneway, d) in enumerate(own_ops):
+            m, args, rt = self.signature(opname, method, ret, params, excs, d, node, cur)
+            err = self.error_path(node, opname, method, cur) if excs else R + "::SystemException"
+            if i:
+                w()
+            w("/// `%s`." % opname)
+            if len(args) > 6:
+                w("#[allow(clippy::too_many_arguments)]")
+            w("#[allow(clippy::type_complexity)]")
+            w("fn %s(%s) -> Result<%s, %s>;" % (m, ", ".join(["&self"] + args), rt, err))
+
+    def own_errors(self, node, own_ops):
+        def errors(w2, mod):
+            for opname, method, ret, params, excs, oneway, d in own_ops:
+                if excs:
+                    self.error_enum(w2, node, mod, opname, method, excs, d)
+
+        return errors
+
+    def local_interface(self, w, node, cur):
+        """A local interface ``L``: the trait ``L``, which the application
+        implements and uses as ``Arc<dyn L>``. It has no stub, skeleton or
+        marshaling."""
+        name = self.item_name(node)
+        self.claim(cur, name, "local interface %s" % node.name, node)
+        own_ops = self.operations(node)
+        self.check_methods(node, self.all_operations(node))
+        errors = self.own_errors(node, own_ops)
+
+        def extra(w2, mod):
+            w2('/// The repository id of `%s`.' % "::".join(fe.scope_path(node)))
+            w2('pub const REPOSITORY_ID: &str = "%s";' % fe.repository_id(node))
+            w2()
+            errors(w2, mod)
+
+        self.nested(w, node, cur, extra=extra)
+        supers = ["Send", "Sync"] + [self.servant_trait(b, cur) for b in self.bases(node)]
+        self.doc(w, node, "The IDL local interface")
+        w("///")
+        w("/// The application implements it, and passes its objects as")
+        w("/// `Arc<dyn %s>`. They are not sent to other processes." % name)
+        w("pub trait %s: %s {" % (name, " + ".join(supers)))
+        w.indent()
+        self.servant_methods(w, node, cur, own_ops)
+        w.dedent()
+        w("}")
+        w()
+
+    def abstract_interface(self, w, node, cur):
+        """An abstract interface ``A``: the enum ``A`` of an object
+        reference or a value of a valuetype that supports it, with the
+        operations as methods, and the trait ``AServant`` that the servants
+        of interfaces derived from it and the valuetypes that support it
+        implement."""
+        name = self.item_name(node)
+        R, I = self.R, self.I
+        servant = name + "Servant"
+        self.claim(cur, name, "abstract interface %s" % node.name, node)
+        self.claim(cur, servant, "the servant trait of %s" % node.name, node)
+        own_ops = self.operations(node)
+        all_ops = self.all_operations(node)
+        methods = self.check_methods(node, all_ops)
+        for opname, method, ret, params, excs, oneway, d, owner in all_ops:
+            m = self.method_name(opname, method)
+            if m + "_async" in methods or m in ABSTRACT_METHODS:
+                raise fe.GeneratorError(
+                    "the operation %s of %s clashes with a method of its Rust type"
+                    % (method, node.name),
+                    node,
+                )
+        self.nested(w, node, cur, extra=self.own_errors(node, own_ops))
+
+        # The enum.
+        self.doc(w, node, "The IDL abstract interface")
+        w("///")
+        w("/// An object reference, or a value of a valuetype that supports it.")
+        w("/// The methods call the operation on the object, or on the value in")
+        w("/// this process.")
+        w("#[derive(Debug, Clone)]")
+        w("pub enum %s {" % name)
+        w("    /// An object reference.")
+        w("    Object(%s::ObjectRef)," % R)
+        w("    /// A value of a valuetype that supports `%s`." % node.name)
+        w("    Value(%s::AbstractValue<dyn %s>)," % (I, servant))
+        w("}")
+        w()
+        ancestors = [self.full(a) for a in self.ancestors(node)]
+        for a in ancestors:
+            ap = self.ref(a, cur)
+            asv = self.servant_trait(a, cur)
+            w("impl From<%s> for %s {" % (name, ap))
+            w("    fn from(v: %s) -> %s {" % (name, ap))
+            w("        match v {")
+            w("            %s::Object(obj) => %s::Object(obj)," % (name, ap))
+            w("            %s::Value(v) => {" % name)
+            w("                let ops: ::std::sync::Arc<dyn %s> =" % asv)
+            w("                    ::std::sync::Arc::new(%s::Upcast(v.ops().clone()));" % I)
+            w("                %s::Value(%s::AbstractValue::new(v.handle().clone(), ops))" % (ap, I))
+            w("            }")
+            w("        }")
+            w("    }")
+            w("}")
+            w()
+        w("impl %s {" % name)
+        w.indent()
+        w('pub const REPOSITORY_ID: &\'static str = "%s";' % fe.repository_id(node))
+        w()
+        w("/// `obj` as this interface, if the object supports it (from the type")
+        w("/// id of its IOR, else by asking it with `_is_a`).")
+        w("pub fn narrow(obj: &%s::ObjectRef) -> %s::Sys<Option<%s>> {" % (R, I, name))
+        w("    Ok(if %s::is_a(obj, Self::REPOSITORY_ID)? { Some(%s::Object(obj.clone())) } else { None })" % (I, name))
+        w("}")
+        w()
+        w("/// `obj` as this interface, unchecked.")
+        w("pub fn unchecked_narrow(obj: %s::ObjectRef) -> %s {" % (R, name))
+        w("    %s::Object(obj)" % name)
+        w("}")
+        w()
+        w("/// The instance `h` as this interface, if its valuetype supports it")
+        w("/// (and was registered with `register_value_types`).")
+        w("pub fn from_value(h: &%s::ValueHandle) -> Option<%s> {" % (I, name))
+        w("    %s::supported(Self::REPOSITORY_ID, h)" % I)
+        w("}")
+        w()
+        w("/// The object reference, if it is one.")
+        w("pub fn object(&self) -> Option<&%s::ObjectRef> {" % R)
+        w("    match self {")
+        w("        %s::Object(obj) => Some(obj)," % name)
+        w("        %s::Value(_) => None," % name)
+        w("    }")
+        w("}")
+        w()
+        w("/// The value, if it is one.")
+        w("pub fn value(&self) -> Option<&%s::ValueHandle> {" % I)
+        w("    match self {")
+        w("        %s::Object(_) => None," % name)
+        w("        %s::Value(v) => Some(v.handle())," % name)
+        w("    }")
+        w("}")
+        w()
+        w("#[doc(hidden)]")
+        w("pub fn _write(v: Option<&%s>, out: &mut %s::OutStream<'_>) -> %s::Sys<()> {" % (name, R, I))
+        w("    match v {")
+        w("        None => %s::write_abstract_object(None, out)," % I)
+        w("        Some(%s::Object(obj)) => %s::write_abstract_object(Some(obj), out)," % (name, I))
+        w("        Some(%s::Value(v)) => %s::write_abstract_value(v.handle(), out)," % (name, I))
+        w("    }")
+        w("}")
+        for op in all_ops:
+            w()
+            self.stub_method(w, cur, *op, enum=name)
+            w()
+            self.stub_method(w, cur, *op, asynchronous=True, enum=name)
+        w.dedent()
+        w("}")
+        w()
+        self.idl_type(
+            w,
+            node,
+            cur,
+            name,
+            "Option<%s>" % name,
+            "1",
+            lambda w: w("Self::_write(v.as_ref(), out)"),
+            lambda w: w("%s::read_abstract(input, Self::REPOSITORY_ID, %s::Object)" % (I, name)),
+        )
+
+        # The servant trait.
+        supers = ["Send", "Sync"] + [self.servant_trait(b, cur) for b in self.bases(node)]
+        self.doc(w, node, "The operations of the IDL abstract interface")
+        w("///")
+        w("/// The servants of the interfaces derived from it implement it, and")
+        w("/// the generator implements it for the valuetypes that support it.")
+        w("pub trait %s: %s {" % (servant, " + ".join(supers)))
+        w.indent()
+        self.servant_methods(w, node, cur, own_ops)
+        w.dedent()
+        w("}")
+        w()
+        w("impl<T: ?Sized + %s> %s for %s::Upcast<T> {" % (servant, servant, I))
+        w.indent()
+        for i, (opname, method, ret, params, excs, oneway, d) in enumerate(own_ops):
+            m, args, rt = self.signature(opname, method, ret, params, excs, d, node, cur)
+            err = self.error_path(node, opname, method, cur) if excs else R + "::SystemException"
+            if i:
+                w()
+            if len(args) > 6:
+                w("#[allow(clippy::too_many_arguments)]")
+            w("#[allow(clippy::type_complexity)]")
+            w("fn %s(%s) -> Result<%s, %s> {" % (m, ", ".join(["&self"] + args), rt, err))
+            w("    self.0.%s(%s)" % (m, ", ".join(a.split(":")[0] for a in args)))
+            w("}")
         w.dedent()
         w("}")
         w()
@@ -1949,9 +2236,12 @@ class RustBackend(object):
         w()
 
     def stub_method(self, w, cur, opname, method, ret, params, excs, oneway, d, owner,
-                    asynchronous=False):
+                    asynchronous=False, enum=None):
         """The stub method of an operation; with ``asynchronous``, its
-        ``_async`` version on the core's async API (docs/async-api.md)."""
+        ``_async`` version on the core's async API (docs/async-api.md).
+        With ``enum`` (the Rust name of an abstract interface), the method
+        of the enum: it calls the operation on the value, or on the object
+        as a stub."""
         R, I = self.R, self.I
         m, args, rt = self.signature(opname, method, ret, params, excs, d, owner, cur)
         err = self.error_path(owner, opname, method, cur) if excs else R + "::SystemException"
@@ -1966,8 +2256,16 @@ class RustBackend(object):
         w("pub %sfn %s(%s) -> Result<%s, %s> {"
           % ("async " if asynchronous else "", m, ", ".join(["&self"] + args), rt, err))
         w.indent()
+        recv = "self.0"
+        if enum is not None:
+            names = [a.split(":")[0] for a in args]
+            w("let obj = match self {")
+            w("    %s::Object(obj) => obj," % enum)
+            w("    %s::Value(v) => return v.ops().%s(%s)," % (enum, self.method_name(opname, method), ", ".join(names)))
+            w("};")
+            recv = "obj"
         ins = [(p, t, dr) for p, t, dr in params if dr in ("in", "inout")]
-        req = 'self.0.request%s("%s")' % ("_async" if asynchronous else "", opname)
+        req = '%s.request%s("%s")' % (recv, "_async" if asynchronous else "", opname)
         wait = ".await" if asynchronous else ""
         if ins:
             w("let request = %s.args(|out| {" % req)

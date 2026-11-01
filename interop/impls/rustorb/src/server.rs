@@ -8,6 +8,7 @@
 //! Options: `--naming CORBALOC --name PATH [--host HOST] [--port N]
 //! [--timeout S]`, plus ORB options.
 
+mod abstracttest;
 mod anytest;
 mod customtest;
 mod idl;
@@ -270,7 +271,10 @@ fn parse_args(args: Vec<String>) -> Result<(Args, Vec<String>), String> {
             }
             "--suite" => {
                 suite = value("--suite")?;
-                if !matches!(suite.as_str(), "basic" | "any" | "value" | "custom") {
+                if !matches!(
+                    suite.as_str(),
+                    "basic" | "any" | "value" | "custom" | "abstract"
+                ) {
                     return Err(format!("bad --suite {suite}"));
                 }
             }
@@ -327,6 +331,7 @@ fn run() -> Result<(), String> {
                 "any" => "AnyTest",
                 "value" => "ValueTest",
                 "custom" => "CustomTest",
+                "abstract" => "AbstractTest",
                 _ => "InteropTest",
             },
             Some(&manager),
@@ -370,6 +375,19 @@ fn run() -> Result<(), String> {
         .activate_with_id(&poa, b"CustomEcho")
         .map_err(|e| format!("activate_object_with_id: {e}"))?;
         bindings = vec![(args.name.clone(), custom_echo.into_object())];
+    }
+    if args.suite == "abstract" {
+        // Card arrives where Named is declared.
+        idl::abstracts::register_value_types();
+        // AbstractEcho stops the server itself.
+        let abstract_echo =
+            idl::abstracts::abstract_test::AbstractEchoPoa(abstracttest::AbstractEchoImpl {
+                orb: orb.clone(),
+                poa: root_poa.clone(),
+            })
+            .activate_with_id(&poa, b"AbstractEcho")
+            .map_err(|e| format!("activate_object_with_id: {e}"))?;
+        bindings = vec![(args.name.clone(), abstract_echo.into_object())];
     }
     if args.suite == "any" {
         let this = Arc::new(OnceLock::new());

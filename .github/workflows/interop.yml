@@ -108,7 +108,7 @@ jobs:
         run: interop/run-matrix.sh --suite custom
 
       # The abstract interface suite (AbstractTest.idl): every
-      # implementation but the Rust one.
+      # implementation.
       - name: Run the abstract interface matrix
         run: interop/run-matrix.sh --suite abstract
 

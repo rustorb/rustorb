@@ -775,3 +775,303 @@ fn async_calls() {
     drop(client);
     server.shutdown(true).unwrap();
 }
+
+impl NoteOperations for NoteState {
+    fn label_of(&mut self) -> idl::Sys<String> {
+        Ok(self.text.clone())
+    }
+
+    fn rank(&mut self) -> idl::Sys<i32> {
+        Ok(self.level)
+    }
+
+    fn set_rank(&mut self, value: i32) -> idl::Sys<()> {
+        self.level = value;
+        Ok(())
+    }
+
+    fn retitle(&mut self, title: &mut String) -> Result<(), titled::RetitleError> {
+        if title.is_empty() {
+            return Err(Failure {
+                code: 1,
+                message: "empty".into(),
+                kind: Fruit::Apple,
+            }
+            .into());
+        }
+        std::mem::swap(&mut self.text, title);
+        Ok(())
+    }
+}
+
+struct BookImpl {
+    title: Mutex<String>,
+}
+
+impl LabeledServant for BookImpl {
+    fn label_of(&self) -> idl::Sys<String> {
+        Ok(self.title.lock().unwrap().clone())
+    }
+}
+
+impl TitledServant for BookImpl {
+    fn rank(&self) -> idl::Sys<i32> {
+        Ok(1)
+    }
+
+    fn set_rank(&self, _value: i32) -> idl::Sys<()> {
+        Err(SystemException::new(
+            SystemExceptionKind::NO_PERMISSION,
+            0,
+            rustorb_core::CompletionStatus::No,
+        ))
+    }
+
+    fn retitle(&self, title: &mut String) -> Result<(), titled::RetitleError> {
+        std::mem::swap(&mut *self.title.lock().unwrap(), title);
+        Ok(())
+    }
+}
+
+impl BookServant for BookImpl {
+    fn pages(&self) -> idl::Sys<i32> {
+        Ok(self.title.lock().unwrap().len() as i32 * 10)
+    }
+}
+
+struct ShelfImpl {
+    poa: rustorb_core::Poa,
+}
+
+impl ShelfServant for ShelfImpl {
+    fn echo_titled(&self, t: Option<&Titled>) -> idl::Sys<Option<Titled>> {
+        Ok(t.cloned())
+    }
+
+    fn echo_titled_pair(&self, p: &TitledPair) -> idl::Sys<TitledPair> {
+        Ok(p.clone())
+    }
+
+    fn label(&self, l: Option<&Labeled>) -> idl::Sys<String> {
+        l.ok_or_else(idl::bad_param)?.label_of()
+    }
+
+    fn make_book(&self, title: &str) -> idl::Sys<Option<Book>> {
+        let book = BookPoa(BookImpl {
+            title: Mutex::new(title.into()),
+        });
+        Ok(Some(book.activate(&self.poa).unwrap().1))
+    }
+}
+
+#[test]
+fn abstract_interfaces() {
+    rust_mapping_idl::register_value_types();
+    assert_eq!(Titled::type_code().kind(), TCKind::AbstractInterface);
+    assert_eq!(Titled::type_code().id().unwrap(), Titled::REPOSITORY_ID);
+
+    // A value, with the operations in this process.
+    let note = Note::new(NoteState {
+        text: "draft".into(),
+        level: 3,
+    });
+    let t: Titled = note.clone().into();
+    assert!(t.object().is_none());
+    assert!(t.value().unwrap().ptr_eq(note.handle()));
+    assert_eq!(t.label_of().unwrap(), "draft");
+    t.set_rank(4).unwrap();
+    assert_eq!(note.get().level, 4);
+    let mut title = "final".to_owned();
+    t.retitle(&mut title).unwrap();
+    assert_eq!(
+        (title.as_str(), t.label_of().unwrap().as_str()),
+        ("draft", "final")
+    );
+    let mut empty = String::new();
+    assert!(matches!(
+        t.retitle(&mut empty),
+        Err(titled::RetitleError::Failure(_))
+    ));
+    // The base abstract interface.
+    let l: Labeled = t.clone().into();
+    assert_eq!(l.label_of().unwrap(), "final");
+    assert!(Titled::from_value(note.handle()).is_some());
+    assert!(Labeled::from_value(note.handle()).is_some());
+    let other = Shape::new(ShapeState::default());
+    assert!(Titled::from_value(other.handle()).is_none());
+
+    // Marshaled: FALSE and the value, sharing kept; TRUE and nil for none.
+    let back = round_trip::<Titled>(&Some(t.clone())).unwrap().unwrap();
+    assert_eq!(back.label_of().unwrap(), "final");
+    assert!(round_trip::<Titled>(&None).unwrap().is_none());
+    let p = TitledPair {
+        first: Some(t.clone()),
+        second: Some(l),
+    };
+    let back = round_trip::<TitledPair>(&p).unwrap();
+    let (Some(Titled::Value(a)), Some(Labeled::Value(b))) = (&back.first, &back.second) else {
+        panic!("values: {back:?}");
+    };
+    assert!(a.handle().ptr_eq(b.handle()));
+    // A value of a type that does not support it.
+    let mut enc = rustorb_core::cdr::Encoder::new(
+        rustorb_core::cdr::ByteOrder::Little,
+        rustorb_core::cdr::CdrVersion::Giop1_2,
+    );
+    {
+        let mut out = rustorb_core::OutStream::standalone(&mut enc);
+        idl::write_abstract_value(other.handle(), &mut out).unwrap();
+    }
+    let bytes = enc.into_bytes();
+    let dec = rustorb_core::cdr::Decoder::new(
+        &bytes,
+        rustorb_core::cdr::ByteOrder::Little,
+        rustorb_core::cdr::CdrVersion::Giop1_2,
+    );
+    let mut input = rustorb_core::InStream::standalone(dec, None);
+    let e = <Titled as IdlType>::read(&mut input).unwrap_err();
+    assert!(e.is(SystemExceptionKind::MARSHAL));
+
+    // In an any.
+    let any = Any::insert::<Titled>(&Some(t)).unwrap();
+    assert_eq!(any.typecode().kind(), TCKind::AbstractInterface);
+    let back = any.extract::<Titled>().unwrap().unwrap();
+    assert_eq!(back.label_of().unwrap(), "final");
+}
+
+#[test]
+fn abstract_interface_calls() {
+    rust_mapping_idl::register_value_types();
+    let server = server_orb();
+    let root = server.root_poa().unwrap();
+    root.the_poa_manager().activate().unwrap();
+    let servant: Arc<dyn Servant> = Arc::new(ShelfPoa(ShelfImpl { poa: root.clone() }));
+    let id = root.activate_object(servant).unwrap();
+    let client = Orb::with_options(OrbOptions::default()).unwrap();
+    let obj = remote(&client, &server, &root.id_to_reference(&id).unwrap());
+    let shelf = Shelf::unchecked_narrow(obj);
+
+    // An object: the operations are calls.
+    let book = shelf.make_book("dune").unwrap().unwrap();
+    assert_eq!(book.pages().unwrap(), 40);
+    let t: Titled = book.clone().into();
+    assert_eq!(t.label_of().unwrap(), "dune");
+    assert!(Titled::narrow(book.object()).unwrap().is_some());
+    let back = shelf.echo_titled(Some(&t)).unwrap().unwrap();
+    assert!(back.object().unwrap().is_equivalent(book.object()));
+    assert_eq!(back.label_of().unwrap(), "dune");
+    let mut title = "arrakis".to_owned();
+    back.retitle(&mut title).unwrap();
+    assert_eq!(title, "dune");
+    assert!(
+        back.set_rank(2)
+            .unwrap_err()
+            .is(SystemExceptionKind::NO_PERMISSION)
+    );
+    assert_eq!(shelf.label(Some(&t.into())).unwrap(), "arrakis");
+
+    // A value: sent by value, and its operations run on the server.
+    let note: Titled = Note::new(NoteState {
+        text: "memo".into(),
+        level: 1,
+    })
+    .into();
+    assert_eq!(shelf.label(Some(&note.clone().into())).unwrap(), "memo");
+    let back = shelf.echo_titled(Some(&note)).unwrap().unwrap();
+    assert!(back.object().is_none());
+    assert_eq!(back.rank().unwrap(), 1);
+    let p = shelf
+        .echo_titled_pair(&TitledPair {
+            first: Some(note.clone()),
+            second: Some(note.into()),
+        })
+        .unwrap();
+    assert!(
+        p.first
+            .unwrap()
+            .value()
+            .unwrap()
+            .ptr_eq(p.second.unwrap().value().unwrap())
+    );
+    assert!(shelf.echo_titled(None).unwrap().is_none());
+
+    // The async version.
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    assert_eq!(rt.block_on(t_label(&back_ref(&shelf))), "dune-async");
+    drop(client);
+    server.shutdown(true).unwrap();
+}
+
+fn back_ref(shelf: &Shelf) -> Titled {
+    shelf.make_book("dune-async").unwrap().unwrap().into()
+}
+
+async fn t_label(t: &Titled) -> String {
+    t.label_of_async().await.unwrap()
+}
+
+struct Counter {
+    fired: Mutex<Vec<i32>>,
+}
+
+impl Hook for Counter {
+    fn fire(&self, n: i32, next: Option<&Arc<dyn Hook>>) -> idl::Sys<i32> {
+        self.fired.lock().unwrap().push(n);
+        match next {
+            Some(h) => Ok(n + h.fire(n + 1, None)?),
+            None => Ok(n),
+        }
+    }
+}
+
+impl LoudHook for Counter {
+    fn shout(&self, s: &str) -> Result<(), loud_hook::ShoutError> {
+        if s.is_empty() {
+            return Err(Failure {
+                code: 2,
+                message: "quiet".into(),
+                kind: Fruit::Apple,
+            }
+            .into());
+        }
+        Ok(())
+    }
+
+    fn last(&self) -> idl::Sys<Pair> {
+        Ok(Pair::default())
+    }
+}
+
+impl BellOperations for BellState {
+    fn fire(&mut self, n: i32, _next: Option<&Arc<dyn Hook>>) -> idl::Sys<i32> {
+        self.rings += 1;
+        Ok(n * 100)
+    }
+}
+
+#[test]
+fn local_interfaces() {
+    assert_eq!(hook::REPOSITORY_ID, "IDL:rustorb.org/RustMapping/Hook:1.0");
+    let a = Arc::new(Counter {
+        fired: Mutex::new(Vec::new()),
+    });
+    let b: Arc<dyn Hook> = Arc::new(Counter {
+        fired: Mutex::new(Vec::new()),
+    });
+    assert_eq!(a.fire(1, Some(&b)).unwrap(), 3);
+    assert_eq!(*a.fired.lock().unwrap(), [1]);
+    let loud: Arc<dyn LoudHook> = a.clone();
+    assert!(matches!(
+        loud.shout(""),
+        Err(loud_hook::ShoutError::Failure(_))
+    ));
+    assert_eq!(loud.fire(5, None).unwrap(), 5);
+    // A valuetype that supports a local interface.
+    let bell = Bell::new(BellState { rings: 0 });
+    let h: Arc<dyn Hook> = Arc::new(bell.clone());
+    assert_eq!(a.fire(1, Some(&h)).unwrap(), 201);
+    assert_eq!(bell.get().rings, 1);
+}

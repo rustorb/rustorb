@@ -235,6 +235,47 @@ module RustMapping {
     long read_meter(in Meter m);
   };
 
+  // --- abstract interfaces ---
+  // An abstract interface is an enum: an object reference or a value.
+  abstract interface Labeled {
+    string label_of();
+  };
+  abstract interface Titled : Labeled {
+    attribute long rank;
+    void retitle(inout string title) raises (Failure);
+  };
+  interface Book : Titled {
+    long pages();
+  };
+  // Its instances pass as Titled (and Labeled).
+  valuetype Note supports Titled {
+    public string text;
+    public long level;
+  };
+  struct TitledPair {
+    Titled first;
+    Labeled second;
+  };
+  interface Shelf {
+    Titled echo_titled(in Titled t);
+    TitledPair echo_titled_pair(in TitledPair p);
+    string label(in Labeled l);
+    Book make_book(in string title);
+  };
+
+  // --- local interfaces ---
+  // A local interface is a trait only.
+  local interface Hook {
+    long fire(in long n, in Hook next);
+  };
+  local interface LoudHook : Hook {
+    void shout(in string s) raises (Failure);
+    readonly attribute Pair last;
+  };
+  valuetype Bell supports Hook {
+    public long rings;
+  };
+
   // --- nested modules ---
   module Inner {
     const string INNER_NAME = "inner";

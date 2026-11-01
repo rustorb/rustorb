@@ -17,6 +17,16 @@ break the API).
   `-ORBfollowLimit N`): how long and how many times a server thread goes on
   reading the next request on its connection. The defaults (1 ms, 64) are the
   old fixed values (#86)
+- `rustorb-idl -brust` maps abstract interfaces (an enum of an object
+  reference or a value, and the trait `AServant`) and local interfaces (a
+  trait, used as `Arc<dyn L>`); the core's `idl` module has the helpers
+  (`AbstractValue`, `register_supported`, `ValueHandle::read_base`). The
+  rustorb interop client and server run the abstract interface suite (#104)
+
+### Changed
+
+- `rustorb-idl -brust` rejects operations with a `context` clause, which it
+  used to drop silently (#104)
 
 ### Fixed
 
