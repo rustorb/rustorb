@@ -217,6 +217,11 @@ inline void run_cases(Runner& r, IDL::traits<InteropTest::Echo>::ref_type echo,
     for (int i = 0; i < 256; ++i) seq.push_back(static_cast<uint8_t>(i));
     CHECK(echo->echo_octets(seq) == seq);
   });
+  r.run("echo_octets[large]", [&]() {
+    OctetSeq seq;
+    for (int i = 0; i < 300000; ++i) seq.push_back(static_cast<uint8_t>(i % 251));
+    CHECK(echo->echo_octets(seq) == seq);
+  });
 
   // --- parameter modes ---
   r.run("swap", [&]() {

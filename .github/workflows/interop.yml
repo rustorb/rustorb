@@ -84,6 +84,11 @@ jobs:
       - name: Run the matrix with GIOP 1.1 clients
         run: interop/run-matrix.sh --capture --giop 1.1
 
+      # rustorb sending GIOP 1.2 Fragments (#102), against every server and
+      # client of the image; the large cases make many Fragments.
+      - name: Run the matrix with rustorb sending Fragments
+        run: interop/run-matrix.sh --fragment 1024
+
       # SSLIOP (#78): TLS endpoints only, certificates required both ways,
       # between omniORB C++, omniORBpy and the rustorb implementations.
       - name: Run the matrix over TLS

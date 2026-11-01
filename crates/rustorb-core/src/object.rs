@@ -869,6 +869,21 @@ async fn attempt_on<A: WriteArgs + ?Sized>(
         } => {
             let header = request_header(request_id, *response, target, operation, context);
             match encode_request(version, order, &header, *args, code_sets) {
+                Ok(msg) if msg.len() > options.max_message_size => {
+                    trace::warning!(
+                        "request {operation:?} of {} bytes is over the largest GIOP message \
+                         ({} bytes, -ORBgiopMaxMsgSize): not sent",
+                        msg.len(),
+                        options.max_message_size
+                    );
+                    return Ok(Attempt::Done(Err(sys(
+                        SystemExceptionKind::MARSHAL,
+                        0,
+                        CompletionStatus::No,
+                    )
+                    .into())));
+                }
+                Ok(msg) if options.fragment_size > 0 => msg.fragment(options.fragment_size),
                 Ok(msg) => msg,
                 Err(e) => return Ok(Attempt::Done(Err(e))),
             }

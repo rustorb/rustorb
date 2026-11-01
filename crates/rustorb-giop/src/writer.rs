@@ -213,6 +213,10 @@ impl MessageEncoder {
             }
         }
         let len = self.enc.len();
+        let header_len = match self.body_start {
+            Some((before, _)) => before,
+            None => len,
+        };
         let size =
             u32::try_from(len - MessageHeader::SIZE).map_err(|_| Error::MessageTooLarge(len))?;
         let size = match self.enc.byte_order() {
@@ -221,7 +225,12 @@ impl MessageEncoder {
         };
         self.enc.as_bytes_mut()[8..12].copy_from_slice(&size);
         let (bytes, shared) = self.enc.into_parts();
-        Ok(OutMessage { bytes, shared, len })
+        Ok(OutMessage {
+            bytes,
+            shared,
+            len,
+            header_len,
+        })
     }
 }
 
@@ -233,6 +242,9 @@ pub struct OutMessage {
     /// Each with the length of `bytes` at which it goes.
     shared: Vec<(usize, Octets)>,
     len: usize,
+    /// Where the body starts (before its padding): the message header and
+    /// the message-specific header come before it.
+    header_len: usize,
 }
 
 impl OutMessage {
@@ -295,6 +307,76 @@ impl OutMessage {
         })
     }
 
+    /// Splits a GIOP 1.2 `Request`, `Reply` or `LocateReply` longer than
+    /// `size` bytes into a first message and `Fragment` messages of at
+    /// most `size` bytes each (`size` rounded down to a multiple of 8, at
+    /// least 64), returned one after the other in one `OutMessage`. Other
+    /// messages, and messages that fit, are returned as they are.
+    ///
+    /// The first message keeps the whole message-specific header. Every
+    /// message but the last is a multiple of 8 bytes long, so the body
+    /// keeps its alignment whether it is read relative to the start of
+    /// the whole message or of each `Fragment` (16 bytes of headers).
+    pub fn fragment(self, size: usize) -> OutMessage {
+        if self.len <= size || self.bytes.len() < MessageHeader::SIZE + 4 {
+            return self;
+        }
+        let size = (size & !7).max(64);
+        if self.len <= size {
+            return self;
+        }
+        let head = &self.bytes[..MessageHeader::SIZE];
+        let version = Version {
+            major: head[4],
+            minor: head[5],
+        };
+        let flags = head[6];
+        let fragmentable = matches!(head[7], 0 | 1 | 4); // Request, Reply, LocateReply
+        if version != Version::V1_2 || !fragmentable || flags & 2 != 0 {
+            return self;
+        }
+        let first = size.max((self.header_len + 7) & !7);
+        if first >= self.len {
+            return self;
+        }
+        let order = if flags & 1 != 0 {
+            ByteOrder::Little
+        } else {
+            ByteOrder::Big
+        };
+        let u32_bytes = |v: u32| match order {
+            ByteOrder::Big => v.to_be_bytes(),
+            ByteOrder::Little => v.to_le_bytes(),
+        };
+        let request_id = [
+            self.bytes[12],
+            self.bytes[13],
+            self.bytes[14],
+            self.bytes[15],
+        ];
+        let len = self.len;
+        let whole = self.into_vec();
+        let per = size - MessageHeader::SIZE - 4;
+        let count = 1 + (len - first).div_ceil(per);
+        let mut out = Vec::with_capacity(len + count * (MessageHeader::SIZE + 4));
+        out.extend_from_slice(&whole[..first]);
+        out[6] |= 2;
+        out[8..12].copy_from_slice(&u32_bytes((first - MessageHeader::SIZE) as u32));
+        let mut at = first;
+        while at < len {
+            let end = (at + per).min(len);
+            let more = end < len;
+            out.extend_from_slice(&whole[..6]);
+            out.push(flags & 1 | if more { 2 } else { 0 });
+            out.push(7); // Fragment
+            out.extend_from_slice(&u32_bytes((end - at + 4) as u32));
+            out.extend_from_slice(&request_id);
+            out.extend_from_slice(&whole[at..end]);
+            at = end;
+        }
+        OutMessage::from(out)
+    }
+
     /// The message as one buffer; copies only if octets were kept apart.
     pub fn into_vec(self) -> Vec<u8> {
         if self.shared.is_empty() {
@@ -315,6 +397,7 @@ impl From<Vec<u8>> for OutMessage {
             bytes,
             shared: Vec::new(),
             len,
+            header_len: len,
         }
     }
 }

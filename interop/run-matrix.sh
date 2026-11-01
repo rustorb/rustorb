@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Runs the interop test matrix with Docker Compose.
 #
-#   ./run-matrix.sh [--build] [--capture] [--giop VER] [--jobs N] [--naming IMPL]
-#                   [--out DIR] [--ssl] [--suite SUITE] [CLIENT:SERVER ...]
+#   ./run-matrix.sh [--build] [--capture] [--fragment N] [--giop VER] [--jobs N]
+#                   [--naming IMPL] [--out DIR] [--ssl] [--suite SUITE]
+#                   [CLIENT:SERVER ...]
 #
 # Without pairs, every client in $CLIENT_IMPLS is paired with every server in
 # $SERVER_IMPLS. Both default to $IMPLS (omniorbpy, omniorb-cpp and, but for
@@ -14,6 +15,10 @@
 # in a pair.
 # --build    builds the omniORB image first
 # --capture  captures each client's traffic and splits it into GIOP messages
+# --fragment N  the rustorb clients and servers split GIOP 1.2 messages
+#            into Fragments of N bytes (-ORBgiopFragmentSize); without pairs,
+#            only the pairs with a rustorb side run. The results go to
+#            <client>-to-<server>-frag<N>
 # --giop VER limits the client to GIOP VER (e.g. 1.1); the results go to
 #            <client>-to-<server>-giop<VER>
 # --jobs N   runs N pairs at a time (default: $INTEROP_JOBS, or 1); each pair
@@ -49,6 +54,7 @@ IMAGE="rustorb-interop-omniorb:latest"
 build=0
 capture=0
 giop=
+fragment=
 naming=omninames
 suite=basic
 out="$PWD/out"
@@ -66,7 +72,8 @@ while [ $# -gt 0 ]; do
     --suite) suite="$2"; shift ;;
     --out) out="$(realpath -m "$2")"; shift ;;
     --ssl) ssl=1 ;;
-    -h|--help) sed -n '2,38p' "$0"; exit 0 ;;
+    --fragment) fragment="$2"; shift ;;
+    -h|--help) sed -n '2,45p' "$0"; exit 0 ;;
     *:*) pairs+=("$1") ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -94,6 +101,7 @@ elif [ $ssl -eq 1 ]; then
 else
   IMPLS="${IMPLS:-omniorbpy omniorb-cpp jacorb}"
 fi
+export INTEROP_FRAGMENT_SIZE="$fragment"
 if [ $ssl -eq 1 ]; then
   export INTEROP_SSL=/opt/interop/tls
 else
@@ -106,6 +114,10 @@ SERVER_IMPLS="${SERVER_IMPLS:-$IMPLS $rustorb_impls}"
 if [ ${#pairs[@]} -eq 0 ]; then
   for c in $CLIENT_IMPLS; do
     for s in $SERVER_IMPLS; do
+      # Fragmenting changes only what rustorb sends.
+      if [ -n "$fragment" ] && [[ "$c" != rustorb* ]] && [[ "$s" != rustorb* ]]; then
+        continue
+      fi
       pairs+=("$c:$s")
     done
   done
@@ -263,7 +275,7 @@ run_pair() {
 
 pair_name() {
   local pair="$1" name
-  name="${pair%%:*}-to-${pair##*:}${giop:+-giop$giop}"
+  name="${pair%%:*}-to-${pair##*:}${giop:+-giop$giop}${fragment:+-frag$fragment}"
   if [ "$suite" != basic ]; then
     name+="-$suite"
   fi

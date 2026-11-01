@@ -141,6 +141,12 @@ public final class Common {
                 args.add("-ORBmaxGIOPVersion");
                 args.add(giop);
             }
+            // run-matrix.sh --fragment N: rustorb splits GIOP 1.2 messages.
+            String frag = System.getenv("INTEROP_FRAGMENT_SIZE");
+            if (frag != null && !frag.isEmpty()) {
+                args.add("-ORBgiopFragmentSize");
+                args.add(frag);
+            }
         }
         return ORB.init(args.toArray(new String[0]), props);
     }

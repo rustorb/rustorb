@@ -58,7 +58,8 @@ rustorbjava-portable * echo_value[5] JacORB unions keep one default discriminato
 
 # JacORB 3.9 does not accept GIOP 1.1 Fragment messages ("Received a
 # fragmented GIOP 1.1 message", then NO_IMPLEMENT). The omniORB clients
-# fragment large GIOP 1.1 requests; rustorb never fragments what it sends.
+# fragment large GIOP 1.1 requests; rustorb fragments only GIOP 1.2
+# (-ORBgiopFragmentSize, docs/message-size.md).
 giop=1.1 omniorb* jacorb echo_string[2] JacORB rejects GIOP 1.1 fragments
 giop=1.1 omniorb* jacorb echo_records[large] JacORB rejects GIOP 1.1 fragments
 # omniORB 4.3.4 C++ writes the state members of valuetype TypeCodes with

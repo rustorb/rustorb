@@ -13,6 +13,8 @@
 #   SUITE / ECHO_NAME           the test suite (basic: InteropTest.idl, any:
 #                               AnyTest.idl, value: ValueTest.idl) and the
 #                               name of its object
+#   INTEROP_FRAGMENT_SIZE       -ORBgiopFragmentSize for the rustorb clients and
+#                               servers (run-matrix.sh --fragment), empty for none
 #   INTEROP_SSL                 /opt/interop/tls for TLS endpoints (with the
 #                               certificates of crates/rustorb-core/tests/tls),
 #                               empty for TCP
@@ -37,6 +39,7 @@ services:
     depends_on: [naming]
     environment:
       INTEROP_SSL: ${INTEROP_SSL:-}
+      INTEROP_FRAGMENT_SIZE: ${INTEROP_FRAGMENT_SIZE:-}
     volumes:
       - ../crates/rustorb-core/tests/tls:/opt/interop/tls:ro
       # The rustorb servers are built on the host (see run-matrix.sh).
@@ -70,6 +73,7 @@ services:
       # omniORB reads ORB<option> from the environment; empty means unset.
       ORBmaxGIOPVersion: ${CLIENT_MAX_GIOP:-}
       INTEROP_SSL: ${INTEROP_SSL:-}
+      INTEROP_FRAGMENT_SIZE: ${INTEROP_FRAGMENT_SIZE:-}
       CAPTURE_LABELS: --port-label 2809=naming --port-label 2810=server --port-label 2811=client
     volumes:
       - ${OUT_DIR:-./out}:/out
