@@ -76,6 +76,7 @@ pub(crate) struct Server {
     fixed_port: bool,
     order: ByteOrder,
     max_message_size: usize,
+    fragment_size: usize,
     max_requests: usize,
     /// [`crate::OrbOptions::follow_linger`] and [`crate::OrbOptions::follow_limit`].
     follow_linger: Duration,
@@ -246,6 +247,7 @@ impl Server {
                 .any(|ep| ep.port != 0),
             order: options.byte_order,
             max_message_size: options.max_message_size,
+            fragment_size: options.fragment_size,
             max_requests: options.max_requests_per_connection.max(1),
             follow_linger: options.follow_linger,
             follow_limit: if options.follow_linger.is_zero() {
@@ -1363,6 +1365,8 @@ struct ServerConn {
     writer: Mutex<Option<JoinHandle<()>>>,
     /// Largest reply sent (`OrbOptions::max_message_size`).
     max_message_size: usize,
+    /// `OrbOptions::fragment_size`.
+    fragment_size: usize,
 }
 
 impl Drop for ServerConn {
@@ -1522,7 +1526,11 @@ impl ReplyTo {
                     return;
                 }
                 if msg.len() <= conn.max_message_size {
-                    conn.send(msg);
+                    if conn.fragment_size > 0 {
+                        conn.send(msg.fragment(conn.fragment_size));
+                    } else {
+                        conn.send(msg);
+                    }
                     return;
                 }
                 trace::warning!(
@@ -1642,6 +1650,7 @@ async fn serve(server: Arc<Server>, stream: TcpStream, tls: Option<Arc<rustls::S
         permits: Arc::new(Semaphore::new(server.max_requests)),
         writer: Mutex::new(None),
         max_message_size: server.max_message_size,
+        fragment_size: server.fragment_size,
     });
     *conn.writer.lock().unwrap() = Some(tokio::spawn(write_loop(out)));
     let id = server.add_connection(&conn);

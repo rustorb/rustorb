@@ -883,6 +883,7 @@ async fn attempt_on<A: WriteArgs + ?Sized>(
                     )
                     .into())));
                 }
+                Ok(msg) if options.fragment_size > 0 => msg.fragment(options.fragment_size),
                 Ok(msg) => msg,
                 Err(e) => return Ok(Attempt::Done(Err(e))),
             }

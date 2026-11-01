@@ -290,6 +290,11 @@ fn run_cases(r: &mut Runner, e: &Echo, cb: &Callback) {
         let v: Vec<u8> = (0..=255).collect();
         same(&v, e.echo_octets(&v))
     });
+    // Large enough for many Fragments (run-matrix.sh --fragment).
+    r.case("echo_octets[large]", || {
+        let v: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+        same(&v, e.echo_octets(&v))
+    });
 
     r.case("swap", || {
         let (mut a, mut b) = (3, -10);
@@ -477,6 +482,11 @@ fn run() -> Result<bool, String> {
     // from the environment.
     match std::env::var("ORBmaxGIOPVersion") {
         Ok(v) if !v.is_empty() => orb_args.extend(["-ORBmaxGIOPVersion".to_owned(), v]),
+        _ => {}
+    }
+    // run-matrix.sh --fragment N: rustorb splits GIOP 1.2 messages.
+    match std::env::var("INTEROP_FRAGMENT_SIZE") {
+        Ok(n) if !n.is_empty() => orb_args.extend(["-ORBgiopFragmentSize".to_owned(), n]),
         _ => {}
     }
     if args.port != 0 || args.host.is_some() {

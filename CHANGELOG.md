@@ -19,6 +19,10 @@ break the API).
   binding (docs/message-size.md). The limit now applies to what the ORB sends
   too: a request over it is not sent (`MARSHAL`, completed no), and a reply
   over it is replaced by `MARSHAL`, completed yes (#102)
+- `-ORBgiopFragmentSize N` (`OrbOptions::fragment_size`): GIOP 1.2 requests
+  and replies longer than N bytes are sent as a first message and `Fragment`
+  messages of at most N bytes. Off (0) by default; GIOP 1.1 messages are
+  never split (#102)
 
 ### Changed
 

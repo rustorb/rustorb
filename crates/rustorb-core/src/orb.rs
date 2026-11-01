@@ -45,6 +45,12 @@ pub struct OrbOptions {
     /// over it is replaced by `MARSHAL`, completed yes; a message
     /// received over it closes the connection.
     pub max_message_size: usize,
+    /// Splits GIOP 1.2 requests and replies longer than this many bytes
+    /// into `Fragment` messages of at most this length
+    /// (`-ORBgiopFragmentSize N`; at least 1024, rounded down to a
+    /// multiple of 8). 0, the default, sends every message whole. GIOP 1.1
+    /// messages are never split. See docs/message-size.md.
+    pub fragment_size: usize,
     /// How many `LOCATION_FORWARD` replies one invocation follows before
     /// it gives up with `TRANSIENT`.
     pub max_forwards: u32,
@@ -215,6 +221,7 @@ impl Default for OrbOptions {
             connect_timeout: None,
             request_timeout: None,
             max_message_size: 64 * 1024 * 1024,
+            fragment_size: 0,
             max_forwards: 16,
             init_refs: HashMap::new(),
             default_init_ref: None,
@@ -248,6 +255,7 @@ impl OrbOptions {
     /// | `-ORBDefaultInitRef URL` | [`default_init_ref`](OrbOptions::default_init_ref) |
     /// | `-ORBmaxGIOPVersion 1.1` | [`max_giop_version`](OrbOptions::max_giop_version) |
     /// | `-ORBgiopMaxMsgSize N` | [`max_message_size`](OrbOptions::max_message_size), in bytes (at least 1024) |
+    /// | `-ORBgiopFragmentSize N` | [`fragment_size`](OrbOptions::fragment_size), in bytes (0, or at least 1024) |
     /// | `-ORBclientConnectTimeOutPeriod MS` | [`connect_timeout`](OrbOptions::connect_timeout) (0 for none) |
     /// | `-ORBclientCallTimeOutPeriod MS` | [`request_timeout`](OrbOptions::request_timeout) (0 for none) |
     /// | `-ORBsupportPerThreadTimeOut 0\|1` | accepted and ignored: per-thread timeouts always work |
@@ -282,6 +290,7 @@ impl OrbOptions {
                         name,
                         "maxGIOPVersion"
                             | "giopMaxMsgSize"
+                            | "giopFragmentSize"
                             | "clientConnectTimeOutPeriod"
                             | "clientCallTimeOutPeriod"
                             | "supportPerThreadTimeOut"
@@ -307,6 +316,7 @@ impl OrbOptions {
                     | "DefaultInitRef"
                     | "maxGIOPVersion"
                     | "giopMaxMsgSize"
+                    | "giopFragmentSize"
                     | "clientConnectTimeOutPeriod"
                     | "clientCallTimeOutPeriod"
                     | "supportPerThreadTimeOut"
@@ -353,6 +363,13 @@ impl OrbOptions {
                         return Err(bad_option());
                     }
                     self.max_message_size = n;
+                }
+                "giopFragmentSize" => {
+                    let n: usize = value.parse().map_err(|_| bad_option())?;
+                    if n != 0 && n < MIN_MESSAGE_SIZE {
+                        return Err(bad_option());
+                    }
+                    self.fragment_size = n;
                 }
                 "clientConnectTimeOutPeriod" => self.connect_timeout = millis(&value)?,
                 "clientCallTimeOutPeriod" => self.request_timeout = millis(&value)?,

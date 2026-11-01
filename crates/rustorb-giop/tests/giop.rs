@@ -809,3 +809,88 @@ fn code_set_context_roundtrip() {
     }
     assert!(CodeSetContext::find(&[]).is_none());
 }
+
+/// Splits a run of whole messages into each message.
+fn split_messages(mut bytes: &[u8]) -> Vec<&[u8]> {
+    let mut out = Vec::new();
+    while !bytes.is_empty() {
+        let header = MessageHeader::parse(&bytes[..MessageHeader::SIZE]).unwrap();
+        let (one, rest) = bytes.split_at(header.total_len());
+        out.push(one);
+        bytes = rest;
+    }
+    out
+}
+
+#[test]
+fn out_message_fragments_giop_1_2() {
+    let shared = Octets::from(vec![9u8; 5000]);
+    for order in ORDERS {
+        let header = RequestHeader {
+            request_id: 77,
+            response_flags: response_flags::SYNC_WITH_TARGET,
+            target: TargetAddress::Key(b"a longer object key".to_vec()),
+            operation: "fragmented_operation".into(),
+            service_context: vec![],
+            requesting_principal: vec![],
+        };
+        let mut m = MessageEncoder::request(Version::V1_2, order, &header).unwrap();
+        let body = m.body();
+        for i in 0..300u32 {
+            body.write_octet(i as u8);
+            body.write_u64(u64::from(i) << 20);
+            body.write_string("x").unwrap();
+            body.write_f64(f64::from(i));
+        }
+        body.write_octet_seq_shared(&shared).unwrap();
+        body.write_u16(0xabcd);
+        let msg = m.finish_shared().unwrap();
+        let whole = msg.clone().into_vec();
+        for size in [64, 100, 1000, 4096, whole.len() - 1] {
+            let bytes = msg.clone().fragment(size).into_vec();
+            let parts = split_messages(&bytes);
+            assert!(parts.len() > 1, "size {size}");
+            let size = size & !7;
+            let first = MessageHeader::parse(parts[0]).unwrap();
+            assert!(first.more_fragments);
+            assert_eq!(first.msg_type, MsgType::Request);
+            for (i, part) in parts.iter().enumerate() {
+                let h = MessageHeader::parse(part).unwrap();
+                assert_eq!(h.more_fragments, i + 1 < parts.len());
+                if i > 0 {
+                    assert_eq!(h.msg_type, MsgType::Fragment);
+                    assert!(part.len() <= size);
+                }
+                if i + 1 < parts.len() {
+                    assert_eq!(part.len() % 8, 0);
+                }
+            }
+            let mut assembler = FragmentAssembler::default();
+            let mut got = None;
+            for part in &parts {
+                got = assembler.push(part).unwrap();
+            }
+            let got = got.unwrap();
+            assert_eq!(got.as_bytes(), &whole[..]);
+            let (_, Message::Request { header: h, body }) = got.decode().unwrap() else {
+                panic!("not a request");
+            };
+            assert_eq!(h.request_id, 77);
+            let mut dec = body.decoder();
+            for i in 0..300u32 {
+                assert_eq!(dec.read_octet().unwrap(), i as u8);
+                assert_eq!(dec.read_u64().unwrap(), u64::from(i) << 20);
+                assert_eq!(dec.read_string().unwrap(), "x");
+                assert_eq!(dec.read_f64().unwrap(), f64::from(i));
+            }
+            assert_eq!(dec.read_octet_seq().unwrap(), &shared[..]);
+            assert_eq!(dec.read_u16().unwrap(), 0xabcd);
+        }
+        // Messages that fit, and GIOP 1.1, stay as they are.
+        assert_eq!(msg.clone().fragment(whole.len()).into_vec(), whole);
+        let mut m = MessageEncoder::request(Version::V1_1, order, &header).unwrap();
+        m.body().write_octet_seq(&[1; 3000]).unwrap();
+        let v11 = m.finish_shared().unwrap();
+        assert_eq!(v11.clone().fragment(256), v11);
+    }
+}

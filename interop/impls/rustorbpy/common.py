@@ -51,6 +51,10 @@ def orb_init(args, orb_args):
     max_giop = os.environ.get("ORBmaxGIOPVersion")
     if max_giop:
         argv += ["-ORBmaxGIOPVersion", max_giop]
+    # run-matrix.sh --fragment N: rustorb splits GIOP 1.2 messages.
+    frag = os.environ.get("INTEROP_FRAGMENT_SIZE")
+    if frag:
+        argv += ["-ORBgiopFragmentSize", frag]
     # INTEROP_SSL=DIR (run-matrix.sh --ssl): the endpoint is TLS only, with
     # the test CA and certificate in DIR, and certificates are required
     # both ways, as omniORB requires by default.

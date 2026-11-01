@@ -152,3 +152,52 @@ fn request_over_the_servers_limit_fails() {
     client.destroy().unwrap();
     server.destroy().unwrap();
 }
+
+#[test]
+fn fragment_size_option() {
+    let mut options = OrbOptions::default();
+    assert_eq!(options.fragment_size, 0);
+    options
+        .parse_args(&mut args("-ORBgiopFragmentSize 4096"))
+        .unwrap();
+    assert_eq!(options.fragment_size, 4096);
+    options
+        .parse_args(&mut args("-ORBgiopFragmentSize=0"))
+        .unwrap();
+    assert_eq!(options.fragment_size, 0);
+    for bad in ["-ORBgiopFragmentSize 100", "-ORBgiopFragmentSize x"] {
+        assert!(options.parse_args(&mut args(bad)).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn fragmented_requests_and_replies() {
+    for (server_args, client_args) in [
+        ("-ORBgiopFragmentSize 1024", "-ORBgiopFragmentSize 1024"),
+        ("-ORBgiopFragmentSize 1031", ""),
+        ("", "-ORBgiopFragmentSize 2048"),
+        // GIOP 1.1 is never fragmented.
+        (
+            "-ORBgiopFragmentSize 1024",
+            "-ORBgiopFragmentSize 1024 -ORBmaxGIOPVersion 1.1",
+        ),
+    ] {
+        let (server, client, obj) = pair(server_args, client_args);
+        for n in [0, 10, 1000, 1024, 5000, 200_000] {
+            assert_eq!(echo(&obj, n).unwrap(), n, "{server_args} / {client_args}");
+            assert_eq!(octets(&obj, n as u32).unwrap(), n);
+        }
+        client.destroy().unwrap();
+        server.destroy().unwrap();
+    }
+}
+
+#[test]
+fn limit_applies_to_the_whole_fragmented_message() {
+    let (server, client, obj) = pair("", "-ORBgiopFragmentSize 1024 -ORBgiopMaxMsgSize 65536");
+    assert_eq!(echo(&obj, 60_000).unwrap(), 60_000);
+    let e = echo(&obj, 70_000).unwrap_err();
+    assert!(e.is(SystemExceptionKind::MARSHAL), "{e}");
+    client.destroy().unwrap();
+    server.destroy().unwrap();
+}

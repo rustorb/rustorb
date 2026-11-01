@@ -289,6 +289,7 @@ Every binding takes the same `-ORB...` options (from the command line, or
 | `-ORBendPointPublish giop:tcp:HOST:PORT` | the address written into IORs |
 | `-ORBmaxGIOPVersion 1.1` | the highest GIOP version to send |
 | `-ORBgiopMaxMsgSize N` | the largest GIOP message sent or received, in bytes (default 64 MiB; [message-size.md](message-size.md)) |
+| `-ORBgiopFragmentSize N` | send GIOP 1.2 messages over N bytes as Fragments (default: never) |
 | `-ORBclientCallTimeOutPeriod MS` | a timeout for every call ([timeouts.md](timeouts.md)) |
 | `-ORBendPoint giop:ssl:HOST:PORT`, `-ORBsslCAFile`, `-ORBsslKeyFile` | SSLIOP ([ssliop.md](ssliop.md)) |
 | `-ORBtraceLevel N`, `-ORBtraceTime 1` | trace output on standard error, or `logging` in Python: 5 connections, 10 requests, 25 GIOP messages ([tracing.md](tracing.md)) |
