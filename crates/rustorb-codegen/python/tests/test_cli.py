@@ -50,5 +50,28 @@ class IdlDirTest(unittest.TestCase):
         self.assertTrue(os.path.isdir(os.path.join(d, "UsesNaming")))
 
 
+class OutputDirectoryTest(unittest.TestCase):
+    def test_creates_nested_output_directory_for_each_backend(self):
+        with tempfile.TemporaryDirectory(prefix="rustorb-idl-cli-") as d:
+            idl = os.path.join(d, "Echo.idl")
+            with open(idl, "w") as f:
+                f.write("module Example { interface Echo { string echo(in string value); }; };\n")
+            for backend, output in (
+                ("python", "Echo_idl.py"),
+                ("c++11", "Echo.hh"),
+                ("java", os.path.join("Example", "Echo.java")),
+                ("rust", "echo.rs"),
+            ):
+                with self.subTest(backend=backend):
+                    outdir = os.path.join(d, backend, "nested", "gen")
+                    args = ["-b" + backend, "-C", outdir, idl]
+                    if backend == "rust":
+                        args.insert(1, "-Wbno_rustfmt")
+                    self.assertEqual(cli.main(args), 0)
+                    self.assertTrue(os.path.isfile(os.path.join(outdir, output)))
+                    # An existing output directory can be reused.
+                    self.assertEqual(cli.main(args), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
