@@ -39,7 +39,11 @@ pub struct OrbOptions {
     /// [`Orb::set_call_timeout`]; see there for the timeouts that override
     /// it.
     pub request_timeout: Option<Duration>,
-    /// Largest message accepted from a server, fragments joined.
+    /// Largest GIOP message, header included and fragments joined, that
+    /// the ORB sends or accepts (`-ORBgiopMaxMsgSize N`; default 64 MiB).
+    /// A request over it is not sent (`MARSHAL`, completed no), a reply
+    /// over it is replaced by `MARSHAL`, completed yes; a message
+    /// received over it closes the connection.
     pub max_message_size: usize,
     /// How many `LOCATION_FORWARD` replies one invocation follows before
     /// it gives up with `TRANSIENT`.
@@ -243,6 +247,7 @@ impl OrbOptions {
     /// | `-ORBInitRef Name=URL` | [`init_refs`](OrbOptions::init_refs) |
     /// | `-ORBDefaultInitRef URL` | [`default_init_ref`](OrbOptions::default_init_ref) |
     /// | `-ORBmaxGIOPVersion 1.1` | [`max_giop_version`](OrbOptions::max_giop_version) |
+    /// | `-ORBgiopMaxMsgSize N` | [`max_message_size`](OrbOptions::max_message_size), in bytes (at least 1024) |
     /// | `-ORBclientConnectTimeOutPeriod MS` | [`connect_timeout`](OrbOptions::connect_timeout) (0 for none) |
     /// | `-ORBclientCallTimeOutPeriod MS` | [`request_timeout`](OrbOptions::request_timeout) (0 for none) |
     /// | `-ORBsupportPerThreadTimeOut 0\|1` | accepted and ignored: per-thread timeouts always work |
@@ -276,6 +281,7 @@ impl OrbOptions {
                     if matches!(
                         name,
                         "maxGIOPVersion"
+                            | "giopMaxMsgSize"
                             | "clientConnectTimeOutPeriod"
                             | "clientCallTimeOutPeriod"
                             | "supportPerThreadTimeOut"
@@ -300,6 +306,7 @@ impl OrbOptions {
                 "InitRef"
                     | "DefaultInitRef"
                     | "maxGIOPVersion"
+                    | "giopMaxMsgSize"
                     | "clientConnectTimeOutPeriod"
                     | "clientCallTimeOutPeriod"
                     | "supportPerThreadTimeOut"
@@ -339,6 +346,13 @@ impl OrbOptions {
                         return Err(bad_option());
                     }
                     self.max_giop_version = version;
+                }
+                "giopMaxMsgSize" => {
+                    let n: usize = value.parse().map_err(|_| bad_option())?;
+                    if n < MIN_MESSAGE_SIZE {
+                        return Err(bad_option());
+                    }
+                    self.max_message_size = n;
                 }
                 "clientConnectTimeOutPeriod" => self.connect_timeout = millis(&value)?,
                 "clientCallTimeOutPeriod" => self.request_timeout = millis(&value)?,
@@ -423,6 +437,10 @@ fn millis(value: &str) -> Result<Option<Duration>, SystemException> {
 fn bad_param() -> SystemException {
     SystemException::new(SystemExceptionKind::BAD_PARAM, 0, CompletionStatus::No)
 }
+
+/// The smallest `-ORBgiopMaxMsgSize`: room for the headers of any request
+/// and for a system exception reply.
+const MIN_MESSAGE_SIZE: usize = 1024;
 
 fn bad_option() -> SystemException {
     SystemException::new(SystemExceptionKind::BAD_PARAM, 0, CompletionStatus::No)

@@ -1361,6 +1361,8 @@ struct ServerConn {
     version: Mutex<Version>,
     permits: Arc<Semaphore>,
     writer: Mutex<Option<JoinHandle<()>>>,
+    /// Largest reply sent (`OrbOptions::max_message_size`).
+    max_message_size: usize,
 }
 
 impl Drop for ServerConn {
@@ -1509,13 +1511,33 @@ impl ReplyTo {
         }
     }
 
-    /// Queues the reply, unless the request was oneway or cancelled.
+    /// Queues the reply, unless the request was oneway or cancelled. A
+    /// reply over the largest message is replaced by `MARSHAL`, completed
+    /// yes.
     fn send(mut self, msg: OutMessage) {
         match self.sink.take() {
             Some(Sink::Conn(conn)) => {
                 let cancelled = conn.end(self.request_id);
-                if self.response && !cancelled {
+                if !self.response || cancelled {
+                    return;
+                }
+                if msg.len() <= conn.max_message_size {
                     conn.send(msg);
+                    return;
+                }
+                trace::warning!(
+                    "reply to request id {} of {} bytes is over the largest GIOP message \
+                     ({} bytes, -ORBgiopMaxMsgSize): replying MARSHAL",
+                    self.request_id,
+                    msg.len(),
+                    conn.max_message_size
+                );
+                let e =
+                    SystemException::new(SystemExceptionKind::MARSHAL, 0, CompletionStatus::Yes);
+                if let Some(msg) =
+                    system_exception_reply(self.version, self.order, self.request_id, &e)
+                {
+                    conn.send(msg.into());
                 }
             }
             Some(Sink::Local(tx)) if self.response => {
@@ -1619,6 +1641,7 @@ async fn serve(server: Arc<Server>, stream: TcpStream, tls: Option<Arc<rustls::S
         version: Mutex::new(Version::V1_0),
         permits: Arc::new(Semaphore::new(server.max_requests)),
         writer: Mutex::new(None),
+        max_message_size: server.max_message_size,
     });
     *conn.writer.lock().unwrap() = Some(tokio::spawn(write_loop(out)));
     let id = server.add_connection(&conn);
