@@ -10,6 +10,7 @@
 
 use std::io;
 use std::mem::MaybeUninit;
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
@@ -21,6 +22,19 @@ use tokio::net::tcp::OwnedReadHalf;
 use tokio::sync::Notify;
 
 use crate::tls::Tls;
+use crate::trace;
+
+/// A peer address in trace lines.
+pub(crate) struct PeerAddr(pub(crate) Option<SocketAddr>);
+
+impl std::fmt::Display for PeerAddr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            Some(addr) => addr.fmt(f),
+            None => f.write_str("an unknown peer"),
+        }
+    }
+}
 
 /// How much a connection reads ahead: a small message and the header of
 /// the next one usually come in with one read. Bodies larger than this
@@ -207,6 +221,8 @@ pub(crate) struct ReadSide {
     /// A message or failure that a thread read and left for the reader
     /// task.
     held: Option<Result<(Version, Message), ReadError>>,
+    /// The address of the peer, for trace lines.
+    peer: Option<SocketAddr>,
 }
 
 impl ReadSide {
@@ -224,6 +240,11 @@ impl ReadSide {
             let Some((header, msg)) = self.reader.next(read, defer_large)? else {
                 return Ok(None);
             };
+            trace::trace!(
+                "received {} from {}",
+                trace::MessageSummary(&msg, msg.len()),
+                PeerAddr(self.peer)
+            );
             let version = header.version;
             let malformed = |e: rustorb_giop::Error| ReadError::Malformed(version, e.to_string());
             let Some(whole) = self.assembler.push_owned(msg).map_err(malformed)? else {
@@ -285,6 +306,7 @@ pub(crate) struct Inbound {
     /// the runtime has seen no readiness (the thread's reads bypass it,
     /// and the rest of a large message may have arrived already).
     handed_back: AtomicBool,
+    peer: Option<SocketAddr>,
 }
 
 impl Inbound {
@@ -293,6 +315,7 @@ impl Inbound {
         tls: Option<Arc<Tls>>,
         max_message_size: usize,
     ) -> Inbound {
+        let peer = stream.peer_addr().ok();
         Inbound {
             stream,
             tls,
@@ -301,9 +324,11 @@ impl Inbound {
                 reader: MessageReader::new(max_message_size),
                 assembler: FragmentAssembler::new(max_message_size),
                 held: None,
+                peer,
             }),
             back: Notify::new(),
             handed_back: AtomicBool::new(false),
+            peer,
         }
     }
 
@@ -320,6 +345,11 @@ impl Inbound {
     }
 
     /// Shuts the read direction down, which ends a thread's wait.
+    /// The address of the peer.
+    pub(crate) fn peer(&self) -> PeerAddr {
+        PeerAddr(self.peer)
+    }
+
     pub(crate) fn shutdown(&self) {
         let _ = SockRef::from(self.stream.as_ref()).shutdown(std::net::Shutdown::Read);
     }

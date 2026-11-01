@@ -17,6 +17,18 @@ break the API).
   `-ORBfollowLimit N`): how long and how many times a server thread goes on
   reading the next request on its connection. The defaults (1 ms, 64) are the
   old fixed values (#86)
+- Trace output (`-ORBtraceLevel N`, `-ORBtraceTime 0|1`; `OrbOptions::trace_level`,
+  `trace_time`; docs/tracing.md): connections, requests and replies, system
+  exceptions, `LOCATION_FORWARD`, POA events and each GIOP message, as events
+  of the `tracing` crate. Without a global subscriber, the events the level
+  selects go to standard error (C++ and Java use this); Python hands them to
+  `logging` (loggers `rustorb.*`) and has `rustorb.set_trace_level` (#105)
+
+### Changed
+
+- The warnings the core wrote to standard error (a servant that panicked, say)
+  are trace events of level 1, the default: `-ORBtraceLevel 0` silences them,
+  and a `tracing` subscriber of the application receives them instead (#105)
 
 ### Fixed
 

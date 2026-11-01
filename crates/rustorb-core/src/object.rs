@@ -15,6 +15,7 @@ use rustorb_giop::{
 use crate::connection::{Closed, Connection, SendError};
 use crate::server::Server;
 use crate::stream::{InStream, OutStream, marshal};
+use crate::trace;
 use crate::{
     CodeSets, CompletionStatus, Exception, Orb, SystemException, SystemExceptionKind,
     UserException, minor, timeout,
@@ -632,6 +633,7 @@ impl<'o> Walk<'o> {
                 None
             }
             Attempt::Forward(next) => {
+                trace::info!("LOCATION_FORWARD to {}", trace::IorSummary(&next));
                 self.hops += 1;
                 if self.hops > self.max_hops {
                     return Some(Err(sys(
@@ -648,6 +650,7 @@ impl<'o> Walk<'o> {
                 None
             }
             Attempt::Addressing(wanted) => {
+                trace::debug!("NEEDS_ADDRESSING_MODE: {wanted:?}");
                 self.hops += 1;
                 if self.hops > self.max_hops || wanted == self.disposition {
                     return Some(Err(sys(
@@ -687,7 +690,7 @@ fn invoke<A: WriteArgs + ?Sized>(
     loop {
         let ep = match walk.next() {
             Step::Try(ep) => ep,
-            Step::Done(result) => return result,
+            Step::Done(result) => return traced(kind, result),
         };
         let (ior, disposition) = (Arc::clone(&walk.ior), walk.disposition);
         let attempt = match orb.local_server(&ep.host, ep.port, ep.tls) {
@@ -701,7 +704,7 @@ fn invoke<A: WriteArgs + ?Sized>(
             None => orb.block_on(attempt(orb, &ior, &ep, kind, deadline, disposition, true))?,
         };
         if let Some(result) = walk.record(attempt) {
-            return result;
+            return traced(kind, result);
         }
     }
 }
@@ -721,7 +724,7 @@ async fn invoke_async<A: WriteArgs + ?Sized>(
     loop {
         let ep = match walk.next() {
             Step::Try(ep) => ep,
-            Step::Done(result) => return result,
+            Step::Done(result) => return traced(kind, result),
         };
         let (ior, disposition) = (Arc::clone(&walk.ior), walk.disposition);
         let attempt = match orb.local_server(&ep.host, ep.port, ep.tls) {
@@ -743,7 +746,30 @@ async fn invoke_async<A: WriteArgs + ?Sized>(
             None => attempt(orb, &ior, &ep, kind, deadline, disposition, false).await,
         };
         if let Some(result) = walk.record(attempt) {
-            return result;
+            return traced(kind, result);
+        }
+    }
+}
+
+/// The end of a call, with a trace line for a system exception.
+fn traced<A: WriteArgs + ?Sized>(
+    kind: &Kind<'_, A>,
+    result: Result<Outcome, Exception>,
+) -> Result<Outcome, Exception> {
+    if let Err(Exception::System(e)) = &result {
+        trace::debug!("{} raised {e}", KindName(kind));
+    }
+    result
+}
+
+/// What a call is in trace lines: `request "op"` or `LocateRequest`.
+struct KindName<'a, 'k, A: ?Sized>(&'a Kind<'k, A>);
+
+impl<A: ?Sized> fmt::Display for KindName<'_, '_, A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            Kind::Request { operation, .. } => write!(f, "request {operation:?}"),
+            Kind::Locate => f.write_str("LocateRequest"),
         }
     }
 }
@@ -864,6 +890,15 @@ async fn attempt_on<A: WriteArgs + ?Sized>(
         },
     };
 
+    trace::debug!(
+        "{} (id {request_id}{}) to {}:{}, GIOP {}.{}",
+        KindName(kind),
+        if response { "" } else { ", oneway" },
+        ep.host,
+        ep.port,
+        version.major,
+        version.minor
+    );
     let rx = if response {
         match conn.expect_reply(request_id) {
             Ok(rx) => Some(rx),
@@ -929,6 +964,7 @@ async fn attempt_on<A: WriteArgs + ?Sized>(
     let delivered = match delivered {
         Some(delivered) => delivered,
         None => {
+            trace::debug!("{} (id {request_id}) timed out", KindName(kind));
             conn.forget(request_id);
             if let Ok(cancel) =
                 MessageEncoder::cancel_request(version, order, &CancelRequestHeader { request_id })
@@ -956,12 +992,18 @@ async fn attempt_on<A: WriteArgs + ?Sized>(
             if !matches!(kind, Kind::Request { .. }) {
                 return Err(Closed::Failed("Reply to a LocateRequest".into()));
             }
+            trace::debug!(
+                "reply to {} (id {request_id}): {:?}",
+                KindName(kind),
+                header.reply_status
+            );
             reply_outcome(orb, header.reply_status, body, code_sets)
         }
         Message::LocateReply { header, body } => {
             if !matches!(kind, Kind::Locate) {
                 return Err(Closed::Failed("LocateReply to a Request".into()));
             }
+            trace::debug!("LocateReply (id {request_id}): {:?}", header.locate_status);
             locate_outcome(header.locate_status, &body)
         }
         _ => return Err(Closed::Failed("unexpected message".into())),
@@ -1083,6 +1125,10 @@ fn local_call<A: WriteArgs + ?Sized>(
             response,
         } => (*operation, *args, *response),
     };
+    trace::debug!(
+        "request {operation:?}{} to this ORB's own object (colocated)",
+        if response { "" } else { ", oneway" }
+    );
     let header = request_header(0, response, target, operation, context);
     let msg = match encode_request(version, order, &header, args, code_sets) {
         Ok(msg) => msg.into_vec(),

@@ -98,6 +98,14 @@ pub struct OrbOptions {
     pub tls_endpoint_publish: Option<EndpointAddr>,
     /// Certificates, key and checks of TLS connections, client and server.
     pub tls: TlsOptions,
+    /// The trace level of the process (`-ORBtraceLevel N`), set when the
+    /// ORB is created; `None` leaves it as it is (1 at first). See
+    /// [`trace`](crate::trace) and docs/tracing.md.
+    pub trace_level: Option<u32>,
+    /// Whether trace lines on standard error start with the time
+    /// (`-ORBtraceTime 0|1`), set when the ORB is created; `None` leaves
+    /// it as it is (off at first).
+    pub trace_time: Option<bool>,
 }
 
 /// The TLS settings of an ORB (docs/ssliop.md). Files are PEM.
@@ -220,6 +228,8 @@ impl Default for OrbOptions {
             tls_endpoints: Vec::new(),
             tls_endpoint_publish: None,
             tls: TlsOptions::default(),
+            trace_level: None,
+            trace_time: None,
         }
     }
 }
@@ -248,6 +258,8 @@ impl OrbOptions {
     /// | `-ORBsslKeyFile PATH` | [`TlsOptions::key_file`] |
     /// | `-ORBsslVerifyClient none\|optional\|required` | [`TlsOptions::client_auth`] |
     /// | `-ORBsslVerifyHost 0\|1` | [`TlsOptions::verify_host`] |
+    /// | `-ORBtraceLevel N` | [`trace_level`](OrbOptions::trace_level) |
+    /// | `-ORBtraceTime 0\|1` | [`trace_time`](OrbOptions::trace_time) |
     ///
     /// The value may also follow the option name after `=`, as in
     /// `-ORBmaxGIOPVersion=1.1`.
@@ -275,6 +287,8 @@ impl OrbOptions {
                             | "sslKeyFile"
                             | "sslVerifyClient"
                             | "sslVerifyHost"
+                            | "traceLevel"
+                            | "traceTime"
                     ) =>
                 {
                     (name.to_owned(), Some(value.to_owned()))
@@ -299,6 +313,8 @@ impl OrbOptions {
                     | "sslKeyFile"
                     | "sslVerifyClient"
                     | "sslVerifyHost"
+                    | "traceLevel"
+                    | "traceTime"
             ) {
                 rest.push(arg);
                 continue;
@@ -380,6 +396,16 @@ impl OrbOptions {
                         "1" => true,
                         _ => return Err(bad_option()),
                     };
+                }
+                "traceLevel" => {
+                    self.trace_level = Some(value.parse().map_err(|_| bad_option())?);
+                }
+                "traceTime" => {
+                    self.trace_time = Some(match value.as_str() {
+                        "0" => false,
+                        "1" => true,
+                        _ => return Err(bad_option()),
+                    });
                 }
                 _ => unreachable!(),
             }
@@ -581,6 +607,12 @@ impl Orb {
     }
 
     fn new(options: OrbOptions, runtime: Option<Runtime>, handle: Handle) -> Orb {
+        if let Some(level) = options.trace_level {
+            crate::trace::set_trace_level(level);
+        }
+        if let Some(on) = options.trace_time {
+            crate::trace::set_trace_time(on);
+        }
         Orb {
             inner: Arc::new(OrbInner {
                 runtime,

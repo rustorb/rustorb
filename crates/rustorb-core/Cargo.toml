@@ -19,6 +19,7 @@ rustorb-cdr.workspace = true
 rustorb-giop.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "sync", "io-util", "time"] }
 socket2 = "0.6"
+tracing = { version = "0.1", default-features = false, features = ["std"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 
 [target.'cfg(unix)'.dependencies]

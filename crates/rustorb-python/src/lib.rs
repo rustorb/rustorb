@@ -12,6 +12,7 @@ mod any;
 mod dii;
 mod dynany;
 mod error;
+mod log;
 mod orb;
 mod poa;
 mod tc;
@@ -48,5 +49,10 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(poa::current_object_id, m)?)?;
     m.add_function(wrap_pyfunction!(poa::current_reference, m)?)?;
     m.add_function(wrap_pyfunction!(poa::current_servant, m)?)?;
+    m.add_function(wrap_pyfunction!(log::_set_log_sink, m)?)?;
+    m.add_function(wrap_pyfunction!(log::_flush_log, m)?)?;
+    m.add_function(wrap_pyfunction!(log::set_trace_level, m)?)?;
+    m.add_function(wrap_pyfunction!(log::trace_level, m)?)?;
+    m.add_function(wrap_pyfunction!(log::trace_level_of, m)?)?;
     Ok(())
 }

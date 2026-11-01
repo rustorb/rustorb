@@ -21,6 +21,7 @@ use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::oneshot;
 
 use crate::tls::{self, Tls};
+use crate::trace;
 use crate::wire::{Here, Inbound, ReadError};
 use crate::{CodeSets, OrbOptions};
 
@@ -108,15 +109,28 @@ impl Connection {
                     connected = Some(stream);
                     break;
                 }
-                Err(e) => last = e,
+                Err(e) => {
+                    trace::info!("could not connect to {addr} ({host}:{port}): {e}");
+                    last = e;
+                }
             }
         }
         let stream = connected.ok_or(last)?;
         stream.set_nodelay(true)?;
         let session = match tls {
-            Some(config) => Some(tls::connect(&stream, config, host).await?),
+            Some(config) => match tls::connect(&stream, config, host).await {
+                Ok(session) => Some(session),
+                Err(e) => {
+                    trace::info!("TLS handshake with {host}:{port} failed: {e}");
+                    return Err(e);
+                }
+            },
             None => None,
         };
+        trace::info!(
+            "connected to {host}:{port}{}",
+            if session.is_some() { " with TLS" } else { "" }
+        );
         let (reader, writer) = stream.into_split();
         let conn = Arc::new(Connection {
             endpoint: (host.to_owned(), port, session.is_some()),
@@ -254,6 +268,7 @@ impl Connection {
             },
             None => self.writer.lock().await,
         };
+        trace::trace!("sent {} to {}", summary(msg), self.peer());
         if let Some(tls) = &self.tls {
             return self.send_tls(tls, &writer, msg, deadline).await;
         }
@@ -346,6 +361,7 @@ impl Connection {
     /// is dropped without it.
     pub(crate) async fn close(&self, version: Version, order: ByteOrder) {
         self.closing.store(true, Ordering::Release);
+        trace::info!("closing the connection to {}", self.peer());
         if let Ok(msg) = MessageEncoder::close_connection(version, order) {
             let _ = tokio::time::timeout(CLOSE_TIME, async {
                 let mut writer = self.writer.lock().await;
@@ -375,6 +391,15 @@ impl Connection {
             let mut pending = self.pending.lock().unwrap();
             if pending.closed.is_none() {
                 pending.closed = Some(why.clone());
+                match &why {
+                    _ if self.closing.load(Ordering::Acquire) => {
+                        trace::info!("connection to {} closed", self.peer());
+                    }
+                    Closed::Orderly => {
+                        trace::info!("{} closed the connection (CloseConnection)", self.peer())
+                    }
+                    Closed::Failed(e) => trace::info!("connection to {} lost: {e}", self.peer()),
+                }
             }
             std::mem::take(&mut pending.waiters)
         };
@@ -385,12 +410,33 @@ impl Connection {
         }
     }
 
+    /// `host:port` of the server, for trace lines.
+    fn peer(&self) -> Peer<'_> {
+        Peer(&self.endpoint)
+    }
+
     fn deliver(&self, request_id: u32, msg: Message) {
         let tx = self.pending.lock().unwrap().waiters.remove(&request_id);
         if let Some(tx) = tx {
             let _ = tx.send(Ok(msg));
         }
     }
+}
+
+/// The server of a connection in trace lines.
+struct Peer<'a>(&'a EndpointKey);
+
+impl std::fmt::Display for Peer<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (host, port, _) = self.0;
+        write!(f, "{host}:{port}")
+    }
+}
+
+/// The type, version and size of an outgoing message, for trace lines.
+pub(crate) fn summary(msg: &OutMessage) -> trace::MessageSummary<'_> {
+    let head = msg.pieces().next().unwrap_or(&[]);
+    trace::MessageSummary(head, msg.len())
 }
 
 async fn read_loop(conn: Arc<Connection>) {
