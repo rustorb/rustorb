@@ -1,0 +1,53 @@
+#!/bin/sh
+# Runs one pair of run-idle-probe.sh in the container: omniNames, the Echo
+# server of SERVER (with SERVER_IDLE_ARGS), and the idle probe of CLIENT
+# (with CLIENT_IDLE_ARGS), all on localhost.
+#
+#   idle-pair CLIENT SERVER
+#
+# CLIENT is omniorbpy, rustorbpy or jacorb; SERVER a directory under impls/.
+# For JacORB the arguments are Java system properties (-Dname=value).
+set -eu
+client="$1"
+server="$2"
+cd /opt/interop
+naming=corbaloc::localhost:2809/NameService
+logdir="$(mktemp -d)"
+omniNames -start 2809 -logdir "$logdir" -ORBendPointPublish giop:tcp:localhost:2809 \
+  > "$logdir/naming.log" 2>&1 &
+# shellcheck disable=SC2086
+case "$server" in
+  jacorb)
+    JAVA_TOOL_OPTIONS="${SERVER_IDLE_ARGS:-}" impls/jacorb/server --naming "$naming" \
+      --name idle/Echo --host localhost --port 2810 > "$logdir/server.log" 2>&1 &
+    ;;
+  *)
+    "impls/$server/server" --naming "$naming" --name idle/Echo --host localhost --port 2810 \
+      ${SERVER_IDLE_ARGS:-} > "$logdir/server.log" 2>&1 &
+    ;;
+esac
+for _ in $(seq 60); do
+  grep -q "server ready" "$logdir/server.log" && break
+  sleep 0.5
+done
+status=0
+# shellcheck disable=SC2086
+case "$client" in
+  jacorb)
+    JAVA_TOOL_OPTIONS="${CLIENT_IDLE_ARGS:-}" java -Dinterop.orb=jacorb \
+      -cp "impls/jacorb/classes:/opt/jacorb/lib/*" interop.IdleProbe \
+      --naming "$naming" --name idle/Echo 2> "$logdir/client.log" || status=1
+    ;;
+  *)
+    scripts/idle-probe --impl "$client" --naming "$naming" --name idle/Echo \
+      ${CLIENT_IDLE_ARGS:-} || status=1
+    ;;
+esac
+if [ $status -ne 0 ]; then
+  for log in client server; do
+    [ -f "$logdir/$log.log" ] || continue
+    echo "--- $log log"
+    tail -n 30 "$logdir/$log.log"
+  done
+fi
+exit $status

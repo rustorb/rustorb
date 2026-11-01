@@ -42,6 +42,7 @@ use tokio::task::JoinHandle;
 
 use crate::codeset::{CONVERSION_CHAR, NATIVE_CHAR, NATIVE_WCHAR};
 use crate::connection::summary;
+use crate::idle::{self, Stamp};
 use crate::orb::OrbInner;
 use crate::poa::{
     BOOT_ID_LEN, CurrentGuard, Dispatch, Disposition, Etherealization, ManagerInner, ParsedKey,
@@ -81,6 +82,8 @@ pub(crate) struct Server {
     /// [`crate::OrbOptions::follow_linger`] and [`crate::OrbOptions::follow_limit`].
     follow_linger: Duration,
     follow_limit: usize,
+    /// [`crate::OrbOptions::server_idle_timeout`].
+    idle_timeout: Option<Duration>,
     root: OnceLock<Arc<PoaInner>>,
     /// Simple object keys registered with `Orb::register_object_key`, and
     /// the POA keys they stand for.
@@ -255,6 +258,7 @@ impl Server {
             } else {
                 options.follow_limit
             },
+            idle_timeout: options.server_idle_timeout,
             root: OnceLock::new(),
             simple_keys: Mutex::new(HashMap::new()),
             pool: Mutex::new(Some(Pool::new(
@@ -276,10 +280,20 @@ impl Server {
         let handle = orb.inner.handle.clone();
         let _entered = handle.enter();
         let mut tasks = Vec::new();
+        let limit = (options.max_server_connections > 0)
+            .then(|| Arc::new(Semaphore::new(options.max_server_connections)));
         for (listener, is_tls) in listeners {
             let listener = TcpListener::from_std(listener).map_err(|_| initialize())?;
             let tls = tls_config.clone().filter(|_| is_tls);
-            tasks.push(handle.spawn(accept_loop(Arc::downgrade(&server), listener, tls)));
+            tasks.push(handle.spawn(accept_loop(
+                Arc::downgrade(&server),
+                listener,
+                tls,
+                limit.clone(),
+            )));
+        }
+        if let Some(timeout) = server.idle_timeout {
+            tasks.push(handle.spawn(close_idle(Arc::downgrade(&server), timeout)));
         }
         *server.listeners.lock().unwrap() = tasks;
         Ok(server)
@@ -529,6 +543,14 @@ impl Server {
             // one that begins from here on waits for this request.
             return None;
         }
+        if !conn.begin(header.request_id, header.response_expected()) {
+            trace::debug!(
+                "request {:?} (id {}) not processed: CloseConnection sent",
+                header.operation,
+                header.request_id
+            );
+            return None;
+        }
         let reply = ReplyTo::new(
             conn,
             version,
@@ -631,6 +653,7 @@ impl Server {
                 Here::Message(version, message) => (version, message),
                 Here::TimedOut | Here::HandedBack => return,
             };
+            conn.last_used.touch();
             let keep = match message {
                 Message::Request { header, body } => {
                     let keep = conn.inbound.busy();
@@ -1032,6 +1055,69 @@ impl Server {
         self.connections.lock().unwrap().remove(&id);
     }
 
+    /// Sends `CloseConnection` on `conn`, chosen to close by
+    /// [`ServerConn::choose_idle`], and stops reading it if the client
+    /// has not closed its side after [`idle::CLOSE_LINGER`]. Requests the
+    /// client sent meanwhile are not processed (oneways are: the client
+    /// does not send them again), so the client sends them again on a new
+    /// connection.
+    fn close_conn(&self, conn: &Arc<ServerConn>) {
+        let version = *conn.version.lock().unwrap();
+        if let Ok(msg) = MessageEncoder::close_connection(version, self.order) {
+            conn.close(msg);
+        }
+        let conn = Arc::downgrade(conn);
+        tokio::spawn(async move {
+            tokio::time::sleep(idle::CLOSE_LINGER).await;
+            if let Some(conn) = conn.upgrade() {
+                conn.inbound.shutdown();
+            }
+        });
+    }
+
+    /// Closes the connections idle for `timeout`.
+    fn close_idle_connections(&self, timeout: Duration) {
+        let idle: Vec<_> = self
+            .connections
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|c| c.choose_idle(Some(timeout)))
+            .cloned()
+            .collect();
+        for conn in idle {
+            trace::info!(
+                "closing the connection from {}: idle for {timeout:?}",
+                conn.inbound.peer()
+            );
+            self.close_conn(&conn);
+        }
+    }
+
+    /// Closes the connection used least recently of those with no request
+    /// running, to make room for a new one. Returns whether there was one.
+    fn close_least_used(&self) -> bool {
+        let candidate = self
+            .connections
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|c| c.may_close())
+            .max_by_key(|c| c.last_used.idle_for())
+            .cloned();
+        match candidate {
+            Some(conn) if conn.choose_idle(None) => {
+                trace::info!(
+                    "closing the connection from {}: at -ORBmaxServerConnections",
+                    conn.inbound.peer()
+                );
+                self.close_conn(&conn);
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Stops the server: no new connections or requests, held requests
     /// dropped, the running ones finished and answered, every POA
     /// destroyed, and then `CloseConnection` on every connection.
@@ -1367,6 +1453,8 @@ struct ServerConn {
     max_message_size: usize,
     /// `OrbOptions::fragment_size`.
     fragment_size: usize,
+    /// When a message last came in or a request ended.
+    last_used: Stamp,
 }
 
 impl Drop for ServerConn {
@@ -1381,6 +1469,9 @@ impl Drop for ServerConn {
 struct Requests {
     pending: HashSet<u32>,
     cancelled: HashSet<u32>,
+    /// `CloseConnection` is sent or about to be: no more requests that
+    /// expect a reply are processed.
+    closing: bool,
 }
 
 impl ServerConn {
@@ -1416,8 +1507,40 @@ impl ServerConn {
         fixed.unwrap_or(CodeSets::DEFAULT)
     }
 
-    fn begin(&self, request_id: u32) {
-        self.requests.lock().unwrap().pending.insert(request_id);
+    /// Admits a request, unless the connection is closing and the client
+    /// waits for a reply (it sends the request again after
+    /// `CloseConnection`). Returns whether it was admitted.
+    fn begin(&self, request_id: u32, response: bool) -> bool {
+        let mut requests = self.requests.lock().unwrap();
+        if requests.closing && response {
+            return false;
+        }
+        requests.pending.insert(request_id);
+        true
+    }
+
+    /// Whether the connection could be closed now: no request running,
+    /// none being read, and not closing already.
+    fn may_close(&self) -> bool {
+        let requests = self.requests.lock().unwrap();
+        !requests.closing && requests.pending.is_empty() && !self.inbound.mid_message()
+    }
+
+    /// Chooses the connection to close if [`may_close`](Self::may_close)
+    /// holds and it was not used for `timeout` (any time with `None`).
+    /// From then on requests that expect a reply are not processed; the
+    /// caller sends `CloseConnection`.
+    fn choose_idle(&self, timeout: Option<Duration>) -> bool {
+        let mut requests = self.requests.lock().unwrap();
+        if requests.closing
+            || !requests.pending.is_empty()
+            || timeout.is_some_and(|t| self.last_used.idle_for() < t)
+            || self.inbound.mid_message()
+        {
+            return false;
+        }
+        requests.closing = true;
+        true
     }
 
     /// `CancelRequest`: drops the fragments of the request, and its reply.
@@ -1443,6 +1566,7 @@ impl ServerConn {
 
     /// Forgets the request; returns whether it was cancelled.
     fn end(&self, request_id: u32) -> bool {
+        self.last_used.touch();
         let mut requests = self.requests.lock().unwrap();
         requests.pending.remove(&request_id);
         requests.cancelled.remove(&request_id)
@@ -1474,7 +1598,6 @@ impl ReplyTo {
         request_id: u32,
         response: bool,
     ) -> ReplyTo {
-        conn.begin(request_id);
         ReplyTo {
             sink: Some(Sink::Conn(Arc::clone(conn))),
             version,
@@ -1598,8 +1721,14 @@ async fn accept_loop(
     server: Weak<Server>,
     listener: TcpListener,
     tls: Option<Arc<rustls::ServerConfig>>,
+    limit: Option<Arc<Semaphore>>,
 ) {
     loop {
+        // At the connection limit, new connections wait in the backlog.
+        let permit = match &limit {
+            Some(limit) => Some(connection_permit(&server, limit).await),
+            None => None,
+        };
         let Ok((stream, _)) = listener.accept().await else {
             // Out of file descriptors and the like: try again shortly.
             tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1611,11 +1740,52 @@ async fn accept_loop(
         if server.is_shutting_down() {
             return;
         }
-        tokio::spawn(serve(server, stream, tls.clone()));
+        tokio::spawn(serve(server, stream, tls.clone(), permit));
     }
 }
 
-async fn serve(server: Arc<Server>, stream: TcpStream, tls: Option<Arc<rustls::ServerConfig>>) {
+/// A place for one more connection under `-ORBmaxServerConnections`. When
+/// all are taken, the connection used least recently with no request
+/// running is closed, and so on each second until a place is free.
+async fn connection_permit(server: &Weak<Server>, limit: &Arc<Semaphore>) -> OwnedSemaphorePermit {
+    loop {
+        if let Ok(permit) = Arc::clone(limit).try_acquire_owned() {
+            return permit;
+        }
+        if let Some(server) = server.upgrade() {
+            server.close_least_used();
+        }
+        let wait = Arc::clone(limit).acquire_owned();
+        if let Ok(Ok(permit)) = tokio::time::timeout(Duration::from_secs(1), wait).await {
+            return permit;
+        }
+    }
+}
+
+/// Closes the server connections idle for `timeout`, until the server is
+/// gone or shut down (which aborts the task).
+async fn close_idle(server: Weak<Server>, timeout: Duration) {
+    let period = idle::scan_period(timeout);
+    loop {
+        tokio::time::sleep(period).await;
+        let Some(server) = server.upgrade() else {
+            return;
+        };
+        if server.is_shutting_down() {
+            return;
+        }
+        server.close_idle_connections(timeout);
+    }
+}
+
+/// Serves one connection. `_permit` is its place under
+/// `-ORBmaxServerConnections`, given back when the client has closed.
+async fn serve(
+    server: Arc<Server>,
+    stream: TcpStream,
+    tls: Option<Arc<rustls::ServerConfig>>,
+    _permit: Option<OwnedSemaphorePermit>,
+) {
     let _ = stream.set_nodelay(true);
     let peer = PeerAddr(stream.peer_addr().ok());
     let session = match tls {
@@ -1651,6 +1821,7 @@ async fn serve(server: Arc<Server>, stream: TcpStream, tls: Option<Arc<rustls::S
         writer: Mutex::new(None),
         max_message_size: server.max_message_size,
         fragment_size: server.fragment_size,
+        last_used: Stamp::new(),
     });
     *conn.writer.lock().unwrap() = Some(tokio::spawn(write_loop(out)));
     let id = server.add_connection(&conn);
@@ -1799,6 +1970,7 @@ async fn read_loop(server: &Arc<Server>, conn: &Arc<ServerConn>) -> Result<Ended
                 return Err(version);
             }
         };
+        conn.last_used.touch();
         match message {
             Message::Request { header, body } => {
                 server.on_request(conn, version, header, body).await;

@@ -62,6 +62,7 @@ pub mod dynany;
 mod exception;
 mod fixed;
 pub mod idl;
+mod idle;
 pub mod name;
 mod object;
 mod orb;

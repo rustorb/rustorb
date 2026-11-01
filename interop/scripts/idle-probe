@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""Checks that an idle connection is closed and that the next call
+reconnects, through the omniORBpy API (run-idle-probe.sh).
+
+    idle-probe --impl omniorbpy|rustorbpy --naming CORBALOC --name PATH
+               [--server-port N] [--pause S] [ORB options]
+
+Calls Echo::echo_long, waits PAUSE seconds (longer than the idle timeout
+of the client or of the server, given as ORB options to whichever closes),
+checks with ss(8) that the client's connection to the server port is gone,
+and calls again. Prints one line per step and PASS or FAIL; the exit
+status is 0 only for PASS.
+"""
+
+import argparse
+import os
+import subprocess
+import sys
+import time
+
+parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+parser.add_argument("--impl", required=True, choices=["omniorbpy", "rustorbpy"])
+parser.add_argument("--naming", required=True)
+parser.add_argument("--name", required=True)
+parser.add_argument("--server-port", type=int, default=2810)
+parser.add_argument("--pause", type=float, default=4.0)
+parser.add_argument("--timeout", type=float, default=30.0)
+args, orb_args = parser.parse_known_args()
+
+impls = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "impls")
+if args.impl == "rustorbpy":
+    sys.path[:0] = [os.path.join(impls, "rustorbpy", "lib"),
+                    os.path.join(impls, "rustorbpy", "stubs")]
+else:
+    sys.path.insert(0, os.path.join(impls, "omniorbpy", "stubs"))
+
+from omniORB import CORBA  # noqa: E402
+import CosNaming  # noqa: E402
+import InteropTest  # noqa: E402
+
+
+def connections():
+    """The client's TCP connections to the server port, but those in
+    TIME-WAIT."""
+    out = subprocess.run(["ss", "-Htn", "exclude", "time-wait",
+                          f"( dport = :{args.server_port} )"],
+                         capture_output=True, text=True, check=True).stdout
+    return len(out.splitlines())
+
+
+orb = CORBA.ORB_init([sys.argv[0], "-ORBInitRef", f"NameService={args.naming}"] + orb_args,
+                     CORBA.ORB_ID)
+deadline = time.monotonic() + args.timeout
+while True:
+    try:
+        root = orb.resolve_initial_references("NameService")._narrow(CosNaming.NamingContext)
+        name = [CosNaming.NameComponent(p, "") for p in args.name.split("/") if p]
+        echo = root.resolve(name)._narrow(InteropTest.Echo)
+        break
+    except (CORBA.TRANSIENT, CORBA.COMM_FAILURE, CosNaming.NamingContext.NotFound):
+        if time.monotonic() > deadline:
+            sys.exit("timed out waiting for the Echo server")
+        time.sleep(0.2)
+
+ok = True
+got = echo.echo_long(1)
+n = connections()
+print(f"call 1: {'ok' if got == 1 else 'FAIL'}, connections: {n}")
+ok &= got == 1 and n == 1
+time.sleep(args.pause)
+n = connections()
+print(f"idle: connections: {n}")
+ok &= n == 0
+got = echo.echo_long(2)
+n = connections()
+print(f"call 2: {'ok' if got == 2 else 'FAIL'}, connections: {n}")
+ok &= got == 2 and n == 1
+print("PASS" if ok else "FAIL")
+orb.destroy()
+sys.exit(0 if ok else 1)

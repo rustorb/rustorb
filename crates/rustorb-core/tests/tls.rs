@@ -358,3 +358,29 @@ fn tls_options_from_arguments() {
     let mut bad = vec!["-ORBsslVerifyClient".to_string(), "sometimes".to_string()];
     assert!(OrbOptions::default().parse_args(&mut bad).is_err());
 }
+
+/// Idle TLS connections are closed by either side (docs/connections.md),
+/// and the next call opens a new one.
+#[test]
+fn idle_tls_connections_close_and_reconnect() {
+    for (client_idle, server_idle) in [(Some(50), None), (None, Some(50))] {
+        let server = Orb::with_options(OrbOptions {
+            server_idle_timeout: server_idle.map(std::time::Duration::from_millis),
+            ..tls_server("server", ClientAuth::None, false)
+        })
+        .unwrap();
+        let obj = serve(&server);
+        let client = Orb::with_options(OrbOptions {
+            client_idle_timeout: client_idle.map(std::time::Duration::from_millis),
+            ..tls_client("ca.pem", false)
+        })
+        .unwrap();
+        let target = remote(&client, &server, &obj);
+        for i in 0..5 {
+            assert_eq!(echo_long(&target, i).unwrap(), i);
+            thread::sleep(std::time::Duration::from_millis(120));
+        }
+        client.destroy().unwrap();
+        server.destroy().unwrap();
+    }
+}
