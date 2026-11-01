@@ -397,6 +397,7 @@ PR は1つ（[#55](https://github.com/rustorb/rustorb/pull/55)）にまとめた
 
 ## 参考
 
+- 他の IDL to Rust マッピングとの比較：[rust-mapping-comparison.md](rust-mapping-comparison.md)
 - [IDL4 to Rust Language Mapping RFP](https://www.omg.org/gettingstarted/rfp-IDL4-RLP.htm)（OMG、2026年6月）
 - [IDL 4.2](https://www.omg.org/spec/IDL/4.2)、[CORBA 3.4 Part 2](https://www.omg.org/spec/CORBA/3.4)（CDR、valuetype の符号化）
 - 既存の生成器の設計：[python-codegen.md](python-codegen.md)、[cpp-binding.md](cpp-binding.md)、[java-binding.md](java-binding.md)、[valuetype.md](valuetype.md)
