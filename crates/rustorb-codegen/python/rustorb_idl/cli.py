@@ -131,6 +131,7 @@ def main(argv=None):
                 generator = rust_backend.RustBackend(spec, options)
             else:
                 generator = cxx_backend.CxxBackend(spec, options)
+            os.makedirs(args.outdir, exist_ok=True)
             backend.write_outputs(generator, args.outdir)
         except frontend.GeneratorError as e:
             sys.stderr.write("rustorb-idl: %s\n" % e)
