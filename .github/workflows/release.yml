@@ -2,9 +2,8 @@ name: Release
 
 # Builds everything a release ships and publishes it (docs/release.md).
 #
-# - a tag v0.1.0 (the version of tools/set-version.py --check), pushed or
-#   made by publishing a Release on the web: builds and checks everything,
-#   attaches it to a draft GitHub Release v0.1.0 (or to the published one),
+# - a tag v0.1.0 (the version of tools/set-version.py --check): builds and
+#   checks everything, attaches it to a draft GitHub Release v0.1.0,
 #   publishes the crates to crates.io and the Python packages to PyPI, and
 #   then publishes the GitHub Release. The publishing jobs run in the
 #   `release` environment (the PyPI uploads of rustorb-idl and
@@ -13,15 +12,12 @@ name: Release
 #   approval) and need the CARGO_REGISTRY_TOKEN secret and PyPI trusted
 #   publishers (or the PYPI_API_TOKEN secret). Run again after a failure, they skip
 #   what is already published.
-# - Run workflow (workflow_dispatch) on a branch, or a pull request that
-#   changes the packaging: only builds (run on a tag, it publishes), the artifacts stay on the run
+# - Run workflow (workflow_dispatch), or a pull request that changes the
+#   packaging: only builds, the artifacts stay on the run
 
 on:
   push:
     tags: ["v*"]
-  # A tag made by "Publish release" on the web sends no push event
-  release:
-    types: [published]
   workflow_dispatch:
   pull_request:
     paths:
@@ -194,7 +190,12 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: native-${{ matrix.name }}
-          path: dist/rustorb-native-*.*
+          # the archive only: rustorb-native-*.* also matches the directory,
+          # whose name has the dots of the version
+          path: |
+            dist/${{ env.ARCHIVE }}.tar.gz
+            dist/${{ env.ARCHIVE }}.zip
+          if-no-files-found: error
 
   java:
     needs: version
@@ -218,8 +219,8 @@ jobs:
           name: java
           path: java/target/rustorb-*.jar
 
+  # Also runs without a tag, to check the notes and SHA256SUMS
   draft:
-    if: github.ref_type == 'tag'
     needs: [version, crates, wheels, python-sdist, native, java]
     runs-on: ubuntu-latest
     permissions:
@@ -235,8 +236,11 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           awk -v v="$VERSION" '/^## \[/{p = index($0, "## [" v "]") == 1; next} p' CHANGELOG.md > notes.md
+          test -s notes.md
           (cd artifacts && sha256sum * > SHA256SUMS)
+          cat artifacts/SHA256SUMS
       - name: Create or update the draft release
+        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
