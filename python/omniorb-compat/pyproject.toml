@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rustorb-omniorb-compat"
-version = "0.1.0"
+version = "0.1.1"
 description = "omniORBpy compatibility layer for rustorb: `from omniORB import CORBA` on rustorb"
 readme = "README.md"
 license = { text = "MIT OR Apache-2.0" }
