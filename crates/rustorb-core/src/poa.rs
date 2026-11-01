@@ -25,6 +25,7 @@ use rustorb_giop::IiopProfile;
 use crate::pool::Job;
 use crate::servant::{Cookie, ServantLocator};
 use crate::server::Server;
+use crate::trace;
 use crate::{
     AdapterActivator, CompletionStatus, ObjectRef, Orb, Servant, ServantActivator, ServantManager,
     ServantManagerError, SystemException, SystemExceptionKind, minor,
@@ -567,6 +568,7 @@ impl PoaManager {
                 return Err(PoaError::AdapterInactive);
             }
             st.state = PoaManagerState::Active;
+            trace::info!("POA manager active");
             std::mem::take(&mut st.held)
         };
         for dispatch in held {
@@ -635,6 +637,7 @@ impl PoaManager {
                 return Err(PoaError::AdapterInactive);
             }
             st.state = state;
+            trace::info!("POA manager {state:?}");
             if state == PoaManagerState::Holding {
                 return Ok(());
             }
@@ -830,7 +833,7 @@ impl Etherealization {
             );
         }));
         if result.is_err() {
-            log::warn("servant activator panicked in etherealize");
+            trace::warning!("servant activator panicked in etherealize");
         }
     }
 }
@@ -864,7 +867,7 @@ impl Resolved {
                 locator.postinvoke(id, adapter, operation, cookie, servant);
             }));
             if result.is_err() {
-                log::warn("servant locator panicked in postinvoke");
+                trace::warning!("servant locator panicked in postinvoke");
             }
         }
     }
@@ -965,7 +968,7 @@ fn catch<T>(
 ) -> Result<T, ServantManagerError> {
     let _upcall = UpcallGuard::enter();
     panic::catch_unwind(AssertUnwindSafe(f)).unwrap_or_else(|_| {
-        log::warn(&format!("servant manager panicked in {what}"));
+        trace::warning!("servant manager panicked in {what}");
         Err(SystemException::new(SystemExceptionKind::UNKNOWN, 0, CompletionStatus::Maybe).into())
     })
 }
@@ -1100,7 +1103,7 @@ impl PoaInner {
                     activator.unknown_adapter(&parent, name)
                 }))
                 .unwrap_or_else(|_| {
-                    log::warn("adapter activator panicked in unknown_adapter");
+                    trace::warning!("adapter activator panicked in unknown_adapter");
                     false
                 })
             };
@@ -1314,6 +1317,11 @@ impl PoaInner {
             }
             st.ids.insert(addr, id.clone());
         }
+        trace::debug!(
+            "activated object {} in POA {:?}",
+            trace::IdSummary(&id),
+            self.name
+        );
         st.active.insert(id, servant);
         Ok(())
     }
@@ -1518,12 +1526,13 @@ impl Poa {
             None => PoaManager::new(&server),
         };
         if policies.lifespan == Lifespan::Persistent && !server.has_fixed_port() {
-            log::warn(&format!(
+            trace::warning!(
                 "PERSISTENT POA {name:?} on an endpoint without a fixed port: \
                  its references will not survive a restart"
-            ));
+            );
         }
         let child = PoaInner::new_child(&self.inner, name, manager, policies);
+        trace::info!("created POA {name:?} under {:?}", self.inner.name);
         st.children.insert(name.to_owned(), Arc::clone(&child));
         Ok(self.handle(child))
     }
@@ -1626,6 +1635,7 @@ impl Poa {
     /// (`BAD_INV_ORDER` when called from a servant).
     pub fn destroy(&self, etherealize: bool, wait_for_completion: bool) -> Result<(), PoaError> {
         check_wait(wait_for_completion)?;
+        trace::info!("destroying POA {:?}", self.inner.name);
         if let Some(parent) = self.inner.parent.as_ref().and_then(Weak::upgrade) {
             let mut st = parent.state.lock().unwrap();
             if st
@@ -1687,6 +1697,11 @@ impl Poa {
         let (servant, now) = {
             let mut st = self.state()?;
             let servant = st.active.remove(id).ok_or(PoaError::ObjectNotActive)?;
+            trace::debug!(
+                "deactivated object {} in POA {:?}",
+                trace::IdSummary(id),
+                self.inner.name
+            );
             let addr = servant_addr(&servant);
             if st.ids.get(&addr).is_some_and(|i| i == id) {
                 st.ids.remove(&addr);
@@ -1848,13 +1863,6 @@ impl Poa {
         let server = self.server()?;
         let ior = server.ior(type_id, self.inner.key(id))?;
         Ok(ObjectRef::new(self.orb.clone(), ior))
-    }
-}
-
-pub(crate) mod log {
-    /// Writes a warning to standard error, like omniORB's trace output.
-    pub(crate) fn warn(msg: &str) {
-        eprintln!("rustorb: warning: {msg}");
     }
 }
 

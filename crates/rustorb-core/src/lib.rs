@@ -49,6 +49,11 @@
 //!   is marshalled and dispatched on the calling thread.
 //! - [`Orb::run`] waits for [`Orb::shutdown`], which finishes the running
 //!   requests and closes every connection with `CloseConnection`.
+//!
+//! What the ORB does (connections, requests, exceptions, forwards, GIOP
+//! messages) is reported as [`tracing`](https://docs.rs/tracing) events;
+//! without a subscriber, `-ORBtraceLevel` writes them to standard error.
+//! See [`trace`].
 
 mod codeset;
 mod connection;
@@ -68,6 +73,7 @@ mod server;
 mod stream;
 mod timeout;
 mod tls;
+pub mod trace;
 pub mod typecode;
 mod value;
 mod wire;
