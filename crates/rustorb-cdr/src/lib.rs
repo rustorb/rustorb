@@ -41,6 +41,7 @@ mod long_double;
 mod octets;
 mod traits;
 mod value;
+pub mod xcdr;
 
 pub use decoder::{Decoder, Segment};
 pub use encoder::Encoder;
@@ -94,8 +95,9 @@ impl ByteOrder {
 /// [`Xcdr1`](Encoding::Xcdr1) and [`Xcdr2`](Encoding::Xcdr2) are the
 /// Extended CDR encodings of DDS-XTypes, versions 1 and 2. XCDR2 aligns
 /// no primitive to more than 4 octets ([`max_align`](Encoding::max_align)).
-/// The headers they add (DHEADER, EMHEADER, parameter lists) are written
-/// by the caller. `wchar` and `wstring` are not supported with them yet.
+/// The headers they add (the payload header, DHEADER, EMHEADER, parameter
+/// headers) are in [`xcdr`]; which of them a type needs is up to the code
+/// that knows the type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Encoding {
     /// GIOP 1.0.

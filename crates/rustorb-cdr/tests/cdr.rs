@@ -536,15 +536,6 @@ fn xcdr2_aligns_long_double_to_four() {
 }
 
 #[test]
-fn xcdr_rejects_wide_characters_for_now() {
-    for encoding in [Encoding::Xcdr1, Encoding::Xcdr2] {
-        let mut enc = Encoder::new(ByteOrder::Little, encoding);
-        assert_eq!(enc.write_wchar(0x41), Err(Error::WcharNotSupported));
-        assert_eq!(enc.write_wstring("a"), Err(Error::WcharNotSupported));
-    }
-}
-
-#[test]
 fn encoding_kinds() {
     assert!(Encoding::Giop1_0.is_giop());
     assert!(Encoding::Giop1_2.is_giop());

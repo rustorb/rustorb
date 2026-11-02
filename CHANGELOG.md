@@ -44,6 +44,14 @@ break the API).
   trait, used as `Arc<dyn L>`); the core's `idl` module has the helpers
   (`AbstractValue`, `register_supported`, `ValueHandle::read_base`). The
   rustorb interop client and server run the abstract interface suite (#104)
+- rustorb-cdr: the `xcdr` module writes and reads the headers of DDS-XTypes
+  Extended CDR: the RTPS SerializedPayload header (`Encoder::xcdr_payload`,
+  `Decoder::xcdr_payload`; alignment restarts after it and the options record
+  the final padding), DHEADER (`begin_dheader` / `read_dheader`), the XCDR2
+  member header EMHEADER (`begin_member` / `read_member_header`, length codes
+  0 to 7) and the XCDR1 parameter headers, short and `PID_EXTENDED`
+  (`begin_parameter` / `read_parameter`), for mutable types and optional
+  members. `wchar` and `wstring` are written and read with XCDR (#112)
 
 ### Changed
 

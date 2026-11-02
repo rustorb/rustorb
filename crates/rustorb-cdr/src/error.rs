@@ -30,8 +30,7 @@ pub enum Error {
     InvalidWcharLength(u8),
     /// A GIOP 1.2 `wstring` had an odd octet length.
     OddWstringLength(u32),
-    /// `wchar` and `wstring` cannot be used with this encoding (GIOP 1.0,
-    /// or XCDR until it supports them).
+    /// `wchar` and `wstring` cannot be used with this encoding (GIOP 1.0).
     WcharNotSupported,
     /// A sequence or string length is larger than the bytes left.
     LengthTooLarge {
@@ -55,6 +54,11 @@ pub enum Error {
     /// indirection that points nowhere. On the writing side, an
     /// `end_value` without its `begin_value`.
     InvalidValue(&'static str),
+    /// An XCDR header was malformed: an unknown encapsulation identifier,
+    /// a DHEADER, EMHEADER or parameter length past the end of the data
+    /// that holds it, or a length too large for its header. On the
+    /// writing side, a member ID too large for its header.
+    InvalidXcdr(&'static str),
 }
 
 impl fmt::Display for Error {
@@ -83,6 +87,7 @@ impl fmt::Display for Error {
             Error::InvalidEnumValue(v) => write!(f, "invalid enum value {v}"),
             Error::InvalidTypeCode(why) => write!(f, "invalid TypeCode: {why}"),
             Error::InvalidValue(why) => write!(f, "invalid valuetype: {why}"),
+            Error::InvalidXcdr(why) => write!(f, "invalid XCDR: {why}"),
         }
     }
 }
