@@ -44,6 +44,14 @@ break the API).
   trait, used as `Arc<dyn L>`); the core's `idl` module has the helpers
   (`AbstractValue`, `register_supported`, `ValueHandle::read_base`). The
   rustorb interop client and server run the abstract interface suite (#104)
+- rustorb-cdr: the `xcdr` module writes and reads the headers of DDS-XTypes
+  Extended CDR: the RTPS SerializedPayload header (`Encoder::xcdr_payload`,
+  `Decoder::xcdr_payload`; alignment restarts after it and the options record
+  the final padding), DHEADER (`begin_dheader` / `read_dheader`), the XCDR2
+  member header EMHEADER (`begin_member` / `read_member_header`, length codes
+  0 to 7) and the XCDR1 parameter headers, short and `PID_EXTENDED`
+  (`begin_parameter` / `read_parameter`), for mutable types and optional
+  members. `wchar` and `wstring` are written and read with XCDR (#112)
 
 ### Changed
 
@@ -51,6 +59,10 @@ break the API).
   times on new connections (was 2) before `TRANSIENT`; a server ignores the
   requests that expect a reply once it has decided to send `CloseConnection`,
   so that the client's resend does not run them twice (#101)
+- rustorb-cdr: `CdrVersion` is now `Encoding`, which adds `Xcdr1` and `Xcdr2`
+  (DDS-XTypes Extended CDR) to the GIOP versions, and `Encoder::version` and
+  `Decoder::version` are now `encoding`. XCDR2 aligns no primitive to more
+  than 4 octets (`Encoding::max_align`). GIOP encoding is unchanged (#112)
 - The warnings the core wrote to standard error (a servant that panicked, say)
   are trace events of level 1, the default: `-ORBtraceLevel 0` silences them,
   and a `tracing` subscriber of the application receives them instead (#105)

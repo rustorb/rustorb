@@ -17,7 +17,7 @@
 use std::borrow::Borrow;
 use std::marker::PhantomData;
 
-use rustorb_cdr::{ByteOrder, CdrEncode, CdrVersion, Decoder, Encoder};
+use rustorb_cdr::{ByteOrder, CdrEncode, Decoder, Encoder, Encoding};
 
 use crate::{
     CompletionStatus, Exception, InStream, ObjectRef, OutStream, SystemException,
@@ -583,12 +583,12 @@ impl crate::Any {
     /// A value that does not fit the type is `BAD_PARAM` (or
     /// `DATA_CONVERSION`).
     pub fn insert<T: IdlType>(v: &T::Borrowed) -> Sys<crate::Any> {
-        let mut enc = Encoder::new(ByteOrder::Big, CdrVersion::Giop1_2);
+        let mut enc = Encoder::new(ByteOrder::Big, Encoding::Giop1_2);
         let mut out = OutStream::standalone(&mut enc);
         T::write(v, &mut out)?;
         let orb = out.orb.take();
         let bytes = enc.into_bytes();
-        let dec = Decoder::new(&bytes, ByteOrder::Big, CdrVersion::Giop1_2);
+        let dec = Decoder::new(&bytes, ByteOrder::Big, Encoding::Giop1_2);
         let mut input = InStream::standalone(dec, orb.as_ref());
         let tc = T::type_code();
         let value = input.read_value(&tc)?;
@@ -601,12 +601,12 @@ impl crate::Any {
         if !self.typecode().equivalent(&T::type_code()) {
             return None;
         }
-        let mut enc = Encoder::new(ByteOrder::Big, CdrVersion::Giop1_2);
+        let mut enc = Encoder::new(ByteOrder::Big, Encoding::Giop1_2);
         let mut out = OutStream::standalone(&mut enc);
         out.write_value(self.typecode(), self.value()).ok()?;
         let orb = out.orb.take();
         let bytes = enc.into_bytes();
-        let dec = Decoder::new(&bytes, ByteOrder::Big, CdrVersion::Giop1_2);
+        let dec = Decoder::new(&bytes, ByteOrder::Big, Encoding::Giop1_2);
         let mut input = InStream::standalone(dec, orb.as_ref());
         T::read(&mut input).ok()
     }

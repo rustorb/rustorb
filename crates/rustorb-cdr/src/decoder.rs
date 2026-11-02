@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{ByteOrder, CdrVersion, Error, LongDouble, Octets, Result, SHARE_MIN};
+use crate::{ByteOrder, Encoding, Error, LongDouble, Octets, Result, SHARE_MIN};
 
 /// Reads CDR from a byte slice.
 ///
@@ -15,8 +15,10 @@ pub struct Decoder<'a> {
     shared: Option<&'a Arc<Vec<u8>>>,
     pub(crate) pos: usize,
     pub(crate) order: ByteOrder,
-    version: CdrVersion,
+    encoding: Encoding,
     base: usize,
+    /// The stream offset alignment counts from (`XCDR.origin`).
+    pub(crate) origin: usize,
     segments: &'a [Segment],
     wstring_default_order: ByteOrder,
     /// What the valuetypes read so far need (indirections, chunks);
@@ -56,15 +58,15 @@ macro_rules! read_number {
 
 impl<'a> Decoder<'a> {
     /// Creates a decoder whose first byte is at stream offset 0.
-    pub fn new(buf: &'a [u8], order: ByteOrder, version: CdrVersion) -> Decoder<'a> {
-        Decoder::with_offset(buf, order, version, 0)
+    pub fn new(buf: &'a [u8], order: ByteOrder, encoding: Encoding) -> Decoder<'a> {
+        Decoder::with_offset(buf, order, encoding, 0)
     }
 
     /// Creates a decoder whose first byte is at stream offset `base`.
     pub fn with_offset(
         buf: &'a [u8],
         order: ByteOrder,
-        version: CdrVersion,
+        encoding: Encoding,
         base: usize,
     ) -> Decoder<'a> {
         Decoder {
@@ -72,8 +74,9 @@ impl<'a> Decoder<'a> {
             shared: None,
             pos: 0,
             order,
-            version,
+            encoding,
             base,
+            origin: 0,
             segments: &[],
             wstring_default_order: ByteOrder::Big,
             values: None,
@@ -90,10 +93,10 @@ impl<'a> Decoder<'a> {
 
     /// Opens an encapsulation: reads the byte order octet and returns a
     /// decoder positioned after it, with alignment starting at that octet.
-    pub fn encapsulation(buf: &'a [u8], version: CdrVersion) -> Result<Decoder<'a>> {
+    pub fn encapsulation(buf: &'a [u8], encoding: Encoding) -> Result<Decoder<'a>> {
         let (&flag, _) = buf.split_first().ok_or(Error::EmptyEncapsulation)?;
         let order = ByteOrder::from_flag(flag)?;
-        let mut dec = Decoder::new(buf, order, version);
+        let mut dec = Decoder::new(buf, order, encoding);
         dec.pos = 1;
         Ok(dec)
     }
@@ -110,9 +113,9 @@ impl<'a> Decoder<'a> {
         self.order
     }
 
-    /// The GIOP version whose CDR rules apply.
-    pub fn version(&self) -> CdrVersion {
-        self.version
+    /// The encoding whose rules apply.
+    pub fn encoding(&self) -> Encoding {
+        self.encoding
     }
 
     /// The stream offset of the next byte.
@@ -142,14 +145,19 @@ impl<'a> Decoder<'a> {
         &self.buf[self.pos..]
     }
 
-    /// Skips padding until the stream offset is a multiple of `align`.
+    /// Skips padding until the stream offset is a multiple of `align`, or
+    /// of the encoding's [`max_align`](Encoding::max_align) when that is
+    /// smaller.
     ///
     /// Inside a chunked valuetype, a chunk that ends here is followed by
-    /// the next one: its length is read and the data aligned in it.
+    /// the next one: its length is read and the data aligned in it. In an
+    /// XCDR stream the offset counts from the alignment origin (see
+    /// [`set_origin`](Decoder::set_origin)).
     pub fn align(&mut self, align: usize) -> Result<()> {
+        let align = align.min(self.encoding.max_align());
         loop {
             self.chunk_boundary()?;
-            let rem = self.position() % align;
+            let rem = self.position().wrapping_sub(self.origin) % align;
             if rem == 0 {
                 return Ok(());
             }
@@ -161,6 +169,19 @@ impl<'a> Decoder<'a> {
             }
             self.read_octets_raw(pad)?;
         }
+    }
+
+    /// The stream offset alignment counts from: 0 unless changed with
+    /// [`set_origin`](Decoder::set_origin).
+    pub fn origin(&self) -> usize {
+        self.origin
+    }
+
+    /// Makes alignment count from stream offset `origin`. This is the XCDR
+    /// `PUSH(ORIGIN)`; [`read_parameter`](Decoder::read_parameter) does it
+    /// itself.
+    pub fn set_origin(&mut self, origin: usize) {
+        self.origin = origin;
     }
 
     /// Skips `n` bytes.
@@ -341,10 +362,10 @@ impl<'a> Decoder<'a> {
 
     /// Reads a `wchar` holding one UTF-16 code unit.
     pub fn read_wchar(&mut self) -> Result<u16> {
-        match self.version {
-            CdrVersion::Giop1_0 => Err(Error::WcharNotSupported),
-            CdrVersion::Giop1_1 => self.read_u16(),
-            CdrVersion::Giop1_2 => {
+        match self.encoding {
+            Encoding::Giop1_0 => Err(Error::WcharNotSupported),
+            Encoding::Giop1_1 | Encoding::Xcdr1 | Encoding::Xcdr2 => self.read_u16(),
+            Encoding::Giop1_2 => {
                 let len = self.read_octet()?;
                 if len != 2 && len != 4 {
                     return Err(Error::InvalidWcharLength(len));
@@ -362,11 +383,23 @@ impl<'a> Decoder<'a> {
     /// Reads a `wstring` encoded as UTF-16.
     ///
     /// For GIOP 1.2 a leading BOM selects the byte order; without one the
-    /// order set by [`Decoder::set_wstring_default_order`] is used.
+    /// order set by [`Decoder::set_wstring_default_order`] is used. XCDR
+    /// has an octet length and code units in the stream byte order.
     pub fn read_wstring(&mut self) -> Result<String> {
-        match self.version {
-            CdrVersion::Giop1_0 => Err(Error::WcharNotSupported),
-            CdrVersion::Giop1_1 => {
+        match self.encoding {
+            Encoding::Giop1_0 => Err(Error::WcharNotSupported),
+            Encoding::Xcdr1 | Encoding::Xcdr2 => {
+                let len = self.read_len(1)?;
+                if len % 2 != 0 {
+                    return Err(Error::OddWstringLength(len as u32));
+                }
+                let mut units = Vec::with_capacity(len / 2);
+                for _ in 0..len / 2 {
+                    units.push(self.read_u16()?);
+                }
+                String::from_utf16(&units).map_err(|_| Error::InvalidUtf16)
+            }
+            Encoding::Giop1_1 => {
                 let len = self.read_len(2)?;
                 let mut units = Vec::with_capacity(len);
                 for _ in 0..len {
@@ -378,7 +411,7 @@ impl<'a> Decoder<'a> {
                 }
                 String::from_utf16(&units).map_err(|_| Error::InvalidUtf16)
             }
-            CdrVersion::Giop1_2 => {
+            Encoding::Giop1_2 => {
                 let bytes = self.read_octet_seq()?;
                 if bytes.len() % 2 != 0 {
                     return Err(Error::OddWstringLength(bytes.len() as u32));
@@ -407,7 +440,7 @@ impl<'a> Decoder<'a> {
     /// Reads an encapsulation and returns a decoder over its contents.
     pub fn read_encapsulation(&mut self) -> Result<Decoder<'a>> {
         let bytes = self.read_octet_seq()?;
-        let mut inner = Decoder::encapsulation(bytes, self.version)?;
+        let mut inner = Decoder::encapsulation(bytes, self.encoding)?;
         inner.wstring_default_order = self.wstring_default_order;
         Ok(inner)
     }
