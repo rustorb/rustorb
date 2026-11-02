@@ -573,7 +573,7 @@ fn custom_and_behaviour() {
     // The any as received: read by the core, then extracted.
     let mut enc = rustorb_core::cdr::Encoder::new(
         rustorb_core::cdr::ByteOrder::Little,
-        rustorb_core::cdr::CdrVersion::Giop1_2,
+        rustorb_core::cdr::Encoding::Giop1_2,
     );
     rustorb_core::OutStream::standalone(&mut enc)
         .write_any(&any)
@@ -582,7 +582,7 @@ fn custom_and_behaviour() {
     let dec = rustorb_core::cdr::Decoder::new(
         &bytes,
         rustorb_core::cdr::ByteOrder::Little,
-        rustorb_core::cdr::CdrVersion::Giop1_2,
+        rustorb_core::cdr::Encoding::Giop1_2,
     );
     let received = rustorb_core::InStream::standalone(dec, None)
         .read_any()

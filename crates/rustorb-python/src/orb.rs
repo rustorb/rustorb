@@ -8,7 +8,7 @@ use std::time::Duration;
 use pyo3::exceptions::{PyLookupError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyTuple};
-use rustorb_core::cdr::{ByteOrder, CdrVersion, Decoder, Encoder};
+use rustorb_core::cdr::{ByteOrder, Decoder, Encoder, Encoding};
 use rustorb_core::giop::code_set;
 use rustorb_core::{
     CodeSets, CompletionStatus, Exception, InStream, ObjectRef, Orb as CoreOrb, OutStream,
@@ -233,8 +233,8 @@ impl Orb {
         let _scope = ValueScope::enter();
         let value = from_py(&compiled, value).map_err(|e| marshal_err(py, e))?;
         let mut enc = match little_endian {
-            None => Encoder::encapsulation(host_order(), CdrVersion::Giop1_2),
-            Some(little) => Encoder::new(order(little), CdrVersion::Giop1_2),
+            None => Encoder::encapsulation(host_order(), Encoding::Giop1_2),
+            Some(little) => Encoder::new(order(little), Encoding::Giop1_2),
         };
         let mut out = OutStream::standalone(&mut enc);
         out.set_code_sets(MARSHAL_CODE_SETS);
@@ -256,9 +256,9 @@ impl Orb {
         let compiled = compile_tc(tc)?;
         let _scope = ValueScope::enter();
         let dec = match little_endian {
-            None => Decoder::encapsulation(data, CdrVersion::Giop1_2)
+            None => Decoder::encapsulation(data, Encoding::Giop1_2)
                 .map_err(|_| sys_err(py, &marshal(CompletionStatus::No)))?,
-            Some(little) => Decoder::new(data, order(little), CdrVersion::Giop1_2),
+            Some(little) => Decoder::new(data, order(little), Encoding::Giop1_2),
         };
         let value = py
             .detach(|| {
