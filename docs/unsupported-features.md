@@ -10,7 +10,7 @@ Nov 1, 2026
 
 | 機能 | 現状 | 影響 | issue |
 | --- | --- | --- | --- |
-| Portable Interceptors（`ORBInitializer`、Client / ServerRequestInterceptor、IORInterceptor、`PICurrent`） | コア（Rust）は実装済み。Python・C ABI / C++・Java は未実装 | 認証トークンやトレース ID をサービスコンテキストで運ぶ用途、フレームワークのフックが使えない。CSIv2・FT CORBA などの土台にもなる | [#100](https://github.com/rustorb/rustorb/issues/100)、設計：[portable-interceptors.md](portable-interceptors.md) |
+| Portable Interceptors（`ORBInitializer`、Client / ServerRequestInterceptor、IORInterceptor、`PICurrent`） | コア（Rust）と Python は実装済み。C ABI / C++・Java は未実装 | 認証トークンやトレース ID をサービスコンテキストで運ぶ用途、フレームワークのフックが使えない。CSIv2・FT CORBA などの土台にもなる | [#100](https://github.com/rustorb/rustorb/issues/100)、設計：[portable-interceptors.md](portable-interceptors.md) |
 | 接続の管理（使っていない接続を閉じる、接続数の上限） | アップコールスレッドの idle 終了はあるが、接続を閉じる仕組みはない | 相手の多い長寿命のサーバーで接続が溜まる | [#101](https://github.com/rustorb/rustorb/issues/101) |
 | GIOP メッセージの最大長の設定と、送信側の Fragment | 受信の上限は `OrbOptions::max_message_size`（既定 64 MiB）だが ORB 引数がない。送るメッセージは分割しない | 大きな値を送ると相手の上限に当たって失敗する。JacORB は GIOP 1.1 の Fragment を受けない（`known-failures.txt`） | [#102](https://github.com/rustorb/rustorb/issues/102) |
 

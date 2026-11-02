@@ -1415,6 +1415,14 @@ class ORB(object):
             from . import DynamicAny
 
             return DynamicAny.DynAnyFactory()
+        if identifier == "PICurrent":
+            from . import PortableInterceptor
+
+            return PortableInterceptor.Current(self._native.pi_current())
+        if identifier == "CodecFactory":
+            from . import IOP
+
+            return IOP.CodecFactory(self._native.codec_factory())
         local = self._native.resolve_local_initial_reference(identifier)
         if local is not None:
             return local
@@ -1432,6 +1440,8 @@ class ORB(object):
         "ORBPolicyManager",
         "PolicyCurrent",
         "DynAnyFactory",
+        "PICurrent",
+        "CodecFactory",
     )
 
     def list_initial_services(self):
@@ -1756,7 +1766,11 @@ def ORB_init(argv=None, orb_identifier=ORB_ID):
         from . import _log
 
         _log.install(_native)
-        native, rest = _native.Orb.init([str(a) for a in argv])
+        import sys as _sys
+
+        pi = _sys.modules.get(__package__ + ".PortableInterceptor")
+        initializers = pi._adapters() if pi is not None else []
+        native, rest = _native.Orb.init([str(a) for a in argv], initializers, str(orb_identifier))
         _log.follow_trace_level(_native)
         if isinstance(argv, list):
             argv[:] = rest
