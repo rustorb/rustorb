@@ -9,6 +9,11 @@ break the API).
 
 ### Added
 
+- Portable Interceptors in Python (`rustorb.PortableInterceptor`,
+  `rustorb.IOP`): `ORBInitializer` with `register_orb_initializer`, client
+  and server request interceptors, IOR interceptors, `PICurrent` and
+  `Codec`, on the standard IDL to Python mapping; `PICurrent` and
+  `CodecFactory` initial references (#100)
 - Portable Interceptors in the core (`rustorb_core::pi`, `rustorb_core::iop`;
   docs/portable-interceptors.md): `ORBInitializer` (registered globally or in
   `OrbOptions::initializers`), client and server request interceptors with
@@ -52,6 +57,9 @@ break the API).
   0 to 7) and the XCDR1 parameter headers, short and `PID_EXTENDED`
   (`begin_parameter` / `read_parameter`), for mutable types and optional
   members. `wchar` and `wstring` are written and read with XCDR (#112)
+- `rustorb-idl -brust` maps abstract valuetypes (a handle and the trait
+  `AMethods`, implemented for the derived valuetypes) and valuetype
+  operations that raise user exceptions (per-operation error enums) (#104)
 
 ### Changed
 

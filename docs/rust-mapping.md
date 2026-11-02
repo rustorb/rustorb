@@ -355,7 +355,7 @@ impl TryFrom<Point> for Point3 { /* 派生への変換。違えば元の Point �
 - **知らない派生の型**：受け取った値の型が、期待した型でも登録された型でもないときは、truncatable な基底のうち知っている最初の型として読み、なければ `MARSHAL`（コアと同じ）。生成した型を受け取り側に知らせるため、出力ファイルごとに `register_value_types()` を作る（Rust には静的な初期化がないので、利用者が1回呼ぶ）
 - **value box**：`valuetype LongBox long;` は `#[derive(Clone)] pub struct LongBox(Arc<i32>)` にする（`new`、`Deref`、`ptr_eq`）。中身は変えられない。値の型のメンバーと同じく `Option<LongBox>`
 - **custom**（[#42](https://github.com/rustorb/rustorb/issues/42)）：`custom valuetype V` の状態の構造体 `VState` に、利用者が `rustorb_core::idl::CustomMarshal`（`marshal(&self, &mut DataOutputStream)` / `unmarshal(&mut self, &mut DataInputStream)`）を実装する。値は常に chunk 形式で送る。custom の値も Any に入る（#85）：`register_value_types()` が custom の型の読み込み関数をコアに登録し、コアは `unmarshal` を走らせて、`DataInputStream::read` / `read_array` で読んだものをコアのインスタンスの状態（項目の列）として持つ。このため Any に入れる custom の値の `unmarshal` は、`stream()` で直接読まずに `read` / `read_array` で読む。自分の状態の中から自分を参照する custom の値は Any に入れられない（`MARSHAL`）
-- **操作と supports**（#42）：操作か `supports I` を持つ valuetype には、トレイト `VOperations`（valuetype の操作と、`I` とその基底の操作。`&mut self` で、例外は `SystemException` だけ）を作り、利用者が `VState` に実装する。ハンドル `V` には valuetype 自身の操作を同名のメソッドとして作り、状態をロックしてトレイトを呼ぶ（中で同じインスタンスに触るとデッドロックする）。`supports I` なら `impl IServant for V` を作るので、`IPoa(v.clone()).activate(&poa)` で値をサーバントにできる。初期化子（`factory`）は生成せず、`V::new(state)` で作る。例外を投げる valuetype の操作と、ハンドルのメソッド（`new`、`get` など）と同じ名前の操作は生成器のエラー
+- **操作と supports**（#42）：操作か `supports I` を持つ valuetype には、トレイト `VOperations`（valuetype の操作と、`I` とその基底の操作。`&mut self` で、例外は `SystemException` だけ）を作り、利用者が `VState` に実装する。ハンドル `V` には valuetype 自身の操作を同名のメソッドとして作り、状態をロックしてトレイトを呼ぶ（中で同じインスタンスに触るとデッドロックする）。`supports I` なら `impl IServant for V` を作るので、`IPoa(v.clone()).activate(&poa)` で値をサーバントにできる。初期化子（`factory`）は生成せず、`V::new(state)` で作る。例外を投げる操作は、インターフェースと同じく操作ごとのエラー型（`v::FooError`）を返す（[#104](https://github.com/rustorb/rustorb/issues/104)）。ハンドルのメソッド（`new`、`get` など）と同じ名前の操作は生成器のエラー
 
 ```rust
 impl AccountOperations for AccountState {
@@ -367,7 +367,17 @@ let a = Account::new(AccountState { balance: 21 });
 assert_eq!(a.doubled()?, 42);
 ```
 
-- 抽象 valuetype は生成器がエラーにする
+- **抽象 valuetype**（#104）：`abstract valuetype A` は、`A` から派生した valuetype のインスタンスのハンドル `A`（`handle`、`ptr_eq`、`from_handle`、操作のメソッド）と、操作のトレイト `AMethods` になる。状態はない。派生する `valuetype V : A` の `VOperations` に `A`（とその基底）の操作も入り、生成器が `impl AMethods for V` と `From<V> for A` を作る。`abstract valuetype A2 : A1` は `A2Methods: A1Methods` と `From<A2> for A1`。送るときは派生の型の値そのもの（TypeCode は `VM_ABSTRACT` の `tk_value`）。受け取るときは `ValueBase` として読み、`register_value_types()` が登録した変換で `A` にする（abstract interface と同じ）。登録されていない型や `A` から派生しない型の値は `MARSHAL`。インターフェースを `supports` する抽象 valuetype は生成器のエラー
+
+```rust
+// abstract valuetype Priced { double price(); };
+// valuetype Item : Priced { public double base; };
+impl ItemOperations for ItemState {
+    fn price(&mut self) -> Sys<f64> { Ok(self.base) }
+}
+let p: Priced = Item::new(ItemState { base: 10.0 }).into();
+assert_eq!(p.price()?, 10.0);
+```
 
 ## abstract interface
 
@@ -433,7 +443,7 @@ pub trait Hook: Send + Sync {
 
 ## 対象外（生成器がエラーにするもの）
 
-- 抽象 valuetype、例外を投げる valuetype の操作（上記）
+- インターフェースを `supports` する抽象 valuetype（上記）
 - 操作の `context` 句。コアに `CORBA::Context` がなく、要求の引数のあとに Context を送れない。黙って省くと、`context` 句を宣言した相手の ORB との間で要求の形が食い違うので、エラーにする
 - local interface を送ること（上記）
 - IDL4 の新しい構文（[#46](https://github.com/rustorb/rustorb/issues/46)）

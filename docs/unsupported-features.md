@@ -10,7 +10,7 @@ Nov 1, 2026
 
 | 機能 | 現状 | 影響 | issue |
 | --- | --- | --- | --- |
-| Portable Interceptors（`ORBInitializer`、Client / ServerRequestInterceptor、IORInterceptor、`PICurrent`） | コア（Rust）は実装済み。Python・C ABI / C++・Java は未実装 | 認証トークンやトレース ID をサービスコンテキストで運ぶ用途、フレームワークのフックが使えない。CSIv2・FT CORBA などの土台にもなる | [#100](https://github.com/rustorb/rustorb/issues/100)、設計：[portable-interceptors.md](portable-interceptors.md) |
+| Portable Interceptors（`ORBInitializer`、Client / ServerRequestInterceptor、IORInterceptor、`PICurrent`） | コア（Rust）と Python は実装済み。C ABI / C++・Java は未実装 | 認証トークンやトレース ID をサービスコンテキストで運ぶ用途、フレームワークのフックが使えない。CSIv2・FT CORBA などの土台にもなる | [#100](https://github.com/rustorb/rustorb/issues/100)、設計：[portable-interceptors.md](portable-interceptors.md) |
 | 接続の管理（使っていない接続を閉じる、接続数の上限） | アップコールスレッドの idle 終了はあるが、接続を閉じる仕組みはない | 相手の多い長寿命のサーバーで接続が溜まる | [#101](https://github.com/rustorb/rustorb/issues/101) |
 | GIOP メッセージの最大長の設定と、送信側の Fragment | 受信の上限は `OrbOptions::max_message_size`（既定 64 MiB）だが ORB 引数がない。送るメッセージは分割しない | 大きな値を送ると相手の上限に当たって失敗する。JacORB は GIOP 1.1 の Fragment を受けない（`known-failures.txt`） | [#102](https://github.com/rustorb/rustorb/issues/102) |
 
@@ -19,7 +19,7 @@ Nov 1, 2026
 | 機能 | 現状 | メモ | issue |
 | --- | --- | --- | --- |
 | 双方向 GIOP（BiDir、`BiDirPolicy`） | [poa-design.md](poa-design.md) で MVP の対象外 | NAT・ファイアウォール越しのコールバックに要る | [#103](https://github.com/rustorb/rustorb/issues/103) |
-| `-brust` の abstract interface・local interface・抽象 valuetype・`context` 句 | 生成器がエラーにする（[rust-mapping.md](rust-mapping.md)）。コアと他の言語は abstract interface に対応済み | Rust の利用者がローカルオブジェクトを IDL で書けない | [#104](https://github.com/rustorb/rustorb/issues/104) |
+| `-brust` の abstract interface・local interface・抽象 valuetype・`context` 句 | 対応済み（[rust-mapping.md](rust-mapping.md)）。`context` 句は、コアに `CORBA::Context` がないので生成器のエラーのままにすると決めた | Rust の利用者がローカルオブジェクトを IDL で書けない（解消） | [#104](https://github.com/rustorb/rustorb/issues/104) |
 | ログ・トレースの出力（`-ORBtraceLevel` 相当） | コアにログの仕組みがない | 相互接続や設定の問題を利用者が調べにくい | [#105](https://github.com/rustorb/rustorb/issues/105) |
 | Messaging AMI（IDL の `sendc_` と `ReplyHandler`、ポーリング） | Rust は async API（[async-api.md](async-api.md)）と DII の deferred で代替。標準の AMI の生成コードはない | C++・Java・Python に非同期呼び出しの標準 API がない | |
 | Messaging のその他のポリシー（SyncScope、Rebind、RequestPriority など） | タイムアウト（RelativeRoundtripTimeout）だけ | oneway の `SYNC_WITH_*` は内部で持っているので、ポリシーとして公開するのは小さい | |

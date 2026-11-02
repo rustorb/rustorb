@@ -28,8 +28,8 @@ mod abstract_iface;
 mod value;
 
 pub use abstract_iface::{
-    AbstractValue, SupportedFn, Upcast, read_abstract, register_supported, supported,
-    write_abstract_object, write_abstract_value,
+    AbstractValue, SupportedFn, Upcast, read_abstract, read_abstract_value, register_supported,
+    supported, write_abstract_object, write_abstract_value,
 };
 pub use value::{
     CustomMarshal, DataInputStream, DataOutputStream, ValueHandle, ValueInfo, ValueState, read_box,

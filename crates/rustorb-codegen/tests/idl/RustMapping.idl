@@ -276,6 +276,26 @@ module RustMapping {
     public long rings;
   };
 
+  // --- abstract valuetypes ---
+  // An abstract valuetype is a handle of an instance of a derived type,
+  // whose Operations trait has the operations.
+  abstract valuetype Priced {
+    double price();
+  };
+  abstract valuetype Discounted : Priced {
+    double discounted(in double rate) raises (Failure);
+  };
+  valuetype Item : Discounted {
+    public double base;
+    // An operation of a valuetype that raises.
+    long stock() raises (Empty);
+  };
+  typedef sequence<Priced> PricedSeq;
+  interface Shop {
+    Priced echo_priced(in Priced p);
+    double total(in PricedSeq ps);
+  };
+
   // --- nested modules ---
   module Inner {
     const string INNER_NAME = "inner";
