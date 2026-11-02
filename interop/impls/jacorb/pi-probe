@@ -1,0 +1,8 @@
+#!/bin/sh
+# JacORB side of run-pi-probe.sh: interop.PiProbe (impls/jacorb/pi), built
+# in the interop image (docker/omniorb).
+here="$(dirname "$0")"
+exec java --add-opens java.base/java.io=ALL-UNNAMED -Dfile.encoding=UTF-8 \
+  -Dorg.omg.CORBA.ORBClass=org.jacorb.orb.ORB \
+  -Dorg.omg.CORBA.ORBSingletonClass=org.jacorb.orb.ORBSingleton \
+  -cp "$here/classes:/opt/jacorb/lib/*" interop.PiProbe "$@"

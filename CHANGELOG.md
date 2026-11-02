@@ -9,6 +9,14 @@ break the API).
 
 ### Added
 
+- Portable Interceptors in the core (`rustorb_core::pi`, `rustorb_core::iop`;
+  docs/portable-interceptors.md): `ORBInitializer` (registered globally or in
+  `OrbOptions::initializers`), client and server request interceptors with
+  service contexts and `ForwardRequest`, IOR interceptors adding tagged
+  components, `PICurrent` slots, `IOP::Codec` (CDR encapsulations 1.0 to 1.2)
+  and `Orb::codec_factory`. `-ORBid` and `-ORBServerId` set
+  `OrbOptions::orb_id` and `server_id`. Without interceptors nothing changes
+  on the call path; interop with JacORB in `interop/run-pi-probe.sh` (#100)
 - Trace output (`-ORBtraceLevel N`, `-ORBtraceTime 0|1`; `OrbOptions::trace_level`,
   `trace_time`; docs/tracing.md): connections, requests and replies, system
   exceptions, `LOCATION_FORWARD`, POA events and each GIOP message, as events

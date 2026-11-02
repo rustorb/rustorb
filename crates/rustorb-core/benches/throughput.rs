@@ -12,7 +12,8 @@
 //! - `orb/*`: an ORB calling another in the same process over loopback
 //!   TCP: one call at a time, 1 MiB octet sequences (copied, and shared
 //!   with `read_octet_seq_shared` / `write_octet_seq_shared`), and 16 client ORBs
-//!   (a connection each) calling at once.
+//!   (a connection each) calling at once. `echo_long_noop_interceptors` is
+//!   `echo_long` with a Portable Interceptor that does nothing on each side.
 
 use std::sync::{Arc, Barrier};
 use std::thread;
@@ -23,6 +24,9 @@ use rustorb_core::cdr::{ByteOrder, Octets};
 use rustorb_core::giop::{
     FragmentAssembler, Message, MessageEncoder, RequestHeader, TargetAddress, Version,
     response_flags,
+};
+use rustorb_core::pi::{
+    ClientRequestInterceptor, Interceptor, OrbInitInfo, OrbInitializer, ServerRequestInterceptor,
 };
 use rustorb_core::{
     CompletionStatus, EndpointAddr, InStream, ObjectRef, Orb, OrbOptions, Servant, ServerReply,
@@ -113,13 +117,38 @@ struct Pair {
     obj: ObjectRef,
 }
 
+/// Client and server interceptors that do nothing.
+struct Noop;
+
+impl Interceptor for Noop {
+    fn name(&self) -> &str {
+        "noop"
+    }
+}
+
+impl ClientRequestInterceptor for Noop {}
+impl ServerRequestInterceptor for Noop {}
+
+impl OrbInitializer for Noop {
+    fn pre_init(&self, info: &mut OrbInitInfo<'_>) -> Result<(), SystemException> {
+        info.add_client_request_interceptor(Arc::new(Noop)).unwrap();
+        info.add_server_request_interceptor(Arc::new(Noop)).unwrap();
+        Ok(())
+    }
+}
+
 impl Pair {
     fn new() -> Pair {
+        Pair::with(Vec::new())
+    }
+
+    fn with(initializers: Vec<Arc<dyn OrbInitializer>>) -> Pair {
         let server = Orb::with_options(OrbOptions {
             endpoints: vec![EndpointAddr {
                 host: "127.0.0.1".into(),
                 port: 0,
             }],
+            initializers: initializers.clone(),
             ..OrbOptions::default()
         })
         .unwrap();
@@ -127,7 +156,11 @@ impl Pair {
         let id = root.activate_object(Arc::new(Echo)).unwrap();
         root.the_poa_manager().activate().unwrap();
         let local = root.id_to_reference(&id).unwrap();
-        let client = Orb::with_options(OrbOptions::default()).unwrap();
+        let client = Orb::with_options(OrbOptions {
+            initializers,
+            ..OrbOptions::default()
+        })
+        .unwrap();
         let obj = remote(&client, &server, &local);
         Pair {
             server,
@@ -192,6 +225,11 @@ fn orb(c: &mut Criterion) {
     group.bench_function("echo_long", |b| {
         b.iter(|| assert_eq!(echo_long(&pair.obj, 7), 7));
     });
+    let intercepted = Pair::with(vec![Arc::new(Noop)]);
+    group.bench_function("echo_long_noop_interceptors", |b| {
+        b.iter(|| assert_eq!(echo_long(&intercepted.obj, 7), 7));
+    });
+    drop(intercepted);
 
     let data = vec![7u8; MIB];
     group.throughput(Throughput::Bytes(2 * MIB as u64));

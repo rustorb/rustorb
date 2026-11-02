@@ -1,8 +1,17 @@
 # Portable Interceptors 設計書
 
-[#100](https://github.com/rustorb/rustorb/issues/100)（[#107](https://github.com/rustorb/rustorb/issues/107) の 4・5 段目）。CORBA 3.x の `PortableInterceptor` モジュール（`ORBInitializer`、要求インターセプター、IOR インターセプター、`PICurrent`）と、それが使う `IOP::Codec` を、コア（`rustorb-core`）と Python・C ABI・C++・Java のバインディングに加える。この文書は実装の前の設計で、実装の PR はこれをマージしてから出す。
+[#100](https://github.com/rustorb/rustorb/issues/100)（[#107](https://github.com/rustorb/rustorb/issues/107) の 4・5 段目）。CORBA 3.x の `PortableInterceptor` モジュール（`ORBInitializer`、要求インターセプター、IOR インターセプター、`PICurrent`）と、それが使う `IOP::Codec` を、コア（`rustorb-core`）と Python・C ABI・C++・Java のバインディングに加える。この文書は実装の前に書いた設計で、実装の状況は次の節にまとめる。
 
 根拠は CORBA 3.x の仕様（Portable Interceptors の章と `PortableInterceptor`・`IOP` の IDL）だけで、他の ORB のソースは読まない（[development-plan.md](development-plan.md) の方針）。相互接続での挙動は実際に動かして確かめる。
+
+## 実装の状況
+
+- **コア（`rustorb-core` の `pi`・`iop`）**：実装済み。`ORBInitializer`（`register_orb_initializer` と `OrbOptions::initializers`）、クライアント・サーバーの要求インターセプター、IOR インターセプター、`PICurrent`、`IOP::Codec`、`-ORBid` / `-ORBServerId`
+  - 試験は `crates/rustorb-core/tests/pi.rs`（22 件）。下の「試験」のうち、`CloseConnection` での送り直し（`TRANSPORT_RETRY`）は試験がまだない
+  - ベンチマーク（`cargo bench -p rustorb-core -- orb/echo_long`）：インターセプターなしでは前と差がない（ばらつきの範囲）。何もしないクライアント・サーバーのインターセプターを 1 つずつ入れると、ループバックの 1 呼び出し（約 55 µs）が約 2.4 µs（約 4%）増える
+  - 相互接続：`interop/run-pi-probe.sh`（`interop/impls/rustorb/src/pi_probe.rs` と `interop/impls/jacorb/pi/PiProbe.java`）。rustorb と JacORB 3.9 の間で、両向きの要求・返事のサービスコンテキスト、IOR インターセプターのタグ付きコンポーネント、`Codec`（CDR カプセル 1.2 の `encode_value`）の中身が届くことを確かめた（GIOP 1.0・1.1・1.2）。omniORB との組は Python の PR で足す
+  - `pre_init` / `post_init` の例外で ORB の作成を失敗させる点（「ORB の初期化」の節）は、仕様の章の文言をまだ確かめていない
+- **Python・C ABI / C++・Java**：まだ（#107 の次の PR）
 
 ## 範囲
 

@@ -20,7 +20,7 @@ use std::panic::{self, AssertUnwindSafe};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::thread::{self, ThreadId};
 
-use rustorb_giop::IiopProfile;
+use rustorb_giop::{IiopProfile, TaggedComponent};
 
 use crate::pool::Job;
 use crate::servant::{Cookie, ServantLocator};
@@ -739,6 +739,9 @@ pub(crate) struct PoaInner {
     changed: Condvar,
     /// The queue of a SINGLE_THREAD_MODEL POA.
     serial: Mutex<Serial>,
+    /// The tagged components the IOR interceptors added to its
+    /// references.
+    pub(crate) components: Vec<TaggedComponent>,
 }
 
 #[derive(Default)]
@@ -974,6 +977,7 @@ fn catch<T>(
 }
 
 impl PoaInner {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         name: String,
         path: Vec<String>,
@@ -982,8 +986,10 @@ impl PoaInner {
         parent: Option<Weak<PoaInner>>,
         key_prefix: Vec<u8>,
         boot_id: [u8; BOOT_ID_LEN],
+        components: Vec<TaggedComponent>,
     ) -> Arc<PoaInner> {
         let poa = Arc::new(PoaInner {
+            components,
             name,
             path,
             policies,
@@ -1000,7 +1006,11 @@ impl PoaInner {
         poa
     }
 
-    pub(crate) fn new_root(manager: PoaManager, boot_id: [u8; BOOT_ID_LEN]) -> Arc<PoaInner> {
+    pub(crate) fn new_root(
+        manager: PoaManager,
+        boot_id: [u8; BOOT_ID_LEN],
+        components: Vec<TaggedComponent>,
+    ) -> Arc<PoaInner> {
         let mut key_prefix = vec![TRANSIENT_END];
         key_prefix.extend_from_slice(&boot_id);
         PoaInner::new(
@@ -1011,6 +1021,7 @@ impl PoaInner {
             None,
             key_prefix,
             boot_id,
+            components,
         )
     }
 
@@ -1019,6 +1030,7 @@ impl PoaInner {
         name: &str,
         manager: PoaManager,
         policies: Policies,
+        components: Vec<TaggedComponent>,
     ) -> Arc<PoaInner> {
         let mut path = parent.path.clone();
         path.push(name.to_owned());
@@ -1044,11 +1056,17 @@ impl PoaInner {
             Some(Arc::downgrade(parent)),
             key_prefix,
             parent.boot_id,
+            components,
         )
     }
 
     pub(crate) fn policies(&self) -> &Policies {
         &self.policies
+    }
+
+    /// Names from below the RootPOA down to this POA.
+    pub(crate) fn path(&self) -> &[String] {
+        &self.path
     }
 
     pub(crate) fn activity(&self) -> &Arc<Activity> {
@@ -1517,6 +1535,14 @@ impl Poa {
         }
         let policies = Policies::from_list(policies).map_err(PoaError::InvalidPolicy)?;
         let server = self.server()?;
+        // The IOR interceptors run before the POA's lock is taken.
+        let components = if self.state()?.children.contains_key(name) {
+            Vec::new()
+        } else {
+            let mut path = self.inner.path.clone();
+            path.push(name.to_owned());
+            crate::pi::establish_components(&self.orb, &policies, &path)
+        };
         let mut st = self.state()?;
         if st.children.contains_key(name) {
             return Err(PoaError::AdapterAlreadyExists);
@@ -1531,7 +1557,7 @@ impl Poa {
                  its references will not survive a restart"
             );
         }
-        let child = PoaInner::new_child(&self.inner, name, manager, policies);
+        let child = PoaInner::new_child(&self.inner, name, manager, policies, components);
         trace::info!("created POA {name:?} under {:?}", self.inner.name);
         st.children.insert(name.to_owned(), Arc::clone(&child));
         Ok(self.handle(child))
@@ -1861,7 +1887,7 @@ impl Poa {
 
     pub(crate) fn reference(&self, id: &[u8], type_id: &str) -> Result<ObjectRef, PoaError> {
         let server = self.server()?;
-        let ior = server.ior(type_id, self.inner.key(id))?;
+        let ior = server.ior(type_id, self.inner.key(id), &self.inner.components)?;
         Ok(ObjectRef::new(self.orb.clone(), ior))
     }
 }

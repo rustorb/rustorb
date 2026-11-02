@@ -30,8 +30,8 @@ use rustorb_cdr::ByteOrder;
 use rustorb_giop::{
     AlternateIiopAddress, Body, CodeSetComponent, CodeSetComponentInfo, CodeSetContext,
     IiopProfile, Ior, LocateReplyHeader, LocateRequestHeader, LocateStatus, Message,
-    MessageEncoder, OutMessage, RequestHeader, ServiceContext, SslSecTrans, TargetAddress, Version,
-    association_options, component_tag,
+    MessageEncoder, OutMessage, RequestHeader, ServiceContext, SslSecTrans, TaggedComponent,
+    TargetAddress, Version, association_options, component_tag,
 };
 use tokio::io::AsyncWriteExt;
 use tokio::net::tcp::OwnedWriteHalf;
@@ -44,6 +44,7 @@ use crate::codeset::{CONVERSION_CHAR, NATIVE_CHAR, NATIVE_WCHAR};
 use crate::connection::summary;
 use crate::idle::{self, Stamp};
 use crate::orb::OrbInner;
+use crate::pi::{self, Interceptors, ServerEnding, ServerException, ServerRequestInfo};
 use crate::poa::{
     BOOT_ID_LEN, CurrentGuard, Dispatch, Disposition, Etherealization, ManagerInner, ParsedKey,
     PoaInner, PoaManager, SerialEntry, UpcallGuard, etherealize_all, is_main_thread,
@@ -157,7 +158,12 @@ fn initialize() -> SystemException {
 
 impl Server {
     /// Opens the endpoints of `orb` and creates the RootPOA.
-    pub(crate) fn start(orb: &Orb) -> Result<Arc<Server>, SystemException> {
+    /// `root_components` are the IOR interceptors' components of the
+    /// RootPOA.
+    pub(crate) fn start(
+        orb: &Orb,
+        root_components: Vec<TaggedComponent>,
+    ) -> Result<Arc<Server>, SystemException> {
         let options = &orb.inner.options;
         let endpoints = if options.endpoints.is_empty() && options.tls_endpoints.is_empty() {
             vec![EndpointAddr {
@@ -275,7 +281,9 @@ impl Server {
             in_flight_done: Condvar::new(),
         });
         let manager = PoaManager::new(&server);
-        let _ = server.root.set(PoaInner::new_root(manager, server.boot_id));
+        let _ = server
+            .root
+            .set(PoaInner::new_root(manager, server.boot_id, root_components));
 
         let handle = orb.inner.handle.clone();
         let _entered = handle.enter();
@@ -349,7 +357,15 @@ impl Server {
     /// the profile has the host of the first one and port 0. A TLS
     /// endpoint the first profile cannot carry (another host, or not the
     /// first) gets a profile of its own.
-    pub(crate) fn ior(&self, type_id: &str, key: Vec<u8>) -> Result<Ior, SystemException> {
+    ///
+    /// `extra` are the components of the IOR interceptors, added to every
+    /// profile after those.
+    pub(crate) fn ior(
+        &self,
+        type_id: &str,
+        key: Vec<u8>,
+        extra: &[TaggedComponent],
+    ) -> Result<Ior, SystemException> {
         let marshal =
             |_| SystemException::new(SystemExceptionKind::MARSHAL, 0, CompletionStatus::No);
         let (host, port) = match self.published.first() {
@@ -374,6 +390,7 @@ impl Server {
             };
             components.push(alternate.to_component(self.order).map_err(marshal)?);
         }
+        components.extend_from_slice(extra);
         let mut profiles = vec![
             IiopProfile {
                 version: Version::V1_2,
@@ -386,10 +403,11 @@ impl Server {
             .map_err(marshal)?,
         ];
         for (host, port) in rest_tls {
-            let components = vec![
+            let mut components = vec![
                 code_set_info().to_component(self.order).map_err(marshal)?,
                 self.ssl_component(port).map_err(marshal)?,
             ];
+            components.extend_from_slice(extra);
             let profile = IiopProfile {
                 version: Version::V1_2,
                 host: host.clone(),
@@ -566,6 +584,7 @@ impl Server {
             operation: header.operation,
             body,
             code_sets,
+            contexts: header.service_context,
             reply,
             _ticket: ticket,
         };
@@ -577,7 +596,7 @@ impl Server {
     fn route(self: &Arc<Self>, key: Vec<u8>, request: Incoming) {
         match self.find(&key, None) {
             Ok((poa, id)) => self.admit(&poa, id, request),
-            Err(Lookup::Missing) => request.reply.system(&no_such_object()),
+            Err(Lookup::Missing) => self.refuse(request, no_such_object()),
             Err(Lookup::NeedsActivator) => {
                 // Adapter activators are user code: find the POA on an
                 // upcall thread.
@@ -588,7 +607,7 @@ impl Server {
                         .and_then(|orb| server.find(&key, Some(&orb)).ok());
                     match found {
                         Some((poa, id)) => server.admit(&poa, id, request),
-                        None => request.reply.system(&no_such_object()),
+                        None => server.refuse(request, no_such_object()),
                     }
                 }));
             }
@@ -602,7 +621,7 @@ impl Server {
         let target = Arc::clone(poa);
         let dispatch: Dispatch = Box::new(move |disposition| match disposition {
             Disposition::Run => server.schedule_upcall(&target, id, request),
-            Disposition::Reject(e) => request.reply.system(&e),
+            Disposition::Reject(e) => server.refuse(request, e),
         });
         poa.manager.inner.dispatch(dispatch);
     }
@@ -697,7 +716,7 @@ impl Server {
             found => found,
         };
         let Ok((poa, id)) = found else {
-            request.reply.system(&no_such_object());
+            self.refuse(request, no_such_object());
             return;
         };
         if !matches!(poa.policies().thread, ThreadPolicy::OrbCtrl) {
@@ -725,7 +744,7 @@ impl Server {
                         server.schedule_upcall(&target, id, request);
                     }
                 }
-                Disposition::Reject(e) => request.reply.system(&e),
+                Disposition::Reject(e) => server.refuse(request, e),
             }));
         let run = {
             let mut here = here.lock().unwrap();
@@ -764,19 +783,69 @@ impl Server {
         }
     }
 
+    /// Answers a request that does not reach a servant with `e`. With
+    /// server interceptors, the request goes through them first, on an
+    /// upcall thread.
+    fn refuse(self: &Arc<Self>, request: Incoming, e: SystemException) {
+        let pi = self
+            .orb()
+            .and_then(|orb| orb.interceptors())
+            .filter(|pi| pi.has_server());
+        let Some(pi) = pi else {
+            request.reply.system(&e);
+            return;
+        };
+        let server = Arc::clone(self);
+        self.submit(Box::new(move || {
+            let Some(orb) = server.orb() else { return };
+            let Incoming {
+                operation,
+                contexts,
+                reply,
+                _ticket,
+                ..
+            } = request;
+            let info = ServerRequestInfo::new(
+                &pi,
+                pi::ServerRequest {
+                    request_id: reply.request_id,
+                    operation: &operation,
+                    response_expected: reply.response,
+                    orb: &orb,
+                    target: None,
+                    contexts: &contexts,
+                },
+            );
+            let end = match pi::receive_request_service_contexts(&pi, &info) {
+                Err(end) => end,
+                Ok(()) => pi::send_reply(
+                    &pi,
+                    &info,
+                    ServerEnding::Exception(ServerException::System(e)),
+                ),
+            };
+            send_ending(reply, end, None, &info);
+        }));
+    }
+
     /// Finds the servant and calls it, on the thread the request runs on.
     fn upcall(self: &Arc<Self>, poa: &Arc<PoaInner>, id: &[u8], request: Incoming) {
+        if request.reply.is_cancelled() {
+            return;
+        }
+        let Some(orb) = self.orb() else { return };
+        if let Some(pi) = orb.interceptors().filter(|pi| pi.has_server()) {
+            self.upcall_pi(&pi, orb, poa, id, request);
+            return;
+        }
         let Incoming {
             operation,
             body,
             code_sets,
             reply,
             _ticket,
+            ..
         } = request;
-        if reply.is_cancelled() {
-            return;
-        }
-        let Some(orb) = self.orb() else { return };
         let adapter = Poa {
             orb: orb.clone(),
             inner: Arc::clone(poa),
@@ -839,6 +908,132 @@ impl Server {
                 ));
             }
         }
+    }
+
+    /// [`upcall`](Self::upcall) through the server interceptors
+    /// (docs/portable-interceptors.md).
+    fn upcall_pi(
+        self: &Arc<Self>,
+        pi: &Interceptors,
+        orb: Orb,
+        poa: &Arc<PoaInner>,
+        id: &[u8],
+        request: Incoming,
+    ) {
+        let Incoming {
+            operation,
+            body,
+            code_sets,
+            contexts,
+            reply,
+            _ticket,
+        } = request;
+        let adapter = Poa {
+            orb: orb.clone(),
+            inner: Arc::clone(poa),
+        };
+        let _poa_activity = poa.activity().enter();
+        let _manager_activity = poa.manager.inner.activity().enter();
+        let target = pi::ServerTarget {
+            poa: adapter.clone(),
+            id: id.to_vec(),
+        };
+        let info = ServerRequestInfo::new(
+            pi,
+            pi::ServerRequest {
+                request_id: reply.request_id,
+                operation: &operation,
+                response_expected: reply.response,
+                orb: &orb,
+                target: Some(&target),
+                contexts: &contexts,
+            },
+        );
+        if let Err(end) = pi::receive_request_service_contexts(pi, &info) {
+            send_ending(reply, end, None, &info);
+            return;
+        }
+        let resolved = match poa.resolve(&adapter, self, id, &operation) {
+            Ok(resolved) => resolved,
+            Err(e) => {
+                let ending = match e {
+                    ServantManagerError::ForwardRequest(to) => ServerEnding::Forward(to),
+                    ServantManagerError::System(e) => {
+                        ServerEnding::Exception(ServerException::System(e))
+                    }
+                };
+                let end = pi::send_reply(pi, &info, ending);
+                send_ending(reply, end, None, &info);
+                return;
+            }
+        };
+        info.set_servant(&resolved.servant);
+        // The servant sees the request's slots as its thread's.
+        let _slots = info.enter_thread_scope(pi);
+        if let Err(end) = pi::receive_request(pi, &info) {
+            resolved.finish(&adapter, id, &operation);
+            send_ending(reply, end, None, &info);
+            return;
+        }
+        let mut out = match ServerReply::with_contexts(
+            reply.version,
+            self.order,
+            reply.request_id,
+            code_sets,
+            info.reply_contexts(),
+        ) {
+            Ok(out) => out,
+            Err(e) => {
+                resolved.finish(&adapter, id, &operation);
+                let end = pi::send_reply(
+                    pi,
+                    &info,
+                    ServerEnding::Exception(ServerException::System(e)),
+                );
+                send_ending(reply, end, None, &info);
+                return;
+            }
+        };
+        let mut input = InStream {
+            dec: body.decoder(),
+            code_sets,
+            orb: Some(&orb),
+            completed: CompletionStatus::No,
+            wchar_needs_code_set: true,
+            values: Vec::new(),
+            typed_values: Vec::new(),
+            custom_items: None,
+            body: Some(&body),
+        };
+        let result = {
+            let dsi = pi::DsiGuard::enter();
+            let _upcall = UpcallGuard::enter();
+            let _current = CurrentGuard::enter(&adapter, id, &resolved.servant);
+            let result = panic::catch_unwind(AssertUnwindSafe(|| {
+                invoke(&*resolved.servant, &operation, &mut input, &mut out)
+            }));
+            info.set_dsi(dsi.take());
+            result
+        };
+        resolved.finish(&adapter, id, &operation);
+        let ending = match result {
+            Ok(Ok(())) => match out.exception_id() {
+                Some(id) => ServerEnding::Exception(ServerException::User(id.to_owned())),
+                None => ServerEnding::Reply,
+            },
+            Ok(Err(e)) => ServerEnding::Exception(ServerException::System(e)),
+            Err(_) => {
+                trace::warning!("servant panicked in {operation:?}");
+                ServerEnding::Exception(ServerException::System(SystemException::new(
+                    SystemExceptionKind::UNKNOWN,
+                    0,
+                    CompletionStatus::Maybe,
+                )))
+            }
+        };
+        let end = pi::send_reply(pi, &info, ending);
+        trace::debug!("request {operation:?} (id {}) done", reply.request_id);
+        send_ending(reply, end, Some(out), &info);
     }
 
     fn on_locate(
@@ -953,12 +1148,13 @@ impl Server {
             operation: header.operation,
             body,
             code_sets,
+            contexts: header.service_context,
             reply,
             _ticket: self.ticket(None),
         };
         let found = target_key(&header.target).and_then(|key| self.find(&key, Some(&orb)).ok());
         match found {
-            None => request.reply.system(&no_such_object()),
+            None => self.refuse(request, no_such_object()),
             Some((poa, id)) => {
                 // The manager's verdict comes at once, or when a holding
                 // manager changes its state.
@@ -967,7 +1163,7 @@ impl Server {
                     let _ = dtx.send(disposition);
                 }));
                 match wait(&drx, timeout, CompletionStatus::No)? {
-                    Disposition::Reject(e) => request.reply.system(&e),
+                    Disposition::Reject(e) => self.refuse(request, e),
                     Disposition::Run => self.run_local(&poa, id, request),
                 }
             }
@@ -1209,6 +1405,8 @@ struct Incoming {
     operation: String,
     body: Body,
     code_sets: CodeSets,
+    /// The service contexts of the request, for server interceptors.
+    contexts: Vec<ServiceContext>,
     reply: ReplyTo,
     _ticket: Ticket,
 }
@@ -1247,6 +1445,36 @@ fn wait<T>(
             std_mpsc::RecvTimeoutError::Disconnected => transient(),
         }),
         None => rx.recv().map_err(|_| transient()),
+    }
+}
+
+/// Sends the reply a request ended with in the server interceptors: what
+/// the servant wrote (`out`), or the exception or forward that replaced
+/// it, with the reply service contexts.
+fn send_ending(
+    reply: ReplyTo,
+    end: ServerEnding,
+    out: Option<ServerReply>,
+    info: &ServerRequestInfo<'_>,
+) {
+    let contexts = info.reply_contexts();
+    match (end, out) {
+        (ServerEnding::Reply | ServerEnding::Exception(ServerException::User(_)), Some(out)) => {
+            match out.finish_with(contexts.clone()) {
+                Ok(msg) => reply.send(msg),
+                Err(e) => reply.system_with(&e, &contexts),
+            }
+        }
+        (ServerEnding::Exception(ServerException::System(e)), _) => {
+            reply.system_with(&e, &contexts)
+        }
+        (ServerEnding::Forward(to), _) => reply.forward_with(to.ior(), &contexts),
+        // A reply without a body to send: cannot happen.
+        (ServerEnding::Reply | ServerEnding::Exception(ServerException::User(_)), None) => reply
+            .system_with(
+                &SystemException::new(SystemExceptionKind::INTERNAL, 0, CompletionStatus::Maybe),
+                &contexts,
+            ),
     }
 }
 
@@ -1666,7 +1894,7 @@ impl ReplyTo {
                 let e =
                     SystemException::new(SystemExceptionKind::MARSHAL, 0, CompletionStatus::Yes);
                 if let Some(msg) =
-                    system_exception_reply(self.version, self.order, self.request_id, &e)
+                    system_exception_reply(self.version, self.order, self.request_id, &e, &[])
                 {
                     conn.send(msg.into());
                 }
@@ -1680,6 +1908,10 @@ impl ReplyTo {
 
     /// Sends the client to `ior` with `LOCATION_FORWARD`.
     fn forward(self, ior: &Ior) {
+        self.forward_with(ior, &[]);
+    }
+
+    fn forward_with(self, ior: &Ior, contexts: &[ServiceContext]) {
         trace::debug!(
             "request id {}: replying LOCATION_FORWARD to {}",
             self.request_id,
@@ -1688,18 +1920,22 @@ impl ReplyTo {
         if !self.response {
             return;
         }
-        match location_forward_reply(self.version, self.order, self.request_id, ior) {
+        match location_forward_reply(self.version, self.order, self.request_id, ior, contexts) {
             Some(msg) => self.send(msg.into()),
             None => drop(self),
         }
     }
 
     fn system(self, e: &SystemException) {
+        self.system_with(e, &[]);
+    }
+
+    fn system_with(self, e: &SystemException, contexts: &[ServiceContext]) {
         trace::debug!("request id {}: replying {e}", self.request_id);
         if !self.response {
             return;
         }
-        match system_exception_reply(self.version, self.order, self.request_id, e) {
+        match system_exception_reply(self.version, self.order, self.request_id, e, contexts) {
             Some(msg) => self.send(msg.into()),
             None => drop(self),
         }

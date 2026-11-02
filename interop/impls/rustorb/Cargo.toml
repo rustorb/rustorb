@@ -28,6 +28,10 @@ name = "rustorb-dynany-probe"
 path = "src/dynany_probe.rs"
 
 [[bin]]
+name = "rustorb-pi-probe"
+path = "src/pi_probe.rs"
+
+[[bin]]
 name = "rustorb-load-client"
 path = "src/load_client.rs"
 

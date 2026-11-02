@@ -294,6 +294,7 @@ Every binding takes the same `-ORB...` options (from the command line, or
 | `-ORBoutConScanPeriod S`, `-ORBinConScanPeriod S` | close client / server connections idle for S seconds (default 120 / 180, 0 for never; [connections.md](connections.md)) |
 | `-ORBmaxServerConnections N` | the most connections the server keeps open (default: no limit) |
 | `-ORBendPoint giop:ssl:HOST:PORT`, `-ORBsslCAFile`, `-ORBsslKeyFile` | SSLIOP ([ssliop.md](ssliop.md)) |
+| `-ORBid ID`, `-ORBServerId ID` | the ORB id and server id that Portable Interceptors see ([portable-interceptors.md](portable-interceptors.md)) |
 | `-ORBtraceLevel N`, `-ORBtraceTime 1` | trace output on standard error, or `logging` in Python: 5 connections, 10 requests, 25 GIOP messages ([tracing.md](tracing.md)) |
 
 ## What is not there

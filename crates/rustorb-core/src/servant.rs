@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 use rustorb_cdr::{ByteOrder, CdrEncode};
 use rustorb_giop::{
-    Ior, MessageEncoder, OutMessage, ReplyHeader, ReplyStatus, SystemExceptionBody, Version,
+    Ior, MessageEncoder, OutMessage, ReplyHeader, ReplyStatus, ServiceContext, SystemExceptionBody,
+    Version,
 };
 
 use crate::stream::{InStream, OutStream};
@@ -181,6 +182,10 @@ pub struct ServerReply {
     code_sets: CodeSets,
     msg: MessageEncoder,
     status: ReplyStatus,
+    /// The service contexts in the header (from server interceptors).
+    contexts: Vec<ServiceContext>,
+    /// The repository id of the user exception written, if one was.
+    exception_id: Option<String>,
 }
 
 impl ServerReply {
@@ -190,13 +195,32 @@ impl ServerReply {
         request_id: u32,
         code_sets: CodeSets,
     ) -> Result<ServerReply, SystemException> {
+        ServerReply::with_contexts(version, order, request_id, code_sets, Vec::new())
+    }
+
+    /// A reply whose header has the service contexts `contexts`.
+    pub(crate) fn with_contexts(
+        version: Version,
+        order: ByteOrder,
+        request_id: u32,
+        code_sets: CodeSets,
+        contexts: Vec<ServiceContext>,
+    ) -> Result<ServerReply, SystemException> {
         Ok(ServerReply {
             version,
             order,
             request_id,
             code_sets,
-            msg: start(version, order, request_id, ReplyStatus::NoException)?,
+            msg: start(
+                version,
+                order,
+                request_id,
+                ReplyStatus::NoException,
+                &contexts,
+            )?,
             status: ReplyStatus::NoException,
+            contexts,
+            exception_id: None,
         })
     }
 
@@ -221,8 +245,10 @@ impl ServerReply {
             self.order,
             self.request_id,
             ReplyStatus::UserException,
+            &self.contexts,
         )?;
         self.status = ReplyStatus::UserException;
+        self.exception_id = Some(repository_id.to_owned());
         let mut out = self.output();
         out.write_string(repository_id)?;
         Ok(out)
@@ -233,10 +259,45 @@ impl ServerReply {
         self.status
     }
 
+    /// The repository id of the user exception written, if one was.
+    pub(crate) fn exception_id(&self) -> Option<&str> {
+        self.exception_id.as_deref()
+    }
+
     /// The whole reply; large octet sequences written with
     /// `write_octet_seq_shared` are not copied into it.
     pub(crate) fn finish(self) -> Result<OutMessage, SystemException> {
         self.msg.finish_shared().map_err(|_| internal())
+    }
+
+    /// The whole reply with the service contexts `contexts` in its header
+    /// instead of those it was made with. Before GIOP 1.2, contexts that
+    /// would move the body off its alignment cannot be sent: the reply
+    /// keeps the ones it was made with (docs/portable-interceptors.md).
+    pub(crate) fn finish_with(
+        self,
+        contexts: Vec<ServiceContext>,
+    ) -> Result<OutMessage, SystemException> {
+        if contexts == self.contexts {
+            return self.finish();
+        }
+        let header = ReplyHeader {
+            request_id: self.request_id,
+            reply_status: self.status,
+            service_context: contexts,
+        };
+        let msg = self.msg.finish_shared().map_err(|_| internal())?;
+        Ok(match msg.with_reply_header(&header) {
+            Ok(msg) => msg,
+            Err(msg) => {
+                crate::trace::warning!(
+                    "reply to request id {}: the service contexts added after the servant ran \
+                     would misalign the GIOP 1.0/1.1 body, and are not sent",
+                    header.request_id
+                );
+                msg
+            }
+        })
     }
 }
 
@@ -245,11 +306,12 @@ fn start(
     order: ByteOrder,
     request_id: u32,
     reply_status: ReplyStatus,
+    contexts: &[ServiceContext],
 ) -> Result<MessageEncoder, SystemException> {
     let header = ReplyHeader {
         request_id,
         reply_status,
-        service_context: Vec::new(),
+        service_context: contexts.to_vec(),
     };
     MessageEncoder::reply(version, order, &header).map_err(|_| internal())
 }
@@ -264,8 +326,16 @@ pub(crate) fn location_forward_reply(
     order: ByteOrder,
     request_id: u32,
     ior: &Ior,
+    contexts: &[ServiceContext],
 ) -> Option<Vec<u8>> {
-    let mut m = start(version, order, request_id, ReplyStatus::LocationForward).ok()?;
+    let mut m = start(
+        version,
+        order,
+        request_id,
+        ReplyStatus::LocationForward,
+        contexts,
+    )
+    .ok()?;
     ior.encode(m.body()).ok()?;
     m.finish().ok()
 }
@@ -276,8 +346,16 @@ pub(crate) fn system_exception_reply(
     order: ByteOrder,
     request_id: u32,
     e: &SystemException,
+    contexts: &[ServiceContext],
 ) -> Option<Vec<u8>> {
-    let mut m = start(version, order, request_id, ReplyStatus::SystemException).ok()?;
+    let mut m = start(
+        version,
+        order,
+        request_id,
+        ReplyStatus::SystemException,
+        contexts,
+    )
+    .ok()?;
     SystemExceptionBody::from(e).encode(m.body()).ok()?;
     m.finish().ok()
 }

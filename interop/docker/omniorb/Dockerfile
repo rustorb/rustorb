@@ -133,12 +133,13 @@ ADD --checksum=sha256:e58a2604a85ab985fb94037c889bef90b0c2a862030c03b0e830aa54a4
 COPY idl /opt/interop/idl
 COPY impls/java /src/java
 COPY impls/jacorb/idl /src/jacorb-idl/idl
+COPY impls/jacorb/pi /src/jacorb-pi
 RUN java -cp '/src/jacorb-idl/*' org.jacorb.idl.parser -I/opt/interop/idl -d /src/jacorb-gen \
       /opt/interop/idl/InteropTest.idl /opt/interop/idl/ValueTest.idl \
       /opt/interop/idl/CustomTest.idl /opt/interop/idl/AbstractTest.idl \
  && java -cp '/src/jacorb-idl/*' org.jacorb.idl.parser -all -I/opt/interop/idl \
       -I/src/jacorb-idl/idl -d /src/jacorb-gen /src/jacorb-idl/idl/AnyAll.idl \
- && find /src/jacorb-gen /src/java -name '*.java' > /src/sources.txt \
+ && find /src/jacorb-gen /src/java /src/jacorb-pi -name '*.java' > /src/sources.txt \
  && javac --release 11 -encoding UTF-8 -nowarn -cp '/opt/jacorb/lib/*' -d /opt/interop/impls/jacorb/classes \
       @/src/sources.txt
 
@@ -162,7 +163,7 @@ COPY --from=jacorb-build /opt/interop/impls/jacorb /opt/interop/impls/jacorb
 # The stubs and skeletons from JacORB's IDL compiler, which
 # impls/rustorbjava-portable/build.sh compiles against the rustorb runtime.
 COPY --from=jacorb-build /src/jacorb-gen /opt/interop/impls/jacorb/gen
-COPY impls/jacorb/client impls/jacorb/server /opt/interop/impls/jacorb/
+COPY impls/jacorb/client impls/jacorb/server impls/jacorb/pi-probe /opt/interop/impls/jacorb/
 COPY scripts /opt/interop/scripts
 
 # java is Java 17, for JacORB; the rustorb Java binding (impls/rustorbjava*)
