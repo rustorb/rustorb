@@ -1,4 +1,4 @@
-use crate::{ByteOrder, CdrVersion, Error, LongDouble, Octets, Result, SHARE_MIN};
+use crate::{ByteOrder, Encoding, Error, LongDouble, Octets, Result, SHARE_MIN};
 
 /// Writes CDR into a growable buffer.
 ///
@@ -21,8 +21,11 @@ pub struct Encoder {
     shared_len: usize,
     allow_shared: bool,
     pub(crate) order: ByteOrder,
-    version: CdrVersion,
+    encoding: Encoding,
     base: usize,
+    /// The stream offset alignment counts from (`XCDR.origin`); 0 except
+    /// inside an XCDR stream.
+    pub(crate) origin: usize,
     wstring_bom: bool,
     /// The valuetypes written so far (for indirections) and the chunk
     /// being written; made with the first value.
@@ -46,28 +49,29 @@ macro_rules! write_number {
 
 impl Encoder {
     /// Creates an encoder whose first byte is at stream offset 0.
-    pub fn new(order: ByteOrder, version: CdrVersion) -> Encoder {
-        Encoder::with_offset(order, version, 0)
+    pub fn new(order: ByteOrder, encoding: Encoding) -> Encoder {
+        Encoder::with_offset(order, encoding, 0)
     }
 
     /// Creates an encoder whose first byte is at stream offset `base`.
-    pub fn with_offset(order: ByteOrder, version: CdrVersion, base: usize) -> Encoder {
+    pub fn with_offset(order: ByteOrder, encoding: Encoding, base: usize) -> Encoder {
         Encoder {
             buf: Vec::new(),
             shared: Vec::new(),
             shared_len: 0,
             allow_shared: false,
             order,
-            version,
+            encoding,
             base,
+            origin: 0,
             wstring_bom: true,
             values: None,
         }
     }
 
     /// Starts an encapsulation: offset 0, with the byte order octet written.
-    pub fn encapsulation(order: ByteOrder, version: CdrVersion) -> Encoder {
-        let mut enc = Encoder::new(order, version);
+    pub fn encapsulation(order: ByteOrder, encoding: Encoding) -> Encoder {
+        let mut enc = Encoder::new(order, encoding);
         enc.write_octet(order.flag());
         enc
     }
@@ -86,9 +90,9 @@ impl Encoder {
         self.order
     }
 
-    /// The GIOP version whose CDR rules apply.
-    pub fn version(&self) -> CdrVersion {
-        self.version
+    /// The encoding whose rules apply.
+    pub fn encoding(&self) -> Encoding {
+        self.encoding
     }
 
     /// The stream offset of the next byte.
@@ -163,12 +167,33 @@ impl Encoder {
         self.allow_shared = allow;
     }
 
-    /// Pads with zero octets until the stream offset is a multiple of `align`.
+    /// Pads with zero octets until the stream offset is a multiple of
+    /// `align`, or of the encoding's [`max_align`](Encoding::max_align)
+    /// when that is smaller.
+    ///
+    /// In an XCDR stream the offset counts from the alignment origin (see
+    /// [`set_origin`](Encoder::set_origin)).
     pub fn align(&mut self, align: usize) {
-        let rem = self.position() % align;
+        let align = align.min(self.encoding.max_align());
+        let rem = (self.position() - self.origin) % align;
         if rem != 0 {
             self.buf.resize(self.buf.len() + align - rem, 0);
         }
+    }
+
+    /// The stream offset alignment counts from: 0 unless changed with
+    /// [`set_origin`](Encoder::set_origin).
+    pub fn origin(&self) -> usize {
+        self.origin
+    }
+
+    /// Makes alignment count from stream offset `origin`, which must not
+    /// be past [`position`](Encoder::position). This is the XCDR
+    /// `PUSH(ORIGIN)`; the parameter headers of
+    /// [`begin_parameter`](Encoder::begin_parameter) do it themselves.
+    pub fn set_origin(&mut self, origin: usize) {
+        debug_assert!(origin <= self.position());
+        self.origin = origin;
     }
 
     /// Writes an `octet`.
@@ -236,10 +261,15 @@ impl Encoder {
 
     /// Writes a `sequence<octet>` without copying a large one, if the
     /// encoder [allows it](Encoder::allow_shared) and no valuetype is
-    /// being written (whose chunk lengths count the buffer). Otherwise
+    /// being written (whose chunk lengths count the buffer), and the
+    /// encoding is a GIOP one (XCDR headers are patched in the buffer). Otherwise
     /// like [`write_octet_seq`](Encoder::write_octet_seq).
     pub fn write_octet_seq_shared(&mut self, octets: &Octets) -> Result<()> {
-        if !self.allow_shared || octets.len() < SHARE_MIN || self.values.is_some() {
+        if !self.allow_shared
+            || octets.len() < SHARE_MIN
+            || self.values.is_some()
+            || !self.encoding.is_giop()
+        {
             return self.write_octet_seq(octets);
         }
         self.write_len(octets.len())?;
@@ -265,14 +295,14 @@ impl Encoder {
 
     /// Writes a `wchar` holding one UTF-16 code unit.
     ///
-    /// GIOP 1.1 writes an aligned `unsigned short` in the stream byte order.
-    /// GIOP 1.2 writes an octet length of 2 followed by the code unit in big
+    /// GIOP 1.1 and XCDR (`Char16`, DDS-XTypes 7.4.1.1.1) write an aligned
+    /// `unsigned short` in the stream byte order. GIOP 1.2 writes an octet length of 2 followed by the code unit in big
     /// endian without a BOM, as omniORB does.
     pub fn write_wchar(&mut self, value: u16) -> Result<()> {
-        match self.version {
-            CdrVersion::Giop1_0 => return Err(Error::WcharNotSupported),
-            CdrVersion::Giop1_1 => self.write_u16(value),
-            CdrVersion::Giop1_2 => {
+        match self.encoding {
+            Encoding::Giop1_0 => return Err(Error::WcharNotSupported),
+            Encoding::Giop1_1 | Encoding::Xcdr1 | Encoding::Xcdr2 => self.write_u16(value),
+            Encoding::Giop1_2 => {
                 self.write_octet(2);
                 self.write_octets(&value.to_be_bytes());
             }
@@ -287,11 +317,21 @@ impl Encoder {
     /// writes the octet length, then the code units without a terminator:
     /// by default a BOM followed by the stream byte order, or big endian
     /// without a BOM (see [`Encoder::set_wstring_bom`]). An empty string is
-    /// just a zero length.
+    /// just a zero length. XCDR (DDS-XTypes 7.4.1.1.2) writes the length in
+    /// octets, then the code units in the stream byte order, without a BOM
+    /// or a terminator.
     pub fn write_wstring(&mut self, value: &str) -> Result<()> {
-        match self.version {
-            CdrVersion::Giop1_0 => Err(Error::WcharNotSupported),
-            CdrVersion::Giop1_1 => {
+        match self.encoding {
+            Encoding::Giop1_0 => Err(Error::WcharNotSupported),
+            Encoding::Xcdr1 | Encoding::Xcdr2 => {
+                let units: Vec<u16> = value.encode_utf16().collect();
+                self.write_len(units.len().saturating_mul(2))?;
+                for unit in units {
+                    self.write_u16(unit);
+                }
+                Ok(())
+            }
+            Encoding::Giop1_1 => {
                 let units: Vec<u16> = value.encode_utf16().collect();
                 self.write_len(units.len() + 1)?;
                 for unit in units {
@@ -300,7 +340,7 @@ impl Encoder {
                 self.write_u16(0);
                 Ok(())
             }
-            CdrVersion::Giop1_2 => {
+            Encoding::Giop1_2 => {
                 let order = if self.wstring_bom {
                     self.order
                 } else {
@@ -329,7 +369,7 @@ impl Encoder {
     where
         F: FnOnce(&mut Encoder) -> Result<()>,
     {
-        let mut inner = Encoder::encapsulation(self.order, self.version);
+        let mut inner = Encoder::encapsulation(self.order, self.encoding);
         inner.wstring_bom = self.wstring_bom;
         f(&mut inner)?;
         self.write_octet_seq(&inner.buf)

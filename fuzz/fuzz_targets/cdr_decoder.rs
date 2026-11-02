@@ -6,7 +6,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use rustorb_cdr::{ByteOrder, CdrDecode, CdrVersion, Decoder};
+use rustorb_cdr::{ByteOrder, CdrDecode, Encoding, Decoder};
 
 fuzz_target!(|data: &[u8]| {
     let [config, count, rest @ ..] = data else {
@@ -21,9 +21,9 @@ fuzz_target!(|data: &[u8]| {
         ByteOrder::Little
     };
     let version = match (config >> 1) & 3 {
-        0 => CdrVersion::Giop1_0,
-        1 => CdrVersion::Giop1_1,
-        _ => CdrVersion::Giop1_2,
+        0 => Encoding::Giop1_0,
+        1 => Encoding::Giop1_1,
+        _ => Encoding::Giop1_2,
     };
     let offset = (config >> 3) as usize;
     let mut dec = Decoder::with_offset(payload, order, version, offset);

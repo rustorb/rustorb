@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use rustorb_cdr::{ByteOrder, CdrDecode, CdrVersion, Decoder, Encoder};
+use rustorb_cdr::{ByteOrder, CdrDecode, Decoder, Encoder, Encoding};
 use rustorb_giop::{AssembledMessage, Body, FragmentAssembler, Message, decode_message};
 use serde_json::Value;
 
@@ -137,7 +137,7 @@ fn wide_strings_match_omniorb() {
                 assert_eq!(body.byte_order(), ByteOrder::Little);
                 assert_eq!(body.decoder().read_wstring().unwrap(), value);
                 let mut enc =
-                    Encoder::with_offset(body.byte_order(), CdrVersion::Giop1_2, body.offset());
+                    Encoder::with_offset(body.byte_order(), Encoding::Giop1_2, body.offset());
                 enc.write_wstring(value).unwrap();
                 assert_eq!(enc.as_bytes(), body.as_bytes(), "{name} {value}");
             }
@@ -153,7 +153,7 @@ fn wide_strings_match_omniorb() {
             for (body, value) in wchars.iter().zip(WCHARS) {
                 assert_eq!(body.decoder().read_wchar().unwrap(), value);
                 let mut enc =
-                    Encoder::with_offset(body.byte_order(), CdrVersion::Giop1_2, body.offset());
+                    Encoder::with_offset(body.byte_order(), Encoding::Giop1_2, body.offset());
                 enc.write_wchar(value).unwrap();
                 assert_eq!(enc.as_bytes(), body.as_bytes(), "{name} {value:#x}");
             }

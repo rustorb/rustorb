@@ -1,4 +1,4 @@
-use rustorb_cdr::{ByteOrder, CdrVersion, Decoder, Encoder};
+use rustorb_cdr::{ByteOrder, Decoder, Encoder, Encoding};
 
 use super::*;
 
@@ -7,13 +7,13 @@ fn long() -> TypeCode {
 }
 
 fn encode(tc: &TypeCode, order: ByteOrder) -> Vec<u8> {
-    let mut enc = Encoder::new(order, CdrVersion::Giop1_2);
+    let mut enc = Encoder::new(order, Encoding::Giop1_2);
     tc.encode(&mut enc).unwrap();
     enc.into_bytes()
 }
 
 fn decode(bytes: &[u8], order: ByteOrder) -> TypeCode {
-    let mut dec = Decoder::new(bytes, order, CdrVersion::Giop1_2);
+    let mut dec = Decoder::new(bytes, order, Encoding::Giop1_2);
     let tc = TypeCode::decode(&mut dec).unwrap();
     assert!(dec.is_empty());
     tc
@@ -118,12 +118,12 @@ fn nested_in_an_offset_stream() {
     // An indirection must survive being written at an odd offset of a
     // larger stream.
     let tc = node();
-    let mut enc = Encoder::new(ByteOrder::Little, CdrVersion::Giop1_2);
+    let mut enc = Encoder::new(ByteOrder::Little, Encoding::Giop1_2);
     enc.write_octet(7);
     tc.encode(&mut enc).unwrap();
     tc.encode(&mut enc).unwrap();
     let bytes = enc.into_bytes();
-    let mut dec = Decoder::new(&bytes, ByteOrder::Little, CdrVersion::Giop1_2);
+    let mut dec = Decoder::new(&bytes, ByteOrder::Little, Encoding::Giop1_2);
     dec.read_octet().unwrap();
     assert!(TypeCode::decode(&mut dec).unwrap().equal(&tc));
     assert!(TypeCode::decode(&mut dec).unwrap().equal(&tc));
@@ -158,7 +158,7 @@ fn mutually_recursive() {
     let back = decode(&encode(&a, ByteOrder::Big), ByteOrder::Big);
     assert!(back.equal(&a));
     // b on its own still has the placeholder and cannot be written.
-    let mut enc = Encoder::new(ByteOrder::Big, CdrVersion::Giop1_2);
+    let mut enc = Encoder::new(ByteOrder::Big, Encoding::Giop1_2);
     assert!(b.encode(&mut enc).is_err());
 }
 
@@ -249,7 +249,7 @@ fn bad_input() {
         &[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf8], // indirection to nowhere
         &[0, 0, 0, 15, 0, 0, 0, 1, 0],                     // empty struct encapsulation
     ] {
-        let mut dec = Decoder::new(bytes, ByteOrder::Big, CdrVersion::Giop1_2);
+        let mut dec = Decoder::new(bytes, ByteOrder::Big, Encoding::Giop1_2);
         assert!(TypeCode::decode(&mut dec).is_err(), "{bytes:?}");
     }
     // A sequence nested deeper than the limit.
@@ -258,7 +258,7 @@ fn bad_input() {
         tc = TypeCode::sequence(&tc, 0).unwrap();
     }
     let bytes = encode(&tc, ByteOrder::Big);
-    let mut dec = Decoder::new(&bytes, ByteOrder::Big, CdrVersion::Giop1_2);
+    let mut dec = Decoder::new(&bytes, ByteOrder::Big, Encoding::Giop1_2);
     assert!(TypeCode::decode(&mut dec).is_err());
 }
 

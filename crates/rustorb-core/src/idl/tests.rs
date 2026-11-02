@@ -1,17 +1,17 @@
 use std::any::{Any as StdAny, TypeId};
 use std::sync::Arc;
 
-use rustorb_cdr::{ByteOrder, CdrVersion, Decoder, Encoder};
+use rustorb_cdr::{ByteOrder, Decoder, Encoder, Encoding};
 
 use super::*;
 use crate::{TCKind, Value};
 
 fn round_trip<T: IdlType>(v: &T::Borrowed) -> Sys<T::Rust> {
-    let mut enc = Encoder::new(ByteOrder::Little, CdrVersion::Giop1_2);
+    let mut enc = Encoder::new(ByteOrder::Little, Encoding::Giop1_2);
     T::write(v, &mut OutStream::standalone(&mut enc))?;
     let bytes = enc.into_bytes();
     let mut input = InStream::standalone(
-        Decoder::new(&bytes, ByteOrder::Little, CdrVersion::Giop1_2),
+        Decoder::new(&bytes, ByteOrder::Little, Encoding::Giop1_2),
         None,
     );
     let r = T::read(&mut input)?;
@@ -73,11 +73,11 @@ fn bounds_and_conversions() {
     );
 
     // A sequence longer than its bound is MARSHAL when read.
-    let mut enc = Encoder::new(ByteOrder::Big, CdrVersion::Giop1_2);
+    let mut enc = Encoder::new(ByteOrder::Big, Encoding::Giop1_2);
     Sequence::<Long>::write(&[1, 2], &mut OutStream::standalone(&mut enc)).unwrap();
     let bytes = enc.into_bytes();
     let mut input = InStream::standalone(
-        Decoder::new(&bytes, ByteOrder::Big, CdrVersion::Giop1_2),
+        Decoder::new(&bytes, ByteOrder::Big, Encoding::Giop1_2),
         None,
     );
     assert_eq!(

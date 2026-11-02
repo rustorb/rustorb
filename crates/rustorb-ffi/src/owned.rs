@@ -7,7 +7,7 @@
 use std::ffi::{c_char, c_void};
 use std::mem::ManuallyDrop;
 
-use rustorb_cdr::{ByteOrder, CdrVersion, Decoder};
+use rustorb_cdr::{ByteOrder, Decoder, Encoding};
 use rustorb_core::{
     Any, InStream, ObjectRef, Orb, OutStream, Reply, SystemException, UserException,
 };
@@ -59,7 +59,7 @@ fn make(source: Source, exception_id: Option<String>) -> Result<*mut RorbIn, Sys
     let src: &'static Source = unsafe { &*source };
     let stream = match src {
         Source::Bytes { data, orb } => Ok(InStream::standalone(
-            Decoder::new(data, ByteOrder::Big, CdrVersion::Giop1_2),
+            Decoder::new(data, ByteOrder::Big, Encoding::Giop1_2),
             orb.as_ref(),
         )),
         Source::Reply(r) => Ok(r.input()),

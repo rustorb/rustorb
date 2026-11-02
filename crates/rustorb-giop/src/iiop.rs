@@ -1,4 +1,4 @@
-use rustorb_cdr::{ByteOrder, CdrDecode, CdrEncode, CdrVersion, Decoder, Encoder};
+use rustorb_cdr::{ByteOrder, CdrDecode, CdrEncode, Decoder, Encoder, Encoding};
 
 use crate::{
     AlternateIiopAddress, CodeSetComponentInfo, Error, Result, TAG_INTERNET_IOP, TaggedComponent,
@@ -36,7 +36,7 @@ impl IiopProfile {
 
     /// Reads the profile from the encapsulated profile body.
     pub fn from_encapsulation(data: &[u8]) -> Result<IiopProfile> {
-        let mut dec = Decoder::encapsulation(data, CdrVersion::Giop1_2)?;
+        let mut dec = Decoder::encapsulation(data, Encoding::Giop1_2)?;
         let version = Version {
             major: dec.read_octet()?,
             minor: dec.read_octet()?,
@@ -81,7 +81,7 @@ impl IiopProfile {
         if self.version.minor == 0 && !self.components.is_empty() {
             return Err(Error::ComponentsInIiop1_0);
         }
-        let mut enc = Encoder::encapsulation(order, CdrVersion::Giop1_2);
+        let mut enc = Encoder::encapsulation(order, Encoding::Giop1_2);
         enc.write_octet(self.version.major);
         enc.write_octet(self.version.minor);
         enc.write_string(&self.host)?;
@@ -135,7 +135,7 @@ impl TaggedProfile {
         if self.tag != crate::TAG_MULTIPLE_COMPONENTS {
             return Err(Error::UnexpectedProfileTag(self.tag));
         }
-        let mut dec = Decoder::encapsulation(&self.profile_data, CdrVersion::Giop1_2)?;
+        let mut dec = Decoder::encapsulation(&self.profile_data, Encoding::Giop1_2)?;
         Ok(Vec::decode(&mut dec)?)
     }
 
@@ -146,7 +146,7 @@ impl TaggedProfile {
         components: &[TaggedComponent],
         order: ByteOrder,
     ) -> Result<TaggedProfile> {
-        let mut enc = Encoder::encapsulation(order, CdrVersion::Giop1_2);
+        let mut enc = Encoder::encapsulation(order, Encoding::Giop1_2);
         components.encode(&mut enc)?;
         Ok(TaggedProfile {
             tag: crate::TAG_MULTIPLE_COMPONENTS,

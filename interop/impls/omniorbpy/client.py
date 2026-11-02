@@ -4,6 +4,7 @@ Resolves the Echo object from the naming service, runs every test case
 against it and exits non-zero if any case fails.
 """
 
+import os
 import sys
 import time
 import traceback
@@ -342,4 +343,13 @@ def run_value(orb, root, args):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    status = main()
+    # Leave without finalizing the interpreter. orb.destroy() can return
+    # while omniORB's worker threads are still exiting; one that reaches
+    # omniORBpy's thread cleanup during Py_FinalizeEx is ended by Python
+    # with pthread_exit, whose unwinding through omniORB's destructors
+    # calls std::terminate ("terminate called without an active
+    # exception", seen in the value suite under load).
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(status or 0)
