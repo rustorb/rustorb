@@ -30,7 +30,8 @@ pub enum Error {
     InvalidWcharLength(u8),
     /// A GIOP 1.2 `wstring` had an odd octet length.
     OddWstringLength(u32),
-    /// `wchar` and `wstring` cannot be used with GIOP 1.0.
+    /// `wchar` and `wstring` cannot be used with this encoding (GIOP 1.0,
+    /// or XCDR until it supports them).
     WcharNotSupported,
     /// A sequence or string length is larger than the bytes left.
     LengthTooLarge {
@@ -70,7 +71,7 @@ impl fmt::Display for Error {
             Error::InvalidUtf16 => f.write_str("wide string is not valid UTF-16"),
             Error::InvalidWcharLength(n) => write!(f, "invalid wchar octet length {n}"),
             Error::OddWstringLength(n) => write!(f, "odd wstring octet length {n}"),
-            Error::WcharNotSupported => f.write_str("wchar is not supported by GIOP 1.0"),
+            Error::WcharNotSupported => f.write_str("wchar is not supported by this encoding"),
             Error::LengthTooLarge { len, remaining } => write!(
                 f,
                 "length {len} is larger than the {remaining} bytes left in the stream"

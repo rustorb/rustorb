@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use rustorb_core::cdr::{ByteOrder, CdrVersion, Decoder, Encoder};
+use rustorb_core::cdr::{ByteOrder, Decoder, Encoder, Encoding};
 use rustorb_core::{
     Any, CompletionStatus, EndpointAddr, InStream, Orb, OrbOptions, OutStream, Servant,
     ServerReply, SystemException, SystemExceptionKind, TCKind, TypeCode, Value, ValueRef, minor,
@@ -58,14 +58,14 @@ fn node_tc() -> TypeCode {
 }
 
 fn roundtrip(order: ByteOrder, tc: &TypeCode, v: &Value) -> Result<Value, SystemException> {
-    let mut enc = Encoder::new(order, CdrVersion::Giop1_2);
+    let mut enc = Encoder::new(order, Encoding::Giop1_2);
     let mut out = OutStream::standalone(&mut enc);
     // Something before, so that alignment and offsets are not trivial.
     out.write_octet(1);
     out.write_value(tc, v)?;
     out.write_u16(0xbeef);
     let bytes = enc.into_bytes();
-    let mut input = InStream::standalone(Decoder::new(&bytes, order, CdrVersion::Giop1_2), None);
+    let mut input = InStream::standalone(Decoder::new(&bytes, order, Encoding::Giop1_2), None);
     assert_eq!(input.read_octet().unwrap(), 1);
     let back = input.read_value(tc)?;
     assert_eq!(input.read_u16().unwrap(), 0xbeef);
@@ -259,7 +259,7 @@ fn custom_values_are_chunked_and_read_by_their_reader() {
     let v = Value::Valuetype(Some(ValueRef::new(tc.clone(), items)));
 
     // Chunked, with a single repository id.
-    let mut enc = Encoder::new(ByteOrder::Big, CdrVersion::Giop1_2);
+    let mut enc = Encoder::new(ByteOrder::Big, Encoding::Giop1_2);
     OutStream::standalone(&mut enc)
         .write_value(&tc, &v)
         .unwrap();
@@ -299,7 +299,7 @@ fn codebase_urls_are_skipped() {
         &[("x", base.clone()), ("y", base.clone())],
     )
     .unwrap();
-    let mut enc = Encoder::new(ByteOrder::Big, CdrVersion::Giop1_2);
+    let mut enc = Encoder::new(ByteOrder::Big, Encoding::Giop1_2);
     enc.write_u32(0x7fff_ff03); // a codebase URL and a single repository id
     let url_at = enc.position();
     enc.write_string("http://example.com/classes/").unwrap();
@@ -313,7 +313,7 @@ fn codebase_urls_are_skipped() {
     enc.write_i32(2);
     let bytes = enc.into_bytes();
     let mut input = InStream::standalone(
-        Decoder::new(&bytes, ByteOrder::Big, CdrVersion::Giop1_2),
+        Decoder::new(&bytes, ByteOrder::Big, Encoding::Giop1_2),
         None,
     );
     let back = input.read_value(&pair).unwrap();
@@ -348,7 +348,7 @@ fn abstract_interfaces_are_a_reference_or_a_value() {
     assert!(matches!(items[2], Value::Valuetype(None)));
 
     // The discriminator, then the reference or the value.
-    let mut enc = Encoder::new(ByteOrder::Big, CdrVersion::Giop1_2);
+    let mut enc = Encoder::new(ByteOrder::Big, Encoding::Giop1_2);
     OutStream::standalone(&mut enc)
         .write_value(&named, &Value::Valuetype(None))
         .unwrap();
