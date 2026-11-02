@@ -5,7 +5,7 @@
 use std::fmt;
 use std::sync::Weak;
 
-use rustorb_cdr::{ByteOrder, CdrVersion, Decoder, Encoder};
+use rustorb_cdr::{ByteOrder, Decoder, Encoder, Encoding as CdrEncoding};
 
 pub use rustorb_giop::{ServiceContext, TaggedComponent, TaggedProfile, component_tag, service_id};
 
@@ -105,9 +105,9 @@ impl CodecFactory {
             encoding.major_version,
             encoding.minor_version,
         ) {
-            (ENCODING_CDR_ENCAPS, 1, 0) => CdrVersion::Giop1_0,
-            (ENCODING_CDR_ENCAPS, 1, 1) => CdrVersion::Giop1_1,
-            (ENCODING_CDR_ENCAPS, 1, 2) => CdrVersion::Giop1_2,
+            (ENCODING_CDR_ENCAPS, 1, 0) => CdrEncoding::Giop1_0,
+            (ENCODING_CDR_ENCAPS, 1, 1) => CdrEncoding::Giop1_1,
+            (ENCODING_CDR_ENCAPS, 1, 2) => CdrEncoding::Giop1_2,
             _ => return Err(UnknownEncoding),
         };
         Ok(Codec {
@@ -125,7 +125,7 @@ impl CodecFactory {
 pub struct Codec {
     orb: Weak<OrbInner>,
     order: ByteOrder,
-    version: CdrVersion,
+    version: CdrEncoding,
 }
 
 impl fmt::Debug for Codec {
@@ -172,7 +172,7 @@ impl Codec {
         let mut enc = Encoder::encapsulation(self.order, self.version);
         {
             let mut out = OutStream::standalone(&mut enc);
-            if self.version == CdrVersion::Giop1_0 {
+            if self.version == CdrEncoding::Giop1_0 {
                 // GIOP 1.0 has no wchar.
                 out.set_code_sets(crate::CodeSets::NATIVE_NO_WCHAR);
             }
@@ -189,7 +189,7 @@ impl Codec {
         let dec = Decoder::encapsulation(data, self.version).map_err(|_| ReadError::Format)?;
         let orb = self.orb.upgrade().map(|inner| Orb { inner });
         let mut input = InStream::standalone(dec, orb.as_ref());
-        if self.version == CdrVersion::Giop1_0 {
+        if self.version == CdrEncoding::Giop1_0 {
             input.set_code_sets(crate::CodeSets::NATIVE_NO_WCHAR);
         }
         f(&mut input).map_err(|_| ReadError::Value)
