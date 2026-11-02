@@ -1392,13 +1392,20 @@ namespace rustorb {
 namespace detail {
 // The names resolve_initial_references answers without the core.
 inline constexpr const char* local_initial_references[] = {
-    "RootPOA", "POACurrent", "ORBPolicyManager", "PolicyCurrent", "DynAnyFactory"};
+    "RootPOA",       "POACurrent", "ORBPolicyManager", "PolicyCurrent",
+    "DynAnyFactory", "PICurrent",  "CodecFactory"};
 CORBA::object_reference<CORBA::Object> orb_policy_manager(rorb_orb* orb);
 CORBA::object_reference<CORBA::Object> policy_current();
 // The DynAnyFactory, set by <rustorb/dynany.h>.
 using LocalFactory = CORBA::object_reference<CORBA::Object> (*)();
 inline LocalFactory& dyn_any_factory_hook() {
   static LocalFactory factory = nullptr;
+  return factory;
+}
+// PICurrent and CodecFactory, set by <rustorb/pi.h>.
+using OrbFactory = CORBA::object_reference<CORBA::Object> (*)(rorb_orb*, const std::string&);
+inline OrbFactory& pi_references_hook() {
+  static OrbFactory factory = nullptr;
   return factory;
 }
 }  // namespace detail
@@ -1498,11 +1505,16 @@ class ORB : public LocalObject {
   std::string id_;
 };
 
-// Initialises an ORB, removing the ORB options (-ORB...) from argv.
+// Initialises an ORB, removing the ORB options (-ORB...) from argv. The
+// ORB initializers registered with
+// PortableInterceptor::register_orb_initializer (<rustorb/pi.h>) run in
+// it, and see orb_id (or that of -ORBid) as ORBInitInfo::orb_id.
 inline object_reference<ORB> ORB_init(int& argc, char* argv[], const std::string& orb_id = "") {
   rorb_orb* handle = nullptr;
   rustorb::detail::Exc exc;
-  rustorb::detail::check(rorb_orb_init(&argc, argv, &handle, &exc), exc);
+  rustorb::detail::check(
+      rorb_orb_init_pi(&argc, argv, orb_id.data(), orb_id.size(), nullptr, 0, &handle, &exc),
+      exc);
   return object_reference<ORB>(std::make_shared<ORB>(rustorb::detail::adopt, handle,
                                                      orb_id.empty() ? "rustorb" : orb_id));
 }
@@ -2067,6 +2079,10 @@ inline object_reference<Object> ORB::resolve_initial_references(const std::strin
   if (identifier == "DynAnyFactory") {
     if (!rustorb::detail::dyn_any_factory_hook()) throw InvalidName();
     return rustorb::detail::dyn_any_factory_hook()();
+  }
+  if (identifier == "PICurrent" || identifier == "CodecFactory") {
+    if (!rustorb::detail::pi_references_hook()) throw InvalidName();
+    return rustorb::detail::pi_references_hook()(handle_, identifier);
   }
   object_reference<Object> local;
   if (rorb_orb_resolve_local_initial_reference(

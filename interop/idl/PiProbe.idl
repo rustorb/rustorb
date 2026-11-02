@@ -1,0 +1,11 @@
+// The Echo of run-pi-probe.sh (docs/portable-interceptors.md), for the
+// probes on static stubs and skeletons (impls/rustorbcpp/pi_probe.cc and
+// impls/rustorbjava/probe/interop/PiProbe.java); the others use the DII and
+// the DSI with the same repository id.
+
+module PiProbe {
+  interface Echo {
+    // Returns s.
+    string echo(in string s);
+  };
+};

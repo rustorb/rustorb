@@ -9,12 +9,16 @@
 - **コア（`rustorb-core` の `pi`・`iop`）**：実装済み。`ORBInitializer`（`register_orb_initializer` と `OrbOptions::initializers`）、クライアント・サーバーの要求インターセプター、IOR インターセプター、`PICurrent`、`IOP::Codec`、`-ORBid` / `-ORBServerId`
   - 試験は `crates/rustorb-core/tests/pi.rs`（22 件）。下の「試験」のうち、`CloseConnection` での送り直し（`TRANSPORT_RETRY`）は試験がまだない
   - ベンチマーク（`cargo bench -p rustorb-core -- orb/echo_long`）：インターセプターなしでは前と差がない（ばらつきの範囲）。何もしないクライアント・サーバーのインターセプターを 1 つずつ入れると、ループバックの 1 呼び出し（約 55 µs）が約 2.4 µs（約 4%）増える
-  - 相互接続：`interop/run-pi-probe.sh`（`interop/impls/rustorb/src/pi_probe.rs` と `interop/impls/jacorb/pi/PiProbe.java`）。rustorb と JacORB 3.9 の間で、両向きの要求・返事のサービスコンテキスト、IOR インターセプターのタグ付きコンポーネント、`Codec`（CDR カプセル 1.2 の `encode_value`）の中身が届くことを確かめた（GIOP 1.0・1.1・1.2）。omniORB との組は Python の PR で足す
+  - 相互接続：`interop/run-pi-probe.sh`（`interop/impls/rustorb/src/pi_probe.rs` と `interop/impls/jacorb/pi/PiProbe.java`）。rustorb と JacORB 3.9 の間で、両向きの要求・返事のサービスコンテキスト、IOR インターセプターのタグ付きコンポーネント、`Codec`（CDR カプセル 1.2 の `encode_value`）の中身が届くことを確かめた（GIOP 1.2）。プローブのサーバーは返事のコンテキストを `send_reply` で足すので、GIOP 1.0 / 1.1 ではヘッダーの長さ次第で届かない（「返事のサービスコンテキストと GIOP の版」の節のとおり。#100 の 3 つめの PR で確かめ直して分かった。前の版の「GIOP 1.0・1.1・1.2」は、版を絞る引数を誤っていて、どれも 1.2 で動いていた）
   - `pre_init` / `post_init` の例外で ORB の作成を失敗させる点（「ORB の初期化」の節）は、仕様の章の文言をまだ確かめていない
 - **Python（`rustorb.PortableInterceptor`・`rustorb.IOP`）**：実装済み（[python-binding.md](python-binding.md)）。`python/tests/test_pi.py`（11 件）。`run-pi-probe.sh` に rustorbpy（`interop/impls/rustorbpy/pi_probe.py`）を足し、rustorb・rustorbpy・JacORB のすべての組で確かめた
   - DSI の引数は、バインディングの DSI も通る `ServerRequest::write_reply` でコアがインターセプターに渡す
   - omniORBpy との組はまだ。omniORBpy のマニュアルにあるインターセプターの API（`omniORB.interceptors`）で試験用のプログラムを書く必要がある。この環境では相互接続のイメージ（omniORB をソースから作る）を動かせないため、次に回す
-- **C ABI / C++・Java**：まだ（#107 の次の PR）
+- **C ABI（`rustorb-ffi`）**：実装済み。`ABI_VERSION` は 2。`rustorb.h` の「Portable Interceptors and IOP::Codec」の節：インターセプターと初期化子の関数表（`rorb_client_interceptor_vtable` など）、`rorb_register_orb_initializer` と ORB ごとの `rorb_orb_init_pi`（ORB id と初期化子）、情報のアクセサー（`rorb_cri_*`・`rorb_sri_*`・`rorb_ior_info_*`・`rorb_init_info_*`）、`rorb_pi_error_*`、PICurrent（`rorb_orb_pi_current`）、`Codec`（`rorb_orb_create_codec`）。`InvalidSlot`・`DuplicateName`・`UnknownEncoding`・`Codec` の例外は新しい `RORB_*` の局所例外
+- **C++（`<rustorb/pi.h>`）**：実装済み（[cpp-binding.md](cpp-binding.md)）。`cpp/tests/test_pi.cc`。`CORBA::ORB_init` は ORB id を `rorb_orb_init_pi` に渡す。`resolve_initial_references` は `PICurrent`・`CodecFactory` を答える
+- **Java（`org.omg.PortableInterceptor`・`org.omg.IOP`・`org.omg.Dynamic`）**：実装済み（[java-binding.md](java-binding.md)）。型は `java/idl/PortableInterceptor.idl` から `rustorb-idl -bjava` で作る（`java/generate-stubs.sh`）。`PiTest`。初期化子は `ORB.init` のプロパティか system property の `org.omg.PortableInterceptor.ORBInitializerClass.<クラス名>`、ORB id は `org.omg.CORBA.ORBId`
+  - 相互接続：`run-pi-probe.sh` に rustorbcpp（`interop/impls/rustorbcpp/pi_probe.cc`）と rustorbjava（`interop/impls/rustorbjava/probe/interop/PiProbe.java`、どちらも `interop/idl/PiProbe.idl` の静的なスタブ）を足し、rustorb・rustorbpy・rustorbcpp・rustorbjava・JacORB 3.9 のすべての組（25 組）を GIOP 1.2 で確かめた（Docker が使えないため、ホストで同じ手順を動かした）
+  - `post_init` で RootPOA を作ると、その POA の参照には IOR インターセプターのコンポーネントが付かない（インターセプターが働くのは ORB の初期化が済んでから）
 
 ## 範囲
 
@@ -286,7 +290,7 @@ pub trait IorInterceptor: Interceptor {
 ### C ABI（`rustorb-ffi`）と C++
 
 - servant manager と同じ形（[cpp-binding.md](cpp-binding.md) の「POA の範囲」）：`rorb_orb_initializer`・`rorb_client_interceptor`・`rorb_server_interceptor`・`rorb_ior_interceptor` は関数表（各点、`name`、`destroy`、`add_ref`、`remove_ref`）と `self` で、`rorb_register_orb_initializer` で登録する
-- 情報のオブジェクト（`rorb_client_request_info*` など）は呼び出しの間だけ有効な手。属性ごとのアクセサー（`rorb_cri_operation`、`rorb_ri_get_request_service_context`、`rorb_cri_add_request_service_context` など）を置く
+- 情報のオブジェクト（`rorb_client_request_info*` など）は呼び出しの間だけ有効な手。属性ごとのアクセサー（`rorb_cri_operation`、`rorb_sri_get_request_service_context`、`rorb_cri_add_request_service_context` など）を置く
 - `ForwardRequest`・`DuplicateName`・`InvalidSlot` などは今の `LOCAL_EXCEPTION`（例外の番号と、`ForwardRequest` なら転送先の参照）で返す
 - `ABI_VERSION` を上げる
 - C++：`PortableInterceptor::register_orb_initializer`、`ORBInitializer` などのクラスは `CORBA::LocalObject` から派生し、`CORBA::make_reference<T>()` で作る（IDL to C++11 のローカルインターフェース）。C++ の例外（`PortableInterceptor::ForwardRequest` など）は C ABI の状態に直す

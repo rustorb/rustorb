@@ -39,7 +39,7 @@ extern "C" {
 #endif
 
 /* Version of this ABI; rorb_abi_version() returns the library's. */
-#define RORB_ABI_VERSION 1
+#define RORB_ABI_VERSION 2
 
 typedef struct rorb_orb rorb_orb;
 typedef struct rorb_object rorb_object;
@@ -94,6 +94,12 @@ typedef int32_t rorb_status;
 #define RORB_DYN_TYPE_MISMATCH 18     /* DynamicAny::DynAny::TypeMismatch */
 #define RORB_DYN_INCONSISTENT_TYPECODE 19 /* DynamicAny::DynAnyFactory::InconsistentTypeCode */
 #define RORB_DYN_MUST_TRUNCATE 20     /* DynamicAny::MustTruncate */
+#define RORB_INVALID_SLOT 21          /* PortableInterceptor::InvalidSlot */
+#define RORB_DUPLICATE_NAME 22        /* ORBInitInfo::DuplicateName */
+#define RORB_UNKNOWN_ENCODING 23      /* IOP::CodecFactory::UnknownEncoding */
+#define RORB_CODEC_INVALID_TYPE_FOR_ENCODING 24 /* IOP::Codec::InvalidTypeForEncoding */
+#define RORB_CODEC_FORMAT_MISMATCH 25 /* IOP::Codec::FormatMismatch */
+#define RORB_CODEC_TYPE_MISMATCH 26   /* IOP::Codec::TypeMismatch */
 
 typedef struct rorb_exception {
   /* RORB_SYSTEM_EXCEPTION: the repository id, such as
@@ -961,6 +967,276 @@ rorb_status rorb_poa_manager_discard_requests(rorb_poa_manager* manager,
                                               int32_t wait_for_completion, rorb_exception* exc);
 rorb_status rorb_poa_manager_deactivate(rorb_poa_manager* manager, int32_t etherealize,
                                         int32_t wait_for_completion, rorb_exception* exc);
+
+/* --- Portable Interceptors and IOP::Codec ----------------------------------- */
+
+/* docs/portable-interceptors.md. Interceptors and ORB initializers are the
+   caller's objects behind a table of callbacks: like servant managers,
+   the ORB calls add_ref when it takes self and remove_ref when it lets it
+   go. The points are called on the thread of the call (client) or of the
+   upcall (server), from any thread; the info handles they get are only
+   valid during the callback and on its thread. A point returns RORB_OK,
+   or another status after rorb_pi_error_* (UNKNOWN when nothing was
+   set). Any point may be NULL (it does nothing), and so may destroy. */
+
+typedef struct rorb_pi_error rorb_pi_error;
+typedef struct rorb_client_request_info rorb_client_request_info;
+typedef struct rorb_server_request_info rorb_server_request_info;
+typedef struct rorb_ior_info rorb_ior_info;
+typedef struct rorb_orb_init_info rorb_orb_init_info;
+typedef struct rorb_pi_current rorb_pi_current;
+typedef struct rorb_codec rorb_codec;
+
+/* PortableInterceptor::ForwardRequest (obj is cloned): only in the points
+   that may raise it; elsewhere it is BAD_INV_ORDER (minor 14). */
+void rorb_pi_error_forward(rorb_pi_error* error, rorb_object* obj);
+/* A system exception. */
+void rorb_pi_error_system(rorb_pi_error* error, const char* id, size_t len, uint32_t minor,
+                          uint32_t completed);
+
+typedef struct rorb_client_interceptor_vtable {
+  rorb_status (*send_request)(void* self, const rorb_client_request_info* ri,
+                              rorb_pi_error* error);
+  rorb_status (*receive_reply)(void* self, const rorb_client_request_info* ri,
+                               rorb_pi_error* error);
+  rorb_status (*receive_exception)(void* self, const rorb_client_request_info* ri,
+                                   rorb_pi_error* error);
+  rorb_status (*receive_other)(void* self, const rorb_client_request_info* ri,
+                               rorb_pi_error* error);
+  void (*destroy)(void* self);
+  void (*add_ref)(void* self);
+  void (*remove_ref)(void* self);
+} rorb_client_interceptor_vtable;
+
+typedef struct rorb_server_interceptor_vtable {
+  rorb_status (*receive_request_service_contexts)(void* self, const rorb_server_request_info* ri,
+                                                  rorb_pi_error* error);
+  rorb_status (*receive_request)(void* self, const rorb_server_request_info* ri,
+                                 rorb_pi_error* error);
+  rorb_status (*send_reply)(void* self, const rorb_server_request_info* ri,
+                            rorb_pi_error* error);
+  rorb_status (*send_exception)(void* self, const rorb_server_request_info* ri,
+                                rorb_pi_error* error);
+  rorb_status (*send_other)(void* self, const rorb_server_request_info* ri,
+                            rorb_pi_error* error);
+  void (*destroy)(void* self);
+  void (*add_ref)(void* self);
+  void (*remove_ref)(void* self);
+} rorb_server_interceptor_vtable;
+
+typedef struct rorb_ior_interceptor_vtable {
+  rorb_status (*establish_components)(void* self, const rorb_ior_info* info,
+                                      rorb_pi_error* error);
+  void (*destroy)(void* self);
+  void (*add_ref)(void* self);
+  void (*remove_ref)(void* self);
+} rorb_ior_interceptor_vtable;
+
+typedef struct rorb_orb_initializer_vtable {
+  rorb_status (*pre_init)(void* self, rorb_orb_init_info* info, rorb_pi_error* error);
+  rorb_status (*post_init)(void* self, rorb_orb_init_info* info, rorb_pi_error* error);
+  void (*add_ref)(void* self);
+  void (*remove_ref)(void* self);
+} rorb_orb_initializer_vtable;
+
+typedef struct rorb_orb_initializer {
+  void* self;
+  const rorb_orb_initializer_vtable* vtable;
+} rorb_orb_initializer;
+
+/* PortableInterceptor::register_orb_initializer: for every ORB created
+   after it in the process. The vtable must outlive them. */
+void rorb_register_orb_initializer(void* self, const rorb_orb_initializer_vtable* vtable);
+/* rorb_orb_init with the ORB id (which -ORBid overrides) and initializers
+   of this ORB only, run after the registered ones. A failing initializer
+   fails the ORB with its exception. */
+rorb_status rorb_orb_init_pi(int* argc, char** argv, const char* orb_id, size_t orb_id_len,
+                             const rorb_orb_initializer* initializers, size_t count,
+                             rorb_orb** orb, rorb_exception* exc);
+
+/* Called with each string of a list (valid during the call). */
+typedef void (*rorb_each_string)(void* context, const char* s, size_t len);
+/* Called with each tagged component of a list (valid during the call). */
+typedef void (*rorb_each_component)(void* context, uint32_t tag, const uint8_t* data,
+                                    size_t len);
+/* Called with each parameter: an any the callee takes (release it), and
+   the mode, 0 PARAM_IN, 1 PARAM_OUT, 2 PARAM_INOUT. */
+typedef void (*rorb_each_parameter)(void* context, rorb_any* argument, uint32_t mode);
+/* Called with each TypeCode, which the callee takes. */
+typedef void (*rorb_each_typecode)(void* context, rorb_typecode* tc);
+
+/* ReplyStatus */
+#define RORB_PI_SUCCESSFUL 0
+#define RORB_PI_SYSTEM_EXCEPTION 1
+#define RORB_PI_USER_EXCEPTION 2
+#define RORB_PI_LOCATION_FORWARD 3
+#define RORB_PI_TRANSPORT_RETRY 4
+#define RORB_PI_UNKNOWN 5
+
+/* RequestInfo, as rorb_cri_* (ClientRequestInfo) and rorb_sri_*
+   (ServerRequestInfo). Strings returned as a pointer and *len point into
+   the info. An attribute not available at the point is BAD_INV_ORDER
+   (minor 14); arguments, exceptions and result are NO_RESOURCES (minor 1)
+   but for the DII and the DSI. Service contexts that are not there are
+   BAD_PARAM (minor 26). */
+uint32_t rorb_cri_request_id(const rorb_client_request_info* ri);
+const char* rorb_cri_operation(const rorb_client_request_info* ri, size_t* len);
+int32_t rorb_cri_response_expected(const rorb_client_request_info* ri);
+int16_t rorb_cri_sync_scope(const rorb_client_request_info* ri);
+rorb_status rorb_cri_reply_status(const rorb_client_request_info* ri, int16_t* status,
+                                  rorb_exception* exc);
+rorb_status rorb_cri_forward_reference(const rorb_client_request_info* ri, rorb_object** obj,
+                                       rorb_exception* exc);
+/* RORB_INVALID_SLOT for a slot not allocated. */
+rorb_status rorb_cri_get_slot(const rorb_client_request_info* ri, uint32_t id, rorb_any** any,
+                              rorb_exception* exc);
+rorb_status rorb_cri_get_request_service_context(const rorb_client_request_info* ri,
+                                                 uint32_t id, rorb_bytes* data,
+                                                 rorb_exception* exc);
+rorb_status rorb_cri_get_reply_service_context(const rorb_client_request_info* ri, uint32_t id,
+                                               rorb_bytes* data, rorb_exception* exc);
+rorb_status rorb_cri_arguments(const rorb_client_request_info* ri, void* context,
+                               rorb_each_parameter each, rorb_exception* exc);
+rorb_status rorb_cri_exceptions(const rorb_client_request_info* ri, void* context,
+                                rorb_each_typecode each, rorb_exception* exc);
+rorb_status rorb_cri_result(const rorb_client_request_info* ri, rorb_any** any,
+                            rorb_exception* exc);
+rorb_object* rorb_cri_target(const rorb_client_request_info* ri);
+rorb_object* rorb_cri_effective_target(const rorb_client_request_info* ri);
+/* Returns the profile's tag; its data in *data. */
+uint32_t rorb_cri_effective_profile(const rorb_client_request_info* ri, rorb_bytes* data);
+rorb_status rorb_cri_received_exception(const rorb_client_request_info* ri, rorb_any** any,
+                                        rorb_exception* exc);
+rorb_status rorb_cri_received_exception_id(const rorb_client_request_info* ri, rorb_bytes* id,
+                                           rorb_exception* exc);
+/* BAD_PARAM (minor 28) when the effective profile has no such component. */
+rorb_status rorb_cri_get_effective_component(const rorb_client_request_info* ri, uint32_t tag,
+                                             rorb_bytes* data, rorb_exception* exc);
+rorb_status rorb_cri_get_effective_components(const rorb_client_request_info* ri, uint32_t tag,
+                                              void* context, rorb_each_component each,
+                                              rorb_exception* exc);
+/* *found 1 with *raw_value set when a policy of the type is in effect;
+   INV_POLICY (minor 2) for a type that is not a client policy. */
+rorb_status rorb_cri_get_request_policy(const rorb_client_request_info* ri, uint32_t type,
+                                        int32_t* found, uint64_t* raw_value,
+                                        rorb_exception* exc);
+/* Only in send_request; BAD_INV_ORDER (minor 15) for an id there already
+   without replace, or one of the ORB's own (CodeSets, BI_DIR_IIOP). */
+rorb_status rorb_cri_add_request_service_context(const rorb_client_request_info* ri,
+                                                 uint32_t id, const uint8_t* data, size_t len,
+                                                 int32_t replace, rorb_exception* exc);
+
+uint32_t rorb_sri_request_id(const rorb_server_request_info* ri);
+const char* rorb_sri_operation(const rorb_server_request_info* ri, size_t* len);
+int32_t rorb_sri_response_expected(const rorb_server_request_info* ri);
+int16_t rorb_sri_sync_scope(const rorb_server_request_info* ri);
+rorb_status rorb_sri_reply_status(const rorb_server_request_info* ri, int16_t* status,
+                                  rorb_exception* exc);
+rorb_status rorb_sri_forward_reference(const rorb_server_request_info* ri, rorb_object** obj,
+                                       rorb_exception* exc);
+rorb_status rorb_sri_get_slot(const rorb_server_request_info* ri, uint32_t id, rorb_any** any,
+                              rorb_exception* exc);
+/* The request scope slot, which the servant's thread then sees. */
+rorb_status rorb_sri_set_slot(const rorb_server_request_info* ri, uint32_t id,
+                              const rorb_any* any, rorb_exception* exc);
+rorb_status rorb_sri_get_request_service_context(const rorb_server_request_info* ri,
+                                                 uint32_t id, rorb_bytes* data,
+                                                 rorb_exception* exc);
+rorb_status rorb_sri_get_reply_service_context(const rorb_server_request_info* ri, uint32_t id,
+                                               rorb_bytes* data, rorb_exception* exc);
+rorb_status rorb_sri_add_reply_service_context(const rorb_server_request_info* ri, uint32_t id,
+                                               const uint8_t* data, size_t len,
+                                               int32_t replace, rorb_exception* exc);
+rorb_status rorb_sri_arguments(const rorb_server_request_info* ri, void* context,
+                               rorb_each_parameter each, rorb_exception* exc);
+rorb_status rorb_sri_exceptions(const rorb_server_request_info* ri, void* context,
+                                rorb_each_typecode each, rorb_exception* exc);
+rorb_status rorb_sri_result(const rorb_server_request_info* ri, rorb_any** any,
+                            rorb_exception* exc);
+rorb_status rorb_sri_sending_exception(const rorb_server_request_info* ri, rorb_any** any,
+                                       rorb_exception* exc);
+rorb_status rorb_sri_sending_exception_id(const rorb_server_request_info* ri, rorb_bytes* id,
+                                          rorb_exception* exc);
+rorb_status rorb_sri_object_id(const rorb_server_request_info* ri, rorb_bytes* id,
+                               rorb_exception* exc);
+rorb_status rorb_sri_adapter_id(const rorb_server_request_info* ri, rorb_bytes* id,
+                                rorb_exception* exc);
+/* The names of the POAs from the RootPOA down. */
+rorb_status rorb_sri_adapter_name(const rorb_server_request_info* ri, void* context,
+                                  rorb_each_string each, rorb_exception* exc);
+const char* rorb_sri_orb_id(const rorb_server_request_info* ri, size_t* len);
+const char* rorb_sri_server_id(const rorb_server_request_info* ri, size_t* len);
+rorb_status rorb_sri_target_most_derived_interface(const rorb_server_request_info* ri,
+                                                   rorb_bytes* id, rorb_exception* exc);
+rorb_status rorb_sri_target_is_a(const rorb_server_request_info* ri, const char* id, size_t len,
+                                 int32_t* is_a, rorb_exception* exc);
+rorb_status rorb_sri_get_server_policy(const rorb_server_request_info* ri, uint32_t type,
+                                       uint64_t* raw_value, rorb_exception* exc);
+
+/* IORInfo */
+rorb_status rorb_ior_info_get_effective_policy(const rorb_ior_info* info, uint32_t type,
+                                               uint64_t* raw_value, rorb_exception* exc);
+void rorb_ior_info_adapter_name(const rorb_ior_info* info, void* context, rorb_each_string each);
+void rorb_ior_info_add_ior_component(const rorb_ior_info* info, uint32_t tag,
+                                     const uint8_t* data, size_t len);
+/* BAD_PARAM (minor 29) but for TAG_INTERNET_IOP (0). */
+rorb_status rorb_ior_info_add_ior_component_to_profile(const rorb_ior_info* info, uint32_t tag,
+                                                       const uint8_t* data, size_t len,
+                                                       uint32_t profile_id,
+                                                       rorb_exception* exc);
+
+/* ORBInitInfo */
+void rorb_init_info_arguments(const rorb_orb_init_info* info, void* context,
+                              rorb_each_string each);
+const char* rorb_init_info_orb_id(const rorb_orb_init_info* info, size_t* len);
+/* The ORB being created; calls on it may not work yet. */
+rorb_orb* rorb_init_info_orb(const rorb_orb_init_info* info);
+rorb_status rorb_init_info_register_initial_reference(const rorb_orb_init_info* info,
+                                                      const char* name, size_t len,
+                                                      rorb_object* obj, rorb_exception* exc);
+/* Only in post_init (BAD_INV_ORDER in pre_init). */
+rorb_status rorb_init_info_resolve_initial_references(const rorb_orb_init_info* info,
+                                                      const char* name, size_t len,
+                                                      rorb_object** obj, rorb_exception* exc);
+/* RORB_DUPLICATE_NAME for a name (but "") already added. */
+rorb_status rorb_init_info_add_client_request_interceptor(
+    rorb_orb_init_info* info, const char* name, size_t len, void* self,
+    const rorb_client_interceptor_vtable* vtable, rorb_exception* exc);
+rorb_status rorb_init_info_add_server_request_interceptor(
+    rorb_orb_init_info* info, const char* name, size_t len, void* self,
+    const rorb_server_interceptor_vtable* vtable, rorb_exception* exc);
+rorb_status rorb_init_info_add_ior_interceptor(rorb_orb_init_info* info, const char* name,
+                                               size_t len, void* self,
+                                               const rorb_ior_interceptor_vtable* vtable,
+                                               rorb_exception* exc);
+uint32_t rorb_init_info_allocate_slot_id(rorb_orb_init_info* info);
+/* PICurrent with the slots allocated so far. */
+rorb_pi_current* rorb_init_info_pi_current(const rorb_orb_init_info* info);
+rorb_status rorb_init_info_create_codec(const rorb_orb_init_info* info, int16_t format,
+                                        uint8_t major, uint8_t minor, rorb_codec** codec,
+                                        rorb_exception* exc);
+
+/* PICurrent (resolve_initial_references("PICurrent")): the slots as the
+   calling thread sees them. */
+rorb_pi_current* rorb_orb_pi_current(rorb_orb* orb);
+void rorb_pi_current_release(rorb_pi_current* current);
+rorb_status rorb_pi_current_get_slot(const rorb_pi_current* current, uint32_t id,
+                                     rorb_any** any, rorb_exception* exc);
+rorb_status rorb_pi_current_set_slot(const rorb_pi_current* current, uint32_t id,
+                                     const rorb_any* any, rorb_exception* exc);
+
+/* IOP::Codec of CDR encapsulations (format 0, ENCODING_CDR_ENCAPS, 1.0 to
+   1.2; RORB_UNKNOWN_ENCODING for others). Errors are RORB_CODEC_*. */
+#define RORB_ENCODING_CDR_ENCAPS 0
+rorb_status rorb_orb_create_codec(rorb_orb* orb, int16_t format, uint8_t major, uint8_t minor,
+                                  rorb_codec** codec, rorb_exception* exc);
+void rorb_codec_release(rorb_codec* codec);
+/* encode, or encode_value when value_only is not 0. */
+rorb_status rorb_codec_encode(const rorb_codec* codec, const rorb_any* any, int32_t value_only,
+                              rorb_bytes* data, rorb_exception* exc);
+/* decode when tc is NULL, else decode_value of a value of type tc. */
+rorb_status rorb_codec_decode(const rorb_codec* codec, const uint8_t* data, size_t len,
+                              const rorb_typecode* tc, rorb_any** any, rorb_exception* exc);
 
 #ifdef __cplusplus
 }

@@ -9,6 +9,16 @@ break the API).
 
 ### Added
 
+- Portable Interceptors in C, C++ and Java: the C ABI (`rustorb.h`: interceptor
+  and initializer vtables, `rorb_register_orb_initializer`, `rorb_orb_init_pi`,
+  the `rorb_cri_*` / `rorb_sri_*` / `rorb_ior_info_*` / `rorb_init_info_*`
+  accessors, PICurrent and `Codec`), `<rustorb/pi.h>` for C++ (the
+  `PortableInterceptor` and `IOP` modules; `ORB_init` passes its ORB id), and
+  `org.omg.PortableInterceptor`, `org.omg.IOP` and `org.omg.Dynamic` for Java,
+  generated from `java/idl/PortableInterceptor.idl`, with initializers named by
+  `org.omg.PortableInterceptor.ORBInitializerClass.*` properties and the ORB id
+  by `org.omg.CORBA.ORBId`. `interop/run-pi-probe.sh` gains rustorbcpp and
+  rustorbjava (#100)
 - Portable Interceptors in Python (`rustorb.PortableInterceptor`,
   `rustorb.IOP`): `ORBInitializer` with `register_orb_initializer`, client
   and server request interceptors, IOR interceptors, `PICurrent` and
@@ -52,6 +62,8 @@ break the API).
 
 ### Changed
 
+- The C ABI version is 2 (`RORB_ABI_VERSION`): Portable Interceptors, and the
+  local exception codes 21 to 26 (#100)
 - A request left without a reply by `CloseConnection` is sent again up to 4
   times on new connections (was 2) before `TRANSIENT`; a server ignores the
   requests that expect a reply once it has decided to send `CloseConnection`,

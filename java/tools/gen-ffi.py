@@ -61,6 +61,10 @@ SCALARS = {
     "float": ("JAVA_FLOAT", "float"), "double": ("JAVA_DOUBLE", "double"),
     "rorb_bytes": ("BYTES", "MemorySegment"),
     "rorb_each_policy": ("JAVA_LONG", "long"),
+    "rorb_each_string": ("JAVA_LONG", "long"),
+    "rorb_each_component": ("JAVA_LONG", "long"),
+    "rorb_each_parameter": ("JAVA_LONG", "long"),
+    "rorb_each_typecode": ("JAVA_LONG", "long"),
 }
 
 

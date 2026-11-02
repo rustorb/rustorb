@@ -15,6 +15,7 @@ rustorb の Java バインディングの構成をまとめる。C++ と同じ�
 | `java/src/main/java/org/omg` | 標準の API（`CORBA`、`CORBA.portable`、`CORBA.TypeCodePackage`、`PortableServer` とその Package、`CosNaming`） | MIT OR Apache-2.0 |
 | `java/src/main/java/org/rustorb` | 実装（ORB、Delegate、ストリーム、Any / TypeCode、POA）と、生成コードとの取り決め（`Stubs`、`Call`、`Anys`） | MIT OR Apache-2.0 |
 | `java/src/main/java/org/omg/CosNaming` | `rustorb-idl -bjava -Wbpackage=org.omg` で生成した CosNaming（`java/generate-stubs.sh`） | MIT OR Apache-2.0 |
+| `java/src/main/java/org/omg/PortableInterceptor`・`IOP`・`Dynamic` | 同じく `java/idl/PortableInterceptor.idl` から生成した Portable Interceptors の型（`org.omg.CORBA` の `ParameterMode` と列の Helper の一部も） | MIT OR Apache-2.0 |
 | `crates/rustorb-codegen/python/rustorb_idl/java_backend.py` | `rustorb-idl -bjava` | GPL-3.0-or-later（生成物は対象外） |
 | `java/pom.xml`、`java/src/test` | Maven のビルドと JUnit のテスト | MIT OR Apache-2.0 |
 | `interop/impls/java` | 相互接続用のクライアント・サーバーと試験ケース（`rustorbjava` と `jacorb` で共通のソース） | MIT OR Apache-2.0 |
@@ -116,6 +117,23 @@ servant manager と adapter activator は `org.omg.CORBA.LocalObject` を継承�
 
 `_this()` は、そのサーバントの要求の実行中ならその要求のオブジェクトを、そうでなければ `_default_POA()`（最初に初期化して破棄していない ORB の RootPOA）で暗黙に活性化した参照を返す。同じ ORB の中の呼び出しは、コアの同一 ORB 内呼び出しで呼び出し元のスレッドで実行する。
 
+## Portable Interceptors
+
+[portable-interceptors.md](portable-interceptors.md)。型は標準の Java マッピング（`org.omg.PortableInterceptor`・`org.omg.IOP`・`org.omg.Dynamic`）で、実装は `org.rustorb.Pi`。
+
+```java
+Properties props = new Properties();
+props.setProperty("org.omg.PortableInterceptor.ORBInitializerClass." + MyInit.class.getName(), "");
+props.setProperty("org.omg.CORBA.ORBId", "my-orb");
+ORB orb = ORB.init(args, props);
+```
+
+- 初期化子は `ORB.init` のプロパティ、続いて system property の `org.omg.PortableInterceptor.ORBInitializerClass.<クラス名>` で名前を挙げたクラス。引数なしの public なコンストラクターで作る。読み込めないクラスは飛ばす。`ORBInitializer` などは `org.omg.CORBA.LocalObject` を継承して実装する
+- 各点が受け取る情報のオブジェクトはその点の間だけ使える（後で使うと `BAD_INV_ORDER` minor 14、`ORB.init` の後の `ORBInitInfo` は `OBJECT_NOT_EXIST` minor 10）
+- 点からは `ForwardRequest` と `SystemException` を投げられる。そのほかの例外は `UNKNOWN`
+- `resolve_initial_references("PICurrent")` は `org.omg.PortableInterceptor.Current`、`"CodecFactory"` は `org.omg.IOP.CodecFactory`
+- `ORBInitInfo.register_policy_factory` は `NO_IMPLEMENT`。静的なスタブの要求では `arguments` などは `NO_RESOURCES`（Java のランタイムには DII / DSI がない）
+
 ## テスト
 
 - `java/src/test`（`mvn -f java/pom.xml -Didl.parser.dir=... verify`。cargo で `librustorb_ffi` を、`rustorb-idl -bjava` でテスト用 IDL のコードを作る）
@@ -124,9 +142,10 @@ servant manager と adapter activator は `org.omg.CORBA.LocalObject` を継承�
   - `InteropCasesTest`：相互接続の78ケース（`interop/impls/java/interop/Cases.java`）と Any / TypeCode の251ケース（DynAny の組み立て直しを含む）（`AnyTests.java`）を、2つの ORB の間で回す
   - `DynAnyTest`：`org.omg.DynamicAny`（[dynany.md](dynany.md)）。生成コードの型の DynAny、valuetype の共有と循環、切り詰め。残りの操作は `interop/impls/rustorbjava/probe/interop/DynAnyProbe.java`（`run-dynany-probe.sh`）で確かめる
   - `PortableTest`：手書きの portable stub（`_request` / `_invoke` / `ApplicationException` / oneway）を2つの ORB の間と同一 ORB 内で、`_releaseReply` の後のストリーム、返事を作ってから操作を呼ぶスケルトンの例外の完了状態、`ORB.create_output_stream` の読み戻し、Any のストリーム操作と `insert_Value` / `extract_Value`
+  - `PiTest`：Portable Interceptors。プロパティの初期化子、`DuplicateName`、`pre_init` の `BAD_INV_ORDER`、要求と返事のサービスコンテキスト、クライアントのスレッドから サーバントへのスロット、IOR のコンポーネント、両側の `ForwardRequest`、点が投げた例外、点の後の情報のオブジェクト、`Codec`
   - `ValuetypeTest`：valuetype の26ケース（`ValueTests.java`）、生成された既定のファクトリ、truncatable の切り捨て、ファクトリのない型の `MARSHAL`、`create_value_tc`
 - `crates/rustorb-codegen/python/tests/test_java_backend.py`：コマンドライン、生成物の形、対応しない構文のエラー、生成コードとランタイムの `javac -Werror` でのコンパイル
-- CI（`ci.yml` の `java`）：Linux（Java 22 と 25）、macOS、Windows（Java 25）で `mvn verify`。Linux では同梱の CosNaming のスタブが生成器の出力と、`Ffi.java` が `rustorb.h` と一致すること（`gen-ffi.py --check`）も確かめる
+- CI（`ci.yml` の `java`）：Linux（Java 22 と 25）、macOS、Windows（Java 25）で `mvn verify`。Linux では同梱の CosNaming と Portable Interceptors のスタブが生成器の出力と、`Ffi.java` が `rustorb.h` と一致すること（`gen-ffi.py --check`）も確かめる
 - 相互接続：`interop/run-matrix.sh` に `rustorbjava`（ホストでビルドし、イメージの Java 25 で動かす。JacORB はイメージの Java 17）と `jacorb`（イメージの中で JacORB の IDL コンパイラで同じソースをビルドする）を加えた。Java が関わる24組（omniORBpy・omniORB C++・JacORB・rustorb の Rust・Python・C++・Java）の結果は次のとおり（ローカルで確認。失敗はすべて `known-failures.txt` の範囲）
   - basic（78ケース）：omniNames と rustorb-names、GIOP 1.2 と 1.1 で、`rustorbjava` はすべての相手と通る（omniORB 側の wchar の既知の失敗を除く）。`jacorb` との組は、下の union の判別子の1ケース（`echo_value[5]`）と、GIOP 1.1 で omniORB のクライアントが分割したメッセージ（JacORB が GIOP 1.1 の Fragment を受け付けない）だけが失敗する
   - any（190ケース）：`rustorbjava` は omniORBpy・omniORB C++・rustorb（Rust・Python・C++）・自身とのすべての組で GIOP 1.2 / 1.1 とも通る。`jacorb` は下の Helper の違いで大半の `make` / `check` が失敗するため、既定では any のマトリクスに入れない（組を指定すれば回せる）

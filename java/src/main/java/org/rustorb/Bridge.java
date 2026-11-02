@@ -89,6 +89,18 @@ final class Bridge {
                 return new org.omg.DynamicAny.DynAnyFactoryPackage.InconsistentTypeCode();
             case 20:
                 return new org.omg.DynamicAny.MustTruncate();
+            case 21:
+                return new org.omg.PortableInterceptor.InvalidSlot();
+            case 22:
+                return new org.omg.PortableInterceptor.ORBInitInfoPackage.DuplicateName();
+            case 23:
+                return new org.omg.IOP.CodecFactoryPackage.UnknownEncoding();
+            case 24:
+                return new org.omg.IOP.CodecPackage.InvalidTypeForEncoding();
+            case 25:
+                return new org.omg.IOP.CodecPackage.FormatMismatch();
+            case 26:
+                return new org.omg.IOP.CodecPackage.TypeMismatch();
             default:
                 return new org.omg.CORBA.INTERNAL("local exception " + code, 0,
                         CompletionStatus.COMPLETED_MAYBE);

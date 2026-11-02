@@ -27,6 +27,18 @@ pub unsafe extern "C" fn rorb_orb_init(
     orb: *mut *mut Orb,
     exc: *mut Exception,
 ) -> Status {
+    unsafe { init_with(argc, argv, orb, exc, Orb::init) }
+}
+
+/// `ORB_init` with the ORB made by `make` from the arguments (without
+/// `argv[0]`), which it leaves without the ORB options.
+pub(crate) unsafe fn init_with(
+    argc: *mut c_int,
+    argv: *mut *mut c_char,
+    orb: *mut *mut Orb,
+    exc: *mut Exception,
+    make: impl FnOnce(&mut Vec<String>) -> Result<Orb, rustorb_core::SystemException>,
+) -> Status {
     guard(exc, || {
         let count = if argc.is_null() || argv.is_null() {
             0
@@ -46,7 +58,7 @@ pub unsafe extern "C" fn rorb_orb_init(
             .collect();
         // Keep argv[0] out of the parser, which would keep it anyway.
         let mut args: Vec<String> = strings.iter().skip(1).cloned().collect();
-        let new_orb = match Orb::init(&mut args) {
+        let new_orb = match make(&mut args) {
             Ok(o) => o,
             Err(e) => return unsafe { set_system(exc, &e) },
         };

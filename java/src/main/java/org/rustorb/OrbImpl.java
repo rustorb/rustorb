@@ -23,11 +23,20 @@ public final class OrbImpl extends org.omg.CORBA_2_3.ORB {
         this.handle = Owned.register(this, handle, Native::orbRelease);
     }
 
+    /** An ORB on a handle it takes, not one ORB.init made (the ORB an
+     * ORBInitInfo is for). */
+    static OrbImpl wrap(long handle) {
+        return new OrbImpl(handle);
+    }
+
     /**
      * ORB.init(args, props): the -ORB options of args, then the properties
      * that name one (ORBInitRef, or org.omg.CORBA.ORBInitRef), and
      * org.omg.CORBA.ORBInitialHost / ORBInitialPort as the initial
-     * reference NameService.
+     * reference NameService. org.omg.CORBA.ORBId is the ORB id, and the
+     * properties org.omg.PortableInterceptor.ORBInitializerClass.&lt;class&gt;
+     * (of props, then of the system properties) name the ORB initializers
+     * that run in it.
      */
     public static OrbImpl create(String[] args, Properties props) {
         List<String> argv = new ArrayList<>();
@@ -38,6 +47,7 @@ public final class OrbImpl extends org.omg.CORBA_2_3.ORB {
                 }
             }
         }
+        String orbId = "";
         if (props != null) {
             String host = null;
             String port = null;
@@ -48,6 +58,8 @@ public final class OrbImpl extends org.omg.CORBA_2_3.ORB {
                     host = value;
                 } else if (name.equals("ORBInitialPort")) {
                     port = value;
+                } else if (name.equals("ORBId")) {
+                    orbId = value;
                 } else if (name.startsWith("ORB") && !name.equals("ORBClass")
                         && !name.equals("ORBSingletonClass")) {
                     argv.add("-" + name);
@@ -60,7 +72,14 @@ public final class OrbImpl extends org.omg.CORBA_2_3.ORB {
                         + (port != null ? port : "2809") + "/NameService");
             }
         }
-        OrbImpl orb = new OrbImpl(Native.orbInit(argv.toArray(new String[0])));
+        Pi.OrbBox box = new Pi.OrbBox();
+        List<Object> inits = new ArrayList<>();
+        for (org.omg.PortableInterceptor.ORBInitializer init : Pi.initializers(props)) {
+            inits.add(new Pi.Entry(init, box));
+        }
+        OrbImpl orb = new OrbImpl(
+                Native.orbInitPi(argv.toArray(new String[0]), orbId, inits.toArray()));
+        box.orb = orb;
         synchronized (LIVE) {
             LIVE.add(orb);
         }
@@ -100,8 +119,18 @@ public final class OrbImpl extends org.omg.CORBA_2_3.ORB {
 
     /** The names resolve_initial_references answers without the core. */
     private static final String[] LOCAL_SERVICES = {
-        "RootPOA", "POACurrent", "ORBPolicyManager", "PolicyCurrent", "DynAnyFactory"
+        "RootPOA", "POACurrent", "ORBPolicyManager", "PolicyCurrent", "DynAnyFactory",
+        "PICurrent", "CodecFactory"
     };
+
+    static boolean isLocalService(String id) {
+        for (String local : LOCAL_SERVICES) {
+            if (local.equals(id)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     @Override
     public void register_initial_reference(String id, org.omg.CORBA.Object obj)
@@ -164,6 +193,20 @@ public final class OrbImpl extends org.omg.CORBA_2_3.ORB {
         }
         if ("DynAnyFactory".equals(object_name)) {
             return DynAnyFactoryImpl.INSTANCE;
+        }
+        if ("PICurrent".equals(object_name)) {
+            try {
+                return new Pi.CurrentImpl(Native.orbPiCurrent(handle()));
+            } finally {
+                Reference.reachabilityFence(this);
+            }
+        }
+        if ("CodecFactory".equals(object_name)) {
+            try {
+                return new Pi.CodecFactoryImpl(Native.orbClone(handle()));
+            } finally {
+                Reference.reachabilityFence(this);
+            }
         }
         try {
             Object local = Native.orbResolveLocalInitialReference(handle(), object_name);

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Builds the rustorb C++ client, server, load client, POA probe server, DynAny probe and
-# naming check on the host, into bin/: the stubs and skeletons of InteropTest.idl, AnyTest.idl,
-# AnyTestHidden.idl (the client only), ValueTest.idl, CustomTest.idl, AbstractTest.idl, CosNaming.idl and PoaProbe.idl (the
-# probe server only) from rustorb-idl -bc++11 (in gen/), linked with
+# Builds the rustorb C++ client, server, load client, POA probe server, DynAny probe,
+# naming check and PI probe on the host, into bin/: the stubs and skeletons of InteropTest.idl, AnyTest.idl,
+# AnyTestHidden.idl (the client only), ValueTest.idl, CustomTest.idl, AbstractTest.idl, CosNaming.idl, PoaProbe.idl (the
+# probe server only) and PiProbe.idl (the PI probe only) from rustorb-idl -bc++11 (in gen/), linked with
 # librustorb_ffi statically. run-matrix.sh, run-poa-probe.sh, run-dynany-probe.sh,
-# run-naming-check.sh and run-load-local.py run it; idl_parser must be importable, or IDL_PARSER_DIR set to a
+# run-naming-check.sh, run-pi-probe.sh and run-load-local.py run it; idl_parser must be importable, or IDL_PARSER_DIR set to a
 # checkout of it. CXX picks the compiler (default g++, c++ on macOS).
 #
 # The binaries run in the interop image (Ubuntu 24.04), so the host needs a
@@ -34,11 +34,13 @@ PYTHONPATH="$pythonpath" python3 -m rustorb_idl -bc++11 -C "$here/gen" \
   "$root/interop/idl/InteropTest.idl" "$root/interop/idl/AnyTest.idl" \
   "$root/interop/idl/AnyTestHidden.idl" "$root/crates/rustorb-codegen/tests/idl/CosNaming.idl" \
   "$root/interop/idl/PoaProbe.idl" "$root/interop/idl/ValueTest.idl" \
-  "$root/interop/idl/CustomTest.idl" "$root/interop/idl/AbstractTest.idl"
+  "$root/interop/idl/CustomTest.idl" "$root/interop/idl/AbstractTest.idl" \
+  "$root/interop/idl/PiProbe.idl"
 
 flags=(-std=c++17 -O2 -Wall -Wextra -I"$root/cpp/include" -I"$root/crates/rustorb-ffi/include"
        -I"$here/gen" -I"$here")
-for f in InteropTest AnyTest AnyTestHidden CosNaming PoaProbe ValueTest CustomTest AbstractTest; do
+for f in InteropTest AnyTest AnyTestHidden CosNaming PoaProbe ValueTest CustomTest AbstractTest \
+         PiProbe; do
   "$cxx" "${flags[@]}" -c "$here/gen/$f.cc" -o "$here/gen/$f.o"
 done
 objs=("$here/gen/InteropTest.o" "$here/gen/AnyTest.o" "$here/gen/CosNaming.o"
@@ -55,3 +57,4 @@ link load_client "$here/load_client.cc" "$here/gen/InteropTest.o" "$here/gen/Cos
 link poa_probe_server "$here/poa_probe_server.cc" "$here/gen/PoaProbe.o"
 link dynany_probe "$here/dynany_probe.cc"
 link naming_check "$here/naming_check.cc" "$here/gen/CosNaming.o"
+link pi_probe "$here/pi_probe.cc" "$here/gen/PiProbe.o"
