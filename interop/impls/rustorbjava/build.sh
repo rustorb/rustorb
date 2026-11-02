@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Builds the rustorb Java client, server, load client, POA probe server,
-# DynAny probe and naming check on the host:
+# DynAny probe, naming check and PI probe on the host:
 # librustorb_ffi (in lib/) and, in classes/, the rustorb Java runtime
 # (java/), the stubs and skeletons of InteropTest.idl, AnyTest.idl,
-# AnyTestHidden.idl, ValueTest.idl, CustomTest.idl, AbstractTest.idl and PoaProbe.idl from rustorb-idl -bjava (in gen/), the
+# AnyTestHidden.idl, ValueTest.idl, CustomTest.idl, AbstractTest.idl, PoaProbe.idl and PiProbe.idl from rustorb-idl -bjava (in gen/), the
 # Java sources shared with the jacorb implementation (impls/java) and the
 # probes (probe/). run-matrix.sh, run-poa-probe.sh, run-dynany-probe.sh,
-# run-naming-check.sh and run-load-local.py run it;
+# run-naming-check.sh, run-pi-probe.sh and run-load-local.py run it;
 # idl_parser must be importable, or IDL_PARSER_DIR set to a checkout of it.
 # The classes are for Java 22 (the FFM API); the interop image runs them on
 # Java 25 (RUSTORB_JAVA), the scripts on the host on RUSTORB_JAVA or java.
@@ -32,7 +32,7 @@ PYTHONPATH="$pythonpath" python3 -m rustorb_idl -bjava -I "$root/interop/idl" -C
   "$root/interop/idl/InteropTest.idl" "$root/interop/idl/AnyTest.idl" \
   "$root/interop/idl/AnyTestHidden.idl" "$root/interop/idl/ValueTest.idl" \
   "$root/interop/idl/CustomTest.idl" "$root/interop/idl/AbstractTest.idl" \
-  "$root/interop/idl/PoaProbe.idl"
+  "$root/interop/idl/PoaProbe.idl" "$root/interop/idl/PiProbe.idl"
 find "$root/java/src/main/java" "$here/gen" "$here/../java" "$here/probe" -name '*.java' \
   > "$here/gen/sources.txt"
 javac --release 22 -encoding UTF-8 -nowarn -d "$here/classes" @"$here/gen/sources.txt"

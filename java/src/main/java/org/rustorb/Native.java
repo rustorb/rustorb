@@ -57,8 +57,8 @@ final class Native {
         } catch (Throwable t) {
             throw Library.rethrow(t);
         }
-        if (abi != 1) {
-            throw new UnsatisfiedLinkError("librustorb_ffi has ABI version " + abi + ", not 1");
+        if (abi != 2) {
+            throw new UnsatisfiedLinkError("librustorb_ffi has ABI version " + abi + ", not 2");
         }
         try {
             Ffi.rorb_set_value_type_resolver.invokeExact(Upcalls.RESOLVE, 0L);
@@ -265,6 +265,14 @@ final class Native {
             Library.MEMORY.set(JAVA_INT, argc, n);
             return (int) Ffi.rorb_orb_init.invokeExact(argc, argv, out, exc);
         });
+    }
+
+    static long orbClone(long orb) {
+        try {
+            return (long) Ffi.rorb_orb_clone.invokeExact(orb);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
     }
 
     static void orbRelease(long orb) {
@@ -2503,6 +2511,541 @@ final class Native {
         });
     }
 
+    // --- Portable Interceptors and IOP::Codec (org.rustorb.Pi) ------------------
+
+    /** What a point raised (rorb_pi_error_*). */
+    static void piErrorForward(long error, long obj) {
+        try {
+            Ffi.rorb_pi_error_forward.invokeExact(error, obj);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    static void piErrorSystem(long error, String id, int minor, int completed) {
+        Scratch s = Scratch.get();
+        long mark = s.mark();
+        try {
+            long p = str(s, id);
+            Ffi.rorb_pi_error_system.invokeExact(error, p, s.lastLength, minor, completed);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        } finally {
+            s.reset(mark);
+        }
+    }
+
+    /** rorb_orb_init_pi with orb id orbId and the ORB initializers inits
+     * (each a Pi.InitEntry, the self of its rorb_orb_initializer). */
+    static long orbInitPi(String[] args, String orbId, Object[] inits) {
+        long[] held = new long[inits.length];
+        for (int i = 0; i < inits.length; i++) {
+            held[i] = HELD.add(new Held(inits[i]));
+        }
+        try {
+            return word((s, out, exc) -> {
+                List<String> all = new ArrayList<>();
+                all.add("java");
+                if (args != null) {
+                    for (String a : args) {
+                        if (a == null) {
+                            continue;
+                        }
+                        if (a.indexOf('\0') >= 0) {
+                            throw badParam();
+                        }
+                        all.add(a);
+                    }
+                }
+                int n = all.size();
+                long argv = s.alloc(8L * (n + 1));
+                for (int i = 0; i < n; i++) {
+                    putLong(argv + 8L * i, s.utf8(all.get(i)));
+                }
+                long argc = s.word();
+                Library.MEMORY.set(JAVA_INT, argc, n);
+                long id = str(s, orbId);
+                long idLen = s.lastLength;
+                long entries = s.alloc(16L * Math.max(held.length, 1));
+                for (int i = 0; i < held.length; i++) {
+                    putLong(entries + 16L * i, held[i]);
+                    putLong(entries + 16L * i + 8, Upcalls.INITIALIZER_VTABLE);
+                }
+                return (int) Ffi.rorb_orb_init_pi.invokeExact(argc, argv, id, idLen, entries,
+                        (long) held.length, out, exc);
+            });
+        } finally {
+            for (long h : held) {
+                heldRemoveRef(h);
+            }
+        }
+    }
+
+    // RequestInfo (server picks rorb_sri_* over rorb_cri_*)
+
+    static int riRequestId(boolean server, long ri) {
+        try {
+            return server ? (int) Ffi.rorb_sri_request_id.invokeExact(ri)
+                    : (int) Ffi.rorb_cri_request_id.invokeExact(ri);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    static String riOperation(boolean server, long ri) {
+        Scratch s = Scratch.get();
+        long mark = s.mark();
+        try {
+            long len = s.word();
+            long p = server ? (long) Ffi.rorb_sri_operation.invokeExact(ri, len)
+                    : (long) Ffi.rorb_cri_operation.invokeExact(ri, len);
+            return cstring(p, len);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        } finally {
+            s.reset(mark);
+        }
+    }
+
+    static boolean riResponseExpected(boolean server, long ri) {
+        try {
+            return (server ? (int) Ffi.rorb_sri_response_expected.invokeExact(ri)
+                    : (int) Ffi.rorb_cri_response_expected.invokeExact(ri)) != 0;
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    static short riSyncScope(boolean server, long ri) {
+        try {
+            return server ? (short) Ffi.rorb_sri_sync_scope.invokeExact(ri)
+                    : (short) Ffi.rorb_cri_sync_scope.invokeExact(ri);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    static short riReplyStatus(boolean server, long ri) {
+        return int16((s, out, exc) -> server
+                ? (int) Ffi.rorb_sri_reply_status.invokeExact(ri, out, exc)
+                : (int) Ffi.rorb_cri_reply_status.invokeExact(ri, out, exc));
+    }
+
+    static long riForwardReference(boolean server, long ri) {
+        return word((s, out, exc) -> server
+                ? (int) Ffi.rorb_sri_forward_reference.invokeExact(ri, out, exc)
+                : (int) Ffi.rorb_cri_forward_reference.invokeExact(ri, out, exc));
+    }
+
+    /** An any handle; InvalidSlot. */
+    static long riGetSlot(boolean server, long ri, int id)
+            throws org.omg.PortableInterceptor.InvalidSlot {
+        return word((s, out, exc) -> server
+                ? (int) Ffi.rorb_sri_get_slot.invokeExact(ri, id, out, exc)
+                : (int) Ffi.rorb_cri_get_slot.invokeExact(ri, id, out, exc));
+    }
+
+    static byte[] riGetRequestServiceContext(boolean server, long ri, int id) {
+        return bytes((s, out, exc) -> server
+                ? (int) Ffi.rorb_sri_get_request_service_context.invokeExact(ri, id, out, exc)
+                : (int) Ffi.rorb_cri_get_request_service_context.invokeExact(ri, id, out, exc));
+    }
+
+    static byte[] riGetReplyServiceContext(boolean server, long ri, int id) {
+        return bytes((s, out, exc) -> server
+                ? (int) Ffi.rorb_sri_get_reply_service_context.invokeExact(ri, id, out, exc)
+                : (int) Ffi.rorb_cri_get_reply_service_context.invokeExact(ri, id, out, exc));
+    }
+
+    /** The arguments: any handles and modes, alternating. */
+    static long[] riArguments(boolean server, long ri) {
+        List<Long> list = new ArrayList<>();
+        long ctx = CONTEXTS.add(list);
+        try {
+            run((s, exc) -> server
+                    ? (int) Ffi.rorb_sri_arguments.invokeExact(ri, ctx, Upcalls.PUSH_PARAMETER, exc)
+                    : (int) Ffi.rorb_cri_arguments.invokeExact(ri, ctx, Upcalls.PUSH_PARAMETER,
+                            exc));
+        } finally {
+            CONTEXTS.remove(ctx);
+        }
+        return toLongs(list);
+    }
+
+    /** The exceptions: TypeCode handles. */
+    static long[] riExceptions(boolean server, long ri) {
+        List<Long> list = new ArrayList<>();
+        long ctx = CONTEXTS.add(list);
+        try {
+            run((s, exc) -> server
+                    ? (int) Ffi.rorb_sri_exceptions.invokeExact(ri, ctx, Upcalls.PUSH_HANDLE, exc)
+                    : (int) Ffi.rorb_cri_exceptions.invokeExact(ri, ctx, Upcalls.PUSH_HANDLE,
+                            exc));
+        } finally {
+            CONTEXTS.remove(ctx);
+        }
+        return toLongs(list);
+    }
+
+    static long riResult(boolean server, long ri) {
+        return word((s, out, exc) -> server
+                ? (int) Ffi.rorb_sri_result.invokeExact(ri, out, exc)
+                : (int) Ffi.rorb_cri_result.invokeExact(ri, out, exc));
+    }
+
+    private static long[] toLongs(List<Long> list) {
+        long[] v = new long[list.size()];
+        for (int i = 0; i < v.length; i++) {
+            v[i] = list.get(i);
+        }
+        return v;
+    }
+
+    // ClientRequestInfo
+
+    static long criTarget(long ri) {
+        try {
+            return (long) Ffi.rorb_cri_target.invokeExact(ri);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    static long criEffectiveTarget(long ri) {
+        try {
+            return (long) Ffi.rorb_cri_effective_target.invokeExact(ri);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    /** The tag in [0] and the data. */
+    static byte[] criEffectiveProfile(long ri, int[] tag) {
+        Scratch s = Scratch.get();
+        long mark = s.mark();
+        try {
+            long out = s.alloc(BYTES);
+            tag[0] = (int) Ffi.rorb_cri_effective_profile.invokeExact(ri, out);
+            return takeBytes(out);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        } finally {
+            s.reset(mark);
+        }
+    }
+
+    static long criReceivedException(long ri) {
+        return word((s, out, exc) -> (int) Ffi.rorb_cri_received_exception.invokeExact(ri, out,
+                exc));
+    }
+
+    static String criReceivedExceptionId(long ri) {
+        return utf8((s, out, exc) -> (int) Ffi.rorb_cri_received_exception_id.invokeExact(ri, out,
+                exc));
+    }
+
+    static byte[] criGetEffectiveComponent(long ri, int tag) {
+        return bytes((s, out, exc) -> (int) Ffi.rorb_cri_get_effective_component.invokeExact(ri,
+                tag, out, exc));
+    }
+
+    /** Tags and data, alternating (Integer, byte[]). */
+    static List<Object> criGetEffectiveComponents(long ri, int tag) {
+        List<Object> list = new ArrayList<>();
+        long ctx = CONTEXTS.add(list);
+        try {
+            run((s, exc) -> (int) Ffi.rorb_cri_get_effective_components.invokeExact(ri, tag, ctx,
+                    Upcalls.PUSH_COMPONENT, exc));
+        } finally {
+            CONTEXTS.remove(ctx);
+        }
+        return list;
+    }
+
+    /** {found, raw value}. */
+    static long[] criGetRequestPolicy(long ri, int type) {
+        Scratch s = Scratch.get();
+        long mark = s.mark();
+        try {
+            long found = s.word();
+            long raw = s.word();
+            long exc = s.alloc(EXCEPTION);
+            check((int) Ffi.rorb_cri_get_request_policy.invokeExact(ri, type, found, raw, exc),
+                    exc);
+            return new long[] {getInt(found), getLong(raw)};
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        } finally {
+            s.reset(mark);
+        }
+    }
+
+    static void criAddRequestServiceContext(long ri, int id, byte[] data, boolean replace) {
+        run((s, exc) -> {
+            long p = id(s, data);
+            return (int) Ffi.rorb_cri_add_request_service_context.invokeExact(ri, id, p,
+                    (long) data.length, replace ? 1 : 0, exc);
+        });
+    }
+
+    // ServerRequestInfo
+
+    static void sriSetSlot(long ri, int id, long any)
+            throws org.omg.PortableInterceptor.InvalidSlot {
+        run((s, exc) -> (int) Ffi.rorb_sri_set_slot.invokeExact(ri, id, any, exc));
+    }
+
+    static void sriAddReplyServiceContext(long ri, int id, byte[] data, boolean replace) {
+        run((s, exc) -> {
+            long p = id(s, data);
+            return (int) Ffi.rorb_sri_add_reply_service_context.invokeExact(ri, id, p,
+                    (long) data.length, replace ? 1 : 0, exc);
+        });
+    }
+
+    static long sriSendingException(long ri) {
+        return word((s, out, exc) -> (int) Ffi.rorb_sri_sending_exception.invokeExact(ri, out,
+                exc));
+    }
+
+    static byte[] sriObjectId(long ri) {
+        return bytes((s, out, exc) -> (int) Ffi.rorb_sri_object_id.invokeExact(ri, out, exc));
+    }
+
+    static byte[] sriAdapterId(long ri) {
+        return bytes((s, out, exc) -> (int) Ffi.rorb_sri_adapter_id.invokeExact(ri, out, exc));
+    }
+
+    static String[] sriAdapterName(long ri) {
+        List<String> names = new ArrayList<>();
+        long ctx = CONTEXTS.add(names);
+        try {
+            run((s, exc) -> (int) Ffi.rorb_sri_adapter_name.invokeExact(ri, ctx, Upcalls.PUSH_NAME,
+                    exc));
+        } finally {
+            CONTEXTS.remove(ctx);
+        }
+        return names.toArray(new String[0]);
+    }
+
+    static String sriOrbId(long ri) {
+        Scratch s = Scratch.get();
+        long mark = s.mark();
+        try {
+            long len = s.word();
+            return cstring((long) Ffi.rorb_sri_orb_id.invokeExact(ri, len), len);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        } finally {
+            s.reset(mark);
+        }
+    }
+
+    static String sriServerId(long ri) {
+        Scratch s = Scratch.get();
+        long mark = s.mark();
+        try {
+            long len = s.word();
+            return cstring((long) Ffi.rorb_sri_server_id.invokeExact(ri, len), len);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        } finally {
+            s.reset(mark);
+        }
+    }
+
+    static String sriTargetMostDerivedInterface(long ri) {
+        return utf8((s, out, exc) -> (int) Ffi.rorb_sri_target_most_derived_interface.invokeExact(
+                ri, out, exc));
+    }
+
+    static boolean sriTargetIsA(long ri, String id) {
+        return int32((s, out, exc) -> {
+            long p = str(s, id);
+            return (int) Ffi.rorb_sri_target_is_a.invokeExact(ri, p, s.lastLength, out, exc);
+        }) != 0;
+    }
+
+    static long sriGetServerPolicy(long ri, int type) {
+        return word((s, out, exc) -> (int) Ffi.rorb_sri_get_server_policy.invokeExact(ri, type,
+                out, exc));
+    }
+
+    // IORInfo
+
+    static long iorInfoGetEffectivePolicy(long info, int type) {
+        return word((s, out, exc) -> (int) Ffi.rorb_ior_info_get_effective_policy.invokeExact(info,
+                type, out, exc));
+    }
+
+    static void iorInfoAddIorComponent(long info, int tag, byte[] data) {
+        Scratch s = Scratch.get();
+        long mark = s.mark();
+        try {
+            long p = id(s, data);
+            Ffi.rorb_ior_info_add_ior_component.invokeExact(info, tag, p, (long) data.length);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        } finally {
+            s.reset(mark);
+        }
+    }
+
+    static void iorInfoAddIorComponentToProfile(long info, int tag, byte[] data, int profile) {
+        run((s, exc) -> {
+            long p = id(s, data);
+            return (int) Ffi.rorb_ior_info_add_ior_component_to_profile.invokeExact(info, tag, p,
+                    (long) data.length, profile, exc);
+        });
+    }
+
+    // ORBInitInfo
+
+    static String[] initInfoArguments(long info) {
+        List<String> args = new ArrayList<>();
+        long ctx = CONTEXTS.add(args);
+        try {
+            Ffi.rorb_init_info_arguments.invokeExact(info, ctx, Upcalls.PUSH_NAME);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        } finally {
+            CONTEXTS.remove(ctx);
+        }
+        return args.toArray(new String[0]);
+    }
+
+    static String initInfoOrbId(long info) {
+        Scratch s = Scratch.get();
+        long mark = s.mark();
+        try {
+            long len = s.word();
+            return cstring((long) Ffi.rorb_init_info_orb_id.invokeExact(info, len), len);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        } finally {
+            s.reset(mark);
+        }
+    }
+
+    /** A new rorb_orb handle of the ORB being created. */
+    static long initInfoOrb(long info) {
+        try {
+            return (long) Ffi.rorb_init_info_orb.invokeExact(info);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    static void initInfoRegisterInitialReference(long info, String name, long obj)
+            throws org.omg.CORBA.ORBPackage.InvalidName {
+        run((s, exc) -> {
+            long p = str(s, name);
+            return (int) Ffi.rorb_init_info_register_initial_reference.invokeExact(info, p,
+                    s.lastLength, obj, exc);
+        });
+    }
+
+    static long initInfoResolveInitialReferences(long info, String name)
+            throws org.omg.CORBA.ORBPackage.InvalidName {
+        return word((s, out, exc) -> {
+            long p = str(s, name);
+            return (int) Ffi.rorb_init_info_resolve_initial_references.invokeExact(info, p,
+                    s.lastLength, out, exc);
+        });
+    }
+
+    /** Adds an interceptor (kind 0 client, 1 server, 2 IOR) whose self is
+     * a Pi.Entry; DuplicateName (without the name). */
+    static void initInfoAddInterceptor(long info, int kind, String name, Object entry)
+            throws org.omg.PortableInterceptor.ORBInitInfoPackage.DuplicateName {
+        if (name == null) {
+            throw badParam();
+        }
+        handOver(entry, (s, held, exc) -> {
+            long p = str(s, name);
+            long len = s.lastLength;
+            switch (kind) {
+                case 0:
+                    return (int) Ffi.rorb_init_info_add_client_request_interceptor.invokeExact(
+                            info, p, len, held, Upcalls.CLIENT_VTABLE, exc);
+                case 1:
+                    return (int) Ffi.rorb_init_info_add_server_request_interceptor.invokeExact(
+                            info, p, len, held, Upcalls.SERVER_VTABLE, exc);
+                default:
+                    return (int) Ffi.rorb_init_info_add_ior_interceptor.invokeExact(info, p, len,
+                            held, Upcalls.IOR_VTABLE, exc);
+            }
+        });
+    }
+
+    static int initInfoAllocateSlotId(long info) {
+        try {
+            return (int) Ffi.rorb_init_info_allocate_slot_id.invokeExact(info);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    // PICurrent and Codec
+
+    static long orbPiCurrent(long orb) {
+        try {
+            return (long) Ffi.rorb_orb_pi_current.invokeExact(orb);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    static void piCurrentRelease(long current) {
+        try {
+            Ffi.rorb_pi_current_release.invokeExact(current);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    static long piCurrentGetSlot(long current, int id)
+            throws org.omg.PortableInterceptor.InvalidSlot {
+        return word((s, out, exc) -> (int) Ffi.rorb_pi_current_get_slot.invokeExact(current, id,
+                out, exc));
+    }
+
+    static void piCurrentSetSlot(long current, int id, long any)
+            throws org.omg.PortableInterceptor.InvalidSlot {
+        run((s, exc) -> (int) Ffi.rorb_pi_current_set_slot.invokeExact(current, id, any, exc));
+    }
+
+    static long orbCreateCodec(long orb, short format, byte major, byte minor)
+            throws org.omg.IOP.CodecFactoryPackage.UnknownEncoding {
+        return word((s, out, exc) -> (int) Ffi.rorb_orb_create_codec.invokeExact(orb, format,
+                major, minor, out, exc));
+    }
+
+    static void codecRelease(long codec) {
+        try {
+            Ffi.rorb_codec_release.invokeExact(codec);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    static byte[] codecEncode(long codec, long any, boolean valueOnly)
+            throws org.omg.IOP.CodecPackage.InvalidTypeForEncoding {
+        return bytes((s, out, exc) -> (int) Ffi.rorb_codec_encode.invokeExact(codec, any,
+                valueOnly ? 1 : 0, out, exc));
+    }
+
+    /** decode for tc 0, else decode_value. */
+    static long codecDecode(long codec, byte[] data, long tc)
+            throws org.omg.IOP.CodecPackage.FormatMismatch,
+            org.omg.IOP.CodecPackage.TypeMismatch {
+        return word((s, out, exc) -> {
+            long p = id(s, data);
+            return (int) Ffi.rorb_codec_decode.invokeExact(codec, p, (long) data.length, tc, out,
+                    exc);
+        });
+    }
+
     // --- callbacks -------------------------------------------------------------
 
     /** Java objects named by the ids the C side holds as pointers. */
@@ -2818,6 +3361,130 @@ final class Native {
             } catch (Throwable t) {
                 return 0;
             }
+        }
+
+        // Portable Interceptors (org.rustorb.Pi)
+
+        static final long PUSH_PARAMETER = stub("pushParameter",
+                fd(null, JAVA_LONG, JAVA_LONG, JAVA_INT));
+        static final long PUSH_HANDLE = stub("pushHandle", fd(null, JAVA_LONG, JAVA_LONG));
+        static final long PUSH_COMPONENT = stub("pushComponent",
+                fd(null, JAVA_LONG, JAVA_INT, JAVA_LONG, JAVA_LONG));
+        private static final long INTERCEPTOR_DESTROY = stub("interceptorDestroy",
+                fd(null, JAVA_LONG));
+
+        private static long point(String name) {
+            return stub(name, fd(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_LONG));
+        }
+
+        /** rorb_client_interceptor_vtable */
+        static final long CLIENT_VTABLE = vtable(point("sendRequest"), point("receiveReply"),
+                point("receiveException"), point("receiveOther"), INTERCEPTOR_DESTROY,
+                HELD_ADD_REF, HELD_REMOVE_REF);
+        /** rorb_server_interceptor_vtable */
+        static final long SERVER_VTABLE = vtable(point("receiveRequestServiceContexts"),
+                point("receiveRequest"), point("sendReply"), point("sendException"),
+                point("sendOther"), INTERCEPTOR_DESTROY, HELD_ADD_REF, HELD_REMOVE_REF);
+        /** rorb_ior_interceptor_vtable */
+        static final long IOR_VTABLE = vtable(point("establishComponents"), INTERCEPTOR_DESTROY,
+                HELD_ADD_REF, HELD_REMOVE_REF);
+        /** rorb_orb_initializer_vtable */
+        static final long INITIALIZER_VTABLE = vtable(point("preInit"), point("postInit"),
+                HELD_ADD_REF, HELD_REMOVE_REF);
+
+        @SuppressWarnings("unchecked")
+        private static void pushParameter(long ctx, long any, int mode) {
+            try {
+                List<Long> list = (List<Long>) CONTEXTS.get(ctx);
+                list.add(any);
+                list.add((long) mode);
+            } catch (Throwable t) {
+                // dropped
+            }
+        }
+
+        @SuppressWarnings("unchecked")
+        private static void pushHandle(long ctx, long handle) {
+            try {
+                ((List<Long>) CONTEXTS.get(ctx)).add(handle);
+            } catch (Throwable t) {
+                // dropped
+            }
+        }
+
+        @SuppressWarnings("unchecked")
+        private static void pushComponent(long ctx, int tag, long data, long len) {
+            try {
+                List<Object> list = (List<Object>) CONTEXTS.get(ctx);
+                list.add(tag);
+                list.add(Library.bytes(data, len));
+            } catch (Throwable t) {
+                // dropped
+            }
+        }
+
+        private static void interceptorDestroy(long self) {
+            try {
+                Pi.destroy(heldObject(self));
+            } catch (Throwable t) {
+                // Pi reports it
+            }
+        }
+
+        private static int piPoint(int which, long self, long info, long error) {
+            try {
+                return Pi.point(which, heldObject(self), info, error);
+            } catch (Throwable t) {
+                return CALLBACK_FAILED;
+            }
+        }
+
+        private static int sendRequest(long self, long ri, long error) {
+            return piPoint(Pi.SEND_REQUEST, self, ri, error);
+        }
+
+        private static int receiveReply(long self, long ri, long error) {
+            return piPoint(Pi.RECEIVE_REPLY, self, ri, error);
+        }
+
+        private static int receiveException(long self, long ri, long error) {
+            return piPoint(Pi.RECEIVE_EXCEPTION, self, ri, error);
+        }
+
+        private static int receiveOther(long self, long ri, long error) {
+            return piPoint(Pi.RECEIVE_OTHER, self, ri, error);
+        }
+
+        private static int receiveRequestServiceContexts(long self, long ri, long error) {
+            return piPoint(Pi.RECEIVE_REQUEST_SERVICE_CONTEXTS, self, ri, error);
+        }
+
+        private static int receiveRequest(long self, long ri, long error) {
+            return piPoint(Pi.RECEIVE_REQUEST, self, ri, error);
+        }
+
+        private static int sendReply(long self, long ri, long error) {
+            return piPoint(Pi.SEND_REPLY, self, ri, error);
+        }
+
+        private static int sendException(long self, long ri, long error) {
+            return piPoint(Pi.SEND_EXCEPTION, self, ri, error);
+        }
+
+        private static int sendOther(long self, long ri, long error) {
+            return piPoint(Pi.SEND_OTHER, self, ri, error);
+        }
+
+        private static int establishComponents(long self, long info, long error) {
+            return piPoint(Pi.ESTABLISH_COMPONENTS, self, info, error);
+        }
+
+        private static int preInit(long self, long info, long error) {
+            return piPoint(Pi.PRE_INIT, self, info, error);
+        }
+
+        private static int postInit(long self, long info, long error) {
+            return piPoint(Pi.POST_INIT, self, info, error);
         }
     }
 }

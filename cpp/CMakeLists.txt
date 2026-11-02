@@ -200,6 +200,13 @@ add_executable(test_orb_ops tests/test_orb_ops.cc)
 target_link_libraries(test_orb_ops PRIVATE rustorb)
 target_compile_options(test_orb_ops PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME orb_ops COMMAND test_orb_ops)
+# Portable Interceptors and IOP::Codec.
+add_executable(test_pi tests/test_pi.cc ${INTEROP_SOURCES})
+target_include_directories(test_pi PRIVATE
+  "${CMAKE_CURRENT_BINARY_DIR}/idl" "${RUSTORB_ROOT}/interop/impls/rustorbcpp")
+target_link_libraries(test_pi PRIVATE rustorb)
+target_compile_options(test_pi PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME pi COMMAND test_pi)
 # Servants, references, exceptions, TypeCodes and anys made and dropped
 # many times; with RUSTORB_SANITIZE=address, LeakSanitizer checks the rest.
 add_executable(test_leak tests/test_leak.cc ${INTEROP_SOURCES} ${ANY_SOURCES})
@@ -208,7 +215,7 @@ target_include_directories(test_leak PRIVATE
 target_link_libraries(test_leak PRIVATE rustorb)
 target_compile_options(test_leak PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME leak COMMAND test_leak)
-set_tests_properties(mapping poa interop any value dynany orb_ops leak PROPERTIES TIMEOUT 120)
+set_tests_properties(mapping poa interop any value dynany orb_ops pi leak PROPERTIES TIMEOUT 120)
 if(RUSTORB_SANITIZE MATCHES "address")
   # The servant of this one receives and returns valuetype graphs with
   # cycles, which the shared_ptr based mapping does not free (the

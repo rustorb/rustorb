@@ -8,9 +8,10 @@ rustorb の C++ バインディングの構成をまとめる。計画どおり�
 
 | 場所 | 内容 | ライセンス |
 | --- | --- | --- |
-| `crates/rustorb-ffi` | C ABI（`librustorb_ffi.a` / `.so`）。ORB、オブジェクト参照、CDR ストリーム、サーバント、POA・POAManager・Current | MIT OR Apache-2.0 |
+| `crates/rustorb-ffi` | C ABI（`librustorb_ffi.a` / `.so`）。ORB、オブジェクト参照、CDR ストリーム、サーバント、POA・POAManager・Current、Portable Interceptors | MIT OR Apache-2.0 |
 | `crates/rustorb-ffi/include/rustorb/rustorb.h` | C ABI のヘッダ（`rorb_` 接頭辞） | MIT OR Apache-2.0 |
 | `cpp/include/rustorb/corba.h` | CORBA モジュールのマッピング（`IDL::traits`、参照型、例外、`ORB`、`PortableServer`） | MIT OR Apache-2.0 |
+| `cpp/include/rustorb/pi.h` | Portable Interceptors（`PortableInterceptor`）と `IOP::Codec`（[portable-interceptors.md](portable-interceptors.md)） | MIT OR Apache-2.0 |
 | `cpp/include/rustorb/cdr.h` | 生成コードが使うマーシャリング（`rustorb::cdr::codec<T>`）、呼び出し、ディスパッチ | MIT OR Apache-2.0 |
 | `crates/rustorb-codegen/python/rustorb_idl/cxx_backend.py` | `rustorb-idl -bc++11`（`-bcxx11` も可） | GPL-3.0-or-later（生成物は対象外） |
 | `cpp/CMakeLists.txt`、`cpp/tests` | C++ のテスト（CMake、ctest） | MIT OR Apache-2.0 |
@@ -131,6 +132,28 @@ IDL 4 で加わった構文のうち、GIOP で送れるものを取り込んだ
 - C ABI では `rorb_poa_set_servant_activator` / `_locator`・`rorb_poa_set_the_activator` が関数表（`rorb_servant_activator_vtable` など）と `self` を受け取り、サーバントと同じく `add_ref` / `remove_ref` で参照を数える。`incarnate` / `preinvoke` の例外は `rorb_manager_error_forward` / `_system` で伝える
 
 `_this()` は、そのサーバントの要求の実行中ならその要求のオブジェクトを、そうでなければ `_default_POA()`（最初に初期化した ORB の RootPOA）で暗黙に活性化した参照を返す。同じ ORB の中の呼び出しは呼び出し元のスレッドでサーバントを実行する（コアの同一 ORB 内呼び出しをそのまま使う）。
+
+## Portable Interceptors
+
+`<rustorb/pi.h>`（[portable-interceptors.md](portable-interceptors.md)）。`PortableInterceptor::ORBInitializer`・`ClientRequestInterceptor`・`ServerRequestInterceptor`・`IORInterceptor` は `CORBA::LocalObject` から派生したクラスで、アプリケーションが派生クラスを `CORBA::make_reference<T>()` で作る。操作は上書きしなければ何もしない。
+
+```cpp
+class Init : public PortableInterceptor::ORBInitializer {
+ public:
+  void pre_init(IDL::traits<PortableInterceptor::ORBInitInfo>::ref_type info) override {
+    info->add_client_request_interceptor(CORBA::make_reference<MyInterceptor>());
+  }
+};
+PortableInterceptor::register_orb_initializer(CORBA::make_reference<Init>());
+auto orb = CORBA::ORB_init(argc, argv, "my-orb");  // ORBInitInfo::orb_id() は "my-orb"
+```
+
+- `register_orb_initializer` の初期化子は、その後に `ORB_init` で作るすべての ORB で動く。`ORB_init` の `orb_id`（`-ORBid` が優先）が `ORBInitInfo::orb_id()` と `ServerRequestInfo::orb_id()` になる
+- 各点が受け取る情報のオブジェクト（`ClientRequestInfo` など）は、その点の間だけ使える。点の後に使うと `BAD_INV_ORDER`（minor 14）、`ORB_init` の後の `ORBInitInfo` は `OBJECT_NOT_EXIST`（minor 10）
+- 点からは `PortableInterceptor::ForwardRequest` と `CORBA::SystemException` を投げられる。そのほかのユーザー例外は `UNKNOWN`、C++ の例外は `what()` を標準エラーに出して `UNKNOWN`
+- `orb->resolve_initial_references("PICurrent")` は `PortableInterceptor::Current`、`"CodecFactory"` は `IOP::CodecFactory`（`IDL::traits<T>::narrow` で取る）
+- 構造体（`IOP::ServiceContext`、`TaggedComponent`、`Encoding`、`Dynamic::Parameter`）はマッピングどおりアクセサーを持つ。静的なスタブの要求では `arguments` などは `NO_RESOURCES`（C++ には DII / DSI がない）
+- C ABI は `rustorb.h` の「Portable Interceptors and IOP::Codec」の節（関数表、`rorb_orb_init_pi`、`rorb_cri_*` などのアクセサー）
 
 ## テスト
 

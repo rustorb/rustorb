@@ -24,6 +24,7 @@
 //! - [`dynany`]: `DynamicAny`, its values going in and out as anys.
 //! - [`value`]: valuetypes on the streams (sharing, chunks, truncation),
 //!   their TypeCodes and the registry of valuetypes the core reads.
+//! - [`pi`]: Portable Interceptors and `IOP::Codec`.
 
 // Every function takes raw pointers from C; what they must point to is
 // documented once, in the header.
@@ -35,6 +36,7 @@ pub mod manager;
 pub mod object;
 pub mod orb;
 pub mod owned;
+pub mod pi;
 pub mod poa;
 pub mod policy;
 pub mod servant;
@@ -61,7 +63,7 @@ pub const LOCAL_EXCEPTION: Status = 3;
 pub const CALLBACK_FAILED: Status = 4;
 
 /// The version of the ABI in the header (`RORB_ABI_VERSION`).
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 2;
 
 /// Values of [`Exception::local`] (`RORB_ADAPTER_ALREADY_EXISTS`, ...).
 pub mod local {
@@ -85,6 +87,12 @@ pub mod local {
     pub const DYN_TYPE_MISMATCH: u32 = 18;
     pub const DYN_INCONSISTENT_TYPECODE: u32 = 19;
     pub const DYN_MUST_TRUNCATE: u32 = 20;
+    pub const INVALID_SLOT: u32 = 21;
+    pub const DUPLICATE_NAME: u32 = 22;
+    pub const UNKNOWN_ENCODING: u32 = 23;
+    pub const CODEC_INVALID_TYPE_FOR_ENCODING: u32 = 24;
+    pub const CODEC_FORMAT_MISMATCH: u32 = 25;
+    pub const CODEC_TYPE_MISMATCH: u32 = 26;
 }
 
 /// `rorb_exception`.

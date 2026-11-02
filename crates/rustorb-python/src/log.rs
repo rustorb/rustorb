@@ -7,9 +7,14 @@
 //! with the interpreter attached. A thread reporting an event therefore
 //! never waits for the GIL, which a Python thread may hold while it waits
 //! for that thread.
+//!
+//! At exit (`_flush_log`, an `atexit` hook) that thread stops: it hands
+//! nothing more to the sink once the interpreter starts shutting down,
+//! since writing to `sys.stderr` from it then can abort the process.
 
 use std::collections::VecDeque;
 use std::fmt;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, Mutex, OnceLock};
 
 use pyo3::prelude::*;
@@ -34,6 +39,13 @@ static QUEUE: Queue = Queue {
 };
 
 static SINK: OnceLock<Py<PyAny>> = OnceLock::new();
+
+/// Set at exit: the log thread delivers no more.
+static STOPPED: AtomicBool = AtomicBool::new(false);
+
+/// Held by the log thread while it delivers, so that the exit hook can
+/// wait for a delivery under way.
+static DELIVERING: Mutex<()> = Mutex::new(());
 
 /// Takes the core's events into the queue.
 struct ToLogging;
@@ -117,7 +129,11 @@ fn drain() {
             }
             queue.drain(..).collect::<Vec<_>>()
         };
-        // Not while the interpreter shuts down: the entries are dropped.
+        let _delivering = DELIVERING.lock().unwrap();
+        if STOPPED.load(Ordering::SeqCst) {
+            // After the exit hook: the entries are dropped.
+            continue;
+        }
         let _ = Python::try_attach(|py| deliver(py, entries));
     }
 }
@@ -139,9 +155,13 @@ pub(crate) fn _set_log_sink(sink: Py<PyAny>) -> bool {
     true
 }
 
-/// Hands what is queued to the sink now (at exit, say).
+/// Hands what is queued to the sink now and stops the log thread; the
+/// `atexit` hook. Waits for a delivery the log thread has under way.
 #[pyfunction]
 pub(crate) fn _flush_log(py: Python<'_>) {
+    STOPPED.store(true, Ordering::SeqCst);
+    // Once the log thread has let go, it sees STOPPED before delivering.
+    py.detach(|| drop(DELIVERING.lock()));
     deliver(py, take_all());
 }
 

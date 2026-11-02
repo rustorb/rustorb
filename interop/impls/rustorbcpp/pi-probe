@@ -1,0 +1,3 @@
+#!/bin/sh
+# rustorb C++ side of run-pi-probe.sh (pi_probe.cc), built by build.sh.
+exec "$(dirname "$0")/bin/pi_probe" "$@"
