@@ -54,16 +54,22 @@ issue #101。クライアントとサーバーのどちらも、一定時間使�
 
 | クライアント | サーバー | 閉じる側 | 結果 |
 | --- | --- | --- | --- |
-| rustorbpy | omniORB C++ | クライアント | |
-| rustorbpy | omniORB C++ | サーバー（`-ORBinConScanPeriod 1 -ORBscanGranularity 1`） | |
-| rustorbpy | omniORBpy | サーバー | |
-| rustorbpy | JacORB | クライアント | |
-| rustorbpy | JacORB | サーバー（`jacorb.connection.server.timeout=1000`） | |
-| omniORBpy | rustorb | クライアント（`-ORBoutConScanPeriod 1 -ORBscanGranularity 1`） | |
-| omniORBpy | rustorb | サーバー | |
-| JacORB | rustorb | クライアント（`jacorb.connection.client.idle_timeout=1000`） | |
-| JacORB | rustorb | サーバー | |
-| rustorbpy | rustorb | クライアント・サーバー | |
+| rustorbpy | omniORB C++ | クライアント | 通る |
+| rustorbpy | omniORB C++ | サーバー（`-ORBinConScanPeriod 1 -ORBscanGranularity 1`） | 通る |
+| rustorbpy | omniORBpy | サーバー | 通る |
+| rustorbpy | JacORB | クライアント | 通る |
+| rustorbpy | JacORB | サーバー（`jacorb.connection.server.timeout=1000`） | 通る |
+| omniORBpy | rustorb | クライアント（`-ORBoutConScanPeriod 1 -ORBscanGranularity 1`） | 通る |
+| omniORBpy | rustorb | サーバー | 通る |
+| JacORB | rustorb | クライアント（`jacorb.connection.client.idle_timeout=1000`） | 通る |
+| JacORB | rustorb | サーバー | 通る |
+| rustorbpy | rustorb | クライアント・サーバー | 通る |
+
+2026-11-02 に手元で全ケースが通った（omniORB 4.3.4、omniORBpy 4.3.4、JacORB 3.9）。
+
+omniORB のクライアントは、使っていない接続をその次に使うまで読まない。サーバーが `CloseConnection` を送って閉じても、omniORB 側のソケットは次の呼び出しまで CLOSE-WAIT のまま残る（相手が omniORB のサーバーでも同じ）。次の呼び出しで閉じられたことに気づき、新しい接続で送る。rustorb のサーバーは 10 秒後に自分の側を閉じるので、サーバーにソケットは残らない。プローブは omniORB のクライアントについては「接続が ESTABLISHED でなくなったこと」だけを見る。
+
+JacORB の `jacorb.connection.client.idle_timeout`（ミリ秒）はソケットの読み取りのタイムアウトとして使われ、その間なにも来なければ JacORB が接続を閉じる。
 
 ## 双方向 GIOP（#103）への引き継ぎ
 

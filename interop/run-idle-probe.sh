@@ -11,7 +11,9 @@
 # interop.IdleProbe on JacORB) in one container (scripts/idle-pair). The
 # rustorb server and rustorbpy are built on the host and mounted, as in
 # run-matrix.sh. omniORBpy runs on omniORB's C++ core, so it stands for
-# omniORB C++ as a client too.
+# omniORB C++ as a client too. An omniORB client leaves a connection the
+# server closed in CLOSE-WAIT until it next uses it, so for it the probe
+# checks only that the connection is no longer established.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -60,6 +62,10 @@ for c in "${cases[@]}"; do
   else
     client_args=$(keep_args "$client")
     server_args=$(idle_args "$server" server)
+    # omniORB sees the server's CloseConnection only when it next uses the
+    # connection (the same with an omniORB server): until then its socket
+    # stays in CLOSE-WAIT.
+    [ "$client" = omniorbpy ] && client_args="--allow-close-wait"
   fi
   echo "== $client -> $server, the $side closes"
   if docker run --rm \

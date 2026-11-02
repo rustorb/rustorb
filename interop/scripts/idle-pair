@@ -15,6 +15,12 @@ naming=corbaloc::localhost:2809/NameService
 logdir="$(mktemp -d)"
 omniNames -start 2809 -logdir "$logdir" -ORBendPointPublish giop:tcp:localhost:2809 \
   > "$logdir/naming.log" 2>&1 &
+# The server binds itself once omniNames answers.
+for _ in $(seq 60); do
+  [ -n "$(ss -Hltn '( sport = :2809 )')" ] && break
+  sleep 0.2
+done
+sleep 1
 # shellcheck disable=SC2086
 case "$server" in
   jacorb)

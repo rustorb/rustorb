@@ -25,6 +25,10 @@ parser.add_argument("--name", required=True)
 parser.add_argument("--server-port", type=int, default=2810)
 parser.add_argument("--pause", type=float, default=4.0)
 parser.add_argument("--timeout", type=float, default=30.0)
+parser.add_argument("--allow-close-wait", action="store_true",
+                    help="do not count the client's sockets in CLOSE-WAIT: an omniORB "
+                         "client reads an idle connection, and sees the server close it, "
+                         "only when it next uses it")
 args, orb_args = parser.parse_known_args()
 
 impls = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "impls")
@@ -41,9 +45,11 @@ import InteropTest  # noqa: E402
 
 def connections():
     """The client's TCP connections to the server port, but those in
-    TIME-WAIT."""
-    out = subprocess.run(["ss", "-Htn", "exclude", "time-wait",
-                          f"( dport = :{args.server_port} )"],
+    TIME-WAIT (and CLOSE-WAIT with --allow-close-wait)."""
+    exclude = ["exclude", "time-wait"]
+    if args.allow_close_wait:
+        exclude += ["exclude", "close-wait"]
+    out = subprocess.run(["ss", "-Htn", *exclude, f"( dport = :{args.server_port} )"],
                          capture_output=True, text=True, check=True).stdout
     return len(out.splitlines())
 
@@ -70,6 +76,9 @@ ok &= got == 1 and n == 1
 time.sleep(args.pause)
 n = connections()
 print(f"idle: connections: {n}")
+if n:
+    print(subprocess.run(["ss", "-tn", "( dport = :%d or sport = :%d )" % (args.server_port, args.server_port)],
+                         capture_output=True, text=True).stdout, file=sys.stderr)
 ok &= n == 0
 got = echo.echo_long(2)
 n = connections()
