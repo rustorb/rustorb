@@ -1153,14 +1153,14 @@ fn abstract_valuetypes() {
     let other = Some(Shape::new(ShapeState::default()));
     let mut enc = rustorb_core::cdr::Encoder::new(
         rustorb_core::cdr::ByteOrder::Little,
-        rustorb_core::cdr::CdrVersion::Giop1_2,
+        rustorb_core::cdr::Encoding::Giop1_2,
     );
     <Shape as IdlType>::write(&other, &mut rustorb_core::OutStream::standalone(&mut enc)).unwrap();
     let bytes = enc.into_bytes();
     let dec = rustorb_core::cdr::Decoder::new(
         &bytes,
         rustorb_core::cdr::ByteOrder::Little,
-        rustorb_core::cdr::CdrVersion::Giop1_2,
+        rustorb_core::cdr::Encoding::Giop1_2,
     );
     let e =
         <Priced as IdlType>::read(&mut rustorb_core::InStream::standalone(dec, None)).unwrap_err();
