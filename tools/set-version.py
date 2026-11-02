@@ -21,7 +21,7 @@ VERSION = r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?"
 # (file, pattern with one group for the version, expected number of matches)
 PLACES = [
     ("Cargo.toml", rf'(?m)^version = "({VERSION})"$', 1),
-    ("Cargo.toml", rf'(?m)^rustorb-[a-z]+ = \{{ path = "[^"]+", version = "({VERSION})" \}}$', 4),
+    ("Cargo.toml", rf'(?m)^rustorb-[a-z]+ = \{{ path = "[^"]+", version = "({VERSION})" \}}$', 5),
     ("python/pyproject.toml", rf'(?m)^version = "({VERSION})"$', 1),
     ("python/omniorb-compat/pyproject.toml", rf'(?m)^version = "({VERSION})"$', 1),
     ("crates/rustorb-codegen/python/pyproject.toml", rf'(?m)^version = "({VERSION})"$', 1),

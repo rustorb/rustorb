@@ -1,0 +1,22 @@
+// The same Rust types with both the CORBA and the DDS impls
+// (rustorb-idl -brust -Wbdds), tested by tests/dds_mapping.rs.
+
+module DdsCorba {
+  enum Kind { CIRCLE, SQUARE };
+
+  @mutable struct Sample {
+    @key long id;
+    Kind kind;
+    string label;
+    sequence<double> values;
+  };
+
+  union Value switch (Kind) {
+    case CIRCLE: double radius;
+    case SQUARE: long side;
+  };
+
+  interface Publisher {
+    void publish(in Sample s);
+  };
+};

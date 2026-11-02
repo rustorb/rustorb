@@ -271,7 +271,7 @@ jobs:
           fi
           # cargo publish waits until each crate is in the index before the
           # next one, which depends on it, is published.
-          for crate in rustorb-cdr rustorb-giop rustorb-core rustorb-codegen rustorb-ffi rustorb-naming; do
+          for crate in rustorb-cdr rustorb-typesupport rustorb-giop rustorb-core rustorb-codegen rustorb-ffi rustorb-naming; do
             status=$(curl -s -o /dev/null -w '%{http_code}' -A "rustorb-release (github.com/rustorb/rustorb)" \
               "https://crates.io/api/v1/crates/$crate/$VERSION")
             if [ "$status" = 200 ]; then

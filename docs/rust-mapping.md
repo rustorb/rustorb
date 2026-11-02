@@ -63,6 +63,7 @@ include!(concat!(env!("OUT_DIR"), "/example.rs"));
 
 - `-Wbextern=MODULE=PATH`：上記。複数指定できる。`PATH` が `::`・`crate::`・`super::`・`self::` で始まらなければ `::` を前に付ける（ほかのクレート）。同じクレートの中なら `crate::idl::any_test` のように書く
 - `-Wbcore=PATH`：コアのクレートのパス（既定 `::rustorb_core`）
+- `-Wbdds`・`-Wbdds_only`：DDS の型サポートも出す、または DDS の型サポートだけを出す（[dds-type-support.md](dds-type-support.md)）
 - `-Wbno_rustfmt`：出力を `rustfmt` に通さない。`rustfmt` が見つからないときも通さない（どちらでもコンパイルできる。整形が違うだけ）
 
 生成コードは絶対パス（コアは `::rustorb_core`）か、`super::` の相対パスで型を参照するので、`include!` や `#[path]` でどのモジュールの下に置いてもよい。

@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/rustorb-cdr",
+    "crates/rustorb-typesupport",
     "crates/rustorb-giop",
     "crates/rustorb-core",
     "crates/rustorb-naming",
@@ -23,6 +24,7 @@ categories = ["network-programming"]
 
 [workspace.dependencies]
 rustorb-cdr = { path = "crates/rustorb-cdr", version = "0.1.1" }
+rustorb-typesupport = { path = "crates/rustorb-typesupport", version = "0.1.1" }
 rustorb-giop = { path = "crates/rustorb-giop", version = "0.1.1" }
 rustorb-core = { path = "crates/rustorb-core", version = "0.1.1" }
 rustorb-naming = { path = "crates/rustorb-naming", version = "0.1.1" }

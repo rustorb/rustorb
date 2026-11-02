@@ -14,6 +14,9 @@ fn main() {
 ```
 
 and in the crate, `include!(concat!(env!("OUT_DIR"), "/example.rs"));`.
+With `.dds()` (`-Wbdds`) the structs, unions, enums and bitmasks also get the
+DDS type support of `rustorb-typesupport`; with `.dds_only()` (`-Wbdds_only`)
+they get only that, and the code does not depend on `rustorb-core`.
 The generator itself is the `rustorb-idl` Python package (it needs
 [idl_parser](https://github.com/sugarsweetrobotics/idl_parser)), which also
 has the Python, C++11 and Java backends.

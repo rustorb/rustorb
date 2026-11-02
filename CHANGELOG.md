@@ -9,6 +9,16 @@ break the API).
 
 ### Added
 
+- DDS type support in the Rust generator (`rustorb-idl -brust -Wbdds`, or
+  `-Wbdds_only` without the CORBA code; `Config::dds` / `Config::dds_only`;
+  docs/dds-type-support.md): structs, unions, enums and bitmasks implement
+  the traits of the new crate `rustorb-typesupport` (MIT OR Apache-2.0,
+  depends only on `rustorb-cdr`): XCDR1 and XCDR2 with `@final`,
+  `@appendable` and `@mutable`, `@optional`, `@external`, member IDs from
+  `@id` / `@hashid` / `@autoid`, `@must_understand`, `@key` with the key
+  holder and key hash of DDS-XTypes 7.6.8, the RTPS SerializedPayload, and
+  topic types from `@nested` / `@default_nested` / `@topic` (#113)
+
 - Portable Interceptors in C, C++ and Java: the C ABI (`rustorb.h`: interceptor
   and initializer vtables, `rorb_register_orb_initializer`, `rorb_orb_init_pi`,
   the `rorb_cri_*` / `rorb_sri_*` / `rorb_ior_info_*` / `rorb_init_info_*`
