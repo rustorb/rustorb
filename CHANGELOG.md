@@ -23,6 +23,14 @@ break the API).
   and replies longer than N bytes are sent as a first message and `Fragment`
   messages of at most N bytes. Off (0) by default; GIOP 1.1 messages are
   never split (#102)
+- Idle connections are closed (docs/connections.md): a client connection with
+  no reply awaited and nothing sent or received for `-ORBoutConScanPeriod S`
+  seconds (`OrbOptions::client_idle_timeout`, default 120 s), and a server
+  connection with no request running for `-ORBinConScanPeriod S` seconds
+  (`server_idle_timeout`, default 180 s, closed with `CloseConnection`; 0
+  turns either off). Calls made afterwards open a new connection.
+  `-ORBmaxServerConnections N` (`max_server_connections`) caps the server's
+  connections, closing the one used least recently to make room (#101)
 - `rustorb-idl -brust` maps abstract interfaces (an enum of an object
   reference or a value, and the trait `AServant`) and local interfaces (a
   trait, used as `Arc<dyn L>`); the core's `idl` module has the helpers
@@ -31,11 +39,22 @@ break the API).
 
 ### Changed
 
+- A request left without a reply by `CloseConnection` is sent again up to 4
+  times on new connections (was 2) before `TRANSIENT`; a server ignores the
+  requests that expect a reply once it has decided to send `CloseConnection`,
+  so that the client's resend does not run them twice (#101)
 - The warnings the core wrote to standard error (a servant that panicked, say)
   are trace events of level 1, the default: `-ORBtraceLevel 0` silences them,
   and a `tracing` subscriber of the application receives them instead (#105)
 - `rustorb-idl -brust` rejects operations with a `context` clause, which it
   used to drop silently (#104)
+
+### Fixed
+
+- A client connection closed by the server stayed open, socket and reader task,
+  until the next call to the same endpoint, and when two calls connected to an
+  endpoint at once the connection not kept stayed open until the server closed
+  it (#101)
 
 ## [0.1.1] - 2026-11-02
 

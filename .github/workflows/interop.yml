@@ -173,6 +173,9 @@ jobs:
       - name: Probe the client call timeouts of omniORBpy and rustorbpy
         run: interop/run-timeout-probe.sh
 
+      - name: Close idle connections between rustorb, omniORB and JacORB
+        run: interop/run-idle-probe.sh
+
       - name: Probe the remaining ORB operations of omniORBpy and rustorbpy
         run: interop/run-orb-ops-probe.sh
 

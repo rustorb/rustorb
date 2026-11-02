@@ -27,6 +27,7 @@ and [The rustorb C++ client and server](#the-rustorb-c-client-and-server).
 | `run-naming-check.sh` | runs a fixed CosNaming operation sequence (and `corbaname:` URLs) with the omniORBpy and rustorb (Rust, Python, C++, Java) clients against omniNames or (`--naming rustorb`) the rustorb naming service, and compares the output with `expected/naming-check.txt`; for rustorb, also restarts the service and compares with `expected/naming-restart.txt` |
 | `run-wire-probe.sh` | sends hand-built GIOP requests (`scripts/wire-probe`) to each Echo server (omniORB C++, omniORBpy, and rustorb in Rust, Python, C++ and Java) and compares the answers with `expected/wire-probe-*.txt` (the rustorb bindings all with `wire-probe-rustorb.txt`) |
 | `run-timeout-probe.sh` | runs `scripts/timeout-probe` with omniORBpy and rustorbpy (through the omniORB compatibility package) and compares how the client call timeouts behave with `expected/timeout-probe-*.txt` |
+| `run-idle-probe.sh` | closes idle connections between rustorb (Rust server, rustorbpy) and omniORB / omniORBpy / JacORB, the client or the server closing, and checks that the next call reconnects (`scripts/idle-probe`, `scripts/idle-pair`, `impls/java/interop/IdleProbe.java`; see [`docs/connections.md`](../docs/connections.md)) |
 | `run-orb-ops-probe.sh` | runs `scripts/orb-ops-probe` with omniORBpy and rustorbpy (through the omniORB compatibility package) and compares how `ORB.id`, `register_initial_reference`, `create_policy` and the `CORBA.Object` policy operations behave with `expected/orb-ops-probe-*.txt` |
 | `run-dynany-probe.sh` | runs the DynAny probe with omniORB C++ (`impls/omniorb-cpp/dynany_probe.cc`), rustorb (`impls/rustorb/src/dynany_probe.rs`), rustorbpy (`impls/rustorbpy/dynany-probe`), rustorbcpp (`impls/rustorbcpp/dynany_probe.cc`) and rustorbjava (`impls/rustorbjava/probe/interop/DynAnyProbe.java`) and compares the output with `expected/dynany-probe-*.txt` (omniORBpy has no DynAny; the bindings share the rustorb file) |
 | `run-poa-probe.sh` | starts the POA probe servers (`impls/omniorbpy/poa-probe-server`, `impls/omniorb-cpp/poa_probe_server`, `impls/rustorb/poa-probe-server`, `impls/rustorbpy/poa-probe-server`, `impls/rustorbcpp/poa-probe-server`, `impls/rustorbjava/poa-probe-server`, IDL `idl/PoaProbe.idl`) and runs `scripts/poa-probe` against them, comparing the output with `expected/poa-probe-*.txt` (the Python, C++ and Java servers with the Rust one's) |
@@ -61,6 +62,7 @@ interop/run-matrix.sh --fragment 1024          # rustorb sends GIOP 1.2 Fragment
 interop/run-wire-probe.sh
 interop/run-poa-probe.sh
 interop/run-timeout-probe.sh
+interop/run-idle-probe.sh                      # idle connections closed by either side
 interop/run-load.sh --seconds 10               # load on every server, rates in out/load.md
 interop/run-load-local.py --idl-parser ../idl_parser  # natively on this machine, results in out/load-local/
 interop/run-dynany-probe.sh

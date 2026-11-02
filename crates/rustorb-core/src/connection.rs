@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::io::{self, IoSlice};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use rustorb_cdr::ByteOrder;
@@ -20,6 +20,7 @@ use tokio::net::TcpSocket;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::oneshot;
 
+use crate::idle::Stamp;
 use crate::tls::{self, Tls};
 use crate::trace;
 use crate::wire::{Here, Inbound, ReadError};
@@ -49,11 +50,17 @@ pub(crate) enum SendError {
     TimedOut,
     /// The stream failed; the connection is closed.
     Failed,
+    /// The connection is being closed and took nothing: the message may
+    /// go on a new connection.
+    Closing,
 }
 
 /// What the ORB pools connections by: host, port, and whether the
 /// connection uses TLS.
 pub(crate) type EndpointKey = (String, u16, bool);
+
+/// The ORB's client connections, one per endpoint.
+pub(crate) type ConnectionPool = Mutex<HashMap<EndpointKey, Arc<Connection>>>;
 
 /// What a waiting caller receives.
 pub(crate) type Delivery = Result<Message, Closed>;
@@ -76,7 +83,13 @@ pub(crate) struct Connection {
     /// The code sets of the first request with a code set context; `None`
     /// until one was sent.
     code_sets: Mutex<Option<CodeSets>>,
+    /// Set under the `pending` lock (by [`close`](Self::close) too), so
+    /// that an idle connection takes no new request once chosen to close.
     closing: AtomicBool,
+    /// When a request or reply last went over the connection.
+    last_used: Stamp,
+    /// The pool the connection leaves when it ends.
+    pool: Weak<ConnectionPool>,
 }
 
 impl Connection {
@@ -88,6 +101,7 @@ impl Connection {
         port: u16,
         tls: Option<Arc<rustls::ClientConfig>>,
         options: &OrbOptions,
+        pool: Weak<ConnectionPool>,
     ) -> io::Result<Arc<Connection>> {
         let max_message_size = options.max_message_size;
         let mut last = io::Error::new(io::ErrorKind::NotFound, "no address");
@@ -144,6 +158,8 @@ impl Connection {
             next_request_id: AtomicU32::new(0),
             code_sets: Mutex::new(None),
             closing: AtomicBool::new(false),
+            last_used: Stamp::new(),
+            pool,
         });
         tokio::spawn(read_loop(Arc::clone(&conn)));
         Ok(conn)
@@ -182,6 +198,12 @@ impl Connection {
         if let Some(closed) = &pending.closed {
             return Err(closed.clone());
         }
+        if self.closing.load(Ordering::Acquire) {
+            // Closed by this side with nothing outstanding: the request
+            // was not sent, and goes on a new connection.
+            return Err(Closed::Orderly);
+        }
+        self.last_used.touch();
         let (tx, rx) = oneshot::channel();
         pending.waiters.insert(request_id, tx);
         Ok(rx)
@@ -251,6 +273,29 @@ impl Connection {
     /// Stops waiting for `request_id`, after a timeout.
     pub(crate) fn forget(&self, request_id: u32) {
         self.pending.lock().unwrap().waiters.remove(&request_id);
+        self.last_used.touch();
+    }
+
+    /// Chooses the connection to close if no reply is awaited, nothing
+    /// was sent or received for `timeout`, and no reply is being read.
+    /// From then on it takes no request ([`expect_reply`] and [`send`]
+    /// refuse them, to go on a new connection); the caller closes it
+    /// with [`close`](Self::close).
+    ///
+    /// [`expect_reply`]: Self::expect_reply
+    /// [`send`]: Self::send
+    pub(crate) fn choose_idle(&self, timeout: Duration) -> bool {
+        let pending = self.pending.lock().unwrap();
+        if pending.closed.is_some()
+            || !pending.waiters.is_empty()
+            || self.closing.load(Ordering::Acquire)
+            || self.last_used.idle_for() < timeout
+            || self.inbound.mid_message()
+        {
+            return false;
+        }
+        self.closing.store(true, Ordering::Release);
+        true
     }
 
     /// Writes one whole message, giving up at `deadline`. A message cut
@@ -268,6 +313,10 @@ impl Connection {
             },
             None => self.writer.lock().await,
         };
+        if self.closing.load(Ordering::Acquire) {
+            return Err(SendError::Closing);
+        }
+        self.last_used.touch();
         trace::trace!("sent {} to {}", summary(msg), self.peer());
         if let Some(tls) = &self.tls {
             return self.send_tls(tls, &writer, msg, deadline).await;
@@ -355,34 +404,47 @@ impl Connection {
         }
     }
 
-    /// Sends `CloseConnection` if nothing is outstanding and shuts the
+    /// Sends `CloseConnection` (when `version` is given) and shuts the
     /// stream down. Requests issued afterwards use a new connection.
     /// A peer that stopped reading gets [`CLOSE_TIME`] before the stream
     /// is dropped without it.
-    pub(crate) async fn close(&self, version: Version, order: ByteOrder) {
+    ///
+    /// An idle connection is closed without `CloseConnection`, which a
+    /// client sends only from GIOP 1.2 on: the server sees the stream end
+    /// with nothing outstanding, the orderly close of a client.
+    pub(crate) async fn close(&self, close_connection: Option<(Version, ByteOrder)>) {
         self.closing.store(true, Ordering::Release);
         trace::info!("closing the connection to {}", self.peer());
-        if let Ok(msg) = MessageEncoder::close_connection(version, order) {
-            let _ = tokio::time::timeout(CLOSE_TIME, async {
-                let mut writer = self.writer.lock().await;
-                match &self.tls {
-                    Some(tls) => {
+        let msg = match close_connection {
+            Some((version, order)) => match MessageEncoder::close_connection(version, order) {
+                Ok(msg) => Some(msg),
+                Err(_) => return,
+            },
+            None => None,
+        };
+        let _ = tokio::time::timeout(CLOSE_TIME, async {
+            let mut writer = self.writer.lock().await;
+            match &self.tls {
+                Some(tls) => {
+                    if let Some(msg) = msg {
                         tls.encrypt(&msg.into(), 0);
-                        tls.close_notify();
-                        while let Ok(false) = tls.flush(|bytes| writer.try_write(bytes)) {
-                            if writer.writable().await.is_err() {
-                                break;
-                            }
+                    }
+                    tls.close_notify();
+                    while let Ok(false) = tls.flush(|bytes| writer.try_write(bytes)) {
+                        if writer.writable().await.is_err() {
+                            break;
                         }
                     }
-                    None => {
+                }
+                None => {
+                    if let Some(msg) = msg {
                         let _ = writer.write_all(&msg).await;
                     }
                 }
-                let _ = writer.shutdown().await;
-            })
-            .await;
-        }
+            }
+            let _ = writer.shutdown().await;
+        })
+        .await;
     }
 
     /// Marks the connection closed and wakes every waiting caller.
@@ -416,6 +478,7 @@ impl Connection {
     }
 
     fn deliver(&self, request_id: u32, msg: Message) {
+        self.last_used.touch();
         let tx = self.pending.lock().unwrap().waiters.remove(&request_id);
         if let Some(tx) = tx {
             let _ = tx.send(Ok(msg));
@@ -446,6 +509,17 @@ async fn read_loop(conn: Arc<Connection>) {
     };
     conn.fail(why);
     let _ = conn.writer.lock().await.shutdown().await;
+    // The socket closes once the last caller holding the connection is
+    // done with it.
+    if let Some(pool) = conn.pool.upgrade() {
+        let mut conns = pool.lock().unwrap();
+        if conns
+            .get(&conn.endpoint)
+            .is_some_and(|c| Arc::ptr_eq(c, &conn))
+        {
+            conns.remove(&conn.endpoint);
+        }
+    }
 }
 
 /// Reads messages until the stream ends. Returns how it ended.

@@ -777,9 +777,15 @@ impl<A: ?Sized> fmt::Display for KindName<'_, '_, A> {
 /// How long a `CancelRequest` after a timeout may take to go out.
 const CANCEL_SEND_TIME: Duration = Duration::from_millis(100);
 
+/// How many times one endpoint is tried when its connections close
+/// before the reply: a request left without a reply by `CloseConnection`
+/// was not processed, and a connection the server (or this ORB) chose to
+/// close as idle may close under a request sent at the same moment.
+const CLOSED_ATTEMPTS: usize = 4;
+
 /// Sends the request to one endpoint. A `CloseConnection` before the reply
-/// means the server did not process it, so it is sent once more on a new
-/// connection.
+/// means the server did not process it, so it is sent again on a new
+/// connection, up to [`CLOSED_ATTEMPTS`] times in all.
 ///
 /// With `own_thread`, the caller is a thread of its own (a blocking call),
 /// which may block reading the reply.
@@ -793,7 +799,7 @@ async fn attempt<A: WriteArgs + ?Sized>(
     own_thread: bool,
 ) -> Attempt {
     let mut result = Attempt::NotSent(sys(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No));
-    for _ in 0..2 {
+    for _ in 0..CLOSED_ATTEMPTS {
         let conn = match orb.connection(&ep.host, ep.port, ep.tls, deadline).await {
             Ok(conn) => conn,
             // Out of time: the other addresses are not tried.
@@ -946,6 +952,11 @@ async fn attempt_on<A: WriteArgs + ?Sized>(
                 CompletionStatus::No,
             )
             .into())));
+        }
+        // Chosen to close as idle just now: nothing was written.
+        Err(SendError::Closing) => {
+            conn.forget(request_id);
+            return Err(Closed::Orderly);
         }
         Err(SendError::Failed) => {
             conn.forget(request_id);

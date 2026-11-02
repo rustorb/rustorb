@@ -344,12 +344,24 @@ impl Inbound {
         self.side.lock().unwrap()
     }
 
-    /// Shuts the read direction down, which ends a thread's wait.
     /// The address of the peer.
     pub(crate) fn peer(&self) -> PeerAddr {
         PeerAddr(self.peer)
     }
 
+    /// Whether part of a message, or a message not handled yet, was read,
+    /// or a thread is reading: the connection is not idle.
+    pub(crate) fn mid_message(&self) -> bool {
+        match self.side.try_lock() {
+            Ok(side) => {
+                side.reader.has_buffered() || side.assembler.has_pending() || side.held.is_some()
+            }
+            Err(_) => true,
+        }
+    }
+
+    /// Shuts the read direction down, which ends a thread's wait and the
+    /// task's reading.
     pub(crate) fn shutdown(&self) {
         let _ = SockRef::from(self.stream.as_ref()).shutdown(std::net::Shutdown::Read);
     }
