@@ -1,8 +1,8 @@
 use rustorb_cdr::{
-    ByteOrder, CdrDecode, CdrEncode, CdrVersion, Decoder, Encoder, Error, LongDouble, Segment,
+    ByteOrder, CdrDecode, CdrEncode, Decoder, Encoder, Encoding, Error, LongDouble, Segment,
 };
 
-const V12: CdrVersion = CdrVersion::Giop1_2;
+const V12: Encoding = Encoding::Giop1_2;
 
 fn encode<T: CdrEncode + ?Sized>(value: &T, order: ByteOrder) -> Vec<u8> {
     let mut enc = Encoder::new(order, V12);
@@ -261,7 +261,7 @@ fn wstring_giop_1_2() {
 
 #[test]
 fn wstring_giop_1_1() {
-    let v11 = CdrVersion::Giop1_1;
+    let v11 = Encoding::Giop1_1;
     let mut enc = Encoder::new(ByteOrder::Little, v11);
     enc.write_octet(9);
     enc.write_wstring("Hi").unwrap();
@@ -278,11 +278,11 @@ fn wstring_giop_1_1() {
 
 #[test]
 fn wchar_by_version() {
-    let mut enc = Encoder::new(ByteOrder::Big, CdrVersion::Giop1_0);
+    let mut enc = Encoder::new(ByteOrder::Big, Encoding::Giop1_0);
     assert_eq!(enc.write_wchar(0x41), Err(Error::WcharNotSupported));
     assert_eq!(enc.write_wstring("A"), Err(Error::WcharNotSupported));
 
-    let mut enc = Encoder::new(ByteOrder::Little, CdrVersion::Giop1_1);
+    let mut enc = Encoder::new(ByteOrder::Little, Encoding::Giop1_1);
     enc.write_octet(0);
     enc.write_wchar(0x3042).unwrap();
     assert_eq!(enc.as_bytes(), [0, 0, 0x42, 0x30]);
@@ -500,4 +500,57 @@ fn segments_restart_alignment() {
     assert_eq!(dec.read_u16().unwrap(), 3);
     assert_eq!(dec.read_f64().unwrap(), 4.5);
     assert!(dec.is_empty());
+}
+
+#[test]
+fn eight_octet_values_align_to_eight_except_in_xcdr2() {
+    for (encoding, pad) in [
+        (Encoding::Giop1_2, 4),
+        (Encoding::Xcdr1, 4),
+        (Encoding::Xcdr2, 0),
+    ] {
+        let mut enc = Encoder::new(ByteOrder::Big, encoding);
+        enc.write_u32(1);
+        enc.write_u64(2);
+        enc.write_f64(0.0);
+        let mut expected = vec![0, 0, 0, 1];
+        expected.extend(std::iter::repeat_n(0, pad));
+        expected.extend([0, 0, 0, 0, 0, 0, 0, 2]);
+        expected.extend([0; 8]);
+        assert_eq!(enc.as_bytes(), expected, "{encoding:?}");
+
+        let mut dec = Decoder::new(&expected, ByteOrder::Big, encoding);
+        assert_eq!(dec.read_u32().unwrap(), 1);
+        assert_eq!(dec.read_u64().unwrap(), 2);
+        assert_eq!(dec.read_f64().unwrap(), 0.0);
+        assert!(dec.is_empty(), "{encoding:?}");
+    }
+}
+
+#[test]
+fn xcdr2_aligns_long_double_to_four() {
+    let mut enc = Encoder::new(ByteOrder::Little, Encoding::Xcdr2);
+    enc.write_u32(7);
+    enc.write_long_double(LongDouble::from_bits(1));
+    assert_eq!(enc.len(), 20);
+}
+
+#[test]
+fn xcdr_rejects_wide_characters_for_now() {
+    for encoding in [Encoding::Xcdr1, Encoding::Xcdr2] {
+        let mut enc = Encoder::new(ByteOrder::Little, encoding);
+        assert_eq!(enc.write_wchar(0x41), Err(Error::WcharNotSupported));
+        assert_eq!(enc.write_wstring("a"), Err(Error::WcharNotSupported));
+    }
+}
+
+#[test]
+fn encoding_kinds() {
+    assert!(Encoding::Giop1_0.is_giop());
+    assert!(Encoding::Giop1_2.is_giop());
+    assert!(!Encoding::Xcdr1.is_giop());
+    assert!(!Encoding::Xcdr2.is_giop());
+    assert_eq!(Encoding::Giop1_2.max_align(), 8);
+    assert_eq!(Encoding::Xcdr1.max_align(), 8);
+    assert_eq!(Encoding::Xcdr2.max_align(), 4);
 }

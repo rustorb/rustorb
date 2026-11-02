@@ -26,6 +26,10 @@ break the API).
 
 ### Changed
 
+- rustorb-cdr: `CdrVersion` is now `Encoding`, which adds `Xcdr1` and `Xcdr2`
+  (DDS-XTypes Extended CDR) to the GIOP versions, and `Encoder::version` and
+  `Decoder::version` are now `encoding`. XCDR2 aligns no primitive to more
+  than 4 octets (`Encoding::max_align`). GIOP encoding is unchanged (#112)
 - The warnings the core wrote to standard error (a servant that panicked, say)
   are trace events of level 1, the default: `-ORBtraceLevel 0` silences them,
   and a `tracing` subscriber of the application receives them instead (#105)

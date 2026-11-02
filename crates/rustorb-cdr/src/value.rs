@@ -465,14 +465,14 @@ impl Decoder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ByteOrder, CdrVersion};
+    use crate::{ByteOrder, Encoding};
 
     fn encoder(order: ByteOrder) -> Encoder {
-        Encoder::new(order, CdrVersion::Giop1_2)
+        Encoder::new(order, Encoding::Giop1_2)
     }
 
     fn decoder(bytes: &[u8], order: ByteOrder) -> Decoder<'_> {
-        Decoder::new(bytes, order, CdrVersion::Giop1_2)
+        Decoder::new(bytes, order, Encoding::Giop1_2)
     }
 
     #[test]

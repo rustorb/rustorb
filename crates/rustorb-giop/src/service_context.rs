@@ -1,4 +1,4 @@
-use rustorb_cdr::{ByteOrder, CdrDecode, CdrEncode, CdrVersion, Decoder, Encoder};
+use rustorb_cdr::{ByteOrder, CdrDecode, CdrEncode, Decoder, Encoder, Encoding};
 
 /// `IOP::ServiceContext`, with the context data left as an encapsulation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,7 +88,7 @@ pub struct CodeSetContext {
 impl CodeSetContext {
     /// Wraps the context in a [`service_id::CODE_SETS`] service context.
     pub fn to_service_context(&self, order: ByteOrder) -> ServiceContext {
-        let mut enc = Encoder::encapsulation(order, CdrVersion::Giop1_2);
+        let mut enc = Encoder::encapsulation(order, Encoding::Giop1_2);
         enc.write_u32(self.char_data);
         enc.write_u32(self.wchar_data);
         ServiceContext {
@@ -99,7 +99,7 @@ impl CodeSetContext {
 
     /// Reads the context from a service context's data.
     pub fn from_service_context(context: &ServiceContext) -> rustorb_cdr::Result<CodeSetContext> {
-        let mut dec = Decoder::encapsulation(&context.context_data, CdrVersion::Giop1_2)?;
+        let mut dec = Decoder::encapsulation(&context.context_data, Encoding::Giop1_2)?;
         Ok(CodeSetContext {
             char_data: dec.read_u32()?,
             wchar_data: dec.read_u32()?,
