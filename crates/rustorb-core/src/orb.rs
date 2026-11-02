@@ -131,6 +131,19 @@ pub struct OrbOptions {
     /// (`-ORBtraceTime 0|1`), set when the ORB is created; `None` leaves
     /// it as it is (off at first).
     pub trace_time: Option<bool>,
+    /// The arguments the ORB was created with, for
+    /// [`OrbInitInfo::arguments`](crate::pi::OrbInitInfo::arguments).
+    /// [`Orb::init`] sets them to its arguments, ORB options included.
+    pub arguments: Vec<String>,
+    /// The ORB id (`-ORBid`), for the Portable Interceptors.
+    pub orb_id: String,
+    /// The server id (`-ORBServerId`), for the Portable Interceptors.
+    pub server_id: String,
+    /// The [`OrbInitializer`](crate::pi::OrbInitializer)s of this ORB,
+    /// run after those of
+    /// [`register_orb_initializer`](crate::pi::register_orb_initializer)
+    /// (docs/portable-interceptors.md).
+    pub initializers: Vec<Arc<dyn crate::pi::OrbInitializer>>,
 }
 
 /// The TLS settings of an ORB (docs/ssliop.md). Files are PEM.
@@ -259,6 +272,10 @@ impl Default for OrbOptions {
             tls: TlsOptions::default(),
             trace_level: None,
             trace_time: None,
+            arguments: Vec::new(),
+            orb_id: String::new(),
+            server_id: String::new(),
+            initializers: Vec::new(),
         }
     }
 }
@@ -270,6 +287,8 @@ impl OrbOptions {
     /// | Option | Setting |
     /// | --- | --- |
     /// | `-ORBInitRef Name=URL` | [`init_refs`](OrbOptions::init_refs) |
+    /// | `-ORBid ID` | [`orb_id`](OrbOptions::orb_id) |
+    /// | `-ORBServerId ID` | [`server_id`](OrbOptions::server_id) |
     /// | `-ORBDefaultInitRef URL` | [`default_init_ref`](OrbOptions::default_init_ref) |
     /// | `-ORBmaxGIOPVersion 1.1` | [`max_giop_version`](OrbOptions::max_giop_version) |
     /// | `-ORBgiopMaxMsgSize N` | [`max_message_size`](OrbOptions::max_message_size), in bytes (at least 1024) |
@@ -328,6 +347,8 @@ impl OrbOptions {
                             | "sslVerifyHost"
                             | "traceLevel"
                             | "traceTime"
+                            | "id"
+                            | "ServerId"
                     ) =>
                 {
                     (name.to_owned(), Some(value.to_owned()))
@@ -359,6 +380,8 @@ impl OrbOptions {
                     | "sslVerifyHost"
                     | "traceLevel"
                     | "traceTime"
+                    | "id"
+                    | "ServerId"
             ) {
                 rest.push(arg);
                 continue;
@@ -463,6 +486,8 @@ impl OrbOptions {
                 "traceLevel" => {
                     self.trace_level = Some(value.parse().map_err(|_| bad_option())?);
                 }
+                "id" => self.orb_id = value,
+                "ServerId" => self.server_id = value,
                 "traceTime" => {
                     self.trace_time = Some(match value.as_str() {
                         "0" => false,
@@ -571,6 +596,13 @@ pub(crate) struct OrbInner {
     main_cond: Condvar,
     /// Wakes [`Orb::run_async`] when shutdown has completed.
     stopped: tokio::sync::Notify,
+    /// A number no other ORB of the process has, for the Portable
+    /// Interceptors' slots.
+    pub(crate) serial: u64,
+    /// Whether `pi` is set: what each request looks at first.
+    pi_on: AtomicBool,
+    /// The Portable Interceptors, until the ORB is destroyed.
+    pi: Mutex<Option<Arc<crate::pi::Interceptors>>>,
 }
 
 /// An initial reference registered at run time.
@@ -639,12 +671,16 @@ impl Orb {
     /// Initialises an ORB from command line arguments, removing the ORB
     /// options (see [`OrbOptions::parse_args`]).
     pub fn init(args: &mut Vec<String>) -> Result<Orb, SystemException> {
-        let mut options = OrbOptions::default();
+        let mut options = OrbOptions {
+            arguments: args.clone(),
+            ..OrbOptions::default()
+        };
         options.parse_args(args)?;
         Orb::with_options(options)
     }
 
-    /// Initialises an ORB with `options`.
+    /// Initialises an ORB with `options`. Fails with the exception of an
+    /// [`OrbInitializer`](crate::pi::OrbInitializer) that failed.
     pub fn with_options(options: OrbOptions) -> Result<Orb, SystemException> {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(options.io_threads.max(1))
@@ -656,7 +692,7 @@ impl Orb {
                 SystemException::new(SystemExceptionKind::INITIALIZE, 0, CompletionStatus::No)
             })?;
         let handle = runtime.handle().clone();
-        Ok(Orb::new(options, Some(runtime), handle))
+        Orb::new(options, Some(runtime), handle)
     }
 
     /// Initialises an ORB with `options` whose network I/O runs on the
@@ -677,18 +713,48 @@ impl Orb {
     /// its connections and stops its listening tasks; the runtime keeps no
     /// task of the ORB. Once the runtime is gone, calls fail with
     /// `COMM_FAILURE` or `TRANSIENT`.
+    ///
+    /// When an [`OrbInitializer`](crate::pi::OrbInitializer) fails, the
+    /// ORB is returned shut down (calls fail with `BAD_INV_ORDER`); use
+    /// [`try_with_runtime`](Orb::try_with_runtime) to get the exception.
     pub fn with_runtime(options: OrbOptions, handle: Handle) -> Orb {
+        match Orb::build(options, None, handle) {
+            (orb, Ok(())) => orb,
+            (orb, Err(_)) => {
+                orb.inner.shut_down.store(true, Ordering::Release);
+                orb
+            }
+        }
+    }
+
+    /// [`with_runtime`](Orb::with_runtime), failing with the exception of
+    /// an [`OrbInitializer`](crate::pi::OrbInitializer) that failed.
+    pub fn try_with_runtime(options: OrbOptions, handle: Handle) -> Result<Orb, SystemException> {
         Orb::new(options, None, handle)
     }
 
-    fn new(options: OrbOptions, runtime: Option<Runtime>, handle: Handle) -> Orb {
+    fn new(
+        options: OrbOptions,
+        runtime: Option<Runtime>,
+        handle: Handle,
+    ) -> Result<Orb, SystemException> {
+        let (orb, result) = Orb::build(options, runtime, handle);
+        result.map(|()| orb)
+    }
+
+    /// Makes the ORB and runs its initializers.
+    fn build(
+        options: OrbOptions,
+        runtime: Option<Runtime>,
+        handle: Handle,
+    ) -> (Orb, Result<(), SystemException>) {
         if let Some(level) = options.trace_level {
             crate::trace::set_trace_level(level);
         }
         if let Some(on) = options.trace_time {
             crate::trace::set_trace_time(on);
         }
-        Orb {
+        let orb = Orb {
             inner: Arc::new(OrbInner {
                 runtime,
                 handle,
@@ -704,8 +770,41 @@ impl Orb {
                 main: Mutex::default(),
                 main_cond: Condvar::new(),
                 stopped: tokio::sync::Notify::new(),
+                serial: crate::pi::new_serial(),
+                pi_on: AtomicBool::new(false),
+                pi: Mutex::new(None),
             }),
+        };
+        let mut initializers = crate::pi::registered_initializers();
+        initializers.extend(orb.inner.options.initializers.iter().cloned());
+        match crate::pi::initialize(&orb, &initializers) {
+            Ok(Some(pi)) => {
+                *orb.inner.pi.lock().unwrap() = Some(pi);
+                orb.inner.pi_on.store(true, Ordering::Release);
+                (orb, Ok(()))
+            }
+            Ok(None) => (orb, Ok(())),
+            Err(e) => (orb, Err(e)),
         }
+    }
+
+    /// The interceptors of the ORB, if it has any.
+    pub(crate) fn interceptors(&self) -> Option<Arc<crate::pi::Interceptors>> {
+        if !self.inner.pi_on.load(Ordering::Acquire) {
+            return None;
+        }
+        self.inner.pi.lock().unwrap().clone()
+    }
+
+    /// `resolve_initial_references("PICurrent")`: the slots of the
+    /// Portable Interceptors for the calling thread.
+    pub fn pi_current(&self) -> crate::pi::PiCurrent {
+        crate::pi::PiCurrent::new(self)
+    }
+
+    /// `resolve_initial_references("CodecFactory")`.
+    pub fn codec_factory(&self) -> crate::iop::CodecFactory {
+        crate::iop::CodecFactory::new(self)
     }
 
     /// The handle of the runtime the ORB's network I/O runs on: its own,
@@ -979,11 +1078,16 @@ impl Orb {
     /// opened) and the upcall thread pool.
     pub fn root_poa(&self) -> Result<Poa, SystemException> {
         self.check_running()?;
+        // The IOR interceptors run without the lock (they may use the ORB).
+        let root_components = match &*self.inner.server.lock().unwrap() {
+            Some(_) => Vec::new(),
+            None => crate::pi::establish_components(self, &poa::Policies::root(), &[]),
+        };
         let mut server = self.inner.server.lock().unwrap();
         let server = match &*server {
             Some(s) => Arc::clone(s),
             None => {
-                let s = Server::start(self)?;
+                let s = Server::start(self, root_components)?;
                 *server = Some(Arc::clone(&s));
                 s
             }
@@ -1023,7 +1127,7 @@ impl Orb {
             })
             .map(|p| p.object_key)
             .ok_or_else(bad_param)?;
-        let ior = server.ior(obj.type_id(), key.as_bytes().to_vec())?;
+        let ior = server.ior(obj.type_id(), key.as_bytes().to_vec(), &[])?;
         server.set_simple_key(key.as_bytes(), Some(target));
         Ok(ObjectRef::new(self.clone(), ior))
     }
@@ -1233,6 +1337,12 @@ impl Orb {
         // Local objects may hold the ORB.
         let registered = std::mem::take(&mut *self.inner.registered.lock().unwrap());
         drop(registered);
+        // So may interceptors.
+        self.inner.pi_on.store(false, Ordering::Release);
+        let pi = self.inner.pi.lock().unwrap().take();
+        if let Some(pi) = pi {
+            pi.destroy();
+        }
         Ok(())
     }
 

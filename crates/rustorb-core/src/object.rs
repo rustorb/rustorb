@@ -8,11 +8,12 @@ use rustorb_cdr::CdrDecode;
 use rustorb_giop::{
     AddressingDisposition, AlternateIiopAddress, Body, CancelRequestHeader, CodeSetComponentInfo,
     Ior, LocateRequestHeader, LocateStatus, Message, MessageEncoder, OutMessage, ReplyStatus,
-    RequestHeader, SslSecTrans, SystemExceptionBody, TAG_INTERNET_IOP, TAG_MULTIPLE_COMPONENTS,
-    TargetAddress, Version, component_tag, decode_message, response_flags,
+    RequestHeader, ServiceContext, SslSecTrans, SystemExceptionBody, TAG_INTERNET_IOP,
+    TAG_MULTIPLE_COMPONENTS, TargetAddress, Version, component_tag, decode_message, response_flags,
 };
 
 use crate::connection::{Closed, Connection, SendError};
+use crate::pi::{self, ClientEnding, ClientRequest, ClientRequestInfo, DiiParams, Interceptors};
 use crate::server::Server;
 use crate::stream::{InStream, OutStream, marshal};
 use crate::trace;
@@ -95,6 +96,10 @@ impl ObjectRef {
         }
     }
 
+    pub(crate) fn ior_arc(&self) -> Arc<Ior> {
+        Arc::clone(&self.ior)
+    }
+
     /// The IOR the reference was created from.
     pub fn ior(&self) -> &Ior {
         &self.ior
@@ -130,6 +135,7 @@ impl ObjectRef {
             operation: operation.to_owned(),
             args: None,
             timeout: None,
+            dii: None,
         }
     }
 
@@ -141,7 +147,15 @@ impl ObjectRef {
             operation: operation.to_owned(),
             args: None,
             timeout: None,
+            dii: None,
+            slots: None,
         }
+    }
+
+    /// The slots of the calling thread for a request on this reference,
+    /// if its ORB has client interceptors.
+    pub(crate) fn request_slots(&self) -> Option<Vec<crate::Any>> {
+        request_slots(self)
     }
 
     /// Sets how long calls on this reference and its clones wait for a
@@ -216,7 +230,7 @@ impl ObjectRef {
     /// server has the object (`OBJECT_HERE`) or not (`UNKNOWN_OBJECT`).
     pub fn locate(&self) -> Result<bool, Exception> {
         let kind = Kind::<ArgsFn<'_>>::Locate;
-        let outcome = invoke(self, &kind, self.effective_timeout())?;
+        let outcome = invoke(self, &kind, self.effective_timeout(), None)?;
         match outcome {
             Outcome::Located(here) => Ok(here),
             Outcome::Reply(_) => unreachable!("a locate request gives a locate outcome"),
@@ -228,7 +242,7 @@ impl ObjectRef {
         let timeout = self.effective_timeout();
         self.orb.in_runtime(async move {
             let kind = Kind::<SendArgsFn<'_>>::Locate;
-            match invoke_async(self, &kind, timeout).await? {
+            match invoke_async(self, &kind, timeout, None).await? {
                 Outcome::Located(here) => Ok(here),
                 Outcome::Reply(_) => unreachable!("a locate request gives a locate outcome"),
             }
@@ -272,6 +286,8 @@ pub struct Request<'a> {
     args: Option<Box<ArgsFn<'a>>>,
     /// Set by [`Request::timeout`].
     timeout: Option<Option<Duration>>,
+    /// The parameters of a DII request, for the interceptors.
+    dii: Option<DiiParams>,
 }
 
 impl fmt::Debug for Request<'_> {
@@ -306,14 +322,22 @@ impl<'a> Request<'a> {
         self.timeout.unwrap_or_else(|| self.obj.effective_timeout())
     }
 
+    /// The DII parameters, for the interceptors.
+    pub(crate) fn dii(mut self, params: DiiParams) -> Request<'a> {
+        self.dii = Some(params);
+        self
+    }
+
     /// Sends the request and waits for the reply.
     pub fn invoke(self) -> Result<Reply, Exception> {
         let kind = Kind::Request {
             operation: &self.operation,
             args: self.args.as_deref(),
             response: true,
+            dii: self.dii.as_ref(),
         };
-        match invoke(self.obj, &kind, self.effective_timeout())? {
+        let slots = request_slots(self.obj);
+        match invoke(self.obj, &kind, self.effective_timeout(), slots)? {
             Outcome::Reply(Some(reply)) => Ok(reply),
             _ => unreachable!("a two-way request gives a reply"),
         }
@@ -326,8 +350,10 @@ impl<'a> Request<'a> {
             operation: &self.operation,
             args: self.args.as_deref(),
             response: false,
+            dii: self.dii.as_ref(),
         };
-        match invoke(self.obj, &kind, self.effective_timeout()) {
+        let slots = request_slots(self.obj);
+        match invoke(self.obj, &kind, self.effective_timeout(), slots) {
             Ok(_) => Ok(()),
             Err(Exception::System(e)) => Err(e),
             Err(Exception::User(_)) => unreachable!("a oneway request has no reply"),
@@ -350,6 +376,9 @@ pub struct AsyncRequest<'a> {
     operation: String,
     args: Option<Box<SendArgsFn<'a>>>,
     timeout: Option<Option<Duration>>,
+    dii: Option<DiiParams>,
+    /// The request scope slots, when taken on another thread.
+    slots: Option<Option<Vec<crate::Any>>>,
 }
 
 impl fmt::Debug for AsyncRequest<'_> {
@@ -378,17 +407,33 @@ impl<'a> AsyncRequest<'a> {
         self
     }
 
+    /// The DII parameters, for the interceptors.
+    pub(crate) fn dii(mut self, params: DiiParams) -> AsyncRequest<'a> {
+        self.dii = Some(params);
+        self
+    }
+
+    /// The request scope slots, taken by
+    /// [`ObjectRef::request_slots`] on the thread that made the call.
+    pub(crate) fn slots(mut self, slots: Option<Vec<crate::Any>>) -> AsyncRequest<'a> {
+        self.slots = Some(slots);
+        self
+    }
+
     /// Sends the request; the future resolves to the reply.
-    pub fn invoke(self) -> impl Future<Output = Result<Reply, Exception>> + Send + 'a {
+    pub fn invoke(mut self) -> impl Future<Output = Result<Reply, Exception>> + Send + 'a {
         let timeout = self.timeout.unwrap_or_else(|| self.obj.effective_timeout());
+        // The slots of the thread that makes the call.
+        let slots = self.slots.take().unwrap_or_else(|| request_slots(self.obj));
         let orb = self.obj.orb.clone();
         orb.in_runtime(async move {
             let kind = Kind::Request {
                 operation: &self.operation,
                 args: self.args.as_deref(),
                 response: true,
+                dii: self.dii.as_ref(),
             };
-            match invoke_async(self.obj, &kind, timeout).await? {
+            match invoke_async(self.obj, &kind, timeout, slots).await? {
                 Outcome::Reply(Some(reply)) => Ok(reply),
                 _ => unreachable!("a two-way request gives a reply"),
             }
@@ -397,16 +442,18 @@ impl<'a> AsyncRequest<'a> {
 
     /// Sends the request as a oneway call; the future resolves once the
     /// message is written.
-    pub fn send_oneway(self) -> impl Future<Output = Result<(), SystemException>> + Send + 'a {
+    pub fn send_oneway(mut self) -> impl Future<Output = Result<(), SystemException>> + Send + 'a {
         let timeout = self.timeout.unwrap_or_else(|| self.obj.effective_timeout());
+        let slots = self.slots.take().unwrap_or_else(|| request_slots(self.obj));
         let orb = self.obj.orb.clone();
         orb.in_runtime(async move {
             let kind = Kind::Request {
                 operation: &self.operation,
                 args: self.args.as_deref(),
                 response: false,
+                dii: self.dii.as_ref(),
             };
-            match invoke_async(self.obj, &kind, timeout).await {
+            match invoke_async(self.obj, &kind, timeout, slots).await {
                 Ok(_) => Ok(()),
                 Err(Exception::System(e)) => Err(e),
                 Err(Exception::User(_)) => unreachable!("a oneway request has no reply"),
@@ -450,6 +497,7 @@ enum Kind<'k, A: ?Sized = ArgsFn<'k>> {
         operation: &'k str,
         args: Option<&'k A>,
         response: bool,
+        dii: Option<&'k DiiParams>,
     },
     Locate,
 }
@@ -465,6 +513,10 @@ enum Attempt {
     NotSent(SystemException),
     Forward(Ior),
     Addressing(AddressingDisposition),
+    /// The server closed the connection before it processed the request:
+    /// send it again to the same address. Only with client interceptors,
+    /// which see each sending; without, [`attempt`] sends it again itself.
+    Resend,
 }
 
 /// One address an object can be reached at.
@@ -632,6 +684,11 @@ impl<'o> Walk<'o> {
                 self.last = e;
                 None
             }
+            // The caller sends again; here only after too many tries.
+            Attempt::Resend => {
+                self.last = sys(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No);
+                None
+            }
             Attempt::Forward(next) => {
                 trace::info!("LOCATION_FORWARD to {}", trace::IorSummary(&next));
                 self.hops += 1;
@@ -676,37 +733,224 @@ fn no_usable_profile() -> SystemException {
     )
 }
 
+/// The slots of the calling thread for a request on `obj`, if its ORB has
+/// client interceptors.
+fn request_slots(obj: &ObjectRef) -> Option<Vec<crate::Any>> {
+    obj.orb
+        .interceptors()
+        .filter(|pi| pi.has_client())
+        .map(|pi| pi::thread_slots(&pi))
+}
+
+/// The client interceptors of a call, with the request scope slots.
+struct ClientPi {
+    pi: Arc<Interceptors>,
+    slots: Vec<crate::Any>,
+}
+
+impl ClientPi {
+    fn new<A: ?Sized>(
+        obj: &ObjectRef,
+        kind: &Kind<'_, A>,
+        slots: Option<Vec<crate::Any>>,
+    ) -> Option<ClientPi> {
+        if !matches!(kind, Kind::Request { .. }) {
+            return None;
+        }
+        let slots = slots?;
+        let pi = obj.orb.interceptors().filter(|pi| pi.has_client())?;
+        Some(ClientPi { pi, slots })
+    }
+
+    /// The information of an attempt at `ep`, and `send_request`. `Err`
+    /// ends the attempt before anything is sent.
+    fn start<'i, A: ?Sized>(
+        &self,
+        obj: &'i ObjectRef,
+        kind: &Kind<'i, A>,
+        ior: &Arc<Ior>,
+        ep: &Endpoint,
+        timeout: Option<Duration>,
+    ) -> Result<ClientRequestInfo<'i>, Attempt> {
+        let Kind::Request {
+            operation,
+            response,
+            dii,
+            ..
+        } = *kind
+        else {
+            unreachable!("interceptors only see requests");
+        };
+        let info = ClientRequestInfo::new(
+            &self.pi,
+            ClientRequest {
+                operation,
+                response_expected: response,
+                target: obj,
+                effective: Arc::clone(ior),
+                profile_index: Some(ep.profile_index),
+                timeout,
+                slots: self.slots.clone(),
+                dii,
+            },
+        );
+        match pi::send_request(&self.pi, &info) {
+            Ok(()) => Ok(info),
+            Err(ending) => Err(from_ending(ending, None, None)),
+        }
+    }
+
+    /// Runs the ending points for `attempt`, and returns the attempt as
+    /// they leave it.
+    fn finish(
+        &self,
+        orb: &Orb,
+        info: &ClientRequestInfo<'_>,
+        attempt: Attempt,
+        reply_contexts: Vec<ServiceContext>,
+    ) -> Attempt {
+        info.set_reply_contexts(reply_contexts);
+        let mut not_sent = None;
+        let mut addressing = None;
+        let ending = match attempt {
+            Attempt::Done(Ok(Outcome::Reply(Some(reply)))) => ClientEnding::Reply(reply),
+            Attempt::Done(Ok(Outcome::Reply(None))) => ClientEnding::Oneway,
+            Attempt::Done(Ok(Outcome::Located(_))) => return attempt,
+            Attempt::Done(Err(e)) => ClientEnding::Exception(e),
+            Attempt::NotSent(e) => {
+                not_sent = Some(e.clone());
+                ClientEnding::Exception(Exception::System(e))
+            }
+            Attempt::Forward(ior) => ClientEnding::Forward(ObjectRef::new(orb.clone(), ior)),
+            Attempt::Addressing(d) => {
+                addressing = Some(d);
+                ClientEnding::Retry
+            }
+            Attempt::Resend => ClientEnding::Retry,
+        };
+        from_ending(pi::receive(&self.pi, info, ending), not_sent, addressing)
+    }
+}
+
+/// The attempt an interception ended with. An exception that is still the
+/// one of an attempt that sent nothing (`not_sent`) lets the call go on to
+/// the next address; a retry is the one the ORB was about to make.
+fn from_ending(
+    ending: ClientEnding,
+    not_sent: Option<SystemException>,
+    addressing: Option<AddressingDisposition>,
+) -> Attempt {
+    match ending {
+        ClientEnding::Reply(reply) => Attempt::Done(Ok(Outcome::Reply(Some(reply)))),
+        ClientEnding::Oneway => Attempt::Done(Ok(Outcome::Reply(None))),
+        ClientEnding::Exception(Exception::System(e)) if not_sent.as_ref() == Some(&e) => {
+            Attempt::NotSent(e)
+        }
+        ClientEnding::Exception(e) => Attempt::Done(Err(e)),
+        ClientEnding::Forward(to) => Attempt::Forward(to.ior().clone()),
+        ClientEnding::Retry => match addressing {
+            Some(d) => Attempt::Addressing(d),
+            None => Attempt::Resend,
+        },
+    }
+}
+
 fn invoke<A: WriteArgs + ?Sized>(
     obj: &ObjectRef,
     kind: &Kind<'_, A>,
     timeout: Option<Duration>,
+    slots: Option<Vec<crate::Any>>,
 ) -> Result<Outcome, Exception> {
     let orb = &obj.orb;
     orb.check_running()?;
     // The timeout covers the whole call: connecting, forwards and the
     // wait for the reply.
     let deadline = timeout.map(|t| Instant::now() + t);
+    let pi = ClientPi::new(obj, kind, slots);
     let mut walk = Walk::new(obj);
+    let mut again: Option<(Endpoint, usize)> = None;
     loop {
-        let ep = match walk.next() {
-            Step::Try(ep) => ep,
-            Step::Done(result) => return traced(kind, result),
+        let (ep, resent) = match again.take() {
+            Some(again) => again,
+            None => match walk.next() {
+                Step::Try(ep) => (ep, 0),
+                Step::Done(result) => return traced(kind, result),
+            },
         };
         let (ior, disposition) = (Arc::clone(&walk.ior), walk.disposition);
-        let attempt = match orb.local_server(&ep.host, ep.port, ep.tls) {
-            Some(server) => match local_call(orb, &ior, &ep, kind, deadline, disposition) {
-                Ok(call) => {
-                    let result = call.run(&server);
-                    local_outcome(orb, result)
+        let info = match &pi {
+            Some(pi) => match pi.start(obj, kind, &ior, &ep, timeout) {
+                Ok(info) => Some(info),
+                Err(done) => {
+                    if let Some(result) = walk.record(done) {
+                        return traced(kind, result);
+                    }
+                    continue;
                 }
-                Err(done) => done,
             },
-            None => orb.block_on(attempt(orb, &ior, &ep, kind, deadline, disposition, true))?,
+            None => None,
         };
+        let contexts = info
+            .as_ref()
+            .map(|i| i.take_request_contexts())
+            .unwrap_or_default();
+        let mut reply_contexts = Vec::new();
+        let mut attempt = match orb.local_server(&ep.host, ep.port, ep.tls) {
+            Some(server) => {
+                match local_call(orb, &ior, &ep, kind, deadline, disposition, &contexts) {
+                    Ok(call) => {
+                        let result = call.run(&server);
+                        local_outcome(orb, result, &mut reply_contexts)
+                    }
+                    Err(done) => done,
+                }
+            }
+            None => orb.block_on(attempt(
+                orb,
+                &ior,
+                &ep,
+                kind,
+                Exchange {
+                    deadline,
+                    disposition,
+                    own_thread: true,
+                    resend: info.is_none(),
+                    contexts: &contexts,
+                    reply_contexts: &mut reply_contexts,
+                },
+            ))?,
+        };
+        if let (Some(pi), Some(info)) = (&pi, &info) {
+            attempt = pi.finish(orb, info, attempt, reply_contexts);
+        }
+        if let Attempt::Resend = attempt {
+            if resent + 1 < CLOSED_ATTEMPTS {
+                again = Some((ep, resent + 1));
+                continue;
+            }
+            attempt =
+                Attempt::NotSent(sys(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No));
+        }
         if let Some(result) = walk.record(attempt) {
             return traced(kind, result);
         }
     }
+}
+
+/// What one attempt sends besides the request, and what it brings back.
+struct Exchange<'x> {
+    deadline: Option<Instant>,
+    disposition: AddressingDisposition,
+    /// The caller is a thread of its own (a blocking call), which may
+    /// block reading the reply.
+    own_thread: bool,
+    /// Send the request again after a `CloseConnection` (no client
+    /// interceptors): else the attempt ends with [`Attempt::Resend`].
+    resend: bool,
+    /// The service contexts of the interceptors.
+    contexts: &'x [ServiceContext],
+    /// The service contexts of the reply.
+    reply_contexts: &'x mut Vec<ServiceContext>,
 }
 
 /// [`invoke`] as a future, run inside the ORB's runtime
@@ -716,35 +960,87 @@ async fn invoke_async<A: WriteArgs + ?Sized>(
     obj: &ObjectRef,
     kind: &Kind<'_, A>,
     timeout: Option<Duration>,
+    slots: Option<Vec<crate::Any>>,
 ) -> Result<Outcome, Exception> {
     let orb = &obj.orb;
     orb.check_running()?;
     let deadline = timeout.map(|t| Instant::now() + t);
+    let pi = ClientPi::new(obj, kind, slots);
     let mut walk = Walk::new(obj);
+    let mut again: Option<(Endpoint, usize)> = None;
     loop {
-        let ep = match walk.next() {
-            Step::Try(ep) => ep,
-            Step::Done(result) => return traced(kind, result),
+        let (ep, resent) = match again.take() {
+            Some(again) => again,
+            None => match walk.next() {
+                Step::Try(ep) => (ep, 0),
+                Step::Done(result) => return traced(kind, result),
+            },
         };
         let (ior, disposition) = (Arc::clone(&walk.ior), walk.disposition);
-        let attempt = match orb.local_server(&ep.host, ep.port, ep.tls) {
-            Some(server) => match local_call(orb, &ior, &ep, kind, deadline, disposition) {
-                Ok(call) => {
-                    let (tx, rx) = tokio::sync::oneshot::channel();
-                    let on_pool = Arc::clone(&server);
-                    server.submit(Box::new(move || {
-                        let _ = tx.send(call.run(&on_pool));
-                    }));
-                    // The pool is gone when the ORB is being destroyed.
-                    let result = rx.await.unwrap_or_else(|_| {
-                        Err(sys(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No))
-                    });
-                    local_outcome(orb, result)
+        let info = match &pi {
+            Some(pi) => match pi.start(obj, kind, &ior, &ep, timeout) {
+                Ok(info) => Some(info),
+                Err(done) => {
+                    if let Some(result) = walk.record(done) {
+                        return traced(kind, result);
+                    }
+                    continue;
                 }
-                Err(done) => done,
             },
-            None => attempt(orb, &ior, &ep, kind, deadline, disposition, false).await,
+            None => None,
         };
+        let contexts = info
+            .as_ref()
+            .map(|i| i.take_request_contexts())
+            .unwrap_or_default();
+        let mut reply_contexts = Vec::new();
+        let mut attempt = match orb.local_server(&ep.host, ep.port, ep.tls) {
+            Some(server) => {
+                match local_call(orb, &ior, &ep, kind, deadline, disposition, &contexts) {
+                    Ok(call) => {
+                        let (tx, rx) = tokio::sync::oneshot::channel();
+                        let on_pool = Arc::clone(&server);
+                        server.submit(Box::new(move || {
+                            let _ = tx.send(call.run(&on_pool));
+                        }));
+                        // The pool is gone when the ORB is being destroyed.
+                        let result = rx.await.unwrap_or_else(|_| {
+                            Err(sys(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No))
+                        });
+                        local_outcome(orb, result, &mut reply_contexts)
+                    }
+                    Err(done) => done,
+                }
+            }
+            None => {
+                attempt(
+                    orb,
+                    &ior,
+                    &ep,
+                    kind,
+                    Exchange {
+                        deadline,
+                        disposition,
+                        own_thread: false,
+                        resend: info.is_none(),
+                        contexts: &contexts,
+                        reply_contexts: &mut reply_contexts,
+                    },
+                )
+                .await
+            }
+        };
+        if let (Some(pi), Some(info)) = (&pi, &info) {
+            attempt = pi.finish(orb, info, attempt, reply_contexts);
+        }
+        if let Attempt::Resend = attempt {
+            if resent + 1 < CLOSED_ATTEMPTS {
+                again = Some((ep, resent + 1));
+                continue;
+            }
+            attempt =
+                Attempt::NotSent(sys(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No));
+        }
         if let Some(result) = walk.record(attempt) {
             return traced(kind, result);
         }
@@ -794,10 +1090,9 @@ async fn attempt<A: WriteArgs + ?Sized>(
     ior: &Ior,
     ep: &Endpoint,
     kind: &Kind<'_, A>,
-    deadline: Option<Instant>,
-    disposition: AddressingDisposition,
-    own_thread: bool,
+    mut x: Exchange<'_>,
 ) -> Attempt {
+    let deadline = x.deadline;
     let mut result = Attempt::NotSent(sys(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No));
     for _ in 0..CLOSED_ATTEMPTS {
         let conn = match orb.connection(&ep.host, ep.port, ep.tls, deadline).await {
@@ -806,10 +1101,13 @@ async fn attempt<A: WriteArgs + ?Sized>(
             Err(e) if e.is(SystemExceptionKind::TIMEOUT) => return Attempt::Done(Err(e.into())),
             Err(e) => return Attempt::NotSent(e),
         };
-        match attempt_on(orb, &conn, ior, ep, kind, deadline, disposition, own_thread).await {
+        match attempt_on(orb, &conn, ior, ep, kind, &mut x).await {
             Ok(done) => return done,
             Err(Closed::Orderly) => {
                 orb.discard(&conn);
+                if !x.resend {
+                    return Attempt::Resend;
+                }
                 result =
                     Attempt::NotSent(sys(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No));
             }
@@ -829,17 +1127,15 @@ async fn attempt<A: WriteArgs + ?Sized>(
 
 /// `Err(Closed::Orderly)` asks for a retry on a new connection;
 /// `Err(Closed::Failed)` after the request was sent is `COMM_FAILURE`.
-#[allow(clippy::too_many_arguments)]
 async fn attempt_on<A: WriteArgs + ?Sized>(
     orb: &Orb,
     conn: &Arc<Connection>,
     ior: &Ior,
     ep: &Endpoint,
     kind: &Kind<'_, A>,
-    deadline: Option<Instant>,
-    disposition: AddressingDisposition,
-    own_thread: bool,
+    x: &mut Exchange<'_>,
 ) -> Result<Attempt, Closed> {
+    let (deadline, disposition, own_thread) = (x.deadline, x.disposition, x.own_thread);
     let options = &orb.inner.options;
     let order = options.byte_order;
     let version = ep.version.min(options.max_giop_version);
@@ -861,6 +1157,8 @@ async fn attempt_on<A: WriteArgs + ?Sized>(
         }
         _ => (CodeSets::DEFAULT, Vec::new()),
     };
+    let mut context = context;
+    context.extend_from_slice(x.contexts);
 
     let request_id = conn.next_request_id();
     let response = match kind {
@@ -872,6 +1170,7 @@ async fn attempt_on<A: WriteArgs + ?Sized>(
             operation,
             args,
             response,
+            ..
         } => {
             let header = request_header(request_id, *response, target, operation, context);
             match encode_request(version, order, &header, *args, code_sets) {
@@ -1018,6 +1317,7 @@ async fn attempt_on<A: WriteArgs + ?Sized>(
             if !matches!(kind, Kind::Request { .. }) {
                 return Err(Closed::Failed("Reply to a LocateRequest".into()));
             }
+            *x.reply_contexts = header.service_context;
             trace::debug!(
                 "reply to {} (id {request_id}): {:?}",
                 KindName(kind),
@@ -1131,24 +1431,27 @@ fn local_call<A: WriteArgs + ?Sized>(
     kind: &Kind<'_, A>,
     deadline: Option<Instant>,
     disposition: AddressingDisposition,
+    contexts: &[ServiceContext],
 ) -> Result<LocalCall, Attempt> {
     let options = &orb.inner.options;
     let order = options.byte_order;
     let version = ep.version.min(options.max_giop_version);
     let target = target_address(ior, ep, version, disposition);
-    let (code_sets, context) = match (&ep.code_sets, version >= Version::V1_1) {
+    let (code_sets, mut context) = match (&ep.code_sets, version >= Version::V1_1) {
         (Some(info), true) => match CodeSets::negotiate(info) {
             Ok(cs) => (cs, vec![cs.context().to_service_context(order)]),
             Err(e) => return Err(Attempt::Done(Err(e.into()))),
         },
         _ => (CodeSets::DEFAULT, Vec::new()),
     };
+    context.extend_from_slice(contexts);
     let (operation, args, response) = match kind {
         Kind::Locate => return Ok(LocalCall::Locate(target)),
         Kind::Request {
             operation,
             args,
             response,
+            ..
         } => (*operation, *args, *response),
     };
     trace::debug!(
@@ -1191,12 +1494,17 @@ impl LocalCall {
     }
 }
 
-fn local_outcome(orb: &Orb, answer: Result<LocalAnswer, SystemException>) -> Attempt {
+fn local_outcome(
+    orb: &Orb,
+    answer: Result<LocalAnswer, SystemException>,
+    reply_contexts: &mut Vec<ServiceContext>,
+) -> Attempt {
     match answer {
         Ok(LocalAnswer::Located(here)) => Attempt::Done(Ok(Outcome::Located(here))),
         Ok(LocalAnswer::Reply(None, _)) => Attempt::Done(Ok(Outcome::Reply(None))),
         Ok(LocalAnswer::Reply(Some(reply), code_sets)) => match decode_message(&reply) {
             Ok((_, Message::Reply { header, body })) => {
+                *reply_contexts = header.service_context;
                 reply_outcome(orb, header.reply_status, body, code_sets)
             }
             _ => Attempt::Done(Err(local_internal())),

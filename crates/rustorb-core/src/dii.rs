@@ -50,11 +50,11 @@ impl ArgMode {
         }
     }
 
-    fn is_in(self) -> bool {
+    pub(crate) fn is_in(self) -> bool {
         self != ArgMode::Out
     }
 
-    fn is_out(self) -> bool {
+    pub(crate) fn is_out(self) -> bool {
         self != ArgMode::In
     }
 }
@@ -215,6 +215,17 @@ impl DiiRequest {
             .collect()
     }
 
+    /// What the client interceptors see of the request, if the ORB has
+    /// any.
+    fn pi_params(&self) -> Option<crate::pi::DiiParams> {
+        let pi = self.target.orb().interceptors()?;
+        pi.has_client().then(|| crate::pi::DiiParams {
+            arguments: self.arguments.clone(),
+            result: self.result.typecode().clone(),
+            exceptions: self.exceptions.clone(),
+        })
+    }
+
     fn check_idle(&self) -> Result<(), SystemException> {
         match self.pending {
             Some(_) => Err(bad_inv_order()),
@@ -233,6 +244,9 @@ impl DiiRequest {
         if let Some(t) = self.timeout {
             request = request.timeout(t);
         }
+        if let Some(params) = self.pi_params() {
+            request = request.dii(params);
+        }
         let reply = request.invoke()?;
         self.take_reply(&reply)
     }
@@ -249,6 +263,9 @@ impl DiiRequest {
         if let Some(t) = self.timeout {
             request = request.timeout(t);
         }
+        if let Some(params) = self.pi_params() {
+            request = request.dii(params);
+        }
         let reply = request.invoke().await?;
         self.take_reply(&reply)
     }
@@ -263,6 +280,9 @@ impl DiiRequest {
             .args(move |out| write_values(out, &values));
         if let Some(t) = self.timeout {
             request = request.timeout(t);
+        }
+        if let Some(params) = self.pi_params() {
+            request = request.dii(params);
         }
         request.send_oneway()
     }
@@ -283,13 +303,19 @@ impl DiiRequest {
         let (tx, rx) = mpsc::channel();
         // The thread's timeout is that of the thread that sends.
         let timeout = timeout.unwrap_or_else(|| target.effective_timeout());
+        let params = self.pi_params();
+        // The request scope slots are those of the thread that sends.
+        let slots = target.request_slots();
         orb.runtime_handle().spawn(async move {
-            let result = target
+            let mut request = target
                 .request_async(&operation)
                 .args(move |out| write_values(out, &values))
                 .timeout(timeout)
-                .invoke()
-                .await;
+                .slots(slots);
+            if let Some(params) = params {
+                request = request.dii(params);
+            }
+            let result = request.invoke().await;
             let _ = tx.send(result);
         });
         self.pending = Some(rx);
@@ -348,15 +374,23 @@ impl DiiRequest {
     /// repository id. An exception that is not listed is `UNKNOWN`,
     /// completed yes.
     pub fn exception_value(&self, e: &UserException) -> Result<Any, SystemException> {
-        let tc = self
-            .exceptions
-            .iter()
-            .find(|tc| tc.unaliased().id().ok() == Some(e.repository_id()))
-            .ok_or_else(|| sys(SystemExceptionKind::UNKNOWN, CompletionStatus::Yes))?;
-        let mut input = e.reply.input();
-        let value = input.read_value(tc)?;
-        Ok(Any::new(tc.clone(), value))
+        exception_any(&self.exceptions, e)
     }
+}
+
+/// The user exception `e` as an Any, with the TypeCode of `exceptions`
+/// of the same repository id (`UNKNOWN` if none).
+pub(crate) fn exception_any(
+    exceptions: &[TypeCode],
+    e: &UserException,
+) -> Result<Any, SystemException> {
+    let tc = exceptions
+        .iter()
+        .find(|tc| tc.unaliased().id().ok() == Some(e.repository_id()))
+        .ok_or_else(|| sys(SystemExceptionKind::UNKNOWN, CompletionStatus::Yes))?;
+    let mut input = e.reply.input();
+    let value = input.read_value(tc)?;
+    Ok(Any::new(tc.clone(), value))
 }
 
 fn write_values(
@@ -415,6 +449,13 @@ impl<T: DynamicImplementation> Servant for DynamicServant<T> {
     ) -> Result<(), SystemException> {
         let mut request = ServerRequest::new(operation, input)?;
         self.0.invoke(&mut request)?;
+        if crate::pi::wants_dsi_params() {
+            crate::pi::leave_dsi_params(crate::pi::DsiParams {
+                arguments: request.arguments.clone(),
+                result: request.result.clone(),
+                exception: request.exception.clone(),
+            });
+        }
         request.write_reply(reply)
     }
 }

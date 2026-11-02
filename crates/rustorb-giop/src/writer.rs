@@ -377,6 +377,69 @@ impl OutMessage {
         OutMessage::from(out)
     }
 
+    /// The same `Reply` (made with [`MessageEncoder::reply`]) with the
+    /// message-specific header `header` instead, for service contexts that
+    /// are known only once the body has been written. The body is kept as
+    /// it is: in GIOP 1.2 it starts on an 8-byte boundary after the
+    /// header, so it does not depend on the header's length. Before GIOP
+    /// 1.2 it follows the header directly and is aligned from the start of
+    /// the message, so a header whose length differs by other than a
+    /// multiple of 8 would misalign it: then `Err` returns the message
+    /// unchanged.
+    pub fn with_reply_header(
+        self,
+        header: &ReplyHeader,
+    ) -> std::result::Result<OutMessage, OutMessage> {
+        if self.bytes.len() < MessageHeader::SIZE || self.bytes[7] != 1 {
+            return Err(self);
+        }
+        let version = Version {
+            major: self.bytes[4],
+            minor: self.bytes[5],
+        };
+        let order = if self.bytes[6] & 1 != 0 {
+            ByteOrder::Little
+        } else {
+            ByteOrder::Big
+        };
+        let Ok(head) = MessageEncoder::reply(version, order, header) else {
+            return Err(self);
+        };
+        let (mut bytes, _) = head.enc.into_parts();
+        let new_header_len = bytes.len();
+        let has_body = self.len > self.header_len;
+        let (old_start, new_start) = if version >= Version::V1_2 && has_body {
+            ((self.header_len + 7) & !7, (new_header_len + 7) & !7)
+        } else {
+            (self.header_len, new_header_len)
+        };
+        if version < Version::V1_2 && (new_start % 8) != (old_start % 8) {
+            return Err(self);
+        }
+        let size = self.len - old_start + new_start;
+        let Ok(message_size) = u32::try_from(size - MessageHeader::SIZE) else {
+            return Err(self);
+        };
+        bytes.resize(new_start, 0);
+        bytes.extend_from_slice(&self.bytes[old_start..]);
+        let size_bytes = match order {
+            ByteOrder::Big => message_size.to_be_bytes(),
+            ByteOrder::Little => message_size.to_le_bytes(),
+        };
+        bytes[8..12].copy_from_slice(&size_bytes);
+        let shared = self
+            .shared
+            .into_iter()
+            .map(|(at, octets)| (at - old_start + new_start, octets))
+            .collect();
+        Ok(OutMessage {
+            bytes,
+            shared,
+            len: size,
+            header_len: new_header_len,
+        })
+    }
+
     /// The message as one buffer; copies only if octets were kept apart.
     pub fn into_vec(self) -> Vec<u8> {
         if self.shared.is_empty() {

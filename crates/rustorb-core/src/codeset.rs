@@ -41,6 +41,13 @@ impl CodeSets {
         wchar_data: Some(NATIVE_WCHAR),
     };
 
+    /// The native `char` code set and no `wchar` code set: GIOP 1.0
+    /// encapsulations made by `IOP::Codec`, where `wchar` cannot be used.
+    pub(crate) const NATIVE_NO_WCHAR: CodeSets = CodeSets {
+        char_data: NATIVE_CHAR,
+        wchar_data: None,
+    };
+
     /// Chooses the transmission code sets for a server that published
     /// `info`, as the client side of the negotiation.
     pub fn negotiate(info: &CodeSetComponentInfo) -> Result<CodeSets, SystemException> {
