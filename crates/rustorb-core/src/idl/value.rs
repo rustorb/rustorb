@@ -155,41 +155,60 @@ impl ValueHandle {
         input: &mut InStream<'_>,
         expected: &'static ValueInfo,
     ) -> Sys<Option<ValueHandle>> {
-        let e = input.marshal_error();
-        let header = input.read_value_header().map_err(|_| e.clone())?;
-        let (slot, ids) = match header {
-            ValueHeader::Null => return Ok(None),
-            ValueHeader::Indirection(slot) => {
-                let v = input
-                    .typed_values
-                    .get(slot)
-                    .and_then(|v| v.as_ref())
-                    .and_then(|v| v.downcast_ref::<ValueHandle>())
-                    .filter(|v| v.is_a(expected.id))
-                    .ok_or(e)?;
-                return Ok(Some(v.clone()));
-            }
-            ValueHeader::Value { slot, ids, .. } => (slot, ids),
-        };
-        let info = if ids.is_empty() {
-            expected
-        } else {
-            ids.iter()
-                .find_map(|id| {
-                    if id == expected.id {
-                        Some(expected)
-                    } else {
-                        lookup(id).filter(|i| i.ancestors.contains(&expected.id))
-                    }
-                })
-                .ok_or_else(|| e.clone())?
-        };
-        let v = (info.make)();
-        set_slot(input, slot, Box::new(v.clone()));
-        v.lock().read_state(input)?;
-        input.end_value().map_err(|_| e)?;
-        Ok(Some(v))
+        read_value(input, Some(expected))
     }
+
+    /// Reads a value where any valuetype (`ValueBase`, or `null`) may be,
+    /// as where an abstract interface is sent as a value: as the first of
+    /// the types it was sent with that is registered with
+    /// [`register_value`], and `MARSHAL` if there is none.
+    pub fn read_base(input: &mut InStream<'_>) -> Sys<Option<ValueHandle>> {
+        read_value(input, None)
+    }
+}
+
+fn read_value(
+    input: &mut InStream<'_>,
+    expected: Option<&'static ValueInfo>,
+) -> Sys<Option<ValueHandle>> {
+    let e = input.marshal_error();
+    let header = input.read_value_header().map_err(|_| e.clone())?;
+    let (slot, ids) = match header {
+        ValueHeader::Null => return Ok(None),
+        ValueHeader::Indirection(slot) => {
+            let v = input
+                .typed_values
+                .get(slot)
+                .and_then(|v| v.as_ref())
+                .and_then(|v| v.downcast_ref::<ValueHandle>())
+                .filter(|v| expected.is_none_or(|x| v.is_a(x.id)))
+                .ok_or(e)?;
+            return Ok(Some(v.clone()));
+        }
+        ValueHeader::Value { slot, ids, .. } => (slot, ids),
+    };
+    let info = match expected {
+        Some(x) if ids.is_empty() => x,
+        Some(x) => ids
+            .iter()
+            .find_map(|id| {
+                if id == x.id {
+                    Some(x)
+                } else {
+                    lookup(id).filter(|i| i.ancestors.contains(&x.id))
+                }
+            })
+            .ok_or_else(|| e.clone())?,
+        None => ids
+            .iter()
+            .find_map(|id| lookup(id))
+            .ok_or_else(|| e.clone())?,
+    };
+    let v = (info.make)();
+    set_slot(input, slot, Box::new(v.clone()));
+    v.lock().read_state(input)?;
+    input.end_value().map_err(|_| e)?;
+    Ok(Some(v))
 }
 
 fn set_slot(input: &mut InStream<'_>, slot: usize, v: Box<dyn Any>) {

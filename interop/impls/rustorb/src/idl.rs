@@ -29,6 +29,22 @@ mod value_ops {
     }
 }
 
+/// AbstractTest.idl, in a module of its own for its `register_value_types`.
+pub mod abstracts {
+    include!("idl/abstract_test.rs");
+
+    use rustorb_core::idl::Sys;
+
+    use abstract_test::{CardOperations, CardState};
+
+    /// `AbstractTest::Card`: its name is its title.
+    impl CardOperations for CardState {
+        fn name(&mut self) -> Sys<String> {
+            Ok(self.title.clone())
+        }
+    }
+}
+
 /// CustomTest.idl, in a module of its own for its `register_value_types`,
 /// with the marshaling of its custom valuetype.
 pub mod custom {

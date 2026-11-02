@@ -142,11 +142,35 @@ class RustBackendTest(unittest.TestCase):
         self.assertEqual(cli.main(["-brust", "-Wbh=.h", "-C", OUT, path]), 2)
         self.assertEqual(cli.main(["-bpython", "-Wbcore=x", "-C", OUT, path]), 2)
 
+    def test_abstract_and_local(self):
+        text = self.gen("rust_mapping.rs")
+        # An abstract interface: the enum, the servant trait, and the
+        # conversions from the interfaces and valuetypes that are one.
+        self.assertIn("pub enum Titled {", text)
+        self.assertIn("Value(::rustorb_core::idl::AbstractValue<dyn TitledServant>),", text)
+        self.assertIn("pub trait TitledServant: Send + Sync + LabeledServant {", text)
+        self.assertIn("impl From<Titled> for Labeled {", text)
+        self.assertIn("impl From<Book> for Titled {", text)
+        self.assertIn("impl From<Note> for Titled {", text)
+        self.assertIn("impl From<Note> for Labeled {", text)
+        self.assertIn("impl TitledServant for Note {", text)
+        self.assertIn("pub trait BookServant: Send + Sync + TitledServant {", text)
+        self.assertIn("TCKind::AbstractInterface", text)
+        self.assertIn("register_supported(", text)
+        # A local interface: a trait only, passed as Arc<dyn L>.
+        self.assertIn("pub trait Hook: Send + Sync {", text)
+        self.assertIn("pub trait LoudHook: Send + Sync + Hook {", text)
+        self.assertIn("next: Option<&::std::sync::Arc<dyn Hook>>", text)
+        self.assertIn("impl Hook for Bell {", text)
+        self.assertNotIn("HookPoa", text)
+        self.assertNotIn("pub struct Hook(", text)
+
     def test_unsupported(self):
         cases = {
-            "abstract": "module U { abstract interface A { void f(); }; };",
-            "local": "module U { local interface L { void f(); }; };",
-            "supports_local": "module U { local interface I {}; valuetype V supports I { public long x; }; };",
+            "context": "module U { interface I { void f() context(\"a\", \"b*\"); }; };",
+            "local_param": "module U { local interface L {}; interface I { void f(in L l); }; };",
+            "local_member": "module U { local interface L {}; struct S { L l; }; };",
+            "abstract_clash": "module U { abstract interface A { void narrow(); }; };",
             "value_raises": "module U { exception E {}; valuetype V { public long x; long f() raises (E); }; };",
             "value_op_clash": "module U { valuetype V { public long x; long get(); }; };",
             "abstract_value": "module U { abstract valuetype A {}; valuetype V : A { public long x; }; };",

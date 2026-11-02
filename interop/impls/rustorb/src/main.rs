@@ -13,6 +13,7 @@
 //! environment variable, as omniORB does). `--host` and `--port` give the
 //! endpoint of the callback object.
 
+mod abstracttest;
 mod anytest;
 mod customtest;
 mod idl;
@@ -422,6 +423,8 @@ struct Args {
     value: bool,
     /// The CustomTest suite (`--suite custom`).
     custom: bool,
+    /// The AbstractTest suite (`--suite abstract`).
+    abstract_suite: bool,
 }
 
 fn parse_args(mut args: Vec<String>) -> Result<(Args, Vec<String>), String> {
@@ -434,6 +437,7 @@ fn parse_args(mut args: Vec<String>) -> Result<(Args, Vec<String>), String> {
     let mut any = false;
     let mut value_suite = false;
     let mut custom = false;
+    let mut abstract_suite = false;
     let mut rest = Vec::new();
     let mut iter = args.drain(..);
     while let Some(arg) = iter.next() {
@@ -449,11 +453,12 @@ fn parse_args(mut args: Vec<String>) -> Result<(Args, Vec<String>), String> {
             "--port" => port = value("--port")?.parse().map_err(|_| "bad --port")?,
             "--shutdown-server" => shutdown_server = true,
             "--suite" => {
-                (any, value_suite, custom) = match value("--suite")?.as_str() {
-                    "basic" => (false, false, false),
-                    "any" => (true, false, false),
-                    "value" => (false, true, false),
-                    "custom" => (false, false, true),
+                (any, value_suite, custom, abstract_suite) = match value("--suite")?.as_str() {
+                    "basic" => (false, false, false, false),
+                    "any" => (true, false, false, false),
+                    "value" => (false, true, false, false),
+                    "custom" => (false, false, true, false),
+                    "abstract" => (false, false, false, true),
                     other => return Err(format!("bad --suite {other}")),
                 }
             }
@@ -471,6 +476,7 @@ fn parse_args(mut args: Vec<String>) -> Result<(Args, Vec<String>), String> {
             any,
             value: value_suite,
             custom,
+            abstract_suite,
         },
         rest,
     ))
@@ -500,6 +506,7 @@ fn run() -> Result<bool, String> {
     // Point3 arrives where Point is declared.
     idl::register_value_types();
     idl::custom::register_value_types();
+    idl::abstracts::register_value_types();
     let root = orb
         .string_to_object(&args.naming)
         .map_err(|e| format!("{}: {e}", args.naming))?
@@ -520,6 +527,9 @@ fn run() -> Result<bool, String> {
     }
     if args.custom {
         return run_custom(&orb, &root, &args, bound);
+    }
+    if args.abstract_suite {
+        return run_abstract(&orb, &root, &args, bound);
     }
     let echo = retry("the Echo server", args.timeout, bound, || {
         root.resolve(&name)?.ok_or_else(|| {
@@ -688,6 +698,58 @@ fn run_custom(
     };
     let echo = CustomEcho::unchecked_narrow(echo);
     for (case, f) in customtest::cases(&echo) {
+        r.case(&case, f);
+    }
+
+    if args.shutdown_server {
+        echo.shutdown().map_err(|e| format!("shutdown: {e}"))?;
+    }
+    println!("\n{} passed, {} failed", r.passed, r.failed.len());
+    if !r.failed.is_empty() {
+        println!("failed: {}", r.failed.join(", "));
+    }
+    let _ = orb.shutdown(true);
+    Ok(r.failed.is_empty())
+}
+
+/// The AbstractTest suite against the AbstractEcho object at `--name`.
+fn run_abstract(
+    orb: &Orb,
+    root: &NamingContext,
+    args: &Args,
+    bound: impl Fn(&NamingError) -> bool,
+) -> Result<bool, String> {
+    use idl::abstracts::abstract_test::AbstractEcho;
+    let name = to_name(&args.name).map_err(|e| format!("--name {}: {e}", args.name))?;
+    let echo = retry("the AbstractEcho server", args.timeout, bound, || {
+        root.resolve(&name)?.ok_or_else(|| {
+            SystemException::new(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No).into()
+        })
+    })?;
+    let is_echo = echo
+        .is_a(AbstractEcho::REPOSITORY_ID)
+        .map_err(|e| format!("_is_a: {e}"))?;
+    if !is_echo {
+        return Err(format!(
+            "{} is not an AbstractTest::AbstractEcho",
+            args.name
+        ));
+    }
+    let reachable = |e: &Exception| e.as_system().is_some_and(starting);
+    retry("the AbstractEcho server", args.timeout, reachable, || {
+        echo.non_existent()
+    })?;
+
+    let mut r = Runner {
+        passed: 0,
+        failed: Vec::new(),
+    };
+    let echo = AbstractEcho::unchecked_narrow(echo);
+    let poa = orb.root_poa().map_err(|e| format!("RootPOA: {e}"))?;
+    poa.the_poa_manager()
+        .activate()
+        .map_err(|e| format!("activate: {e}"))?;
+    for (case, f) in abstracttest::cases(&echo, &poa)? {
         r.case(&case, f);
     }
 

@@ -108,10 +108,6 @@ else
   export INTEROP_SSL=
 fi
 rustorb_impls="rustorb rustorbpy rustorbcpp rustorbjava"
-# The Rust mapping has no abstract interfaces (see docs/rust-mapping.md).
-if [ "$suite" = abstract ]; then
-  rustorb_impls="rustorbpy rustorbcpp rustorbjava"
-fi
 CLIENT_IMPLS="${CLIENT_IMPLS:-$IMPLS $rustorb_impls}"
 SERVER_IMPLS="${SERVER_IMPLS:-$IMPLS $rustorb_impls}"
 

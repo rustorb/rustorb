@@ -5637,6 +5637,1831 @@ pub mod rust_mapping {
         }
     }
 
+    /// The IDL abstract interface `RustMapping::Labeled`.
+    ///
+    /// An object reference, or a value of a valuetype that supports it.
+    /// The methods call the operation on the object, or on the value in
+    /// this process.
+    #[derive(Debug, Clone)]
+    pub enum Labeled {
+        /// An object reference.
+        Object(::rustorb_core::ObjectRef),
+        /// A value of a valuetype that supports `Labeled`.
+        Value(::rustorb_core::idl::AbstractValue<dyn LabeledServant>),
+    }
+
+    impl Labeled {
+        pub const REPOSITORY_ID: &'static str = "IDL:rustorb.org/RustMapping/Labeled:1.0";
+
+        /// `obj` as this interface, if the object supports it (from the type
+        /// id of its IOR, else by asking it with `_is_a`).
+        pub fn narrow(
+            obj: &::rustorb_core::ObjectRef,
+        ) -> ::rustorb_core::idl::Sys<Option<Labeled>> {
+            Ok(if ::rustorb_core::idl::is_a(obj, Self::REPOSITORY_ID)? {
+                Some(Labeled::Object(obj.clone()))
+            } else {
+                None
+            })
+        }
+
+        /// `obj` as this interface, unchecked.
+        pub fn unchecked_narrow(obj: ::rustorb_core::ObjectRef) -> Labeled {
+            Labeled::Object(obj)
+        }
+
+        /// The instance `h` as this interface, if its valuetype supports it
+        /// (and was registered with `register_value_types`).
+        pub fn from_value(h: &::rustorb_core::idl::ValueHandle) -> Option<Labeled> {
+            ::rustorb_core::idl::supported(Self::REPOSITORY_ID, h)
+        }
+
+        /// The object reference, if it is one.
+        pub fn object(&self) -> Option<&::rustorb_core::ObjectRef> {
+            match self {
+                Labeled::Object(obj) => Some(obj),
+                Labeled::Value(_) => None,
+            }
+        }
+
+        /// The value, if it is one.
+        pub fn value(&self) -> Option<&::rustorb_core::idl::ValueHandle> {
+            match self {
+                Labeled::Object(_) => None,
+                Labeled::Value(v) => Some(v.handle()),
+            }
+        }
+
+        #[doc(hidden)]
+        pub fn _write(
+            v: Option<&Labeled>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            match v {
+                None => ::rustorb_core::idl::write_abstract_object(None, out),
+                Some(Labeled::Object(obj)) => {
+                    ::rustorb_core::idl::write_abstract_object(Some(obj), out)
+                }
+                Some(Labeled::Value(v)) => {
+                    ::rustorb_core::idl::write_abstract_value(v.handle(), out)
+                }
+            }
+        }
+
+        /// `label_of`.
+        #[allow(clippy::type_complexity)]
+        pub fn label_of(&self) -> Result<String, ::rustorb_core::SystemException> {
+            let obj = match self {
+                Labeled::Object(obj) => obj,
+                Labeled::Value(v) => return v.ops().label_of(),
+            };
+            let request = obj.request("label_of");
+            let reply = request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `label_of`, on the async API: like [`label_of`](Self::label_of).
+        #[allow(clippy::type_complexity)]
+        pub async fn label_of_async(&self) -> Result<String, ::rustorb_core::SystemException> {
+            let obj = match self {
+                Labeled::Object(obj) => obj,
+                Labeled::Value(v) => return v.ops().label_of(),
+            };
+            let request = obj.request_async("label_of");
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+    }
+
+    impl ::rustorb_core::idl::IdlType for Labeled {
+        type Rust = Option<Labeled>;
+        type Borrowed = Option<Labeled>;
+        const MIN_SIZE: usize = 1;
+
+        fn type_code() -> ::rustorb_core::TypeCode {
+            static TC: ::std::sync::OnceLock<::rustorb_core::TypeCode> =
+                ::std::sync::OnceLock::new();
+            TC.get_or_init(|| {
+                ::rustorb_core::idl::tc(::rustorb_core::TypeCode::interface(
+                    ::rustorb_core::TCKind::AbstractInterface,
+                    "IDL:rustorb.org/RustMapping/Labeled:1.0",
+                    "Labeled",
+                ))
+            })
+            .clone()
+        }
+
+        fn write(
+            v: &Option<Labeled>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            Self::_write(v.as_ref(), out)
+        }
+
+        fn read(
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<Option<Labeled>> {
+            ::rustorb_core::idl::read_abstract(input, Self::REPOSITORY_ID, Labeled::Object)
+        }
+    }
+
+    /// The operations of the IDL abstract interface `RustMapping::Labeled`.
+    ///
+    /// The servants of the interfaces derived from it implement it, and
+    /// the generator implements it for the valuetypes that support it.
+    pub trait LabeledServant: Send + Sync {
+        /// `label_of`.
+        #[allow(clippy::type_complexity)]
+        fn label_of(&self) -> Result<String, ::rustorb_core::SystemException>;
+    }
+
+    impl<T: ?Sized + LabeledServant> LabeledServant for ::rustorb_core::idl::Upcast<T> {
+        #[allow(clippy::type_complexity)]
+        fn label_of(&self) -> Result<String, ::rustorb_core::SystemException> {
+            self.0.label_of()
+        }
+    }
+
+    /// The definitions inside `RustMapping::Titled`.
+    pub mod titled {
+        /// What `Titled::retitle` raises.
+        #[derive(Debug, Clone)]
+        #[allow(clippy::enum_variant_names, clippy::large_enum_variant)]
+        pub enum RetitleError {
+            Failure(super::Failure),
+            /// A system exception.
+            System(::rustorb_core::SystemException),
+        }
+
+        impl RetitleError {
+            /// The repository id of the exception.
+            pub fn repository_id(&self) -> &str {
+                match self {
+                    RetitleError::Failure(_) => super::Failure::REPOSITORY_ID,
+                    RetitleError::System(e) => &e.repository_id,
+                }
+            }
+
+            /// The error of an exception a call failed with.
+            pub fn from_exception(e: ::rustorb_core::Exception) -> RetitleError {
+                fn user(
+                    u: &::rustorb_core::UserException,
+                ) -> ::rustorb_core::idl::Sys<RetitleError> {
+                    let mut input = u.input()?;
+                    Ok(match u.repository_id() {
+                        super::Failure::REPOSITORY_ID => {
+                            RetitleError::Failure(super::Failure::_read_members(&mut input)?)
+                        }
+                        _ => RetitleError::System(::rustorb_core::idl::unlisted_user_exception()),
+                    })
+                }
+                match e {
+                    ::rustorb_core::Exception::System(e) => RetitleError::System(e),
+                    ::rustorb_core::Exception::User(u) => {
+                        user(&u).unwrap_or_else(RetitleError::System)
+                    }
+                }
+            }
+
+            #[doc(hidden)]
+            pub fn _write_reply(
+                self,
+                reply: &mut ::rustorb_core::ServerReply,
+            ) -> ::rustorb_core::idl::Sys<()> {
+                match self {
+                    RetitleError::Failure(e) => {
+                        e._write_members(&mut reply.user_exception(super::Failure::REPOSITORY_ID)?)
+                    }
+                    RetitleError::System(e) => Err(e),
+                }
+            }
+        }
+
+        impl From<::rustorb_core::SystemException> for RetitleError {
+            fn from(e: ::rustorb_core::SystemException) -> RetitleError {
+                RetitleError::System(e)
+            }
+        }
+
+        impl From<super::Failure> for RetitleError {
+            fn from(e: super::Failure) -> RetitleError {
+                RetitleError::Failure(e)
+            }
+        }
+
+        impl ::std::fmt::Display for RetitleError {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                match self {
+                    RetitleError::Failure(e) => e.fmt(f),
+                    RetitleError::System(e) => e.fmt(f),
+                }
+            }
+        }
+
+        impl ::std::error::Error for RetitleError {}
+    }
+
+    /// The IDL abstract interface `RustMapping::Titled`.
+    ///
+    /// An object reference, or a value of a valuetype that supports it.
+    /// The methods call the operation on the object, or on the value in
+    /// this process.
+    #[derive(Debug, Clone)]
+    pub enum Titled {
+        /// An object reference.
+        Object(::rustorb_core::ObjectRef),
+        /// A value of a valuetype that supports `Titled`.
+        Value(::rustorb_core::idl::AbstractValue<dyn TitledServant>),
+    }
+
+    impl From<Titled> for Labeled {
+        fn from(v: Titled) -> Labeled {
+            match v {
+                Titled::Object(obj) => Labeled::Object(obj),
+                Titled::Value(v) => {
+                    let ops: ::std::sync::Arc<dyn LabeledServant> =
+                        ::std::sync::Arc::new(::rustorb_core::idl::Upcast(v.ops().clone()));
+                    Labeled::Value(::rustorb_core::idl::AbstractValue::new(
+                        v.handle().clone(),
+                        ops,
+                    ))
+                }
+            }
+        }
+    }
+
+    impl Titled {
+        pub const REPOSITORY_ID: &'static str = "IDL:rustorb.org/RustMapping/Titled:1.0";
+
+        /// `obj` as this interface, if the object supports it (from the type
+        /// id of its IOR, else by asking it with `_is_a`).
+        pub fn narrow(obj: &::rustorb_core::ObjectRef) -> ::rustorb_core::idl::Sys<Option<Titled>> {
+            Ok(if ::rustorb_core::idl::is_a(obj, Self::REPOSITORY_ID)? {
+                Some(Titled::Object(obj.clone()))
+            } else {
+                None
+            })
+        }
+
+        /// `obj` as this interface, unchecked.
+        pub fn unchecked_narrow(obj: ::rustorb_core::ObjectRef) -> Titled {
+            Titled::Object(obj)
+        }
+
+        /// The instance `h` as this interface, if its valuetype supports it
+        /// (and was registered with `register_value_types`).
+        pub fn from_value(h: &::rustorb_core::idl::ValueHandle) -> Option<Titled> {
+            ::rustorb_core::idl::supported(Self::REPOSITORY_ID, h)
+        }
+
+        /// The object reference, if it is one.
+        pub fn object(&self) -> Option<&::rustorb_core::ObjectRef> {
+            match self {
+                Titled::Object(obj) => Some(obj),
+                Titled::Value(_) => None,
+            }
+        }
+
+        /// The value, if it is one.
+        pub fn value(&self) -> Option<&::rustorb_core::idl::ValueHandle> {
+            match self {
+                Titled::Object(_) => None,
+                Titled::Value(v) => Some(v.handle()),
+            }
+        }
+
+        #[doc(hidden)]
+        pub fn _write(
+            v: Option<&Titled>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            match v {
+                None => ::rustorb_core::idl::write_abstract_object(None, out),
+                Some(Titled::Object(obj)) => {
+                    ::rustorb_core::idl::write_abstract_object(Some(obj), out)
+                }
+                Some(Titled::Value(v)) => {
+                    ::rustorb_core::idl::write_abstract_value(v.handle(), out)
+                }
+            }
+        }
+
+        /// `_get_rank`.
+        #[allow(clippy::type_complexity)]
+        pub fn rank(&self) -> Result<i32, ::rustorb_core::SystemException> {
+            let obj = match self {
+                Titled::Object(obj) => obj,
+                Titled::Value(v) => return v.ops().rank(),
+            };
+            let request = obj.request("_get_rank");
+            let reply = request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `_get_rank`, on the async API: like [`rank`](Self::rank).
+        #[allow(clippy::type_complexity)]
+        pub async fn rank_async(&self) -> Result<i32, ::rustorb_core::SystemException> {
+            let obj = match self {
+                Titled::Object(obj) => obj,
+                Titled::Value(v) => return v.ops().rank(),
+            };
+            let request = obj.request_async("_get_rank");
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `_set_rank`.
+        #[allow(clippy::type_complexity)]
+        pub fn set_rank(&self, value: i32) -> Result<(), ::rustorb_core::SystemException> {
+            let obj = match self {
+                Titled::Object(obj) => obj,
+                Titled::Value(v) => return v.ops().set_rank(value),
+            };
+            let request = obj.request("_set_rank").args(|out| {
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&value, out)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            Ok(())
+        }
+
+        /// `_set_rank`, on the async API: like [`set_rank`](Self::set_rank).
+        #[allow(clippy::type_complexity)]
+        pub async fn set_rank_async(
+            &self,
+            value: i32,
+        ) -> Result<(), ::rustorb_core::SystemException> {
+            let obj = match self {
+                Titled::Object(obj) => obj,
+                Titled::Value(v) => return v.ops().set_rank(value),
+            };
+            let request = obj.request_async("_set_rank").args(|out| {
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&value, out)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            Ok(())
+        }
+
+        /// `retitle`.
+        #[allow(clippy::type_complexity)]
+        pub fn retitle(&self, title: &mut String) -> Result<(), titled::RetitleError> {
+            let obj = match self {
+                Titled::Object(obj) => obj,
+                Titled::Value(v) => return v.ops().retitle(title),
+            };
+            let request = obj.request("retitle").args(|out| {
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(&*title, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .map_err(titled::RetitleError::from_exception)?;
+            let mut input = reply.input();
+            *title =
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(())
+        }
+
+        /// `retitle`, on the async API: like [`retitle`](Self::retitle).
+        #[allow(clippy::type_complexity)]
+        pub async fn retitle_async(&self, title: &mut String) -> Result<(), titled::RetitleError> {
+            let obj = match self {
+                Titled::Object(obj) => obj,
+                Titled::Value(v) => return v.ops().retitle(title),
+            };
+            let request = obj.request_async("retitle").args(|out| {
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(&*title, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(titled::RetitleError::from_exception)?;
+            let mut input = reply.input();
+            *title =
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(())
+        }
+
+        /// `label_of`.
+        #[allow(clippy::type_complexity)]
+        pub fn label_of(&self) -> Result<String, ::rustorb_core::SystemException> {
+            let obj = match self {
+                Titled::Object(obj) => obj,
+                Titled::Value(v) => return v.ops().label_of(),
+            };
+            let request = obj.request("label_of");
+            let reply = request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `label_of`, on the async API: like [`label_of`](Self::label_of).
+        #[allow(clippy::type_complexity)]
+        pub async fn label_of_async(&self) -> Result<String, ::rustorb_core::SystemException> {
+            let obj = match self {
+                Titled::Object(obj) => obj,
+                Titled::Value(v) => return v.ops().label_of(),
+            };
+            let request = obj.request_async("label_of");
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+    }
+
+    impl ::rustorb_core::idl::IdlType for Titled {
+        type Rust = Option<Titled>;
+        type Borrowed = Option<Titled>;
+        const MIN_SIZE: usize = 1;
+
+        fn type_code() -> ::rustorb_core::TypeCode {
+            static TC: ::std::sync::OnceLock<::rustorb_core::TypeCode> =
+                ::std::sync::OnceLock::new();
+            TC.get_or_init(|| {
+                ::rustorb_core::idl::tc(::rustorb_core::TypeCode::interface(
+                    ::rustorb_core::TCKind::AbstractInterface,
+                    "IDL:rustorb.org/RustMapping/Titled:1.0",
+                    "Titled",
+                ))
+            })
+            .clone()
+        }
+
+        fn write(
+            v: &Option<Titled>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            Self::_write(v.as_ref(), out)
+        }
+
+        fn read(
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<Option<Titled>> {
+            ::rustorb_core::idl::read_abstract(input, Self::REPOSITORY_ID, Titled::Object)
+        }
+    }
+
+    /// The operations of the IDL abstract interface `RustMapping::Titled`.
+    ///
+    /// The servants of the interfaces derived from it implement it, and
+    /// the generator implements it for the valuetypes that support it.
+    pub trait TitledServant: Send + Sync + LabeledServant {
+        /// `_get_rank`.
+        #[allow(clippy::type_complexity)]
+        fn rank(&self) -> Result<i32, ::rustorb_core::SystemException>;
+
+        /// `_set_rank`.
+        #[allow(clippy::type_complexity)]
+        fn set_rank(&self, value: i32) -> Result<(), ::rustorb_core::SystemException>;
+
+        /// `retitle`.
+        #[allow(clippy::type_complexity)]
+        fn retitle(&self, title: &mut String) -> Result<(), titled::RetitleError>;
+    }
+
+    impl<T: ?Sized + TitledServant> TitledServant for ::rustorb_core::idl::Upcast<T> {
+        #[allow(clippy::type_complexity)]
+        fn rank(&self) -> Result<i32, ::rustorb_core::SystemException> {
+            self.0.rank()
+        }
+
+        #[allow(clippy::type_complexity)]
+        fn set_rank(&self, value: i32) -> Result<(), ::rustorb_core::SystemException> {
+            self.0.set_rank(value)
+        }
+
+        #[allow(clippy::type_complexity)]
+        fn retitle(&self, title: &mut String) -> Result<(), titled::RetitleError> {
+            self.0.retitle(title)
+        }
+    }
+
+    /// A reference to an object of the IDL interface `RustMapping::Book`.
+    ///
+    /// `==` compares the IORs ([`ObjectRef::is_equivalent`](::rustorb_core::ObjectRef::is_equivalent)).
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct Book(::rustorb_core::ObjectRef);
+
+    impl AsRef<::rustorb_core::ObjectRef> for Book {
+        fn as_ref(&self) -> &::rustorb_core::ObjectRef {
+            &self.0
+        }
+    }
+
+    impl From<Book> for Titled {
+        fn from(v: Book) -> Titled {
+            Titled::unchecked_narrow(v.0)
+        }
+    }
+
+    impl From<Book> for Labeled {
+        fn from(v: Book) -> Labeled {
+            Labeled::unchecked_narrow(v.0)
+        }
+    }
+
+    impl Book {
+        pub const REPOSITORY_ID: &'static str = "IDL:rustorb.org/RustMapping/Book:1.0";
+
+        /// `obj` as a reference to this interface, if the object supports it
+        /// (from the type id of its IOR, else by asking it with `_is_a`).
+        pub fn narrow(obj: &::rustorb_core::ObjectRef) -> ::rustorb_core::idl::Sys<Option<Book>> {
+            Ok(if ::rustorb_core::idl::is_a(obj, Self::REPOSITORY_ID)? {
+                Some(Book(obj.clone()))
+            } else {
+                None
+            })
+        }
+
+        /// `obj` as a reference to this interface, unchecked.
+        pub fn unchecked_narrow(obj: ::rustorb_core::ObjectRef) -> Book {
+            Book(obj)
+        }
+
+        /// The object reference.
+        pub fn object(&self) -> &::rustorb_core::ObjectRef {
+            &self.0
+        }
+
+        /// The object reference.
+        pub fn into_object(self) -> ::rustorb_core::ObjectRef {
+            self.0
+        }
+
+        #[doc(hidden)]
+        pub fn _write(
+            v: Option<&Book>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            out.write_object(v.map(|v| &v.0))
+        }
+
+        /// `pages`.
+        #[allow(clippy::type_complexity)]
+        pub fn pages(&self) -> Result<i32, ::rustorb_core::SystemException> {
+            let request = self.0.request("pages");
+            let reply = request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `pages`, on the async API: like [`pages`](Self::pages).
+        #[allow(clippy::type_complexity)]
+        pub async fn pages_async(&self) -> Result<i32, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("pages");
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `_get_rank`.
+        #[allow(clippy::type_complexity)]
+        pub fn rank(&self) -> Result<i32, ::rustorb_core::SystemException> {
+            let request = self.0.request("_get_rank");
+            let reply = request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `_get_rank`, on the async API: like [`rank`](Self::rank).
+        #[allow(clippy::type_complexity)]
+        pub async fn rank_async(&self) -> Result<i32, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("_get_rank");
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `_set_rank`.
+        #[allow(clippy::type_complexity)]
+        pub fn set_rank(&self, value: i32) -> Result<(), ::rustorb_core::SystemException> {
+            let request = self.0.request("_set_rank").args(|out| {
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&value, out)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            Ok(())
+        }
+
+        /// `_set_rank`, on the async API: like [`set_rank`](Self::set_rank).
+        #[allow(clippy::type_complexity)]
+        pub async fn set_rank_async(
+            &self,
+            value: i32,
+        ) -> Result<(), ::rustorb_core::SystemException> {
+            let request = self.0.request_async("_set_rank").args(|out| {
+                <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&value, out)?;
+                Ok(())
+            });
+            request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            Ok(())
+        }
+
+        /// `retitle`.
+        #[allow(clippy::type_complexity)]
+        pub fn retitle(&self, title: &mut String) -> Result<(), titled::RetitleError> {
+            let request = self.0.request("retitle").args(|out| {
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(&*title, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .map_err(titled::RetitleError::from_exception)?;
+            let mut input = reply.input();
+            *title =
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(())
+        }
+
+        /// `retitle`, on the async API: like [`retitle`](Self::retitle).
+        #[allow(clippy::type_complexity)]
+        pub async fn retitle_async(&self, title: &mut String) -> Result<(), titled::RetitleError> {
+            let request = self.0.request_async("retitle").args(|out| {
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(&*title, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(titled::RetitleError::from_exception)?;
+            let mut input = reply.input();
+            *title =
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(())
+        }
+
+        /// `label_of`.
+        #[allow(clippy::type_complexity)]
+        pub fn label_of(&self) -> Result<String, ::rustorb_core::SystemException> {
+            let request = self.0.request("label_of");
+            let reply = request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `label_of`, on the async API: like [`label_of`](Self::label_of).
+        #[allow(clippy::type_complexity)]
+        pub async fn label_of_async(&self) -> Result<String, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("label_of");
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+    }
+
+    impl ::rustorb_core::idl::IdlType for Book {
+        type Rust = Option<Book>;
+        type Borrowed = Option<Book>;
+        const MIN_SIZE: usize = 4;
+
+        fn type_code() -> ::rustorb_core::TypeCode {
+            static TC: ::std::sync::OnceLock<::rustorb_core::TypeCode> =
+                ::std::sync::OnceLock::new();
+            TC.get_or_init(|| {
+                ::rustorb_core::idl::tc(::rustorb_core::TypeCode::objref(
+                    "IDL:rustorb.org/RustMapping/Book:1.0",
+                    "Book",
+                ))
+            })
+            .clone()
+        }
+
+        fn write(
+            v: &Option<Book>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            Self::_write(v.as_ref(), out)
+        }
+
+        fn read(
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<Option<Book>> {
+            Ok(input.read_object()?.map(Book))
+        }
+    }
+
+    /// The implementation of the IDL interface `RustMapping::Book`.
+    pub trait BookServant: Send + Sync + TitledServant {
+        /// `pages`.
+        #[allow(clippy::type_complexity)]
+        fn pages(&self) -> Result<i32, ::rustorb_core::SystemException>;
+    }
+
+    /// The skeleton of `Book`: makes a `BookServant` a servant.
+    pub struct BookPoa<T>(pub T);
+
+    impl<T> ::std::fmt::Debug for BookPoa<T> {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            f.write_str("BookPoa")
+        }
+    }
+
+    impl<T: BookServant + 'static> BookPoa<T> {
+        /// Activates the servant in `poa` (with an id the POA assigns) and
+        /// returns its id and reference.
+        pub fn activate(
+            self,
+            poa: &::rustorb_core::Poa,
+        ) -> Result<(::rustorb_core::ObjectId, Book), ::rustorb_core::PoaError> {
+            let servant: ::std::sync::Arc<dyn ::rustorb_core::Servant> =
+                ::std::sync::Arc::new(self);
+            let id = poa.activate_object(servant)?;
+            let obj = poa.id_to_reference(&id)?;
+            Ok((id, Book(obj)))
+        }
+
+        /// Activates the servant in `poa` with the id `id` (a USER_ID POA)
+        /// and returns its reference.
+        pub fn activate_with_id(
+            self,
+            poa: &::rustorb_core::Poa,
+            id: &[u8],
+        ) -> Result<Book, ::rustorb_core::PoaError> {
+            let servant: ::std::sync::Arc<dyn ::rustorb_core::Servant> =
+                ::std::sync::Arc::new(self);
+            poa.activate_object_with_id(id, servant)?;
+            Ok(Book(poa.id_to_reference(id)?))
+        }
+    }
+
+    impl<T: BookServant> ::rustorb_core::Servant for BookPoa<T> {
+        fn repository_id(&self) -> &str {
+            Book::REPOSITORY_ID
+        }
+
+        fn is_a(&self, repository_id: &str) -> bool {
+            matches!(
+                repository_id,
+                "IDL:rustorb.org/RustMapping/Book:1.0"
+                    | "IDL:rustorb.org/RustMapping/Titled:1.0"
+                    | "IDL:rustorb.org/RustMapping/Labeled:1.0"
+            )
+        }
+
+        #[allow(unused_variables)]
+        fn dispatch(
+            &self,
+            operation: &str,
+            input: &mut ::rustorb_core::InStream<'_>,
+            reply: &mut ::rustorb_core::ServerReply,
+        ) -> Result<(), ::rustorb_core::SystemException> {
+            match operation {
+                "pages" => {
+                    let ret = self.0.pages()?;
+                    let mut out = reply.output();
+                    <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(
+                        &ret, &mut out,
+                    )?;
+                    Ok(())
+                }
+                "_get_rank" => {
+                    let ret = self.0.rank()?;
+                    let mut out = reply.output();
+                    <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(
+                        &ret, &mut out,
+                    )?;
+                    Ok(())
+                }
+                "_set_rank" => {
+                    let value =
+                        <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(input)?;
+                    self.0.set_rank(value)?;
+                    Ok(())
+                }
+                "retitle" => {
+                    let mut title =
+                        <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(input)?;
+                    let () = match self.0.retitle(&mut title) {
+                        Ok(r) => r,
+                        Err(e) => return e._write_reply(reply),
+                    };
+                    let mut out = reply.output();
+                    <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(
+                        &title, &mut out,
+                    )?;
+                    Ok(())
+                }
+                "label_of" => {
+                    let ret = self.0.label_of()?;
+                    let mut out = reply.output();
+                    <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(
+                        &ret, &mut out,
+                    )?;
+                    Ok(())
+                }
+                _ => Err(::rustorb_core::idl::unknown_operation()),
+            }
+        }
+    }
+
+    /// The state of the IDL valuetype `RustMapping::Note`.
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+    pub struct NoteState {
+        pub text: String,
+        pub level: i32,
+    }
+
+    impl ::rustorb_core::idl::ValueState for NoteState {
+        fn info(&self) -> &'static ::rustorb_core::idl::ValueInfo {
+            Note::_info()
+        }
+
+        fn write_state(
+            &self,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(&self.text, out)?;
+            <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&self.level, out)?;
+            Ok(())
+        }
+
+        fn read_state(
+            &mut self,
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            self.text = <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(input)?;
+            self.level = <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(input)?;
+            Ok(())
+        }
+
+        fn view(&self, ty: ::std::any::TypeId) -> Option<&dyn ::std::any::Any> {
+            if ty == ::std::any::TypeId::of::<Self>() {
+                return Some(self);
+            }
+            None
+        }
+
+        fn view_mut(&mut self, ty: ::std::any::TypeId) -> Option<&mut dyn ::std::any::Any> {
+            if ty == ::std::any::TypeId::of::<Self>() {
+                return Some(self);
+            }
+            None
+        }
+    }
+
+    /// The IDL valuetype `RustMapping::Note`: a shared reference to an instance of it
+    /// or of a type derived from it.
+    #[derive(Clone)]
+    pub struct Note(::rustorb_core::idl::ValueHandle);
+
+    impl ::std::fmt::Debug for Note {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            self.0.fmt(f)
+        }
+    }
+
+    impl Note {
+        pub const REPOSITORY_ID: &'static str = "IDL:rustorb.org/RustMapping/Note:1.0";
+
+        /// A new instance with the state `state`.
+        pub fn new(state: NoteState) -> Note {
+            Note(::rustorb_core::idl::ValueHandle::new(state))
+        }
+
+        /// A copy of the state (of this type, for an instance of a derived
+        /// type).
+        pub fn get(&self) -> NoteState {
+            self.0.with(|s: &NoteState| s.clone())
+        }
+
+        /// Replaces the state.
+        pub fn set(&self, state: NoteState) {
+            self.0.with_mut(|s: &mut NoteState| *s = state)
+        }
+
+        /// Runs `f` on the state. Touching the same instance in `f`
+        /// deadlocks.
+        pub fn with<T>(&self, f: impl FnOnce(&NoteState) -> T) -> T {
+            self.0.with(f)
+        }
+
+        /// Runs `f` on the state, to change it.
+        pub fn with_mut<T>(&self, f: impl FnOnce(&mut NoteState) -> T) -> T {
+            self.0.with_mut(f)
+        }
+
+        /// Whether both are the same instance.
+        pub fn ptr_eq(&self, other: &Note) -> bool {
+            self.0.ptr_eq(&other.0)
+        }
+
+        /// The untyped handle.
+        pub fn handle(&self) -> &::rustorb_core::idl::ValueHandle {
+            &self.0
+        }
+
+        /// The instance of `h`, if it is of this type or a derived one.
+        pub fn from_handle(h: ::rustorb_core::idl::ValueHandle) -> Option<Note> {
+            if h.is_a(Self::REPOSITORY_ID) {
+                Some(Note(h))
+            } else {
+                None
+            }
+        }
+
+        #[doc(hidden)]
+        pub fn _info() -> &'static ::rustorb_core::idl::ValueInfo {
+            static INFO: ::rustorb_core::idl::ValueInfo = ::rustorb_core::idl::ValueInfo {
+                id: Note::REPOSITORY_ID,
+                sent_ids: &["IDL:rustorb.org/RustMapping/Note:1.0"],
+                ancestors: &["IDL:rustorb.org/RustMapping/Note:1.0"],
+                custom: false,
+                make: || ::rustorb_core::idl::ValueHandle::new(NoteState::default()),
+                type_code: <Note as ::rustorb_core::idl::IdlType>::type_code,
+            };
+            &INFO
+        }
+
+        #[doc(hidden)]
+        pub fn _write(
+            v: Option<&Note>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            ::rustorb_core::idl::ValueHandle::write(v.map(|v| &v.0), out)
+        }
+    }
+
+    impl ::rustorb_core::idl::IdlType for Note {
+        type Rust = Option<Note>;
+        type Borrowed = Option<Note>;
+        const MIN_SIZE: usize = 4;
+
+        fn type_code() -> ::rustorb_core::TypeCode {
+            static TC: ::std::sync::OnceLock<::rustorb_core::TypeCode> =
+                ::std::sync::OnceLock::new();
+            TC.get_or_init(|| ::rustorb_core::idl::tc(::rustorb_core::TypeCode::value_tc::<&str>(::rustorb_core::TCKind::Value, "IDL:rustorb.org/RustMapping/Note:1.0", "Note", 0, None, &[("text", <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::type_code(), 1), ("level", <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::type_code(), 1)]))).clone()
+        }
+
+        fn write(
+            v: &Option<Note>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            Self::_write(v.as_ref(), out)
+        }
+
+        fn read(
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<Option<Note>> {
+            Ok(::rustorb_core::idl::ValueHandle::read(input, Self::_info())?.map(Note))
+        }
+    }
+
+    /// The operations of the IDL valuetype `RustMapping::Note`, which the application
+    /// implements for its state. They run with the state locked: touching
+    /// the same instance in them deadlocks.
+    pub trait NoteOperations {
+        /// `_get_rank`.
+        #[allow(clippy::type_complexity)]
+        fn rank(&mut self) -> Result<i32, ::rustorb_core::SystemException>;
+
+        /// `_set_rank`.
+        #[allow(clippy::type_complexity)]
+        fn set_rank(&mut self, value: i32) -> Result<(), ::rustorb_core::SystemException>;
+
+        /// `retitle`.
+        #[allow(clippy::type_complexity)]
+        fn retitle(&mut self, title: &mut String) -> Result<(), titled::RetitleError>;
+
+        /// `label_of`.
+        #[allow(clippy::type_complexity)]
+        fn label_of(&mut self) -> Result<String, ::rustorb_core::SystemException>;
+    }
+
+    impl TitledServant for Note {
+        #[allow(clippy::type_complexity)]
+        fn rank(&self) -> Result<i32, ::rustorb_core::SystemException> {
+            self.0.with_mut(|s: &mut NoteState| NoteOperations::rank(s))
+        }
+
+        #[allow(clippy::type_complexity)]
+        fn set_rank(&self, value: i32) -> Result<(), ::rustorb_core::SystemException> {
+            self.0
+                .with_mut(|s: &mut NoteState| NoteOperations::set_rank(s, value))
+        }
+
+        #[allow(clippy::type_complexity)]
+        fn retitle(&self, title: &mut String) -> Result<(), titled::RetitleError> {
+            self.0
+                .with_mut(|s: &mut NoteState| NoteOperations::retitle(s, title))
+        }
+    }
+
+    impl LabeledServant for Note {
+        #[allow(clippy::type_complexity)]
+        fn label_of(&self) -> Result<String, ::rustorb_core::SystemException> {
+            self.0
+                .with_mut(|s: &mut NoteState| NoteOperations::label_of(s))
+        }
+    }
+
+    impl From<Note> for Titled {
+        fn from(v: Note) -> Titled {
+            let handle = v.handle().clone();
+            Titled::Value(::rustorb_core::idl::AbstractValue::new(
+                handle,
+                ::std::sync::Arc::new(v),
+            ))
+        }
+    }
+
+    impl From<Note> for Labeled {
+        fn from(v: Note) -> Labeled {
+            let handle = v.handle().clone();
+            Labeled::Value(::rustorb_core::idl::AbstractValue::new(
+                handle,
+                ::std::sync::Arc::new(v),
+            ))
+        }
+    }
+
+    /// IDL struct `RustMapping::TitledPair`.
+    #[derive(Debug, Clone, Default)]
+    pub struct TitledPair {
+        pub first: Option<Titled>,
+        pub second: Option<Labeled>,
+    }
+
+    impl TitledPair {
+        pub const REPOSITORY_ID: &'static str = "IDL:rustorb.org/RustMapping/TitledPair:1.0";
+
+        #[doc(hidden)]
+        pub fn _write_members(
+            &self,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            <Titled as ::rustorb_core::idl::IdlType>::write(&self.first, out)?;
+            <Labeled as ::rustorb_core::idl::IdlType>::write(&self.second, out)?;
+            Ok(())
+        }
+
+        #[doc(hidden)]
+        pub fn _read_members(
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<TitledPair> {
+            Ok(TitledPair {
+                first: <Titled as ::rustorb_core::idl::IdlType>::read(input)?,
+                second: <Labeled as ::rustorb_core::idl::IdlType>::read(input)?,
+            })
+        }
+    }
+
+    impl ::rustorb_core::idl::IdlType for TitledPair {
+        type Rust = TitledPair;
+        type Borrowed = TitledPair;
+        const MIN_SIZE: usize = <Titled as ::rustorb_core::idl::IdlType>::MIN_SIZE
+            + <Labeled as ::rustorb_core::idl::IdlType>::MIN_SIZE;
+
+        fn type_code() -> ::rustorb_core::TypeCode {
+            static TC: ::std::sync::OnceLock<::rustorb_core::TypeCode> =
+                ::std::sync::OnceLock::new();
+            TC.get_or_init(|| {
+                ::rustorb_core::idl::tc(::rustorb_core::TypeCode::struct_tc::<&str>(
+                    "IDL:rustorb.org/RustMapping/TitledPair:1.0",
+                    "TitledPair",
+                    &[
+                        (
+                            "first",
+                            <Titled as ::rustorb_core::idl::IdlType>::type_code(),
+                        ),
+                        (
+                            "second",
+                            <Labeled as ::rustorb_core::idl::IdlType>::type_code(),
+                        ),
+                    ],
+                ))
+            })
+            .clone()
+        }
+
+        fn write(
+            v: &TitledPair,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            v._write_members(out)
+        }
+
+        fn read(input: &mut ::rustorb_core::InStream<'_>) -> ::rustorb_core::idl::Sys<TitledPair> {
+            Self::_read_members(input)
+        }
+    }
+
+    /// A reference to an object of the IDL interface `RustMapping::Shelf`.
+    ///
+    /// `==` compares the IORs ([`ObjectRef::is_equivalent`](::rustorb_core::ObjectRef::is_equivalent)).
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct Shelf(::rustorb_core::ObjectRef);
+
+    impl AsRef<::rustorb_core::ObjectRef> for Shelf {
+        fn as_ref(&self) -> &::rustorb_core::ObjectRef {
+            &self.0
+        }
+    }
+
+    impl Shelf {
+        pub const REPOSITORY_ID: &'static str = "IDL:rustorb.org/RustMapping/Shelf:1.0";
+
+        /// `obj` as a reference to this interface, if the object supports it
+        /// (from the type id of its IOR, else by asking it with `_is_a`).
+        pub fn narrow(obj: &::rustorb_core::ObjectRef) -> ::rustorb_core::idl::Sys<Option<Shelf>> {
+            Ok(if ::rustorb_core::idl::is_a(obj, Self::REPOSITORY_ID)? {
+                Some(Shelf(obj.clone()))
+            } else {
+                None
+            })
+        }
+
+        /// `obj` as a reference to this interface, unchecked.
+        pub fn unchecked_narrow(obj: ::rustorb_core::ObjectRef) -> Shelf {
+            Shelf(obj)
+        }
+
+        /// The object reference.
+        pub fn object(&self) -> &::rustorb_core::ObjectRef {
+            &self.0
+        }
+
+        /// The object reference.
+        pub fn into_object(self) -> ::rustorb_core::ObjectRef {
+            self.0
+        }
+
+        #[doc(hidden)]
+        pub fn _write(
+            v: Option<&Shelf>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            out.write_object(v.map(|v| &v.0))
+        }
+
+        /// `echo_titled`.
+        #[allow(clippy::type_complexity)]
+        pub fn echo_titled(
+            &self,
+            t: Option<&Titled>,
+        ) -> Result<Option<Titled>, ::rustorb_core::SystemException> {
+            let request = self.0.request("echo_titled").args(|out| {
+                Titled::_write(t, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Titled as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `echo_titled`, on the async API: like [`echo_titled`](Self::echo_titled).
+        #[allow(clippy::type_complexity)]
+        pub async fn echo_titled_async(
+            &self,
+            t: Option<&Titled>,
+        ) -> Result<Option<Titled>, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("echo_titled").args(|out| {
+                Titled::_write(t, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Titled as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `echo_titled_pair`.
+        #[allow(clippy::type_complexity)]
+        pub fn echo_titled_pair(
+            &self,
+            p: &TitledPair,
+        ) -> Result<TitledPair, ::rustorb_core::SystemException> {
+            let request = self.0.request("echo_titled_pair").args(|out| {
+                <TitledPair as ::rustorb_core::idl::IdlType>::write(p, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <TitledPair as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `echo_titled_pair`, on the async API: like [`echo_titled_pair`](Self::echo_titled_pair).
+        #[allow(clippy::type_complexity)]
+        pub async fn echo_titled_pair_async(
+            &self,
+            p: &TitledPair,
+        ) -> Result<TitledPair, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("echo_titled_pair").args(|out| {
+                <TitledPair as ::rustorb_core::idl::IdlType>::write(p, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <TitledPair as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `label`.
+        #[allow(clippy::type_complexity)]
+        pub fn label(
+            &self,
+            l: Option<&Labeled>,
+        ) -> Result<String, ::rustorb_core::SystemException> {
+            let request = self.0.request("label").args(|out| {
+                Labeled::_write(l, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `label`, on the async API: like [`label`](Self::label).
+        #[allow(clippy::type_complexity)]
+        pub async fn label_async(
+            &self,
+            l: Option<&Labeled>,
+        ) -> Result<String, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("label").args(|out| {
+                Labeled::_write(l, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret =
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `make_book`.
+        #[allow(clippy::type_complexity)]
+        pub fn make_book(
+            &self,
+            title: &str,
+        ) -> Result<Option<Book>, ::rustorb_core::SystemException> {
+            let request = self.0.request("make_book").args(|out| {
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(title, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Book as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+
+        /// `make_book`, on the async API: like [`make_book`](Self::make_book).
+        #[allow(clippy::type_complexity)]
+        pub async fn make_book_async(
+            &self,
+            title: &str,
+        ) -> Result<Option<Book>, ::rustorb_core::SystemException> {
+            let request = self.0.request_async("make_book").args(|out| {
+                <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(title, out)?;
+                Ok(())
+            });
+            let reply = request
+                .invoke()
+                .await
+                .map_err(::rustorb_core::idl::system_exception)?;
+            let mut input = reply.input();
+            let ret = <Book as ::rustorb_core::idl::IdlType>::read(&mut input)?;
+            Ok(ret)
+        }
+    }
+
+    impl ::rustorb_core::idl::IdlType for Shelf {
+        type Rust = Option<Shelf>;
+        type Borrowed = Option<Shelf>;
+        const MIN_SIZE: usize = 4;
+
+        fn type_code() -> ::rustorb_core::TypeCode {
+            static TC: ::std::sync::OnceLock<::rustorb_core::TypeCode> =
+                ::std::sync::OnceLock::new();
+            TC.get_or_init(|| {
+                ::rustorb_core::idl::tc(::rustorb_core::TypeCode::objref(
+                    "IDL:rustorb.org/RustMapping/Shelf:1.0",
+                    "Shelf",
+                ))
+            })
+            .clone()
+        }
+
+        fn write(
+            v: &Option<Shelf>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            Self::_write(v.as_ref(), out)
+        }
+
+        fn read(
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<Option<Shelf>> {
+            Ok(input.read_object()?.map(Shelf))
+        }
+    }
+
+    /// The implementation of the IDL interface `RustMapping::Shelf`.
+    pub trait ShelfServant: Send + Sync {
+        /// `echo_titled`.
+        #[allow(clippy::type_complexity)]
+        fn echo_titled(
+            &self,
+            t: Option<&Titled>,
+        ) -> Result<Option<Titled>, ::rustorb_core::SystemException>;
+
+        /// `echo_titled_pair`.
+        #[allow(clippy::type_complexity)]
+        fn echo_titled_pair(
+            &self,
+            p: &TitledPair,
+        ) -> Result<TitledPair, ::rustorb_core::SystemException>;
+
+        /// `label`.
+        #[allow(clippy::type_complexity)]
+        fn label(&self, l: Option<&Labeled>) -> Result<String, ::rustorb_core::SystemException>;
+
+        /// `make_book`.
+        #[allow(clippy::type_complexity)]
+        fn make_book(&self, title: &str) -> Result<Option<Book>, ::rustorb_core::SystemException>;
+    }
+
+    /// The skeleton of `Shelf`: makes a `ShelfServant` a servant.
+    pub struct ShelfPoa<T>(pub T);
+
+    impl<T> ::std::fmt::Debug for ShelfPoa<T> {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            f.write_str("ShelfPoa")
+        }
+    }
+
+    impl<T: ShelfServant + 'static> ShelfPoa<T> {
+        /// Activates the servant in `poa` (with an id the POA assigns) and
+        /// returns its id and reference.
+        pub fn activate(
+            self,
+            poa: &::rustorb_core::Poa,
+        ) -> Result<(::rustorb_core::ObjectId, Shelf), ::rustorb_core::PoaError> {
+            let servant: ::std::sync::Arc<dyn ::rustorb_core::Servant> =
+                ::std::sync::Arc::new(self);
+            let id = poa.activate_object(servant)?;
+            let obj = poa.id_to_reference(&id)?;
+            Ok((id, Shelf(obj)))
+        }
+
+        /// Activates the servant in `poa` with the id `id` (a USER_ID POA)
+        /// and returns its reference.
+        pub fn activate_with_id(
+            self,
+            poa: &::rustorb_core::Poa,
+            id: &[u8],
+        ) -> Result<Shelf, ::rustorb_core::PoaError> {
+            let servant: ::std::sync::Arc<dyn ::rustorb_core::Servant> =
+                ::std::sync::Arc::new(self);
+            poa.activate_object_with_id(id, servant)?;
+            Ok(Shelf(poa.id_to_reference(id)?))
+        }
+    }
+
+    impl<T: ShelfServant> ::rustorb_core::Servant for ShelfPoa<T> {
+        fn repository_id(&self) -> &str {
+            Shelf::REPOSITORY_ID
+        }
+
+        fn is_a(&self, repository_id: &str) -> bool {
+            matches!(repository_id, "IDL:rustorb.org/RustMapping/Shelf:1.0")
+        }
+
+        #[allow(unused_variables)]
+        fn dispatch(
+            &self,
+            operation: &str,
+            input: &mut ::rustorb_core::InStream<'_>,
+            reply: &mut ::rustorb_core::ServerReply,
+        ) -> Result<(), ::rustorb_core::SystemException> {
+            match operation {
+                "echo_titled" => {
+                    let t = <Titled as ::rustorb_core::idl::IdlType>::read(input)?;
+                    let ret = self.0.echo_titled(t.as_ref())?;
+                    let mut out = reply.output();
+                    <Titled as ::rustorb_core::idl::IdlType>::write(&ret, &mut out)?;
+                    Ok(())
+                }
+                "echo_titled_pair" => {
+                    let p = <TitledPair as ::rustorb_core::idl::IdlType>::read(input)?;
+                    let ret = self.0.echo_titled_pair(&p)?;
+                    let mut out = reply.output();
+                    <TitledPair as ::rustorb_core::idl::IdlType>::write(&ret, &mut out)?;
+                    Ok(())
+                }
+                "label" => {
+                    let l = <Labeled as ::rustorb_core::idl::IdlType>::read(input)?;
+                    let ret = self.0.label(l.as_ref())?;
+                    let mut out = reply.output();
+                    <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(
+                        &ret, &mut out,
+                    )?;
+                    Ok(())
+                }
+                "make_book" => {
+                    let title =
+                        <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::read(input)?;
+                    let ret = self.0.make_book(&title)?;
+                    let mut out = reply.output();
+                    <Book as ::rustorb_core::idl::IdlType>::write(&ret, &mut out)?;
+                    Ok(())
+                }
+                _ => Err(::rustorb_core::idl::unknown_operation()),
+            }
+        }
+    }
+
+    /// The definitions inside `RustMapping::Hook`.
+    pub mod hook {
+        /// The repository id of `RustMapping::Hook`.
+        pub const REPOSITORY_ID: &str = "IDL:rustorb.org/RustMapping/Hook:1.0";
+    }
+
+    /// The IDL local interface `RustMapping::Hook`.
+    ///
+    /// The application implements it, and passes its objects as
+    /// `Arc<dyn Hook>`. They are not sent to other processes.
+    pub trait Hook: Send + Sync {
+        /// `fire`.
+        #[allow(clippy::type_complexity)]
+        fn fire(
+            &self,
+            n: i32,
+            next: Option<&::std::sync::Arc<dyn Hook>>,
+        ) -> Result<i32, ::rustorb_core::SystemException>;
+    }
+
+    /// The definitions inside `RustMapping::LoudHook`.
+    pub mod loud_hook {
+        /// The repository id of `RustMapping::LoudHook`.
+        pub const REPOSITORY_ID: &str = "IDL:rustorb.org/RustMapping/LoudHook:1.0";
+
+        /// What `LoudHook::shout` raises.
+        #[derive(Debug, Clone)]
+        #[allow(clippy::enum_variant_names, clippy::large_enum_variant)]
+        pub enum ShoutError {
+            Failure(super::Failure),
+            /// A system exception.
+            System(::rustorb_core::SystemException),
+        }
+
+        impl ShoutError {
+            /// The repository id of the exception.
+            pub fn repository_id(&self) -> &str {
+                match self {
+                    ShoutError::Failure(_) => super::Failure::REPOSITORY_ID,
+                    ShoutError::System(e) => &e.repository_id,
+                }
+            }
+
+            /// The error of an exception a call failed with.
+            pub fn from_exception(e: ::rustorb_core::Exception) -> ShoutError {
+                fn user(u: &::rustorb_core::UserException) -> ::rustorb_core::idl::Sys<ShoutError> {
+                    let mut input = u.input()?;
+                    Ok(match u.repository_id() {
+                        super::Failure::REPOSITORY_ID => {
+                            ShoutError::Failure(super::Failure::_read_members(&mut input)?)
+                        }
+                        _ => ShoutError::System(::rustorb_core::idl::unlisted_user_exception()),
+                    })
+                }
+                match e {
+                    ::rustorb_core::Exception::System(e) => ShoutError::System(e),
+                    ::rustorb_core::Exception::User(u) => {
+                        user(&u).unwrap_or_else(ShoutError::System)
+                    }
+                }
+            }
+
+            #[doc(hidden)]
+            pub fn _write_reply(
+                self,
+                reply: &mut ::rustorb_core::ServerReply,
+            ) -> ::rustorb_core::idl::Sys<()> {
+                match self {
+                    ShoutError::Failure(e) => {
+                        e._write_members(&mut reply.user_exception(super::Failure::REPOSITORY_ID)?)
+                    }
+                    ShoutError::System(e) => Err(e),
+                }
+            }
+        }
+
+        impl From<::rustorb_core::SystemException> for ShoutError {
+            fn from(e: ::rustorb_core::SystemException) -> ShoutError {
+                ShoutError::System(e)
+            }
+        }
+
+        impl From<super::Failure> for ShoutError {
+            fn from(e: super::Failure) -> ShoutError {
+                ShoutError::Failure(e)
+            }
+        }
+
+        impl ::std::fmt::Display for ShoutError {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                match self {
+                    ShoutError::Failure(e) => e.fmt(f),
+                    ShoutError::System(e) => e.fmt(f),
+                }
+            }
+        }
+
+        impl ::std::error::Error for ShoutError {}
+    }
+
+    /// The IDL local interface `RustMapping::LoudHook`.
+    ///
+    /// The application implements it, and passes its objects as
+    /// `Arc<dyn LoudHook>`. They are not sent to other processes.
+    pub trait LoudHook: Send + Sync + Hook {
+        /// `shout`.
+        #[allow(clippy::type_complexity)]
+        fn shout(&self, s: &str) -> Result<(), loud_hook::ShoutError>;
+
+        /// `_get_last`.
+        #[allow(clippy::type_complexity)]
+        fn last(&self) -> Result<Pair, ::rustorb_core::SystemException>;
+    }
+
+    /// The state of the IDL valuetype `RustMapping::Bell`.
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+    pub struct BellState {
+        pub rings: i32,
+    }
+
+    impl ::rustorb_core::idl::ValueState for BellState {
+        fn info(&self) -> &'static ::rustorb_core::idl::ValueInfo {
+            Bell::_info()
+        }
+
+        fn write_state(
+            &self,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&self.rings, out)?;
+            Ok(())
+        }
+
+        fn read_state(
+            &mut self,
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            self.rings = <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::read(input)?;
+            Ok(())
+        }
+
+        fn view(&self, ty: ::std::any::TypeId) -> Option<&dyn ::std::any::Any> {
+            if ty == ::std::any::TypeId::of::<Self>() {
+                return Some(self);
+            }
+            None
+        }
+
+        fn view_mut(&mut self, ty: ::std::any::TypeId) -> Option<&mut dyn ::std::any::Any> {
+            if ty == ::std::any::TypeId::of::<Self>() {
+                return Some(self);
+            }
+            None
+        }
+    }
+
+    /// The IDL valuetype `RustMapping::Bell`: a shared reference to an instance of it
+    /// or of a type derived from it.
+    #[derive(Clone)]
+    pub struct Bell(::rustorb_core::idl::ValueHandle);
+
+    impl ::std::fmt::Debug for Bell {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            self.0.fmt(f)
+        }
+    }
+
+    impl Bell {
+        pub const REPOSITORY_ID: &'static str = "IDL:rustorb.org/RustMapping/Bell:1.0";
+
+        /// A new instance with the state `state`.
+        pub fn new(state: BellState) -> Bell {
+            Bell(::rustorb_core::idl::ValueHandle::new(state))
+        }
+
+        /// A copy of the state (of this type, for an instance of a derived
+        /// type).
+        pub fn get(&self) -> BellState {
+            self.0.with(|s: &BellState| s.clone())
+        }
+
+        /// Replaces the state.
+        pub fn set(&self, state: BellState) {
+            self.0.with_mut(|s: &mut BellState| *s = state)
+        }
+
+        /// Runs `f` on the state. Touching the same instance in `f`
+        /// deadlocks.
+        pub fn with<T>(&self, f: impl FnOnce(&BellState) -> T) -> T {
+            self.0.with(f)
+        }
+
+        /// Runs `f` on the state, to change it.
+        pub fn with_mut<T>(&self, f: impl FnOnce(&mut BellState) -> T) -> T {
+            self.0.with_mut(f)
+        }
+
+        /// Whether both are the same instance.
+        pub fn ptr_eq(&self, other: &Bell) -> bool {
+            self.0.ptr_eq(&other.0)
+        }
+
+        /// The untyped handle.
+        pub fn handle(&self) -> &::rustorb_core::idl::ValueHandle {
+            &self.0
+        }
+
+        /// The instance of `h`, if it is of this type or a derived one.
+        pub fn from_handle(h: ::rustorb_core::idl::ValueHandle) -> Option<Bell> {
+            if h.is_a(Self::REPOSITORY_ID) {
+                Some(Bell(h))
+            } else {
+                None
+            }
+        }
+
+        #[doc(hidden)]
+        pub fn _info() -> &'static ::rustorb_core::idl::ValueInfo {
+            static INFO: ::rustorb_core::idl::ValueInfo = ::rustorb_core::idl::ValueInfo {
+                id: Bell::REPOSITORY_ID,
+                sent_ids: &["IDL:rustorb.org/RustMapping/Bell:1.0"],
+                ancestors: &["IDL:rustorb.org/RustMapping/Bell:1.0"],
+                custom: false,
+                make: || ::rustorb_core::idl::ValueHandle::new(BellState::default()),
+                type_code: <Bell as ::rustorb_core::idl::IdlType>::type_code,
+            };
+            &INFO
+        }
+
+        #[doc(hidden)]
+        pub fn _write(
+            v: Option<&Bell>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            ::rustorb_core::idl::ValueHandle::write(v.map(|v| &v.0), out)
+        }
+    }
+
+    impl ::rustorb_core::idl::IdlType for Bell {
+        type Rust = Option<Bell>;
+        type Borrowed = Option<Bell>;
+        const MIN_SIZE: usize = 4;
+
+        fn type_code() -> ::rustorb_core::TypeCode {
+            static TC: ::std::sync::OnceLock<::rustorb_core::TypeCode> =
+                ::std::sync::OnceLock::new();
+            TC.get_or_init(|| {
+                ::rustorb_core::idl::tc(::rustorb_core::TypeCode::value_tc::<&str>(
+                    ::rustorb_core::TCKind::Value,
+                    "IDL:rustorb.org/RustMapping/Bell:1.0",
+                    "Bell",
+                    0,
+                    None,
+                    &[(
+                        "rings",
+                        <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::type_code(),
+                        1,
+                    )],
+                ))
+            })
+            .clone()
+        }
+
+        fn write(
+            v: &Option<Bell>,
+            out: &mut ::rustorb_core::OutStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<()> {
+            Self::_write(v.as_ref(), out)
+        }
+
+        fn read(
+            input: &mut ::rustorb_core::InStream<'_>,
+        ) -> ::rustorb_core::idl::Sys<Option<Bell>> {
+            Ok(::rustorb_core::idl::ValueHandle::read(input, Self::_info())?.map(Bell))
+        }
+    }
+
+    /// The operations of the IDL valuetype `RustMapping::Bell`, which the application
+    /// implements for its state. They run with the state locked: touching
+    /// the same instance in them deadlocks.
+    pub trait BellOperations {
+        /// `fire`.
+        #[allow(clippy::type_complexity)]
+        fn fire(
+            &mut self,
+            n: i32,
+            next: Option<&::std::sync::Arc<dyn Hook>>,
+        ) -> Result<i32, ::rustorb_core::SystemException>;
+    }
+
+    impl Hook for Bell {
+        #[allow(clippy::type_complexity)]
+        fn fire(
+            &self,
+            n: i32,
+            next: Option<&::std::sync::Arc<dyn Hook>>,
+        ) -> Result<i32, ::rustorb_core::SystemException> {
+            self.0
+                .with_mut(|s: &mut BellState| BellOperations::fire(s, n, next))
+        }
+    }
+
     /// IDL constant `RustMapping::REOPENED`.
     pub const REOPENED: i32 = 1;
 
@@ -6608,4 +8433,23 @@ pub fn register_value_types() {
     ::rustorb_core::idl::register_value(rust_mapping::Link::_info());
     ::rustorb_core::idl::register_value(rust_mapping::Tagged::_info());
     ::rustorb_core::idl::register_value(rust_mapping::Gauge::_info());
+    ::rustorb_core::idl::register_value(rust_mapping::Note::_info());
+    ::rustorb_core::idl::register_supported(
+        rust_mapping::Titled::REPOSITORY_ID,
+        rust_mapping::Note::REPOSITORY_ID,
+        |h| {
+            rust_mapping::Note::from_handle(h.clone())
+                .map(|v| Box::new(rust_mapping::Titled::from(v)) as Box<dyn ::std::any::Any + Send>)
+        },
+    );
+    ::rustorb_core::idl::register_supported(
+        rust_mapping::Labeled::REPOSITORY_ID,
+        rust_mapping::Note::REPOSITORY_ID,
+        |h| {
+            rust_mapping::Note::from_handle(h.clone()).map(|v| {
+                Box::new(rust_mapping::Labeled::from(v)) as Box<dyn ::std::any::Any + Send>
+            })
+        },
+    );
+    ::rustorb_core::idl::register_value(rust_mapping::Bell::_info());
 }

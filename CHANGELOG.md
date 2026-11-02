@@ -31,6 +31,11 @@ break the API).
   turns either off). Calls made afterwards open a new connection.
   `-ORBmaxServerConnections N` (`max_server_connections`) caps the server's
   connections, closing the one used least recently to make room (#101)
+- `rustorb-idl -brust` maps abstract interfaces (an enum of an object
+  reference or a value, and the trait `AServant`) and local interfaces (a
+  trait, used as `Arc<dyn L>`); the core's `idl` module has the helpers
+  (`AbstractValue`, `register_supported`, `ValueHandle::read_base`). The
+  rustorb interop client and server run the abstract interface suite (#104)
 
 ### Changed
 
@@ -41,6 +46,8 @@ break the API).
 - The warnings the core wrote to standard error (a servant that panicked, say)
   are trace events of level 1, the default: `-ORBtraceLevel 0` silences them,
   and a `tracing` subscriber of the application receives them instead (#105)
+- `rustorb-idl -brust` rejects operations with a `context` clause, which it
+  used to drop silently (#104)
 
 ### Fixed
 

@@ -369,11 +369,73 @@ assert_eq!(a.doubled()?, 42);
 
 - 抽象 valuetype は生成器がエラーにする
 
+## abstract interface
+
+`abstract interface A` は、オブジェクト参照か、`A` を `supports` する valuetype の値のどちらかとして渡る（[#104](https://github.com/rustorb/rustorb/issues/104)、コアの扱いは [valuetype.md](valuetype.md)）。生成器は、どちらかを持つ enum `A` と、操作のトレイト `AServant` を作る。
+
+```rust
+// abstract interface Named { string name(); };
+// interface Person : Named { long age(); };
+// valuetype Card supports Named { public string title; };
+#[derive(Debug, Clone)]
+pub enum Named {
+    Object(ObjectRef),                                  // オブジェクト参照
+    Value(rustorb_core::idl::AbstractValue<dyn NamedServant>), // 値と、その上の操作
+}
+
+impl Named {
+    pub fn narrow(obj: &ObjectRef) -> Sys<Option<Named>>;
+    pub fn unchecked_narrow(obj: ObjectRef) -> Named;
+    pub fn from_value(h: &ValueHandle) -> Option<Named>;   // 値の型が Named を supports するなら
+    pub fn object(&self) -> Option<&ObjectRef>;
+    pub fn value(&self) -> Option<&ValueHandle>;
+    pub fn name(&self) -> Result<String, SystemException>; // 参照なら呼び出し、値ならこのプロセスで
+    pub async fn name_async(&self) -> Result<String, SystemException>;
+}
+
+pub trait NamedServant: Send + Sync {
+    fn name(&self) -> Result<String, SystemException>;
+}
+
+impl From<Person> for Named { /* Object */ }
+impl From<Card> for Named { /* Value */ }
+impl NamedServant for Card { /* CardOperations を呼ぶ */ }
+```
+
+- **型**：`A` の値は `Option<A>`（`None` は nil）。`in` は `Option<&A>`。PartialEq は持たない（値の型が持たないため）
+- **操作**：enum のメソッドが、`Object` なら参照のスタブとして呼び、`Value` なら値の操作（`AServant` の実装）をこのプロセスで呼ぶ。シグネチャとエラー型は普通のインターフェースと同じ
+- **具象インターフェース**：`interface I : A` のサーバントのトレイトは `IServant: AServant`。スケルトン `IPoa<T>` が `A` の操作も受ける。`From<I> for A` がある
+- **valuetype**：`valuetype V supports A` には `impl AServant for V`（`VOperations` を呼ぶ）と `From<V> for A` を作る。`A` を継承する具象インターフェースを `supports` するときも同じ
+- **継承**：`abstract interface A2 : A1` は `A2Servant: A1Servant`、`From<A2> for A1`。値の操作を基底のトレイトとして渡すために、コアの `idl::Upcast<T>` に各 `AServant` を実装する（Rust 1.85 にはトレイトの upcast がないため）
+- **送るとき**：`Object` は TRUE とオブジェクト参照、`Value` は FALSE と値、`None` は TRUE と nil の参照（コアと同じ）。値は他の値と同じく共有が保たれる
+- **受け取るとき**：値は `ValueBase` として読み（`ValueHandle::read_base`、型は `register_value` で登録されたもの）、その valuetype の出力ファイルの `register_value_types()` が登録した変換（`idl::register_supported`）で `A::Value` にする。登録されていない型や `A` を `supports` しない型の値は `MARSHAL`
+- TypeCode は `tk_abstract_interface`。Any にも入る
+
+相互接続は `interop/run-matrix.sh --suite abstract` に `rustorb` を入れて確かめる。
+
+## local interface
+
+`local interface L` は、トレイト `L` だけになる。スタブ、スケルトン、マーシャリングはない。アプリケーションが実装し、`Arc<dyn L>` として渡す。コアのサーバントマネージャー（`ServantActivator` など）と同じ形。
+
+```rust
+// local interface Hook { long fire(in long n, in Hook next); };
+pub trait Hook: Send + Sync {
+    fn fire(&self, n: i32, next: Option<&Arc<dyn Hook>>) -> Result<i32, SystemException>;
+}
+// hook::REPOSITORY_ID
+```
+
+- 型は `Option<Arc<dyn L>>`、`in` は `Option<&Arc<dyn L>>`
+- 継承は親トレイト（`local interface L2 : L1` は `L2: L1`。基底が普通のインターフェースなら `BServant`）。`Arc<dyn L2>` から `Arc<dyn L1>` への変換は作らない（Rust 1.85 にトレイトの upcast がないため。具体的な型から作る）
+- リポジトリIDは、名前のモジュールの定数 `l::REPOSITORY_ID`（トレイトに定数を置くと `dyn` にできないため）
+- `valuetype V supports L` には `impl L for V` を作る
+- 送ることになる使い方（普通のインターフェースの操作の引数、struct のメンバー、typedef、Any）は生成器のエラー
+
 ## 対象外（生成器がエラーにするもの）
 
-- abstract interface、local interface（コアと Python・C++・Java は abstract interface に対応した（[#43](https://github.com/rustorb/rustorb/issues/43)）。Rust は必要になったら、参照か値かの enum とトレイトの形で足す。local interface はトレイトだけを作る形で足す）
-- 抽象 valuetype、abstract・local interface を `supports` する valuetype、例外を投げる valuetype の操作（上記）
-- 操作の `context` 句
+- 抽象 valuetype、例外を投げる valuetype の操作（上記）
+- 操作の `context` 句。コアに `CORBA::Context` がなく、要求の引数のあとに Context を送れない。黙って省くと、`context` 句を宣言した相手の ORB との間で要求の形が食い違うので、エラーにする
+- local interface を送ること（上記）
 - IDL4 の新しい構文（[#46](https://github.com/rustorb/rustorb/issues/46)）
 
 生成したスタブの呼び出しのタイムアウトは、スタブの参照（`stub.object().set_call_timeout(...)`）、スレッド（`rustorb_core::set_thread_call_timeout`）、ORB（`Orb::set_call_timeout`）で設定する（[timeouts.md](timeouts.md)）。

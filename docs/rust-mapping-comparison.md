@@ -77,7 +77,7 @@ IDL の interface を Rust にする公開実装は rustorb と zerodds-corba-ru
 | oneway | `Result<(), SystemException>`、返事を待たない | 返事なしの trait メソッド | — |
 | 非同期 | 同期が基本、操作ごとに `async fn xxx_async`（サーバントは同期） | 同期のスタブ＋`@ami` の AMI（`AsyncReply`、コールバック） | — |
 | valuetype | ハンドルに操作、`VOperations` を状態に実装、`supports I` ならサーバントになれる | `pub trait V: ValueBase` | — |
-| 対象外 | abstract / local interface、`context`、抽象 valuetype | component / home は「phase 2」 | — |
+| 対象外 | `context`、抽象 valuetype（abstract / local interface は #104 で対応） | component / home は「phase 2」 | — |
 | `unsafe` | 生成コードになし | `forbid(unsafe_code)` | RMW 側は `#[repr(C)]` で C と共有 |
 
 設計の参考：CORBA 以外の Rust の RPC 生成器では、[tonic](https://docs.rs/tonic) がサービスを async のトレイト（戻り値 `Result<Response<T>, Status>`）にしている。例外を操作ごとの型に分ける rustorb の形は、これより型が細かい方向（tonic の記述は公開ページの要約で、詳細は確かめていない）。

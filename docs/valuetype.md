@@ -183,9 +183,9 @@ custom の値は `interop/idl/CustomTest.idl` の `CustomEcho`（7ケース：�
 | C++ | `class A : public virtual CORBA::AbstractBase`（純粋仮想の操作）。`IDL::traits<A>::ref_type` に参照も値も入る。`CORBA::Object` と `CORBA::ValueBase` は `AbstractBase` を仮想継承する | `interface I : A` のスタブは `A` と `CORBA::Object` を継承し、`A` の操作も持つ。`A` の型で受け取った参照は入れ子のスタブ `A::_rorb_stub`。`IDL::traits<I>::narrow` で `I` に、`dynamic_pointer_cast` で値か参照かを見分ける | 値のクラスが `A` を継承する |
 | Java | `interface A extends IDLEntity`（操作を直接持ち、`AOperations` はない）、`_AStub`、`AHelper`（`narrow(java.lang.Object)`）、`AHolder` | `IOperations` が `A` を継承する。`A` の型で受け取った参照は `_AStub` | 値のクラスが `A` を実装する |
 
-abstract interface にはスケルトンがなく、それを継承する最初の具象インターフェースのスケルトン（C++ の `POA_I`、Java の `IPOA`）が `A` の操作を受ける。`supports` できる具象インターフェースは一つだけで、abstract interface はいくつでもよい。Java のストリームは `write_abstract_interface` / `read_abstract_interface`、C++ と Java の `DataOutputStream` / `DataInputStream` は `write_Abstract` / `read_Abstract` を持つ。Rust の生成器は abstract interface を扱わない（[rust-mapping.md](rust-mapping.md)）。
+abstract interface にはスケルトンがなく、それを継承する最初の具象インターフェースのスケルトン（C++ の `POA_I`、Java の `IPOA`）が `A` の操作を受ける。`supports` できる具象インターフェースは一つだけで、abstract interface はいくつでもよい。Java のストリームは `write_abstract_interface` / `read_abstract_interface`、C++ と Java の `DataOutputStream` / `DataInputStream` は `write_Abstract` / `read_Abstract` を持つ。Rust の生成器は、参照か値かの enum `A` と操作のトレイト `AServant` を作る（[rust-mapping.md](rust-mapping.md#abstract-interface)、[#104](https://github.com/rustorb/rustorb/issues/104)）。
 
-相互接続は `interop/idl/AbstractTest.idl` の `AbstractEcho`（13ケース：参照・値・nil の往復、参照と値それぞれへの操作の呼び出し、参照か値かの判定、struct と sequence の中の共有と混在、`interface Person : Named` を返す操作、Any の中の値と参照）で、`run-matrix.sh --suite abstract` で回す。Rust を除く6つの実装の36組が通る（失敗は `known-failures.txt` の範囲だけ）。
+相互接続は `interop/idl/AbstractTest.idl` の `AbstractEcho`（13ケース：参照・値・nil の往復、参照と値それぞれへの操作の呼び出し、参照か値かの判定、struct と sequence の中の共有と混在、`interface Person : Named` を返す操作、Any の中の値と参照）で、`run-matrix.sh --suite abstract` で回す。7つの実装の49組が通る（失敗は `known-failures.txt` の範囲だけ。Rust は #104 で加えた）。
 
 ### 実測で分かったこと（abstract interface）
 

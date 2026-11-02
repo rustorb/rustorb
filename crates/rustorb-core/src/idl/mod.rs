@@ -24,8 +24,13 @@ use crate::{
     SystemExceptionKind, TCKind, TypeCode, minor,
 };
 
+mod abstract_iface;
 mod value;
 
+pub use abstract_iface::{
+    AbstractValue, SupportedFn, Upcast, read_abstract, register_supported, supported,
+    write_abstract_object, write_abstract_value,
+};
 pub use value::{
     CustomMarshal, DataInputStream, DataOutputStream, ValueHandle, ValueInfo, ValueState, read_box,
     register_value, write_box,
