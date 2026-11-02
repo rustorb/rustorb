@@ -83,6 +83,11 @@ VALUE_METHODS = {
     "_write", "clone", "fmt",
 }
 
+# The methods of the type of an abstract valuetype.
+ABSTRACT_VALUE_METHODS = {
+    "handle", "ptr_eq", "from_handle", "_new", "_write", "clone", "fmt", "from", "into",
+}
+
 # The methods of the enum of an abstract interface.
 ABSTRACT_METHODS = {
     "narrow", "unchecked_narrow", "from_value", "object", "value", "_write", "clone", "fmt",
@@ -328,23 +333,39 @@ class RustBackend(object):
         return out
 
     def check_value(self, node):
+        methods = ABSTRACT_VALUE_METHODS if node.is_abstract else VALUE_METHODS
         for opname, method, _, _, excs, _, _ in self.operations(node):
-            if excs:
-                raise fe.GeneratorError(
-                    "valuetype operations that raise exceptions are not supported by the Rust"
-                    " backend yet",
-                    node,
-                )
-            if self.method_name(opname, method) in VALUE_METHODS:
+            if self.method_name(opname, method) in methods:
                 raise fe.GeneratorError(
                     "the operation %s of %s clashes with a method of its Rust type"
                     % (method, node.name),
                     node,
                 )
-        if node.is_abstract:
+        if node.is_abstract and fe.supported_interfaces(node):
             raise fe.GeneratorError(
-                "abstract valuetypes are not supported by the Rust backend yet", node
+                "abstract valuetypes that support interfaces are not supported by the Rust"
+                " backend yet",
+                node,
             )
+
+    def abstract_value_bases(self, node):
+        """The abstract valuetypes a valuetype derives from, transitively,
+        other than through its concrete base (whose own code covers
+        them)."""
+        out = []
+        todo = [self.full(b) for b in fe.value_bases(node) if b.is_abstract]
+        while todo:
+            b = todo.pop(0)
+            if any(b is o for o in out):
+                continue
+            out.append(b)
+            todo.extend(self.full(x) for x in fe.value_bases(b) if x.is_abstract)
+        return out
+
+    def methods_trait(self, node, cur):
+        """The path of the trait of the operations of the abstract
+        valuetype ``node``."""
+        return self.ref(node, cur, name=self.item_name(node) + "Methods")
 
     def unsupported(self, t, where):
         if t.kind in UNSUPPORTED:
@@ -649,7 +670,9 @@ class RustBackend(object):
                 '("%s", %s, %d)' % (m, self.tc_expr(t, cur, node, inner), 1 if public else 0)
                 for m, t, public in self.state_members(node)
             )
-            modifier = {"VM_NONE": 0, "VM_CUSTOM": 1, "VM_TRUNCATABLE": 3}[self.value_modifier(node)]
+            modifier = {"VM_NONE": 0, "VM_CUSTOM": 1, "VM_ABSTRACT": 2, "VM_TRUNCATABLE": 3}[
+                self.value_modifier(node)
+            ]
             base_expr = (
                 "Some(&%s)" % self.tc_expr(fe.Type("named", node=base), cur, node, inner)
                 if base is not None
@@ -760,7 +783,7 @@ class RustBackend(object):
             for node in self.values:
                 w("%s::register_value(%s::_info());" % (self.I, self.ref(node, ())))
                 v = self.ref(node, ())
-                for a in self.abstract_supported(node):
+                for a in self.abstract_supported(node) + self.abstract_value_bases(node):
                     ap = self.ref(a, ())
                     w("%s::register_supported(%s::REPOSITORY_ID, %s::REPOSITORY_ID, |h| {" % (self.I, ap, v))
                     w("    %s::from_handle(h.clone())" % v)
@@ -879,6 +902,9 @@ class RustBackend(object):
         elif fe.is_valuetype(node):
             if node.is_boxed:
                 self.value_box(w, node, cur)
+            elif node.is_abstract:
+                self.check_value(node)
+                self.abstract_valuetype(w, node, cur)
             else:
                 self.check_value(node)
                 self.valuetype(w, node, cur)
@@ -1334,7 +1360,7 @@ class RustBackend(object):
         base = self.full(base) if base is not None else None
         if base is not None and "base" in fields:
             raise fe.GeneratorError("a member of %s is called base" % node.name, node)
-        self.nested(w, node, cur)
+        self.nested(w, node, cur, extra=self.own_errors(node, self.operations(node)))
 
         # The state.
         p = self.state_props(node)
@@ -1525,6 +1551,9 @@ class RustBackend(object):
         instance is also a servant of them."""
         R = self.R
         ops = [op + (node,) for op in self.operations(node)]
+        avs = self.abstract_value_bases(node)
+        for a in avs:
+            ops.extend(op + (a,) for op in self.operations(a))
         ifaces = []
         for i in fe.supported_interfaces(node):
             for n in [i] + self.ancestors(i):
@@ -1604,6 +1633,30 @@ class RustBackend(object):
             w.dedent()
             w("}")
             w()
+        for a in avs:
+            w("impl %s for %s {" % (self.methods_trait(a, cur), name))
+            w.indent()
+            first = True
+            for opname, m, args, rt, err, owner in sigs:
+                if owner is not a:
+                    continue
+                if not first:
+                    w()
+                first = False
+                w("%s {" % decl(w, m, args, rt, err, "&self"))
+                w("    %s" % call(m, args))
+                w("}")
+            w.dedent()
+            w("}")
+            w()
+            ap = self.ref(a, cur)
+            w("impl From<%s> for %s {" % (name, ap))
+            w("    fn from(v: %s) -> %s {" % (name, ap))
+            w("        let handle = v.handle().clone();")
+            w("        %s::_new(%s::AbstractValue::new(handle, ::std::sync::Arc::new(v)))" % (ap, self.I))
+            w("    }")
+            w("}")
+            w()
         for a in self.abstract_supported(node):
             ap = self.ref(a, cur)
             w("impl From<%s> for %s {" % (name, ap))
@@ -1613,6 +1666,138 @@ class RustBackend(object):
             w("    }")
             w("}")
             w()
+
+    def abstract_valuetype(self, w, node, cur):
+        """An abstract valuetype ``A``: a handle of an instance of a
+        valuetype derived from it, with the operations as methods, and the
+        trait ``AMethods`` of the operations, which the generator
+        implements for the handles of the derived valuetypes."""
+        name = self.item_name(node)
+        trait = name + "Methods"
+        R, I = self.R, self.I
+        self.claim(cur, name, "abstract valuetype %s" % node.name, node)
+        self.claim(cur, trait, "the operations of abstract valuetype %s" % node.name, node)
+        own_ops = self.operations(node)
+        bases = self.abstract_value_bases(node)
+        all_ops = [op + (node,) for op in own_ops]
+        for b in bases:
+            all_ops.extend(op + (b,) for op in self.operations(b))
+        self.check_methods(node, all_ops)
+        self.nested(w, node, cur, extra=self.own_errors(node, own_ops))
+
+        def sig(op):
+            opname, method, ret, params, excs, oneway, d, owner = op
+            m, args, rt = self.signature(opname, method, ret, params, excs, d, owner, cur)
+            err = self.error_path(owner, opname, method, cur) if excs else R + "::SystemException"
+            return opname, m, args, rt, err
+
+        def decl(m, args, rt, err, recv, pub=""):
+            if len(args) > 6:
+                w("#[allow(clippy::too_many_arguments)]")
+            w("#[allow(clippy::type_complexity)]")
+            return "%sfn %s(%s) -> Result<%s, %s>" % (pub, m, ", ".join([recv] + args), rt, err)
+
+        def names(args):
+            return ", ".join(a.split(":")[0] for a in args)
+
+        self.doc(w, node, "The IDL abstract valuetype")
+        w("///")
+        w("/// A shared reference to an instance of a valuetype derived from it.")
+        w("/// The methods run the operations on the instance, in this process.")
+        w("#[derive(Debug, Clone)]")
+        w("pub struct %s(%s::AbstractValue<dyn %s>);" % (name, I, trait))
+        w()
+        for b in bases:
+            bp = self.ref(b, cur)
+            w("impl From<%s> for %s {" % (name, bp))
+            w("    fn from(v: %s) -> %s {" % (name, bp))
+            w("        let ops: ::std::sync::Arc<dyn %s> =" % self.methods_trait(b, cur))
+            w("            ::std::sync::Arc::new(%s::Upcast(v.0.ops().clone()));" % I)
+            w("        %s::_new(%s::AbstractValue::new(v.0.handle().clone(), ops))" % (bp, I))
+            w("    }")
+            w("}")
+            w()
+        w("impl %s {" % name)
+        w.indent()
+        w('pub const REPOSITORY_ID: &\'static str = "%s";' % fe.repository_id(node))
+        w()
+        w("/// The untyped handle.")
+        w("pub fn handle(&self) -> &%s::ValueHandle {" % I)
+        w("    self.0.handle()")
+        w("}")
+        w()
+        w("/// Whether both are the same instance.")
+        w("pub fn ptr_eq(&self, other: &%s) -> bool {" % name)
+        w("    self.0.ptr_eq(&other.0)")
+        w("}")
+        w()
+        w("/// The instance of `h` as this type, if its valuetype derives from it")
+        w("/// (and was registered with `register_value_types`).")
+        w("pub fn from_handle(h: %s::ValueHandle) -> Option<%s> {" % (I, name))
+        w("    %s::supported(Self::REPOSITORY_ID, &h)" % I)
+        w("}")
+        w()
+        w("#[doc(hidden)]")
+        w("pub fn _new(v: %s::AbstractValue<dyn %s>) -> %s {" % (I, trait, name))
+        w("    %s(v)" % name)
+        w("}")
+        w()
+        w("#[doc(hidden)]")
+        w("pub fn _write(v: Option<&%s>, out: &mut %s::OutStream<'_>) -> %s::Sys<()> {" % (name, R, I))
+        w("    %s::ValueHandle::write(v.map(|v| v.0.handle()), out)" % I)
+        w("}")
+        for op in all_ops:
+            opname, m, args, rt, err = sig(op)
+            w()
+            w("/// `%s`, on the instance." % opname)
+            w("%s {" % decl(m, args, rt, err, "&self", "pub "))
+            w("    self.0.ops().%s(%s)" % (m, names(args)))
+            w("}")
+        w.dedent()
+        w("}")
+        w()
+        self.idl_type(
+            w,
+            node,
+            cur,
+            name,
+            "Option<%s>" % name,
+            "4",
+            lambda w: w("Self::_write(v.as_ref(), out)"),
+            lambda w: w("%s::read_abstract_value(input, Self::REPOSITORY_ID)" % I),
+        )
+        supers = ["Send", "Sync"] + [
+            self.methods_trait(self.full(b), cur) for b in fe.value_bases(node) if b.is_abstract
+        ]
+        w(
+            "/// The operations of the IDL abstract valuetype `%s`, which the"
+            % "::".join(fe.scope_path(node))
+        )
+        w("/// generator implements for the handles of the valuetypes derived from")
+        w("/// it (with the state locked, through their `Operations` trait).")
+        w("pub trait %s: %s {" % (trait, " + ".join(supers)))
+        w.indent()
+        for i, op in enumerate(op + (node,) for op in own_ops):
+            opname, m, args, rt, err = sig(op)
+            if i:
+                w()
+            w("/// `%s`." % opname)
+            w("%s;" % decl(m, args, rt, err, "&self"))
+        w.dedent()
+        w("}")
+        w()
+        w("impl<T: ?Sized + %s> %s for %s::Upcast<T> {" % (trait, trait, I))
+        w.indent()
+        for i, op in enumerate(op + (node,) for op in own_ops):
+            opname, m, args, rt, err = sig(op)
+            if i:
+                w()
+            w("%s {" % decl(m, args, rt, err, "&self"))
+            w("    self.0.%s(%s)" % (m, names(args)))
+            w("}")
+        w.dedent()
+        w("}")
+        w()
 
     def value_box(self, w, node, cur):
         name = self.item_name(node)
