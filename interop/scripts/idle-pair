@@ -1,7 +1,9 @@
 #!/bin/sh
 # Runs one pair of run-idle-probe.sh in the container: omniNames, the Echo
 # server of SERVER (with SERVER_IDLE_ARGS), and the idle probe of CLIENT
-# (with CLIENT_IDLE_ARGS), all on localhost.
+# (with CLIENT_IDLE_ARGS), all on 127.0.0.1 (not localhost, which may resolve to ::1 first: the
+# rustorb server would then listen on ::1 only, where JacORB, connecting to
+# 127.0.0.1, does not look).
 #
 #   idle-pair CLIENT SERVER
 #
@@ -11,9 +13,9 @@ set -eu
 client="$1"
 server="$2"
 cd /opt/interop
-naming=corbaloc::localhost:2809/NameService
+naming=corbaloc::127.0.0.1:2809/NameService
 logdir="$(mktemp -d)"
-omniNames -start 2809 -logdir "$logdir" -ORBendPointPublish giop:tcp:localhost:2809 \
+omniNames -start 2809 -logdir "$logdir" -ORBendPointPublish giop:tcp:127.0.0.1:2809 \
   > "$logdir/naming.log" 2>&1 &
 # The server binds itself once omniNames answers.
 for _ in $(seq 60); do
@@ -25,10 +27,10 @@ sleep 1
 case "$server" in
   jacorb)
     JAVA_TOOL_OPTIONS="${SERVER_IDLE_ARGS:-}" impls/jacorb/server --naming "$naming" \
-      --name idle/Echo --host localhost --port 2810 > "$logdir/server.log" 2>&1 &
+      --name idle/Echo --host 127.0.0.1 --port 2810 > "$logdir/server.log" 2>&1 &
     ;;
   *)
-    "impls/$server/server" --naming "$naming" --name idle/Echo --host localhost --port 2810 \
+    "impls/$server/server" --naming "$naming" --name idle/Echo --host 127.0.0.1 --port 2810 \
       ${SERVER_IDLE_ARGS:-} > "$logdir/server.log" 2>&1 &
     ;;
 esac
