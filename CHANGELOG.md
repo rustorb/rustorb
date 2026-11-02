@@ -9,6 +9,11 @@ break the API).
 
 ### Added
 
+- Portable Interceptors in Python (`rustorb.PortableInterceptor`,
+  `rustorb.IOP`): `ORBInitializer` with `register_orb_initializer`, client
+  and server request interceptors, IOR interceptors, `PICurrent` and
+  `Codec`, on the standard IDL to Python mapping; `PICurrent` and
+  `CodecFactory` initial references (#100)
 - Portable Interceptors in the core (`rustorb_core::pi`, `rustorb_core::iop`;
   docs/portable-interceptors.md): `ORBInitializer` (registered globally or in
   `OrbOptions::initializers`), client and server request interceptors with

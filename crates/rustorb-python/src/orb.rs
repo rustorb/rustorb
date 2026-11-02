@@ -11,8 +11,9 @@ use pyo3::types::{PyBytes, PyTuple};
 use rustorb_core::cdr::{ByteOrder, CdrVersion, Decoder, Encoder};
 use rustorb_core::giop::code_set;
 use rustorb_core::{
-    CodeSets, CompletionStatus, Exception, InStream, ObjectRef, Orb as CoreOrb, OutStream,
-    PolicyValue, ResolveError, SetOverrideType, SystemException, SystemExceptionKind, minor,
+    CodeSets, CompletionStatus, Exception, InStream, ObjectRef, Orb as CoreOrb, OrbOptions,
+    OutStream, PolicyValue, ResolveError, SetOverrideType, SystemException, SystemExceptionKind,
+    minor,
 };
 
 use crate::error::{marshal, marshal_err, sys_err};
@@ -29,14 +30,50 @@ pub(crate) struct Orb {
 #[pymethods]
 impl Orb {
     /// Creates an ORB from command line arguments. Returns the ORB and the
-    /// arguments that are not ORB options.
+    /// arguments that are not ORB options. `initializers` are the
+    /// `ORBInitializer`s (wrapped by `rustorb.PortableInterceptor`), run
+    /// after those registered in Rust; `orb_id` is the id of `ORB_init`,
+    /// which `-ORBid` overrides.
     #[staticmethod]
-    fn init(py: Python<'_>, args: Vec<String>) -> PyResult<(Orb, Vec<String>)> {
+    #[pyo3(signature = (args, initializers=Vec::new(), orb_id=String::new()))]
+    fn init(
+        py: Python<'_>,
+        args: Vec<String>,
+        initializers: Vec<Py<PyAny>>,
+        orb_id: String,
+    ) -> PyResult<(Orb, Vec<String>)> {
         let mut args = args;
+        let mut options = OrbOptions {
+            arguments: args.clone(),
+            orb_id,
+            initializers: initializers
+                .into_iter()
+                .map(|obj| {
+                    std::sync::Arc::new(crate::pi::PyInitializer { obj })
+                        as std::sync::Arc<dyn rustorb_core::pi::OrbInitializer>
+                })
+                .collect(),
+            ..OrbOptions::default()
+        };
+        options.parse_args(&mut args).map_err(|e| sys_err(py, &e))?;
         let orb = py
-            .detach(|| CoreOrb::init(&mut args))
+            .detach(|| CoreOrb::with_options(options))
             .map_err(|e| sys_err(py, &e))?;
         Ok((Orb { orb }, args))
+    }
+
+    /// `PICurrent`.
+    fn pi_current(&self) -> crate::pi::NativePiCurrent {
+        crate::pi::NativePiCurrent {
+            current: self.orb.pi_current(),
+        }
+    }
+
+    /// `CodecFactory`.
+    fn codec_factory(&self) -> crate::pi::NativeCodecFactory {
+        crate::pi::NativeCodecFactory {
+            factory: self.orb.codec_factory(),
+        }
     }
 
     /// The reply timeout of calls, in seconds; None for no limit.

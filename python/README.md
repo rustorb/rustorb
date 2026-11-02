@@ -29,7 +29,7 @@ orb.destroy()
 
 The wheels are abi3, for CPython 3.9 or later, with the ORB core compiled
 in: GIOP 1.0–1.2, IIOP and SSLIOP, the POA, Any / TypeCode / DynAny,
-valuetypes, DII / DSI and call timeouts. See the
+valuetypes, DII / DSI, Portable Interceptors and call timeouts. See the
 [getting started guide](https://github.com/rustorb/rustorb/blob/main/docs/getting-started.md).
 
 Licensed under MIT OR Apache-2.0.

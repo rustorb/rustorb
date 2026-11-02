@@ -11,7 +11,10 @@
   - ベンチマーク（`cargo bench -p rustorb-core -- orb/echo_long`）：インターセプターなしでは前と差がない（ばらつきの範囲）。何もしないクライアント・サーバーのインターセプターを 1 つずつ入れると、ループバックの 1 呼び出し（約 55 µs）が約 2.4 µs（約 4%）増える
   - 相互接続：`interop/run-pi-probe.sh`（`interop/impls/rustorb/src/pi_probe.rs` と `interop/impls/jacorb/pi/PiProbe.java`）。rustorb と JacORB 3.9 の間で、両向きの要求・返事のサービスコンテキスト、IOR インターセプターのタグ付きコンポーネント、`Codec`（CDR カプセル 1.2 の `encode_value`）の中身が届くことを確かめた（GIOP 1.0・1.1・1.2）。omniORB との組は Python の PR で足す
   - `pre_init` / `post_init` の例外で ORB の作成を失敗させる点（「ORB の初期化」の節）は、仕様の章の文言をまだ確かめていない
-- **Python・C ABI / C++・Java**：まだ（#107 の次の PR）
+- **Python（`rustorb.PortableInterceptor`・`rustorb.IOP`）**：実装済み（[python-binding.md](python-binding.md)）。`python/tests/test_pi.py`（11 件）。`run-pi-probe.sh` に rustorbpy（`interop/impls/rustorbpy/pi_probe.py`）を足し、rustorb・rustorbpy・JacORB のすべての組で確かめた
+  - DSI の引数は、バインディングの DSI も通る `ServerRequest::write_reply` でコアがインターセプターに渡す
+  - omniORBpy との組はまだ。omniORBpy のマニュアルにあるインターセプターの API（`omniORB.interceptors`）で試験用のプログラムを書く必要がある。この環境では相互接続のイメージ（omniORB をソースから作る）を動かせないため、次に回す
+- **C ABI / C++・Java**：まだ（#107 の次の PR）
 
 ## 範囲
 
