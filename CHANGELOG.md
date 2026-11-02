@@ -7,6 +7,8 @@ break the API).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-02
+
 ### Added
 
 - DDS type support in the Rust generator (`rustorb-idl -brust -Wbdds`, or
@@ -212,6 +214,7 @@ omniORBpy, and valuetypes in JacORB on Java 17).
   cycles; Java relies on the GC) (#85)
 - On Windows the read path of #66 / #67 falls back to the I/O task (#86)
 
-[Unreleased]: https://github.com/rustorb/rustorb/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/rustorb/rustorb/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/rustorb/rustorb/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/rustorb/rustorb/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/rustorb/rustorb/releases/tag/v0.1.0

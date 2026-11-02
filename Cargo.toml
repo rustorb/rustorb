@@ -13,7 +13,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
@@ -23,11 +23,11 @@ keywords = ["corba", "giop", "iiop", "orb", "rpc"]
 categories = ["network-programming"]
 
 [workspace.dependencies]
-rustorb-cdr = { path = "crates/rustorb-cdr", version = "0.1.1" }
-rustorb-typesupport = { path = "crates/rustorb-typesupport", version = "0.1.1" }
-rustorb-giop = { path = "crates/rustorb-giop", version = "0.1.1" }
-rustorb-core = { path = "crates/rustorb-core", version = "0.1.1" }
-rustorb-naming = { path = "crates/rustorb-naming", version = "0.1.1" }
+rustorb-cdr = { path = "crates/rustorb-cdr", version = "0.2.0" }
+rustorb-typesupport = { path = "crates/rustorb-typesupport", version = "0.2.0" }
+rustorb-giop = { path = "crates/rustorb-giop", version = "0.2.0" }
+rustorb-core = { path = "crates/rustorb-core", version = "0.2.0" }
+rustorb-naming = { path = "crates/rustorb-naming", version = "0.2.0" }
 tokio = { version = "1", default-features = false }
 
 [workspace.lints.rust]
