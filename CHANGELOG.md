@@ -80,6 +80,10 @@ break the API).
   until the next call to the same endpoint, and when two calls connected to an
   endpoint at once the connection not kept stayed open until the server closed
   it (#101)
+- Python: a process with trace output could abort at exit with
+  `Fatal Python error`, the log thread writing to `sys.stderr` (or calling
+  `logging`) while the interpreter shut down; the exit hook now stops that
+  thread first (#123)
 
 ## [0.1.1] - 2026-11-02
 
