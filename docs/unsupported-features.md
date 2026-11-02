@@ -19,7 +19,7 @@ Nov 1, 2026
 | 機能 | 現状 | メモ | issue |
 | --- | --- | --- | --- |
 | 双方向 GIOP（BiDir、`BiDirPolicy`） | [poa-design.md](poa-design.md) で MVP の対象外 | NAT・ファイアウォール越しのコールバックに要る | [#103](https://github.com/rustorb/rustorb/issues/103) |
-| `-brust` の abstract interface・local interface・抽象 valuetype・`context` 句 | 生成器がエラーにする（[rust-mapping.md](rust-mapping.md)）。コアと他の言語は abstract interface に対応済み | Rust の利用者がローカルオブジェクトを IDL で書けない | [#104](https://github.com/rustorb/rustorb/issues/104) |
+| `-brust` の abstract interface・local interface・抽象 valuetype・`context` 句 | 対応済み（[rust-mapping.md](rust-mapping.md)）。`context` 句は、コアに `CORBA::Context` がないので生成器のエラーのままにすると決めた | Rust の利用者がローカルオブジェクトを IDL で書けない（解消） | [#104](https://github.com/rustorb/rustorb/issues/104) |
 | ログ・トレースの出力（`-ORBtraceLevel` 相当） | コアにログの仕組みがない | 相互接続や設定の問題を利用者が調べにくい | [#105](https://github.com/rustorb/rustorb/issues/105) |
 | Messaging AMI（IDL の `sendc_` と `ReplyHandler`、ポーリング） | Rust は async API（[async-api.md](async-api.md)）と DII の deferred で代替。標準の AMI の生成コードはない | C++・Java・Python に非同期呼び出しの標準 API がない | |
 | Messaging のその他のポリシー（SyncScope、Rebind、RequestPriority など） | タイムアウト（RelativeRoundtripTimeout）だけ | oneway の `SYNC_WITH_*` は内部で持っているので、ポリシーとして公開するのは小さい | |
