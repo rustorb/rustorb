@@ -8,7 +8,7 @@ rustorb のリリースで何を出すか、どう作るか、公開をどう行
 
 | 成果物 | 中身 | 公開先 |
 | --- | --- | --- |
-| クレート | `rustorb-cdr`、`rustorb-giop`、`rustorb-core`、`rustorb-naming`（`rustorb-names` を含む）、`rustorb-ffi`、`rustorb-codegen` | crates.io |
+| クレート | `rustorb-cdr`、`rustorb-typesupport`、`rustorb-giop`、`rustorb-core`、`rustorb-naming`（`rustorb-names` を含む）、`rustorb-ffi`、`rustorb-codegen` | crates.io |
 | `rustorb` の wheel | ネイティブモジュール込みの abi3 wheel（CPython 3.9 以降）。Linux x86_64 / aarch64（manylinux 2_28）、macOS x86_64 / arm64、Windows x64。sdist も | PyPI |
 | `rustorb-idl` | IDL コンパイラ（純 Python。idl_parser 0.6.2 以降に依存） | PyPI |
 | `rustorb-omniorb-compat` | omniORBpy 互換パッケージ（純 Python） | PyPI |

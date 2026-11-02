@@ -445,6 +445,7 @@ name = "rustorb-codegen"
 version = "0.1.1"
 dependencies = [
  "rustorb-core",
+ "rustorb-typesupport",
  "tokio",
 ]
 
@@ -502,6 +503,13 @@ dependencies = [
  "pyo3-build-config",
  "rustorb-core",
  "tracing",
+]
+
+[[package]]
+name = "rustorb-typesupport"
+version = "0.1.1"
+dependencies = [
+ "rustorb-cdr",
 ]
 
 [[package]]
