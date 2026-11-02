@@ -1,6 +1,6 @@
 # The installed rustorb C++ binding (cpp/CMakeLists.txt):
 #
-#   find_package(rustorb 0.1 REQUIRED)
+#   find_package(rustorb 0.2 REQUIRED)
 #   rustorb_idl_generate(SOURCES Example.idl)   # idl/Example.hh, idl/Example.cc
 #   add_executable(app main.cc ${SOURCES})
 #   target_include_directories(app PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl")

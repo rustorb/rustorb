@@ -37,6 +37,7 @@ pub struct Config {
     includes: Vec<PathBuf>,
     defines: Vec<String>,
     externs: Vec<(String, String)>,
+    dds: Option<&'static str>,
     out_dir: Option<PathBuf>,
     program: Option<Vec<OsString>>,
 }
@@ -68,6 +69,23 @@ impl Config {
     /// "rustorb_naming::idl::cos_naming")`.
     pub fn extern_module(&mut self, module: &str, path: &str) -> &mut Config {
         self.externs.push((module.to_owned(), path.to_owned()));
+        self
+    }
+
+    /// Also writes the DDS type support of the structs, unions, enums and
+    /// bitmasks (`-Wbdds`): impls of the traits of `rustorb-typesupport`,
+    /// which the crate then depends on, next to the CORBA ones.
+    pub fn dds(&mut self) -> &mut Config {
+        self.dds = Some("-Wbdds");
+        self
+    }
+
+    /// Writes the DDS type support only, without the CORBA code
+    /// (`-Wbdds_only`): the crate depends on `rustorb-typesupport` and not
+    /// on `rustorb-core`, and the IDL can use `@optional`, `@external`,
+    /// `@value`, `int8` and `bitmask`.
+    pub fn dds_only(&mut self) -> &mut Config {
+        self.dds = Some("-Wbdds_only");
         self
     }
 
@@ -113,6 +131,9 @@ impl Config {
         }
         for (module, path) in &self.externs {
             cmd.arg(format!("-Wbextern={module}={path}"));
+        }
+        if let Some(dds) = self.dds {
+            cmd.arg(dds);
         }
         for f in files {
             cmd.arg(f.as_ref());

@@ -8,7 +8,7 @@ rustorb のリリースで何を出すか、どう作るか、公開をどう行
 
 | 成果物 | 中身 | 公開先 |
 | --- | --- | --- |
-| クレート | `rustorb-cdr`、`rustorb-giop`、`rustorb-core`、`rustorb-naming`（`rustorb-names` を含む）、`rustorb-ffi`、`rustorb-codegen` | crates.io |
+| クレート | `rustorb-cdr`、`rustorb-typesupport`、`rustorb-giop`、`rustorb-core`、`rustorb-naming`（`rustorb-names` を含む）、`rustorb-ffi`、`rustorb-codegen` | crates.io |
 | `rustorb` の wheel | ネイティブモジュール込みの abi3 wheel（CPython 3.9 以降）。Linux x86_64 / aarch64（manylinux 2_28）、macOS x86_64 / arm64、Windows x64。sdist も | PyPI |
 | `rustorb-idl` | IDL コンパイラ（純 Python。idl_parser 0.6.2 以降に依存） | PyPI |
 | `rustorb-omniorb-compat` | omniORBpy 互換パッケージ（純 Python） | PyPI |
@@ -39,7 +39,7 @@ tools/set-version.py --check        # そろっているか（CI とリリース
    - wheel（各環境で入れて import する）、sdist、純 Python のパッケージ（`rustorb-idl` は PyPI の idl_parser と入れて動かす）
    - `rustorb-native`（CMake で入れ、`cpp/tests/consumer` を `find_package` でビルドして動かす）、jar
    - Release `vx.y.z` の下書きに成果物、`SHA256SUMS`、`CHANGELOG.md` のその版の節を付ける
-   - crates.io に依存の順（cdr → giop → core → codegen → ffi → naming）で公開する（`crates-io` ジョブ）
+   - crates.io に依存の順（cdr → typesupport → giop → core → codegen → ffi → naming）で公開する（`crates-io` ジョブ）
    - PyPI に `rustorb`（wheel と sdist）、`rustorb-idl`、`rustorb-omniorb-compat` を公開する（`pypi` ジョブ）
    - 両方が終わったら Release を公開する（`publish-release` ジョブ）
 4. 公開のジョブが途中で失敗したら、原因を直してから、失敗したジョブを Actions の画面で再実行する。公開済みのクレートとファイルは飛ばす（クレートは crates.io にその版があるか確かめ、PyPI は `skip-existing`）
@@ -74,7 +74,7 @@ tools/set-version.py --check        # そろっているか（CI とリリース
 **C++**：`rustorb-native` を展開した場所を `CMAKE_PREFIX_PATH` に入れる。IDL からのコード生成には `pip install rustorb-idl` で入る `rustorb-idl` を使う（PATH にあるか、`RUSTORB_IDL` で指定する）。
 
 ```cmake
-find_package(rustorb 0.1 REQUIRED)
+find_package(rustorb 0.2 REQUIRED)
 rustorb_idl_generate(SOURCES Echo.idl)   # build/idl/Echo.hh、Echo.cc
 add_executable(app main.cc ${SOURCES})
 target_include_directories(app PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl")

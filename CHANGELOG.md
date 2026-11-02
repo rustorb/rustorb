@@ -23,6 +23,25 @@ break the API).
   `BiDirPolicy` module (also as `omniORB.BiDirPolicy`), the C ABI
   `RORB_BIDIRECTIONAL_POLICY_TYPE`; `interop/run-bidir-probe.sh` checks both
   directions with omniORB C++ and omniORBpy (#103)
+
+### Changed
+
+- Client request ids are even (0, 2, 4, …): the side that opened a connection
+  uses even ids and the other side odd ones, as bidirectional GIOP needs (#103)
+
+## [0.2.0] - 2026-11-02
+
+### Added
+
+- DDS type support in the Rust generator (`rustorb-idl -brust -Wbdds`, or
+  `-Wbdds_only` without the CORBA code; `Config::dds` / `Config::dds_only`;
+  docs/dds-type-support.md): structs, unions, enums and bitmasks implement
+  the traits of the new crate `rustorb-typesupport` (MIT OR Apache-2.0,
+  depends only on `rustorb-cdr`): XCDR1 and XCDR2 with `@final`,
+  `@appendable` and `@mutable`, `@optional`, `@external`, member IDs from
+  `@id` / `@hashid` / `@autoid`, `@must_understand`, `@key` with the key
+  holder and key hash of DDS-XTypes 7.6.8, the RTPS SerializedPayload, and
+  topic types from `@nested` / `@default_nested` / `@topic` (#113)
 - Portable Interceptors in C, C++ and Java: the C ABI (`rustorb.h`: interceptor
   and initializer vtables, `rorb_register_orb_initializer`, `rorb_orb_init_pi`,
   the `rorb_cri_*` / `rorb_sri_*` / `rorb_ior_info_*` / `rorb_init_info_*`
@@ -73,20 +92,30 @@ break the API).
   trait, used as `Arc<dyn L>`); the core's `idl` module has the helpers
   (`AbstractValue`, `register_supported`, `ValueHandle::read_base`). The
   rustorb interop client and server run the abstract interface suite (#104)
+- rustorb-cdr: the `xcdr` module writes and reads the headers of DDS-XTypes
+  Extended CDR: the RTPS SerializedPayload header (`Encoder::xcdr_payload`,
+  `Decoder::xcdr_payload`; alignment restarts after it and the options record
+  the final padding), DHEADER (`begin_dheader` / `read_dheader`), the XCDR2
+  member header EMHEADER (`begin_member` / `read_member_header`, length codes
+  0 to 7) and the XCDR1 parameter headers, short and `PID_EXTENDED`
+  (`begin_parameter` / `read_parameter`), for mutable types and optional
+  members. `wchar` and `wstring` are written and read with XCDR (#112)
 - `rustorb-idl -brust` maps abstract valuetypes (a handle and the trait
   `AMethods`, implemented for the derived valuetypes) and valuetype
   operations that raise user exceptions (per-operation error enums) (#104)
 
 ### Changed
 
-- Client request ids are even (0, 2, 4, …): the side that opened a connection
-  uses even ids and the other side odd ones, as bidirectional GIOP needs (#103)
 - The C ABI version is 2 (`RORB_ABI_VERSION`): Portable Interceptors, and the
   local exception codes 21 to 26 (#100)
 - A request left without a reply by `CloseConnection` is sent again up to 4
   times on new connections (was 2) before `TRANSIENT`; a server ignores the
   requests that expect a reply once it has decided to send `CloseConnection`,
   so that the client's resend does not run them twice (#101)
+- rustorb-cdr: `CdrVersion` is now `Encoding`, which adds `Xcdr1` and `Xcdr2`
+  (DDS-XTypes Extended CDR) to the GIOP versions, and `Encoder::version` and
+  `Decoder::version` are now `encoding`. XCDR2 aligns no primitive to more
+  than 4 octets (`Encoding::max_align`). GIOP encoding is unchanged (#112)
 - The warnings the core wrote to standard error (a servant that panicked, say)
   are trace events of level 1, the default: `-ORBtraceLevel 0` silences them,
   and a `tracing` subscriber of the application receives them instead (#105)
@@ -206,6 +235,7 @@ omniORBpy, and valuetypes in JacORB on Java 17).
   cycles; Java relies on the GC) (#85)
 - On Windows the read path of #66 / #67 falls back to the I/O task (#86)
 
-[Unreleased]: https://github.com/rustorb/rustorb/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/rustorb/rustorb/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/rustorb/rustorb/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/rustorb/rustorb/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/rustorb/rustorb/releases/tag/v0.1.0

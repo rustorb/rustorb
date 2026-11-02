@@ -1,6 +1,6 @@
 use std::fmt;
 
-use rustorb_cdr::{ByteOrder, CdrVersion};
+use rustorb_cdr::{ByteOrder, Encoding};
 
 use crate::{Error, Result};
 
@@ -27,11 +27,11 @@ impl Version {
     }
 
     /// The CDR rules for this version.
-    pub fn cdr_version(self) -> CdrVersion {
+    pub fn cdr_version(self) -> Encoding {
         match self.minor {
-            0 => CdrVersion::Giop1_0,
-            1 => CdrVersion::Giop1_1,
-            _ => CdrVersion::Giop1_2,
+            0 => Encoding::Giop1_0,
+            1 => Encoding::Giop1_1,
+            _ => Encoding::Giop1_2,
         }
     }
 }

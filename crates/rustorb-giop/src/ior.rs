@@ -1,7 +1,7 @@
 use std::fmt;
 use std::str::FromStr;
 
-use rustorb_cdr::{ByteOrder, CdrDecode, CdrEncode, CdrVersion, Decoder, Encoder};
+use rustorb_cdr::{ByteOrder, CdrDecode, CdrEncode, Decoder, Encoder, Encoding};
 
 use crate::{Error, IiopProfile};
 
@@ -75,13 +75,13 @@ impl Ior {
     /// Reads an IOR from an encapsulation, the binary form behind a
     /// stringified IOR. Bytes after the IOR are ignored.
     pub fn from_encapsulation(data: &[u8]) -> crate::Result<Ior> {
-        let mut dec = Decoder::encapsulation(data, CdrVersion::Giop1_2)?;
+        let mut dec = Decoder::encapsulation(data, Encoding::Giop1_2)?;
         Ok(Ior::decode(&mut dec)?)
     }
 
     /// Writes the IOR as an encapsulation in byte order `order`.
     pub fn to_encapsulation(&self, order: ByteOrder) -> crate::Result<Vec<u8>> {
-        let mut enc = Encoder::encapsulation(order, CdrVersion::Giop1_2);
+        let mut enc = Encoder::encapsulation(order, Encoding::Giop1_2);
         self.encode(&mut enc)?;
         Ok(enc.into_bytes())
     }

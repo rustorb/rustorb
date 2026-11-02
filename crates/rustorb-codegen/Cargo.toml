@@ -19,4 +19,5 @@ workspace = true
 
 [dev-dependencies]
 rustorb-core.workspace = true
+rustorb-typesupport.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }

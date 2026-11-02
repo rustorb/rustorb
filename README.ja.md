@@ -30,6 +30,7 @@ Rust製のCORBA実装（[English](README.md)）
 | クレート | 役割 | ライセンス |
 | --- | --- | --- |
 | `rustorb-cdr` | CDRのエンコード・デコード | MIT OR Apache-2.0 |
+| `rustorb-typesupport` | DDS の型サポート（XCDR1/XCDR2、キーハッシュ）。`rustorb-idl -brust -Wbdds` の生成コードが使う（[docs/dds-type-support.md](docs/dds-type-support.md)） | MIT OR Apache-2.0 |
 | `rustorb-giop` | GIOP/IIOPメッセージ型、IOR・corbaloc | MIT OR Apache-2.0 |
 | `rustorb-core` | ORB本体（接続管理、リクエスト配送、POA）。内部でtokioを使い、公開APIは同期 | MIT OR Apache-2.0 |
 | `rustorb-naming` | CosNaming（Naming Service） | MIT OR Apache-2.0 |

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use rustorb_cdr::{ByteOrder, CdrDecode, CdrEncode, CdrVersion, Decoder, Encoder, Segment};
+use rustorb_cdr::{ByteOrder, CdrDecode, CdrEncode, Decoder, Encoder, Encoding, Segment};
 
 use crate::{Error, Ior, MessageHeader, MsgType, Result, ServiceContext, TaggedProfile, Version};
 
@@ -263,7 +263,7 @@ pub struct Body {
     offset: usize,
     segments: Vec<Segment>,
     byte_order: ByteOrder,
-    version: CdrVersion,
+    version: Encoding,
 }
 
 impl PartialEq for Body {
@@ -295,7 +295,7 @@ impl Body {
                 })
                 .collect(),
             byte_order: dec.byte_order(),
-            version: dec.version(),
+            version: dec.encoding(),
         }
     }
 

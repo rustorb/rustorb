@@ -8,7 +8,7 @@
 
 use std::ffi::{c_char, c_void};
 
-use rustorb_cdr::{ByteOrder, CdrVersion, Decoder, Encoder};
+use rustorb_cdr::{ByteOrder, Decoder, Encoder, Encoding};
 use rustorb_core::{
     Any, CompletionStatus, InStream, ObjectRef, Orb, OutStream, SystemExceptionKind, TCKind,
     TypeCode, TypeCodeError,
@@ -621,7 +621,7 @@ pub(crate) fn default_orb() -> Option<Orb> {
 }
 
 pub(crate) fn encoder() -> Encoder {
-    Encoder::new(ByteOrder::Big, CdrVersion::Giop1_2)
+    Encoder::new(ByteOrder::Big, Encoding::Giop1_2)
 }
 
 /// Whether values of type `tc` start with a repository id when marshalled
@@ -669,7 +669,7 @@ pub unsafe extern "C" fn rorb_any_insert(
         let orb = orb.or_else(default_orb);
         let bytes = enc.into_bytes();
         let mut input = InStream::standalone(
-            Decoder::new(&bytes, ByteOrder::Big, CdrVersion::Giop1_2),
+            Decoder::new(&bytes, ByteOrder::Big, Encoding::Giop1_2),
             orb.as_ref(),
         );
         match input.read_value(tc) {
@@ -705,7 +705,7 @@ pub unsafe extern "C" fn rorb_any_extract(
             .or_else(default_orb);
         let bytes = enc.into_bytes();
         let mut stream = InStream::standalone(
-            Decoder::new(&bytes, ByteOrder::Big, CdrVersion::Giop1_2),
+            Decoder::new(&bytes, ByteOrder::Big, Encoding::Giop1_2),
             orb.as_ref(),
         );
         if exception_id(any.typecode()).is_some() {

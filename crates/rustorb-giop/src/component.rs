@@ -1,4 +1,4 @@
-use rustorb_cdr::{ByteOrder, CdrDecode, CdrEncode, CdrVersion, Decoder, Encoder};
+use rustorb_cdr::{ByteOrder, CdrDecode, CdrEncode, Decoder, Encoder, Encoding};
 
 use crate::Result;
 
@@ -34,7 +34,7 @@ impl TaggedComponent {
     where
         F: FnOnce(&mut Encoder) -> rustorb_cdr::Result<()>,
     {
-        let mut enc = Encoder::encapsulation(order, CdrVersion::Giop1_2);
+        let mut enc = Encoder::encapsulation(order, Encoding::Giop1_2);
         f(&mut enc)?;
         Ok(TaggedComponent {
             tag,
@@ -46,7 +46,7 @@ impl TaggedComponent {
     pub fn decoder(&self) -> Result<Decoder<'_>> {
         Ok(Decoder::encapsulation(
             &self.component_data,
-            CdrVersion::Giop1_2,
+            Encoding::Giop1_2,
         )?)
     }
 }

@@ -104,7 +104,7 @@ impl Writer<'_> {
                 // contents follow it.
                 enc.align(4);
                 let inner_base = base + enc.position() as isize + 4;
-                let mut inner = Encoder::encapsulation(enc.byte_order(), enc.version());
+                let mut inner = Encoder::encapsulation(enc.byte_order(), enc.encoding());
                 self.params(&mut inner, inner_base, node)?;
                 enc.write_octet_seq(inner.as_bytes())?;
                 self.open.remove(&index);

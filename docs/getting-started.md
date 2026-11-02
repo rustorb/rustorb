@@ -58,11 +58,11 @@ Add the crates, and generate the code from `build.rs`
 
 ```toml
 [dependencies]
-rustorb-core = "0.1"
-rustorb-naming = "0.1"
+rustorb-core = "0.2"
+rustorb-naming = "0.2"
 
 [build-dependencies]
-rustorb-codegen = "0.1"
+rustorb-codegen = "0.2"
 ```
 
 ```rust
@@ -182,7 +182,7 @@ Then, in your project ([examples/cpp](../examples/cpp/)), with
 `-DCMAKE_PREFIX_PATH=$HOME/rustorb` and `rustorb-idl` on `PATH`:
 
 ```cmake
-find_package(rustorb 0.1 REQUIRED)
+find_package(rustorb 0.2 REQUIRED)
 rustorb_idl_generate(SOURCES Echo.idl "${RUSTORB_IDL_DIR}/CosNaming.idl")
 add_executable(server server.cc ${SOURCES})
 target_include_directories(server PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl")
@@ -234,9 +234,9 @@ or `bin/rustorb_ffi.dll` in `rustorb-native`) from the GitHub release
 
 ```sh
 rustorb-idl -bjava -C gen Echo.idl
-javac --release 22 -cp rustorb-0.1.1.jar -d classes Server.java Client.java $(find gen -name '*.java')
+javac --release 22 -cp rustorb-0.2.0.jar -d classes Server.java Client.java $(find gen -name '*.java')
 java --enable-native-access=ALL-UNNAMED -Drustorb.ffi.library=/path/to/librustorb_ffi.so \
-     -cp rustorb-0.1.1.jar:classes Server -ORBInitRef NameService=corbaloc::localhost:2809/NameService
+     -cp rustorb-0.2.0.jar:classes Server -ORBInitRef NameService=corbaloc::localhost:2809/NameService
 ```
 
 ```java

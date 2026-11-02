@@ -77,7 +77,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rustorb-cdr"
-version = "0.0.0"
+version = "0.1.1"
 
 [[package]]
 name = "rustorb-fuzz"
@@ -90,7 +90,7 @@ dependencies = [
 
 [[package]]
 name = "rustorb-giop"
-version = "0.0.0"
+version = "0.1.1"
 dependencies = [
  "rustorb-cdr",
 ]

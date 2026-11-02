@@ -41,6 +41,7 @@ mod long_double;
 mod octets;
 mod traits;
 mod value;
+pub mod xcdr;
 
 pub use decoder::{Decoder, Segment};
 pub use encoder::Encoder;
@@ -85,17 +86,48 @@ impl ByteOrder {
     }
 }
 
-/// The GIOP version whose CDR rules a stream follows.
+/// The encoding rules a stream follows.
 ///
-/// The versions differ only in how `wchar` and `wstring` are encoded:
+/// The GIOP versions differ only in how `wchar` and `wstring` are encoded:
 /// GIOP 1.0 has no wide characters, GIOP 1.1 encodes them as aligned
 /// fixed-width code units, and GIOP 1.2 encodes them as octet sequences.
+///
+/// [`Xcdr1`](Encoding::Xcdr1) and [`Xcdr2`](Encoding::Xcdr2) are the
+/// Extended CDR encodings of DDS-XTypes, versions 1 and 2. XCDR2 aligns
+/// no primitive to more than 4 octets ([`max_align`](Encoding::max_align)).
+/// The headers they add (the payload header, DHEADER, EMHEADER, parameter
+/// headers) are in [`xcdr`]; which of them a type needs is up to the code
+/// that knows the type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum CdrVersion {
+pub enum Encoding {
     /// GIOP 1.0.
     Giop1_0,
     /// GIOP 1.1.
     Giop1_1,
     /// GIOP 1.2 and later.
     Giop1_2,
+    /// DDS-XTypes Extended CDR, encoding version 1.
+    Xcdr1,
+    /// DDS-XTypes Extended CDR, encoding version 2.
+    Xcdr2,
+}
+
+impl Encoding {
+    /// Whether this is one of the GIOP encodings.
+    pub fn is_giop(self) -> bool {
+        matches!(
+            self,
+            Encoding::Giop1_0 | Encoding::Giop1_1 | Encoding::Giop1_2
+        )
+    }
+
+    /// The largest alignment a value gets: 8 octets, or 4 for XCDR2.
+    ///
+    /// [`Encoder::align`] and [`Decoder::align`] use no more than this.
+    pub fn max_align(self) -> usize {
+        match self {
+            Encoding::Xcdr2 => 4,
+            _ => 8,
+        }
+    }
 }
