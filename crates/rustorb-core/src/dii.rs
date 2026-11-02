@@ -449,13 +449,6 @@ impl<T: DynamicImplementation> Servant for DynamicServant<T> {
     ) -> Result<(), SystemException> {
         let mut request = ServerRequest::new(operation, input)?;
         self.0.invoke(&mut request)?;
-        if crate::pi::wants_dsi_params() {
-            crate::pi::leave_dsi_params(crate::pi::DsiParams {
-                arguments: request.arguments.clone(),
-                result: request.result.clone(),
-                exception: request.exception.clone(),
-            });
-        }
         request.write_reply(reply)
     }
 }
@@ -561,6 +554,15 @@ impl ServerRequest {
     /// `out` and `inout` arguments in order. A value that does not fit its
     /// type (an `out` argument left without a value, say) is `BAD_PARAM`.
     pub fn write_reply(self, reply: &mut ServerReply) -> Result<(), SystemException> {
+        // The server interceptors see what the servant set (the bindings'
+        // DSI servants come here too).
+        if crate::pi::wants_dsi_params() {
+            crate::pi::leave_dsi_params(crate::pi::DsiParams {
+                arguments: self.arguments.clone(),
+                result: self.result.clone(),
+                exception: self.exception.clone(),
+            });
+        }
         if let Some(exception) = &self.exception {
             let tc = exception.typecode().unaliased();
             let id = tc.id().unwrap_or_default().to_owned();
