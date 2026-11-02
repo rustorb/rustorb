@@ -20,9 +20,9 @@ docs/omniorb-compat.md):
 
 import sys as _sys
 
-from rustorb import CORBA, PortableServer, PortableServer__POA
+from rustorb import BiDirPolicy, CORBA, PortableServer, PortableServer__POA
 
-for _m in (CORBA, PortableServer, PortableServer__POA):
+for _m in (BiDirPolicy, CORBA, PortableServer, PortableServer__POA):
     _sys.modules[__name__ + "." + _m.__name__.rsplit(".", 1)[1]] = _m
 del _m
 

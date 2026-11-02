@@ -1673,6 +1673,7 @@ fn policy_of(p: &Policies, policy_type: PolicyType) -> Result<PolicyValue, Syste
     use crate::policy::*;
     let policy = match policy_type {
         THREAD_POLICY_ID => Policy::Thread(p.thread),
+        BIDIRECTIONAL_POLICY_TYPE => Policy::Bidirectional(p.bidirectional),
         LIFESPAN_POLICY_ID => Policy::Lifespan(p.lifespan),
         ID_UNIQUENESS_POLICY_ID => Policy::IdUniqueness(p.id_uniqueness),
         ID_ASSIGNMENT_POLICY_ID => Policy::IdAssignment(p.id_assignment),

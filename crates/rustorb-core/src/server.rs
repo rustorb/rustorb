@@ -28,10 +28,10 @@ use std::time::{Duration, Instant, SystemTime};
 
 use rustorb_cdr::ByteOrder;
 use rustorb_giop::{
-    AlternateIiopAddress, Body, CodeSetComponent, CodeSetComponentInfo, CodeSetContext,
-    IiopProfile, Ior, LocateReplyHeader, LocateRequestHeader, LocateStatus, Message,
-    MessageEncoder, OutMessage, RequestHeader, ServiceContext, SslSecTrans, TaggedComponent,
-    TargetAddress, Version, association_options, component_tag,
+    AlternateIiopAddress, BiDirIiopServiceContext, Body, CodeSetComponent, CodeSetComponentInfo,
+    CodeSetContext, IiopProfile, Ior, ListenPoint, LocateReplyHeader, LocateRequestHeader,
+    LocateStatus, Message, MessageEncoder, OutMessage, RequestHeader, ServiceContext, SslSecTrans,
+    TaggedComponent, TargetAddress, Version, association_options, component_tag,
 };
 use tokio::io::AsyncWriteExt;
 use tokio::net::tcp::OwnedWriteHalf;
@@ -41,7 +41,7 @@ use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinHandle;
 
 use crate::codeset::{CONVERSION_CHAR, NATIVE_CHAR, NATIVE_WCHAR};
-use crate::connection::summary;
+use crate::connection::{Closed, Connection, summary};
 use crate::idle::{self, Stamp};
 use crate::orb::OrbInner;
 use crate::pi::{self, Interceptors, ServerEnding, ServerException, ServerRequestInfo};
@@ -57,8 +57,8 @@ use crate::tls::{self, Tls};
 use crate::trace;
 use crate::wire::{Here, Inbound, PeerAddr, ReadError};
 use crate::{
-    CodeSets, CompletionStatus, EndpointAddr, Lifespan, Orb, Poa, Servant, ServantManagerError,
-    SystemException, SystemExceptionKind, ThreadPolicy,
+    Bidirectional, CodeSets, CompletionStatus, EndpointAddr, Lifespan, Orb, Poa, Servant,
+    ServantManagerError, SystemException, SystemExceptionKind, ThreadPolicy,
 };
 
 /// The server side of an ORB, started with the RootPOA.
@@ -528,6 +528,162 @@ impl Server {
         }
     }
 
+    /// [`on_request`](Self::on_request) for a connection that carries
+    /// requests both ways (bidirectional GIOP): the reader does not wait
+    /// for a place under `max_requests_per_connection`, since the replies
+    /// that would free one may come after this request on the same
+    /// stream.
+    pub(crate) fn on_request_detached(
+        self: &Arc<Self>,
+        conn: &Arc<ServerConn>,
+        version: Version,
+        header: RequestHeader,
+        body: Body,
+    ) {
+        if self.is_shutting_down() {
+            return;
+        }
+        match Arc::clone(&conn.permits).try_acquire_owned() {
+            Ok(permit) => {
+                if let Some((key, request)) = self.prepare(conn, version, header, body, permit) {
+                    self.route(key, request);
+                }
+            }
+            Err(_) => {
+                let server = Arc::clone(self);
+                let conn = Arc::clone(conn);
+                tokio::spawn(async move {
+                    server.on_request(&conn, version, header, body).await;
+                });
+            }
+        }
+    }
+
+    /// A `LocateRequest` that came over a connection this ORB opened and
+    /// offered for bidirectional GIOP.
+    pub(crate) fn on_locate_request(
+        self: &Arc<Self>,
+        conn: &Arc<ServerConn>,
+        version: Version,
+        header: &LocateRequestHeader,
+    ) {
+        self.on_locate(conn, version, header);
+    }
+
+    /// The server side of `client`, a connection this ORB opened, for
+    /// requests from the server over it, and the `BI_DIR_IIOP` context
+    /// that offers it: the host and port of each endpoint, as published.
+    pub(crate) fn serve_connection(
+        self: &Arc<Self>,
+        client: &Arc<Connection>,
+        inbound: Arc<Inbound>,
+        handle: Handle,
+    ) -> (Arc<ServerConn>, Option<ServiceContext>) {
+        let listen_points: Vec<ListenPoint> = self
+            .published
+            .iter()
+            .chain(&self.published_tls)
+            .map(|(host, port)| ListenPoint {
+                host: host.clone(),
+                port: *port,
+            })
+            .collect();
+        let context = BiDirIiopServiceContext { listen_points }
+            .to_service_context(self.order)
+            .ok();
+        let conn = Arc::new(ServerConn {
+            inbound,
+            out: Out::Client(Arc::downgrade(client), handle),
+            code_sets: Mutex::new(None),
+            requests: Mutex::default(),
+            version: Mutex::new(Version::V1_2),
+            permits: Arc::new(Semaphore::new(self.max_requests)),
+            writer: Mutex::new(None),
+            max_message_size: self.max_message_size,
+            fragment_size: self.fragment_size,
+            last_used: Stamp::new(),
+            bidir: OnceLock::new(),
+            originated: true,
+        });
+        (conn, context)
+    }
+
+    /// Takes the offer of bidirectional GIOP a client made on `conn` with
+    /// `ctx`, if this ORB accepts such offers: calls to the objects at the
+    /// client's listen points go over `conn` from now on. A listen point
+    /// that this ORB has a usable connection to already keeps it (see
+    /// docs/bidir-giop.md).
+    fn take_bidir(&self, conn: &Arc<ServerConn>, ctx: &[ServiceContext]) {
+        let Some(found) = BiDirIiopServiceContext::find(ctx) else {
+            return;
+        };
+        let peer = conn.inbound.peer();
+        let Some(orb) = self.orb() else { return };
+        if !orb.accepts_bidir() {
+            trace::debug!(
+                "{peer} offered its connection for bidirectional GIOP: not accepted \
+                 (-ORBacceptBiDirectionalGIOP 0)"
+            );
+            return;
+        }
+        let Out::Box(out) = &conn.out else { return };
+        let listen_points = match found {
+            Ok(ctx) => ctx.listen_points,
+            Err(e) => {
+                trace::info!("{peer} sent a BI_DIR_IIOP context that cannot be read: {e}");
+                return;
+            }
+        };
+        if listen_points.is_empty() {
+            return;
+        }
+        let tls = out.tls.is_some();
+        let pool = Arc::downgrade(&orb.inner.connections);
+        let client = conn.bidir.get_or_init(|| {
+            let first = &listen_points[0];
+            Connection::accepted(
+                (first.host.clone(), first.port, tls),
+                Arc::clone(&conn.inbound),
+                Arc::clone(out),
+                pool,
+            )
+        });
+        if !client.is_usable() {
+            return;
+        }
+        let mut conns = orb.inner.connections.lock().unwrap();
+        for lp in &listen_points {
+            // A TLS connection also serves the plain address.
+            let keys = [
+                (lp.host.clone(), lp.port, tls),
+                (lp.host.clone(), lp.port, false),
+            ];
+            for key in keys.into_iter().take(if tls { 2 } else { 1 }) {
+                match conns.get(&key) {
+                    Some(c) if Arc::ptr_eq(c, client) => {}
+                    Some(c) if c.is_usable() => {
+                        trace::info!(
+                            "{peer} offered {}:{} for bidirectional GIOP: not taken, a \
+                             connection to it is open already",
+                            lp.host,
+                            lp.port
+                        );
+                    }
+                    _ => {
+                        trace::info!(
+                            "calls to {}:{}{} go over the connection from {peer} \
+                             (bidirectional GIOP)",
+                            lp.host,
+                            lp.port,
+                            if key.2 { " (TLS)" } else { "" }
+                        );
+                        conns.insert(key, Arc::clone(client));
+                    }
+                }
+            }
+        }
+    }
+
     /// Makes a request read off `conn` ready to go to its POA. `None` when
     /// it has been answered already, or is dropped because the server is
     /// shutting down.
@@ -541,6 +697,9 @@ impl Server {
     ) -> Option<(Vec<u8>, Incoming)> {
         let code_sets = conn.code_sets_for(version, &header.service_context);
         conn.saw_version(version);
+        if version >= Version::V1_2 && !conn.originated {
+            self.take_bidir(conn, &header.service_context);
+        }
         trace::debug!(
             "request {:?} (id {}{}) from {}, GIOP {}.{}",
             header.operation,
@@ -586,6 +745,7 @@ impl Server {
             code_sets,
             contexts: header.service_context,
             reply,
+            callback: conn.originated,
             _ticket: ticket,
         };
         Some((key, request))
@@ -617,6 +777,10 @@ impl Server {
     /// Hands a request to the manager of its POA, which runs, holds or
     /// refuses it.
     fn admit(self: &Arc<Self>, poa: &Arc<PoaInner>, id: Vec<u8>, request: Incoming) {
+        if request.callback && !takes_callbacks(poa) {
+            self.refuse(request, not_bidirectional());
+            return;
+        }
         let server = Arc::clone(self);
         let target = Arc::clone(poa);
         let dispatch: Dispatch = Box::new(move |disposition| match disposition {
@@ -655,6 +819,10 @@ impl Server {
     /// or when the I/O task reads the connection. See
     /// docs/read-ownership.md.
     fn follow(self: &Arc<Self>, conn: &Arc<ServerConn>) {
+        if conn.originated {
+            // The client connection's reader reads.
+            return;
+        }
         for _ in 0..self.follow_limit {
             if self.is_shutting_down() || self.pool_has_queued() {
                 break;
@@ -719,6 +887,10 @@ impl Server {
             self.refuse(request, no_such_object());
             return;
         };
+        if request.callback && !takes_callbacks(&poa) {
+            self.refuse(request, not_bidirectional());
+            return;
+        }
         if !matches!(poa.policies().thread, ThreadPolicy::OrbCtrl) {
             self.admit(&poa, id, request);
             return;
@@ -927,6 +1099,7 @@ impl Server {
             contexts,
             reply,
             _ticket,
+            ..
         } = request;
         let adapter = Poa {
             orb: orb.clone(),
@@ -1150,6 +1323,7 @@ impl Server {
             code_sets,
             contexts: header.service_context,
             reply,
+            callback: false,
             _ticket: self.ticket(None),
         };
         let found = target_key(&header.target).and_then(|key| self.find(&key, Some(&orb)).ok());
@@ -1258,6 +1432,9 @@ impl Server {
     /// does not send them again), so the client sends them again on a new
     /// connection.
     fn close_conn(&self, conn: &Arc<ServerConn>) {
+        if let Some(client) = conn.bidir.get() {
+            client.leave_pool();
+        }
         let version = *conn.version.lock().unwrap();
         if let Ok(msg) = MessageEncoder::close_connection(version, self.order) {
             conn.close(msg);
@@ -1299,7 +1476,7 @@ impl Server {
             .unwrap()
             .values()
             .filter(|c| c.may_close())
-            .max_by_key(|c| c.last_used.idle_for())
+            .max_by_key(|c| c.idle_for())
             .cloned();
         match candidate {
             Some(conn) if conn.choose_idle(None) => {
@@ -1408,7 +1585,22 @@ struct Incoming {
     /// The service contexts of the request, for server interceptors.
     contexts: Vec<ServiceContext>,
     reply: ReplyTo,
+    /// The request came over a connection this ORB opened (bidirectional
+    /// GIOP): only POAs with the `BidirectionalPolicy` `BOTH` take it.
+    callback: bool,
     _ticket: Ticket,
+}
+
+/// Whether the objects of `poa` take requests that come over connections
+/// this ORB opened.
+fn takes_callbacks(poa: &PoaInner) -> bool {
+    poa.policies().bidirectional == Bidirectional::Both
+}
+
+/// The answer to a request over a connection this ORB opened, for an
+/// object whose POA does not have the `BidirectionalPolicy` `BOTH`.
+fn not_bidirectional() -> SystemException {
+    SystemException::new(SystemExceptionKind::NO_PERMISSION, 0, CompletionStatus::No)
 }
 
 /// Whether a `LocateRequest` gets `OBJECT_HERE`. The servant manager is not
@@ -1558,11 +1750,11 @@ impl Drop for Ticket {
 /// take is queued for the writer task, and so is everything after it until
 /// the queue is empty again. Writes happen under the lock or by the writer
 /// task while it holds the stream, so messages never interleave.
-struct Outbox {
+pub(crate) struct Outbox {
     state: Mutex<OutState>,
     /// TLS on the stream: messages are encrypted, and the records go out
     /// in the order rustls made them.
-    tls: Option<Arc<Tls>>,
+    pub(crate) tls: Option<Arc<Tls>>,
     /// Wakes the writer task when something is queued or the connection
     /// closes.
     ready: Notify,
@@ -1601,18 +1793,19 @@ impl Outbox {
         }
     }
 
-    /// Writes `msg`, or queues what the socket does not take now.
-    fn send(&self, msg: OutMessage) {
+    /// Writes `msg`, or queues what the socket does not take now. `false`
+    /// when the outbox is closed (the message is dropped).
+    pub(crate) fn send(&self, msg: OutMessage) -> bool {
         let mut state = self.state.lock().unwrap();
         if state.closing || state.failed {
-            return;
+            return false;
         }
         trace::trace!("sent {} to {}", summary(&msg), PeerAddr(self.peer));
         if let Some(tls) = &self.tls {
             if let (true, Some(stream)) = (state.queue.is_empty(), &state.stream) {
                 tls.encrypt(&msg, 0);
                 if let Ok(true) = tls.flush(|bytes| stream.try_write(bytes)) {
-                    return;
+                    return true;
                 }
                 // Not writable now, or failed: the writer task waits for
                 // the socket, or finds the error again.
@@ -1622,7 +1815,7 @@ impl Outbox {
             }
             drop(state);
             self.ready.notify_one();
-            return;
+            return true;
         }
         let mut written = 0;
         if let (true, Some(stream)) = (state.queue.is_empty(), &state.stream) {
@@ -1641,12 +1834,13 @@ impl Outbox {
                 }
             }
             if written == msg.len() {
-                return;
+                return true;
             }
         }
         state.queue.push_back((msg, written));
         drop(state);
         self.ready.notify_one();
+        true
     }
 
     /// Queues a last message (none if empty) and has the writer task shut
@@ -1665,10 +1859,21 @@ impl Outbox {
     }
 }
 
-/// One connection accepted by the server.
-struct ServerConn {
-    inbound: Inbound,
-    out: Arc<Outbox>,
+/// Where a server connection writes.
+enum Out {
+    /// An outbox of its own: a connection the server accepted.
+    Box(Arc<Outbox>),
+    /// The client connection it shares the stream with: a connection this
+    /// ORB opened and offered for bidirectional GIOP. Each message is
+    /// written by a task on the runtime.
+    Client(Weak<Connection>, Handle),
+}
+
+/// The server side of one connection: one the server accepted, or one
+/// this ORB opened and offered for bidirectional GIOP.
+pub(crate) struct ServerConn {
+    inbound: Arc<Inbound>,
+    out: Out,
     /// The code sets of the first request with a code set context.
     code_sets: Mutex<Option<CodeSets>>,
     requests: Mutex<Requests>,
@@ -1683,13 +1888,20 @@ struct ServerConn {
     fragment_size: usize,
     /// When a message last came in or a request ended.
     last_used: Stamp,
+    /// The client connection for calls to the client's objects, when the
+    /// client offered the connection for bidirectional GIOP.
+    bidir: OnceLock<Arc<Connection>>,
+    /// The connection is one this ORB opened.
+    originated: bool,
 }
 
 impl Drop for ServerConn {
     /// The requests still running hold the connection: once the last one
     /// replied, the stream is shut down.
     fn drop(&mut self) {
-        self.out.close(Vec::new());
+        if let Out::Box(out) = &self.out {
+            out.close(Vec::new());
+        }
     }
 }
 
@@ -1704,13 +1916,28 @@ struct Requests {
 
 impl ServerConn {
     fn send(&self, msg: OutMessage) {
-        self.out.send(msg);
+        match &self.out {
+            Out::Box(out) => {
+                out.send(msg);
+            }
+            Out::Client(client, handle) => {
+                let Some(client) = client.upgrade() else {
+                    return;
+                };
+                handle.spawn(async move {
+                    let _ = client.send(&msg, None).await;
+                });
+            }
+        }
     }
 
     /// Sends `last` (if not empty) after what is queued, then shuts the
-    /// stream down.
+    /// stream down. The client connection closes a connection this ORB
+    /// opened.
     fn close(&self, last: Vec<u8>) {
-        self.out.close(last);
+        if let Out::Box(out) = &self.out {
+            out.close(last);
+        }
     }
 
     fn saw_version(&self, version: Version) {
@@ -1751,14 +1978,30 @@ impl ServerConn {
     /// none being read, and not closing already.
     fn may_close(&self) -> bool {
         let requests = self.requests.lock().unwrap();
-        !requests.closing && requests.pending.is_empty() && !self.inbound.mid_message()
+        !requests.closing
+            && requests.pending.is_empty()
+            && !self.inbound.mid_message()
+            && self.bidir.get().is_none_or(|c| c.awaits_nothing())
+    }
+
+    /// How long the connection has not been used, either way.
+    fn idle_for(&self) -> Duration {
+        let idle = self.last_used.idle_for();
+        match self.bidir.get() {
+            Some(client) => idle.min(client.idle_for()),
+            None => idle,
+        }
     }
 
     /// Chooses the connection to close if [`may_close`](Self::may_close)
     /// holds and it was not used for `timeout` (any time with `None`).
     /// From then on requests that expect a reply are not processed; the
     /// caller sends `CloseConnection`.
-    fn choose_idle(&self, timeout: Option<Duration>) -> bool {
+    ///
+    /// With calls to the client over the connection (bidirectional GIOP),
+    /// none may await its reply, and none went out for `timeout`; from
+    /// then on new calls to the client go elsewhere.
+    pub(crate) fn choose_idle(&self, timeout: Option<Duration>) -> bool {
         let mut requests = self.requests.lock().unwrap();
         if requests.closing
             || !requests.pending.is_empty()
@@ -1767,12 +2010,17 @@ impl ServerConn {
         {
             return false;
         }
+        if let Some(client) = self.bidir.get() {
+            if !client.choose_close(timeout) {
+                return false;
+            }
+        }
         requests.closing = true;
         true
     }
 
     /// `CancelRequest`: drops the fragments of the request, and its reply.
-    fn cancel_request(&self, request_id: u32) {
+    pub(crate) fn cancel_request(&self, request_id: u32) {
         self.inbound.side().assembler.cancel(request_id);
         self.cancel(request_id);
     }
@@ -2048,8 +2296,8 @@ async fn serve(
     let (reader, writer) = stream.into_split();
     let out = Arc::new(Outbox::new(writer, session.clone(), peer.0));
     let conn = Arc::new(ServerConn {
-        inbound: Inbound::new(reader, session, server.max_message_size),
-        out: Arc::clone(&out),
+        inbound: Arc::new(Inbound::new(reader, session, server.max_message_size)),
+        out: Out::Box(Arc::clone(&out)),
         code_sets: Mutex::new(None),
         requests: Mutex::default(),
         version: Mutex::new(Version::V1_0),
@@ -2058,11 +2306,23 @@ async fn serve(
         max_message_size: server.max_message_size,
         fragment_size: server.fragment_size,
         last_used: Stamp::new(),
+        bidir: OnceLock::new(),
+        originated: false,
     });
     *conn.writer.lock().unwrap() = Some(tokio::spawn(write_loop(out)));
     let id = server.add_connection(&conn);
     let ended = read_loop(&server, &conn).await;
     server.remove_connection(id);
+    if let Some(client) = conn.bidir.get() {
+        // Calls to the client still waiting: after CloseConnection they
+        // were not processed and may be sent again.
+        client.fail(match ended {
+            Ok(Ended::CloseConnection) => Closed::Orderly,
+            Ok(Ended::Peer) => Closed::Failed("connection closed by the client".into()),
+            Err(_) => Closed::Failed("malformed message".into()),
+        });
+        client.leave_pool();
+    }
     match ended {
         Ok(Ended::Peer) => trace::info!("connection from {peer} closed by the client"),
         Ok(Ended::CloseConnection) => {
@@ -2208,6 +2468,9 @@ async fn read_loop(server: &Arc<Server>, conn: &Arc<ServerConn>) -> Result<Ended
         };
         conn.last_used.touch();
         match message {
+            Message::Request { header, body } if conn.bidir.get().is_some() => {
+                server.on_request_detached(conn, version, header, body);
+            }
             Message::Request { header, body } => {
                 server.on_request(conn, version, header, body).await;
             }
@@ -2215,6 +2478,16 @@ async fn read_loop(server: &Arc<Server>, conn: &Arc<ServerConn>) -> Result<Ended
             Message::CancelRequest(header) => conn.cancel_request(header.request_id),
             Message::CloseConnection | Message::MessageError => {
                 return Ok(Ended::CloseConnection);
+            }
+            // Replies to calls over a connection the client offered for
+            // bidirectional GIOP.
+            Message::Reply { ref header, .. } if conn.bidir.get().is_some() => {
+                let id = header.request_id;
+                conn.bidir.get().unwrap().deliver(id, message);
+            }
+            Message::LocateReply { ref header, .. } if conn.bidir.get().is_some() => {
+                let id = header.request_id;
+                conn.bidir.get().unwrap().deliver(id, message);
             }
             // Not bidirectional: replies have no request to answer.
             Message::Reply { .. } | Message::LocateReply { .. } | Message::Fragment { .. } => {

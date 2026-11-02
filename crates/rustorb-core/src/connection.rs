@@ -6,21 +6,31 @@
 //! request id. A caller that is the only one waiting reads its reply
 //! itself instead ([`Connection::read_reply_here`]). A connection to a
 //! TLS endpoint does both through [`Tls`].
+//!
+//! Bidirectional GIOP (docs/bidir-giop.md) adds two cases. A connection
+//! this ORB opened and offered for bidirectional use also takes requests
+//! from the server: the reader task hands them to the server side through
+//! a [`ServerConn`] over the same stream. And a connection a client
+//! offered is used for calls to that client's objects: the [`Connection`]
+//! then writes through the server connection's [`Outbox`], and the server
+//! connection's reader hands it the replies.
 
 use std::collections::HashMap;
 use std::io::{self, IoSlice};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
+
 use std::time::{Duration, Instant};
 
 use rustorb_cdr::ByteOrder;
-use rustorb_giop::{Message, MessageEncoder, OutMessage, Version};
+use rustorb_giop::{Message, MessageEncoder, OutMessage, ServiceContext, Version};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpSocket;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::sync::oneshot;
 
 use crate::idle::Stamp;
+use crate::server::{Outbox, Server, ServerConn};
 use crate::tls::{self, Tls};
 use crate::trace;
 use crate::wire::{Here, Inbound, ReadError};
@@ -71,12 +81,45 @@ struct Pending {
     closed: Option<Closed>,
 }
 
+/// Where a connection writes its requests.
+enum Writer {
+    /// A stream of its own (a connection this ORB opened).
+    Stream(tokio::sync::Mutex<OwnedWriteHalf>),
+    /// The outbox of a server connection a client offered for
+    /// bidirectional GIOP.
+    Outbox(Arc<Outbox>),
+}
+
+impl std::fmt::Debug for Writer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Writer::Stream(_) => "Stream",
+            Writer::Outbox(_) => "Outbox",
+        })
+    }
+}
+
+/// The server side of a connection this ORB opened and offered for
+/// bidirectional GIOP.
+pub(crate) struct Serving {
+    pub(crate) server: Weak<Server>,
+    pub(crate) conn: Arc<ServerConn>,
+    /// The `BI_DIR_IIOP` service context with the ORB's listen points.
+    context: ServiceContext,
+}
+
+impl std::fmt::Debug for Serving {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Serving").finish_non_exhaustive()
+    }
+}
+
 /// One client connection to a server endpoint.
 #[derive(Debug)]
 pub(crate) struct Connection {
     endpoint: EndpointKey,
-    inbound: Inbound,
-    writer: tokio::sync::Mutex<OwnedWriteHalf>,
+    inbound: Arc<Inbound>,
+    writer: Writer,
     tls: Option<Arc<Tls>>,
     pending: Mutex<Pending>,
     next_request_id: AtomicU32,
@@ -90,6 +133,10 @@ pub(crate) struct Connection {
     last_used: Stamp,
     /// The pool the connection leaves when it ends.
     pool: Weak<ConnectionPool>,
+    /// Set when the connection is offered for bidirectional GIOP.
+    serving: OnceLock<Serving>,
+    /// Whether a request with the `BI_DIR_IIOP` context went out.
+    offered: AtomicBool,
 }
 
 impl Connection {
@@ -148,21 +195,98 @@ impl Connection {
         let (reader, writer) = stream.into_split();
         let conn = Arc::new(Connection {
             endpoint: (host.to_owned(), port, session.is_some()),
-            inbound: Inbound::new(reader, session.clone(), max_message_size),
-            writer: tokio::sync::Mutex::new(writer),
+            inbound: Arc::new(Inbound::new(reader, session.clone(), max_message_size)),
+            writer: Writer::Stream(tokio::sync::Mutex::new(writer)),
             tls: session,
             pending: Mutex::new(Pending {
                 waiters: HashMap::new(),
                 closed: None,
             }),
+            // The side that opened a connection uses even request ids,
+            // the other side odd ones (GIOP 1.2, bidirectional GIOP).
             next_request_id: AtomicU32::new(0),
             code_sets: Mutex::new(None),
             closing: AtomicBool::new(false),
             last_used: Stamp::new(),
             pool,
+            serving: OnceLock::new(),
+            offered: AtomicBool::new(false),
         });
         tokio::spawn(read_loop(Arc::clone(&conn)));
         Ok(conn)
+    }
+
+    /// A connection for calls over a server connection that a client
+    /// offered for bidirectional GIOP. It has no reader task: the server
+    /// connection's reader hands it the replies ([`deliver`](Self::deliver)),
+    /// and ends it ([`fail`](Self::fail)).
+    pub(crate) fn accepted(
+        endpoint: EndpointKey,
+        inbound: Arc<Inbound>,
+        out: Arc<Outbox>,
+        pool: Weak<ConnectionPool>,
+    ) -> Arc<Connection> {
+        Arc::new(Connection {
+            endpoint,
+            inbound,
+            writer: Writer::Outbox(out),
+            tls: None,
+            pending: Mutex::new(Pending {
+                waiters: HashMap::new(),
+                closed: None,
+            }),
+            next_request_id: AtomicU32::new(1),
+            code_sets: Mutex::new(None),
+            closing: AtomicBool::new(false),
+            last_used: Stamp::new(),
+            pool,
+            serving: OnceLock::new(),
+            offered: AtomicBool::new(false),
+        })
+    }
+
+    /// Whether this is a connection a client offered for bidirectional
+    /// GIOP ([`accepted`](Self::accepted)).
+    pub(crate) fn is_accepted(&self) -> bool {
+        matches!(self.writer, Writer::Outbox(_))
+    }
+
+    /// Offers the connection for bidirectional GIOP: `context` (the
+    /// `BI_DIR_IIOP` context) goes with the next GIOP 1.2 request, and
+    /// requests from the server go to `server` through `conn`.
+    pub(crate) fn serve(
+        &self,
+        server: Weak<Server>,
+        conn: Arc<ServerConn>,
+        context: ServiceContext,
+    ) {
+        let _ = self.serving.set(Serving {
+            server,
+            conn,
+            context,
+        });
+    }
+
+    /// The `BI_DIR_IIOP` context for a GIOP 1.2 request, until one has
+    /// gone out ([`offered`](Self::offered)).
+    pub(crate) fn bidir_context(&self) -> Option<&ServiceContext> {
+        let serving = self.serving.get()?;
+        (!self.offered.load(Ordering::Relaxed)).then_some(&serving.context)
+    }
+
+    /// Records that a request with the `BI_DIR_IIOP` context went out.
+    pub(crate) fn offered(&self) {
+        if !self.offered.swap(true, Ordering::Relaxed) {
+            trace::info!(
+                "offered the connection to {} for bidirectional GIOP",
+                self.peer()
+            );
+        }
+    }
+
+    /// The reading side of the stream.
+    pub(crate) fn inbound(&self) -> Arc<Inbound> {
+        Arc::clone(&self.inbound)
     }
 
     pub(crate) fn endpoint(&self) -> &EndpointKey {
@@ -175,7 +299,7 @@ impl Connection {
     }
 
     pub(crate) fn next_request_id(&self) -> u32 {
-        self.next_request_id.fetch_add(1, Ordering::Relaxed)
+        self.next_request_id.fetch_add(2, Ordering::Relaxed)
     }
 
     /// The code sets already announced on this connection, if any.
@@ -223,6 +347,10 @@ impl Connection {
         request_id: u32,
         deadline: Option<Instant>,
     ) -> Option<Option<Message>> {
+        if self.is_accepted() {
+            // The server connection's reader reads.
+            return None;
+        }
         {
             let pending = self.pending.lock().unwrap();
             if pending.closed.is_some()
@@ -284,7 +412,18 @@ impl Connection {
     ///
     /// [`expect_reply`]: Self::expect_reply
     /// [`send`]: Self::send
+    ///
+    /// A connection offered for bidirectional GIOP is chosen only when no
+    /// request from the server runs either, nor came in for `timeout`;
+    /// from then on the requests from the server that expect a reply are
+    /// not processed (the server sends them again after the
+    /// `CloseConnection` that [`close_idle`](Self::close_idle) sends). A
+    /// connection a client offered ([`accepted`](Self::accepted)) is never
+    /// chosen: the server side closes it.
     pub(crate) fn choose_idle(&self, timeout: Duration) -> bool {
+        if self.is_accepted() {
+            return false;
+        }
         let pending = self.pending.lock().unwrap();
         if pending.closed.is_some()
             || !pending.waiters.is_empty()
@@ -294,8 +433,50 @@ impl Connection {
         {
             return false;
         }
+        if let Some(serving) = self.serving.get() {
+            if !serving.conn.choose_idle(Some(timeout)) {
+                return false;
+            }
+        }
         self.closing.store(true, Ordering::Release);
         true
+    }
+
+    /// For a connection a client offered: chooses it to close if no reply
+    /// is awaited and (with `timeout`) none was sent or received for that
+    /// long. Called by the server connection under its own lock.
+    pub(crate) fn choose_close(&self, timeout: Option<Duration>) -> bool {
+        let pending = self.pending.lock().unwrap();
+        if pending.closed.is_some() || self.closing.load(Ordering::Acquire) {
+            return true;
+        }
+        if !pending.waiters.is_empty() || timeout.is_some_and(|t| self.last_used.idle_for() < t) {
+            return false;
+        }
+        self.closing.store(true, Ordering::Release);
+        true
+    }
+
+    /// Whether no reply is awaited, for a connection a client offered.
+    pub(crate) fn awaits_nothing(&self) -> bool {
+        self.pending.lock().unwrap().waiters.is_empty()
+    }
+
+    /// When a request or reply last went over the connection.
+    pub(crate) fn idle_for(&self) -> Duration {
+        self.last_used.idle_for()
+    }
+
+    /// Closes a connection [`choose_idle`](Self::choose_idle) chose: one
+    /// offered for bidirectional GIOP with `CloseConnection` (GIOP 1.2,
+    /// where either side may send it), so that the server sends again
+    /// the requests it sent meanwhile; any other without.
+    pub(crate) async fn close_idle(&self, order: ByteOrder) {
+        let close_connection = self
+            .offered
+            .load(Ordering::Relaxed)
+            .then_some((Version::V1_2, order));
+        self.close(close_connection).await;
     }
 
     /// Writes one whole message, giving up at `deadline`. A message cut
@@ -306,12 +487,16 @@ impl Connection {
         msg: &OutMessage,
         deadline: Option<Instant>,
     ) -> Result<(), SendError> {
+        let writer = match &self.writer {
+            Writer::Stream(writer) => writer,
+            Writer::Outbox(out) => return self.send_outbox(out, msg),
+        };
         let mut writer = match deadline {
-            Some(at) => match tokio::time::timeout_at(at.into(), self.writer.lock()).await {
+            Some(at) => match tokio::time::timeout_at(at.into(), writer.lock()).await {
                 Ok(writer) => writer,
                 Err(_) => return Err(SendError::TimedOut),
             },
-            None => self.writer.lock().await,
+            None => writer.lock().await,
         };
         if self.closing.load(Ordering::Acquire) {
             return Err(SendError::Closing);
@@ -366,6 +551,22 @@ impl Connection {
         Ok(())
     }
 
+    /// [`send`](Self::send) through a server connection's outbox, which
+    /// writes it, or queues it for its writer task, without waiting.
+    fn send_outbox(&self, out: &Outbox, msg: &OutMessage) -> Result<(), SendError> {
+        if self.closing.load(Ordering::Acquire) {
+            return Err(SendError::Closing);
+        }
+        self.last_used.touch();
+        trace::trace!("sent {} to {}", summary(msg), self.peer());
+        if out.send(msg.clone()) {
+            Ok(())
+        } else {
+            self.fail(Closed::Failed("the connection is closed".into()));
+            Err(SendError::Failed)
+        }
+    }
+
     /// [`send`](Self::send) over TLS. The whole message is encrypted at
     /// once and cannot be taken back, so a deadline passing before it is
     /// written closes the connection: the server never gets the rest of
@@ -412,8 +613,15 @@ impl Connection {
     /// An idle connection is closed without `CloseConnection`, which a
     /// client sends only from GIOP 1.2 on: the server sees the stream end
     /// with nothing outstanding, the orderly close of a client.
+    ///
+    /// A connection a client offered only takes no more requests: the
+    /// server side closes the stream.
     pub(crate) async fn close(&self, close_connection: Option<(Version, ByteOrder)>) {
         self.closing.store(true, Ordering::Release);
+        let writer = match &self.writer {
+            Writer::Stream(writer) => writer,
+            Writer::Outbox(_) => return,
+        };
         trace::info!("closing the connection to {}", self.peer());
         let msg = match close_connection {
             Some((version, order)) => match MessageEncoder::close_connection(version, order) {
@@ -423,7 +631,7 @@ impl Connection {
             None => None,
         };
         let _ = tokio::time::timeout(CLOSE_TIME, async {
-            let mut writer = self.writer.lock().await;
+            let mut writer = writer.lock().await;
             match &self.tls {
                 Some(tls) => {
                     if let Some(msg) = msg {
@@ -448,7 +656,7 @@ impl Connection {
     }
 
     /// Marks the connection closed and wakes every waiting caller.
-    fn fail(&self, why: Closed) {
+    pub(crate) fn fail(&self, why: Closed) {
         let waiters = {
             let mut pending = self.pending.lock().unwrap();
             if pending.closed.is_none() {
@@ -465,8 +673,11 @@ impl Connection {
             }
             std::mem::take(&mut pending.waiters)
         };
-        // Ends the wait of a caller reading its reply.
-        self.inbound.shutdown();
+        // Ends the wait of a caller reading its reply. The stream of a
+        // connection a client offered belongs to the server connection.
+        if !self.is_accepted() {
+            self.inbound.shutdown();
+        }
         for (_, tx) in waiters {
             let _ = tx.send(Err(why.clone()));
         }
@@ -477,7 +688,7 @@ impl Connection {
         Peer(&self.endpoint)
     }
 
-    fn deliver(&self, request_id: u32, msg: Message) {
+    pub(crate) fn deliver(&self, request_id: u32, msg: Message) {
         self.last_used.touch();
         let tx = self.pending.lock().unwrap().waiters.remove(&request_id);
         if let Some(tx) = tx {
@@ -508,16 +719,20 @@ async fn read_loop(conn: Arc<Connection>) {
         Err(e) => Closed::Failed(e),
     };
     conn.fail(why);
-    let _ = conn.writer.lock().await.shutdown().await;
+    if let Writer::Stream(writer) = &conn.writer {
+        let _ = writer.lock().await.shutdown().await;
+    }
     // The socket closes once the last caller holding the connection is
     // done with it.
-    if let Some(pool) = conn.pool.upgrade() {
-        let mut conns = pool.lock().unwrap();
-        if conns
-            .get(&conn.endpoint)
-            .is_some_and(|c| Arc::ptr_eq(c, &conn))
-        {
-            conns.remove(&conn.endpoint);
+    conn.leave_pool();
+}
+
+impl Connection {
+    /// Takes the connection out of its pool, under every key it has there
+    /// (a connection a client offered has one per listen point).
+    pub(crate) fn leave_pool(self: &Arc<Self>) {
+        if let Some(pool) = self.pool.upgrade() {
+            pool.lock().unwrap().retain(|_, c| !Arc::ptr_eq(c, self));
         }
     }
 }
@@ -525,7 +740,7 @@ async fn read_loop(conn: Arc<Connection>) {
 /// Reads messages until the stream ends. Returns how it ended.
 async fn read_messages(conn: &Connection) -> Result<Closed, String> {
     loop {
-        let (_, message) = match conn.inbound.next().await {
+        let (version, message) = match conn.inbound.next().await {
             Ok(read) => read,
             Err(ReadError::Closed(e)) if e.kind() == io::ErrorKind::UnexpectedEof => {
                 return Err("connection closed by the server".into());
@@ -543,12 +758,28 @@ async fn read_messages(conn: &Connection) -> Result<Closed, String> {
             Message::LocateReply { ref header, .. } => conn.deliver(header.request_id, message),
             Message::CloseConnection => return Ok(Closed::Orderly),
             Message::MessageError => return Err("the server sent MessageError".into()),
-            // A client connection is not bidirectional: requests from the
-            // server are not expected and are dropped.
-            Message::Request { .. }
-            | Message::LocateRequest(_)
-            | Message::CancelRequest(_)
-            | Message::Fragment { .. } => {}
+            Message::Request { header, body } => {
+                // Without an offer of bidirectional GIOP, requests from
+                // the server are not expected and are dropped.
+                if let Some(serving) = conn.serving.get() {
+                    if let Some(server) = serving.server.upgrade() {
+                        server.on_request_detached(&serving.conn, version, header, body);
+                    }
+                }
+            }
+            Message::LocateRequest(header) => {
+                if let Some(serving) = conn.serving.get() {
+                    if let Some(server) = serving.server.upgrade() {
+                        server.on_locate_request(&serving.conn, version, &header);
+                    }
+                }
+            }
+            Message::CancelRequest(header) => {
+                if let Some(serving) = conn.serving.get() {
+                    serving.conn.cancel_request(header.request_id);
+                }
+            }
+            Message::Fragment { .. } => {}
         }
     }
 }

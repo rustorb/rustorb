@@ -5,6 +5,7 @@
 
 #include <omniORB4/CORBA.h>
 #include <omniORB4/Naming.hh>
+#include <omniORB4/BiDirPolicy.h>
 #include <omniORB4/sslContext.h>
 
 #include <chrono>
@@ -145,6 +146,15 @@ inline PortableServer::POA_ptr persistent_poa(CORBA::ORB_ptr orb, const char* na
   policies.length(2);
   policies[0] = root->create_lifespan_policy(PortableServer::PERSISTENT);
   policies[1] = root->create_id_assignment_policy(PortableServer::USER_ID);
+  if (std::getenv("INTEROP_BIDIR")) {
+    // run-bidir-probe.sh: omniORB calls back over a connection the client
+    // offered for bidirectional GIOP only for references that a POA with
+    // the BidirectionalPolicy BOTH unmarshals.
+    CORBA::Any both;
+    both <<= BiDirPolicy::BOTH;
+    policies.length(3);
+    policies[2] = orb->create_policy(BiDirPolicy::BIDIRECTIONAL_POLICY_TYPE, both);
+  }
   PortableServer::POA_var poa = root->create_POA(name, mgr, policies);
   mgr->activate();
   return poa._retn();

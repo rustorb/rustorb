@@ -118,6 +118,17 @@ pub enum RequestProcessing {
     UseServantManager,
 }
 
+/// `BiDirPolicy::BidirectionalPolicyValue` (docs/bidir-giop.md).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Bidirectional {
+    /// `NORMAL`: no bidirectional GIOP.
+    Normal,
+    /// `BOTH`: on a POA, its objects take requests that come over the
+    /// connections this ORB opened (callbacks over bidirectional GIOP); on
+    /// the ORB, it offers and accepts bidirectional connections.
+    Both,
+}
+
 /// A POA policy, given to [`Poa::create_poa`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Policy {
@@ -135,6 +146,8 @@ pub enum Policy {
     ServantRetention(ServantRetention),
     /// `RequestProcessingPolicy`.
     RequestProcessing(RequestProcessing),
+    /// `BiDirPolicy::BidirectionalPolicy`.
+    Bidirectional(Bidirectional),
 }
 
 /// The policies of one POA.
@@ -154,6 +167,9 @@ pub struct Policies {
     pub servant_retention: ServantRetention,
     /// Request processing policy.
     pub request_processing: RequestProcessing,
+    /// Bidirectional policy: whether requests that come over a connection
+    /// this ORB opened reach the POA's objects.
+    pub bidirectional: Bidirectional,
 }
 
 impl Default for Policies {
@@ -167,6 +183,7 @@ impl Default for Policies {
             implicit_activation: ImplicitActivation::NoImplicit,
             servant_retention: ServantRetention::Retain,
             request_processing: RequestProcessing::ActiveObjectMapOnly,
+            bidirectional: Bidirectional::Normal,
         }
     }
 }
@@ -200,6 +217,7 @@ impl Policies {
                 Policy::ImplicitActivation(v) => p.implicit_activation = v,
                 Policy::ServantRetention(v) => p.servant_retention = v,
                 Policy::RequestProcessing(v) => p.request_processing = v,
+                Policy::Bidirectional(v) => p.bidirectional = v,
             }
         }
         // The index of the last policy of a kind in the list, as the one in

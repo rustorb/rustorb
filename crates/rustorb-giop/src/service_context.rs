@@ -114,3 +114,116 @@ impl CodeSetContext {
             .map(CodeSetContext::from_service_context)
     }
 }
+
+/// `IIOP::ListenPoint`: a host and port a client listens on.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ListenPoint {
+    /// Host name or address, as in the client's IORs.
+    pub host: String,
+    /// Port.
+    pub port: u16,
+}
+
+/// `IIOP::BiDirIIOPServiceContext`: the addresses a client listens on,
+/// sent with [`service_id::BI_DIR_IIOP`] to offer the connection for
+/// requests from the server (bidirectional GIOP, GIOP 1.2 and later).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BiDirIiopServiceContext {
+    /// The client's listen points.
+    pub listen_points: Vec<ListenPoint>,
+}
+
+impl BiDirIiopServiceContext {
+    /// Wraps the context in a [`service_id::BI_DIR_IIOP`] service context.
+    pub fn to_service_context(&self, order: ByteOrder) -> rustorb_cdr::Result<ServiceContext> {
+        let mut enc = Encoder::encapsulation(order, Encoding::Giop1_2);
+        enc.write_len(self.listen_points.len())?;
+        for lp in &self.listen_points {
+            enc.write_string(&lp.host)?;
+            enc.write_u16(lp.port);
+        }
+        Ok(ServiceContext {
+            context_id: service_id::BI_DIR_IIOP,
+            context_data: enc.into_bytes(),
+        })
+    }
+
+    /// Reads the context from a service context's data.
+    pub fn from_service_context(
+        context: &ServiceContext,
+    ) -> rustorb_cdr::Result<BiDirIiopServiceContext> {
+        let mut dec = Decoder::encapsulation(&context.context_data, Encoding::Giop1_2)?;
+        // A string is at least its length and its terminating NUL, a port
+        // two more octets.
+        let n = dec.read_len(7)?;
+        let mut listen_points = Vec::with_capacity(n);
+        for _ in 0..n {
+            listen_points.push(ListenPoint {
+                host: dec.read_string()?,
+                port: dec.read_u16()?,
+            });
+        }
+        Ok(BiDirIiopServiceContext { listen_points })
+    }
+
+    /// Finds and reads the context in a service context list.
+    pub fn find(
+        contexts: &[ServiceContext],
+    ) -> Option<rustorb_cdr::Result<BiDirIiopServiceContext>> {
+        contexts
+            .iter()
+            .find(|c| c.context_id == service_id::BI_DIR_IIOP)
+            .map(BiDirIiopServiceContext::from_service_context)
+    }
+}
+
+#[cfg(test)]
+mod bidir_tests {
+    use super::*;
+
+    #[test]
+    fn bidir_context_round_trips() {
+        let ctx = BiDirIiopServiceContext {
+            listen_points: vec![
+                ListenPoint {
+                    host: "client.example".into(),
+                    port: 2809,
+                },
+                ListenPoint {
+                    host: "10.0.0.1".into(),
+                    port: 65535,
+                },
+            ],
+        };
+        for order in [ByteOrder::Big, ByteOrder::Little] {
+            let sc = ctx.to_service_context(order).unwrap();
+            assert_eq!(sc.context_id, service_id::BI_DIR_IIOP);
+            assert_eq!(BiDirIiopServiceContext::find(&[sc]).unwrap().unwrap(), ctx);
+        }
+    }
+
+    #[test]
+    fn bidir_context_wire_form() {
+        let ctx = BiDirIiopServiceContext {
+            listen_points: vec![ListenPoint {
+                host: "h".into(),
+                port: 0x1234,
+            }],
+        };
+        let sc = ctx.to_service_context(ByteOrder::Big).unwrap();
+        // Byte order, count, string "h", port.
+        assert_eq!(
+            sc.context_data,
+            [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, b'h', 0, 0x12, 0x34]
+        );
+    }
+
+    #[test]
+    fn bidir_context_rejects_a_bad_count() {
+        let sc = ServiceContext {
+            context_id: service_id::BI_DIR_IIOP,
+            context_data: vec![0, 0, 0, 0, 0x7f, 0xff, 0xff, 0xff],
+        };
+        assert!(BiDirIiopServiceContext::find(&[sc]).unwrap().is_err());
+    }
+}
