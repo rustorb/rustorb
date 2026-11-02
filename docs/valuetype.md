@@ -14,13 +14,13 @@ rustorb の valuetype（値型）の実装をまとめる。範囲は CDR、Rust
 | `crates/rustorb-core/src/idl/value.rs` | Rust の生成コードの `ValueInfo`、`CustomMarshal`、`DataOutputStream` / `DataInputStream` |
 | `crates/rustorb-python/src/value.rs` | Python のインスタンスとコアの `ValueRef` の変換 |
 | `python/rustorb/CORBA.py`、`_rt.py` | `CORBA.ValueBase`、`ValueMember`、`ORB.create_value_tc`、値ファクトリ |
-| `crates/rustorb-codegen/python/rustorb_idl/python_backend.py` | valuetype・value box・前方宣言の生成 |
+| rustorb-idl の `python/rustorb_idl/python_backend.py` | valuetype・value box・前方宣言の生成 |
 | `crates/rustorb-ffi/src/value.rs`、`include/rustorb/rustorb.h` | C ABI：値のヘッダー・終了・インスタンスの表、valuetype の登録と型の解決の関数（`rorb_tc_value` は `any.rs`） |
 | `cpp/include/rustorb/corba.h`、`cdr.h` | C++：`CORBA::ValueBase`、`ValueFactoryBase`、値ファクトリの表、`ORB::create_value_tc`、値の読み書き |
-| `crates/rustorb-codegen/python/rustorb_idl/cxx_backend.py` | `-bc++11` の valuetype・`OBV_` クラス・value box |
+| rustorb-idl の `python/rustorb_idl/cxx_backend.py` | `-bc++11` の valuetype・`OBV_` クラス・value box |
 | `cpp/tests/test_value.cc` | C++ の相互接続ケース、ファクトリ、切り捨て、ファクトリなし、`create_value_tc`、`_copy_value` |
 | `java/src/main/java/org/rustorb/Native.java`（`*Value*`）、`java/src/main/java/org/omg/CORBA/portable`、`org/omg/CORBA_2_3`、`org/rustorb/Values.java` | Java：`StreamableValue`、`ValueFactory`、`BoxedValueHelper`、CORBA_2_3 のストリームと ORB、値ファクトリの表 |
-| `crates/rustorb-codegen/python/rustorb_idl/java_backend.py` | `-bjava` の valuetype・`DefaultFactory`・Helper・value box |
+| rustorb-idl の `python/rustorb_idl/java_backend.py` | `-bjava` の valuetype・`DefaultFactory`・Helper・value box |
 | `java/src/test/java/org/rustorb/test/ValuetypeTest.java` | Java の相互接続ケース、既定のファクトリ、切り捨て、ファクトリなし、`create_value_tc` |
 | `interop/idl/ValueTest.idl` | 相互接続の IDL |
 

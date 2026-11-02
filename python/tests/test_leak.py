@@ -6,7 +6,7 @@ Python objects are checked through reference counts and weak references;
 memory held by the native module through the resident size of the process
 (Linux only). ``RUSTORB_LEAK_ROUNDS`` multiplies the number of rounds; the
 scheduled workflow (.github/workflows/soak.yml) sets it. Run like
-test_orb.py, with the native module built and idl_parser importable::
+test_orb.py, with the native module built and rustorb-idl importable (tools/rustorb-idl.txt)::
 
     PYTHONPATH=path/to/idl_parser python3 -m unittest discover -s python/tests -p test_leak.py
 """
@@ -20,7 +20,10 @@ import weakref
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
-for p in (os.path.join(ROOT, "python"), os.path.join(ROOT, "crates", "rustorb-codegen", "python")):
+# rustorb-idl: installed (tools/rustorb-idl.txt), or the checkout in RUSTORB_IDL_DIR.
+_idl_dir = os.environ.get("RUSTORB_IDL_DIR")
+RUSTORB_IDL_PATH = [os.path.join(_idl_dir, "python")] if _idl_dir else []
+for p in [os.path.join(ROOT, "python")] + RUSTORB_IDL_PATH:
     if p not in sys.path:
         sys.path.insert(0, p)
 

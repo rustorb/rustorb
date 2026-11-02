@@ -262,7 +262,7 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - omniNames の実測に合わせた挙動：`rebind` / `rebind_context` は型の違う既存の束縛も置き換える、nil の束縛を許す、`list(0)` は空列と反復子、`next_n(0)` は FALSE、終端の `next_one` は空の名前、ルートコンテキストも `destroy` できる（rustorb は次の起動で作り直す）、破棄したコンテキストを経由する解決は `OBJECT_NOT_EXIST`、`to_url` の名前が空なら `corbaname:アドレス`。他の命名サービスのコンテキストを束縛した場合は、そのコンテキストを呼んで解決を続ける
   - omniNames との意図的な差：`list` の順序は名前順（omniNames は束縛した順）、`to_url` のエスケープは大文字の16進・UTF-8（クライアント側の `to_url` と同じ）
   - 相互接続：`run-naming-check.sh --naming rustorb` で omniORBpy・rustorb の両クライアントの操作列が omniNames と同じ期待出力になり、デーモンを再起動しても束縛と再起動前のコンテキストのIORが使えることを確かめる。`run-matrix.sh --naming rustorb` でも9組すべてが omniNames のときと同じ結果になる
-- [x] idl\_parser のP0（#133〜#137）が直りしだい、Python生成器（M1）に着手する（[python-codegen.md](python-codegen.md)）
+- [x] idl\_parser のP0（#133〜#137）が直りしだい、Python生成器（M1）に着手する（[python-codegen.md](https://github.com/rustorb/rustorb-idl/blob/main/docs/python-codegen.md)）
   - idl\_parser の #133〜#144 はすべて修正済み。生成器は Python で書くことにした（idl\_parser を直接使う。どちらの案でも生成時に Python と idl\_parser が要るため、JSON 中間表現＋Rust の利点は小さい）
   - `rustorb-idl -bpython`（`crates/rustorb-codegen/python`）：omniidl -bpython と同じレイアウト（`Foo_idl.py`、`Module/`、`Module__POA/`、`_GlobalIDL`）と `.pyi`。生成コードが使う `rustorb` パッケージの純 Python 部分（`python/rustorb`：TypeCode、例外、struct / union / enum の基底、生成コードとの取り決め `_rt`）
   - 互換の確認：`interop/run-pymapping-check.sh` が omniidl と rustorb-idl の生成物の公開API（定数、型の構築、TypeCode、クラスの継承、スタブのメソッド）を omniORBpy 上と rustorb 上で出力して比べる。差は仕様に従った4点だけ
@@ -324,7 +324,7 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 - [x] Rust の IDL 生成器 `rustorb-idl -brust`（[rust-mapping.md](rust-mapping.md)、[#37](https://github.com/rustorb/rustorb/issues/37)）
   - コア：`rustorb_core::idl`（記述子のトレイト `IdlType` と基本型・無名の型の記述子、valuetype のハンドルと登録、value box、`Any::insert` / `extract`）と `Fixed`
   - 生成器：名前の変換と衝突の検査、struct・enum・union・typedef・定数・例外・操作ごとのエラー型、スタブ・サーバントのトレイト・スケルトン、TypeCode、valuetype・value box。`-Wbextern` で別クレートの生成コードを参照する。`build.rs` 用の `rustorb_codegen::Config`
-  - テスト：`crates/rustorb-codegen/tests/rust_mapping.rs`（`RustMapping.idl`、TCP 越しの呼び出しを含む）と `test_rust_backend.py`
+  - テスト：`tests/mapping/tests/rust_mapping.rs`（`RustMapping.idl`、TCP 越しの呼び出しを含む）と `test_rust_backend.py`
   - 置き換え：`interop/impls/rustorb` のクライアント・サーバー・POA プローブと、`rustorb-naming` の CosNaming（クライアントと `rustorb-names`）を生成コードにした。相互接続マトリクス（basic / any / value、GIOP 1.2 / 1.1、omniNames・rustorb-names）、POA プローブ、naming check、OpenRTM の結果は置き換え前と同じ。CI で再生成の差分がないことを確かめる
 - [x] DynAny（[dynany.md](dynany.md)、[#40](https://github.com/rustorb/rustorb/issues/40)）
   - [x] コア：`DynAnyFactory`・`DynAny`（`DynFixed`〜`DynValueBox` の操作をすべて持つ）。構成要素は親と状態を共有し、valuetype の共有と循環を保つ

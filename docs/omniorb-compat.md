@@ -96,7 +96,7 @@ OpenRTM-aist-Python はデータポートの型の既定値を作るのに、omn
 | string・wstring | `(tv_string, 上限)` |
 | sequence・array | `(tv_sequence, 要素の記述子, 上限)`、`(tv_array, 要素の記述子, 長さ)` |
 
-記述子は生成コードの TypeCode（`_rt.typecodes`）から作る。rustorb の生成コードとランタイムは omniORBpy の記述子を持たないので（[python-codegen.md](python-codegen.md)）、互換シムの中だけで作る。
+記述子は生成コードの TypeCode（`_rt.typecodes`）から作る。rustorb の生成コードとランタイムは omniORBpy の記述子を持たないので（[python-codegen.md](https://github.com/rustorb/rustorb-idl/blob/main/docs/python-codegen.md)）、互換シムの中だけで作る。
 
 ### omniINSPOA
 

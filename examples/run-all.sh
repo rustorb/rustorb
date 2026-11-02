@@ -18,7 +18,7 @@ cd "$root"
 
 python3 -m venv "$build/venv"
 export PATH="$build/venv/bin:$PATH"
-python -m pip install -q ./crates/rustorb-codegen/python
+python -m pip install -q -r tools/rustorb-idl.txt
 idl_dir="$(rustorb-idl --idl-dir)"
 
 cargo build --release --locked -p rustorb-naming --bin rustorb-names

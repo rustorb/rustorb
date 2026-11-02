@@ -36,7 +36,9 @@
     <maven.compiler.release>22</maven.compiler.release>
     <rustorb.root>${project.basedir}/..</rustorb.root>
     <idl.parser.dir></idl.parser.dir>
-    <idl.pythonpath>${idl.parser.dir}${path.separator}${rustorb.root}/crates/rustorb-codegen/python</idl.pythonpath>
+    <!-- A rustorb-idl checkout to use instead of the installed one (tools/rustorb-idl.txt). -->
+    <rustorb.idl.dir></rustorb.idl.dir>
+    <idl.pythonpath>${idl.parser.dir}${path.separator}${rustorb.idl.dir}/python</idl.pythonpath>
     <idl.out>${project.build.directory}/generated-test-sources/idl</idl.out>
     <python>python3</python>
     <cargo.skip>false</cargo.skip>

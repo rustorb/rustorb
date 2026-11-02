@@ -13,7 +13,7 @@ rustorb の C++ バインディングの構成をまとめる。計画どおり�
 | `cpp/include/rustorb/corba.h` | CORBA モジュールのマッピング（`IDL::traits`、参照型、例外、`ORB`、`PortableServer`） | MIT OR Apache-2.0 |
 | `cpp/include/rustorb/pi.h` | Portable Interceptors（`PortableInterceptor`）と `IOP::Codec`（[portable-interceptors.md](portable-interceptors.md)） | MIT OR Apache-2.0 |
 | `cpp/include/rustorb/cdr.h` | 生成コードが使うマーシャリング（`rustorb::cdr::codec<T>`）、呼び出し、ディスパッチ | MIT OR Apache-2.0 |
-| `crates/rustorb-codegen/python/rustorb_idl/cxx_backend.py` | `rustorb-idl -bc++11`（`-bcxx11` も可） | GPL-3.0-or-later（生成物は対象外） |
+| rustorb-idl の `python/rustorb_idl/cxx_backend.py` | `rustorb-idl -bc++11`（`-bcxx11` も可） | GPL-3.0-or-later（生成物は対象外） |
 | `cpp/CMakeLists.txt`、`cpp/tests` | C++ のテスト（CMake、ctest） | MIT OR Apache-2.0 |
 | `interop/impls/rustorbcpp` | 相互接続用のクライアント・サーバー | MIT OR Apache-2.0 |
 
@@ -165,7 +165,7 @@ auto orb = CORBA::ORB_init(argc, argv, "my-orb");  // ORBInitInfo::orb_id() は 
 - `cpp/tests/test_value.cc`：valuetype の相互接続の26ケース（`interop/impls/rustorbcpp/valuetest.h`）を同じプロセスの2つの ORB の間で回し、値ファクトリの表、truncatable の切り捨て、ファクトリのない型の `MARSHAL`、`ORB::create_value_tc`、`_copy_value` を確かめる
 - `cpp/tests/test_dynany.cc`：`DynamicAny`（[dynany.md](dynany.md)）。生成コードの型の DynAny、valuetype の共有と循環、切り詰め。残りの操作は `interop/impls/rustorbcpp/dynany_probe.cc`（`run-dynany-probe.sh`）で確かめる
 - CI（`ci.yml` の `cpp`）は g++ と clang++ の両方で `-Wall -Wextra -Werror` でビルドして ctest を回す。ローカルでは ASan・UBSan・LeakSanitizer でも警告なし
-- `crates/rustorb-codegen/python/tests/test_cxx_backend.py`：コマンドライン、生成物の形、対応しない構文のエラー、生成コードのコンパイル
+- rustorb-idl の `python/tests/test_cxx_backend.py`：コマンドライン、生成物の形、対応しない構文のエラー、生成コードのコンパイル
 - 相互接続：`interop/impls/rustorbcpp` を omniORB C++・omniORBpy・rustorb（Rust・Python）とすべての組み合わせで、omniNames と rustorb-names の両方、GIOP 1.1 でも回す。失敗は既存の `known-failures.txt`（omniORB 側の wchar）の範囲だけ
 - POA プローブ：`interop/impls/rustorbcpp/poa_probe_server.cc`（servant manager・AdapterActivator・デフォルトサーバント・スレッドモデルを含む）で `run-poa-probe.sh` を回し、Rust のプローブサーバーと同じ期待出力（`expected/poa-probe-rustorb.txt`）と一致する
 - naming check と wire probe：`interop/impls/rustorbcpp/naming_check.cc`（生成した CosNaming のスタブ）で `run-naming-check.sh`（omniNames と rustorb-names）を、C++ のサーバーに `run-wire-probe.sh` を回し、Rust と同じ期待出力と一致する

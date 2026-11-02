@@ -16,7 +16,7 @@ rustorb の Java バインディングの構成をまとめる。C++ と同じ�
 | `java/src/main/java/org/rustorb` | 実装（ORB、Delegate、ストリーム、Any / TypeCode、POA）と、生成コードとの取り決め（`Stubs`、`Call`、`Anys`） | MIT OR Apache-2.0 |
 | `java/src/main/java/org/omg/CosNaming` | `rustorb-idl -bjava -Wbpackage=org.omg` で生成した CosNaming（`java/generate-stubs.sh`） | MIT OR Apache-2.0 |
 | `java/src/main/java/org/omg/PortableInterceptor`・`IOP`・`Dynamic` | 同じく `java/idl/PortableInterceptor.idl` から生成した Portable Interceptors の型（`org.omg.CORBA` の `ParameterMode` と列の Helper の一部も） | MIT OR Apache-2.0 |
-| `crates/rustorb-codegen/python/rustorb_idl/java_backend.py` | `rustorb-idl -bjava` | GPL-3.0-or-later（生成物は対象外） |
+| rustorb-idl の `python/rustorb_idl/java_backend.py` | `rustorb-idl -bjava` | GPL-3.0-or-later（生成物は対象外） |
 | `java/pom.xml`、`java/src/test` | Maven のビルドと JUnit のテスト | MIT OR Apache-2.0 |
 | `interop/impls/java` | 相互接続用のクライアント・サーバーと試験ケース（`rustorbjava` と `jacorb` で共通のソース） | MIT OR Apache-2.0 |
 | `interop/impls/rustorbjava`、`interop/impls/jacorb` | それぞれのビルドと起動スクリプト。JacORB は Maven Central のリリース jar（3.9）を相互接続用のイメージに入れる | MIT OR Apache-2.0 |
@@ -144,7 +144,7 @@ ORB orb = ORB.init(args, props);
   - `PortableTest`：手書きの portable stub（`_request` / `_invoke` / `ApplicationException` / oneway）を2つの ORB の間と同一 ORB 内で、`_releaseReply` の後のストリーム、返事を作ってから操作を呼ぶスケルトンの例外の完了状態、`ORB.create_output_stream` の読み戻し、Any のストリーム操作と `insert_Value` / `extract_Value`
   - `PiTest`：Portable Interceptors。プロパティの初期化子、`DuplicateName`、`pre_init` の `BAD_INV_ORDER`、要求と返事のサービスコンテキスト、クライアントのスレッドから サーバントへのスロット、IOR のコンポーネント、両側の `ForwardRequest`、点が投げた例外、点の後の情報のオブジェクト、`Codec`
   - `ValuetypeTest`：valuetype の26ケース（`ValueTests.java`）、生成された既定のファクトリ、truncatable の切り捨て、ファクトリのない型の `MARSHAL`、`create_value_tc`
-- `crates/rustorb-codegen/python/tests/test_java_backend.py`：コマンドライン、生成物の形、対応しない構文のエラー、生成コードとランタイムの `javac -Werror` でのコンパイル
+- rustorb-idl の `python/tests/test_java_backend.py`：コマンドライン、生成物の形、対応しない構文のエラー、生成コードとランタイムの `javac -Werror` でのコンパイル
 - CI（`ci.yml` の `java`）：Linux（Java 22 と 25）、macOS、Windows（Java 25）で `mvn verify`。Linux では同梱の CosNaming と Portable Interceptors のスタブが生成器の出力と、`Ffi.java` が `rustorb.h` と一致すること（`gen-ffi.py --check`）も確かめる
 - 相互接続：`interop/run-matrix.sh` に `rustorbjava`（ホストでビルドし、イメージの Java 25 で動かす。JacORB はイメージの Java 17）と `jacorb`（イメージの中で JacORB の IDL コンパイラで同じソースをビルドする）を加えた。Java が関わる24組（omniORBpy・omniORB C++・JacORB・rustorb の Rust・Python・C++・Java）の結果は次のとおり（ローカルで確認。失敗はすべて `known-failures.txt` の範囲）
   - basic（78ケース）：omniNames と rustorb-names、GIOP 1.2 と 1.1 で、`rustorbjava` はすべての相手と通る（omniORB 側の wchar の既知の失敗を除く）。`jacorb` との組は、下の union の判別子の1ケース（`echo_value[5]`）と、GIOP 1.1 で omniORB のクライアントが分割したメッセージ（JacORB が GIOP 1.1 の Fragment を受け付けない）だけが失敗する

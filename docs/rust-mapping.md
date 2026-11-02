@@ -14,7 +14,7 @@ rustorb の Rust 用 IDL マッピングと、その生成器 `rustorb-idl -brus
 - **同期 API と async 版**：コアと同じく、スタブの呼び出しはブロックする。操作ごとに `async fn <名前>_async` も出す（コアの async API の上、[async-api.md](async-api.md#生成コードの-async-版スタブ)、[#77](https://github.com/rustorb/rustorb/issues/77)）。サーバントのトレイトは同期のまま
 - **生成コードは安全な Rust だけ**：`unsafe` を使わない。マーシャリングはコアの `OutStream` / `InStream` の上に直接書き、動的な `Value` を経由しない（Any を除く）
 - **ランタイムは `rustorb-core` に置く**：生成コードが使うトレイトと補助の型は `rustorb_core::idl` モジュールに足す。新しいクレートは作らない
-- **生成器は Python**：他の backend と同じく `crates/rustorb-codegen/python/rustorb_idl/rust_backend.py`（GPL-3.0-or-later、生成物は対象外）。フロントエンド（`frontend.py`）は共通
+- **生成器は Python**：他の backend と同じく rustorb-idl の `python/rustorb_idl/rust_backend.py`（GPL-3.0-or-later、生成物は対象外）。フロントエンド（`frontend.py`）は共通
 
 ## 決定事項（合意済み）
 
@@ -456,7 +456,7 @@ pub trait Hook: Send + Sync {
 - `rust_backend.py`：Python・C++・Java の backend と同じく、`frontend.py` の `definitions` / `type_of` を使って出力を組み立てる。名前の変換と衝突の検査は `rust_backend.py` の中で、書き出しながら行う。union のラベルや valuetype の基底など、C++ の backend と同じ計算はその関数を使う
 - 出力は `rustfmt` が見つかれば通す（`-Wbno_rustfmt` で止められる）。チェックインした生成コードは `rustfmt` を通したもので、`cargo fmt --check` にもそのまま通る
 - 生成コードには `#![allow(clippy::all)]` を付けず、clippy の警告が出ない形で書く（`-D warnings` で検査する）。個別に要る `allow`（`clippy::type_complexity` など）だけを付ける
-- 生成器のテスト：`crates/rustorb-codegen/python/tests/test_rust_backend.py`（コマンドライン、出力の形、生成器がエラーにするもの）と、`crates/rustorb-codegen/tests/rust_mapping.rs`（`tests/idl/RustMapping.idl` の生成コード `tests/generated/rust_mapping.rs` を使い、往復、送るときの検査、TypeCode と Any、valuetype、TCP 越しの呼び出しを `cargo test` で確かめる）
+- 生成器のテスト：rustorb-idl の `python/tests/test_rust_backend.py`（コマンドライン、出力の形、生成器がエラーにするもの）と、`tests/mapping/tests/rust_mapping.rs`（`tests/mapping/idl/RustMapping.idl` の生成コード `tests/mapping/generated/rust_mapping.rs` を使い、往復、送るときの検査、TypeCode と Any、valuetype、TCP 越しの呼び出しを `cargo test` で確かめる）
 
 ## 置き換えと検証
 
@@ -464,7 +464,7 @@ pub trait Hook: Send + Sync {
 2. **生成器**：`-brust` と生成器のテスト。`rustorb-codegen` の `build.rs` 用の補助（`rustorb_codegen::Config`）
 3. **interop の置き換え**：`interop/impls/rustorb` の手書きのスタブとスケルトンを、`InteropTest.idl`・`AnyTest.idl`・`AnyTestHidden.idl`・`ValueTest.idl`・`PoaProbe.idl` の生成コード（`src/idl/`、`src/idl.rs` が `include!` する）にした。ケースは変えていない。`run-matrix.sh` の basic / `--suite any` / `--suite value` を GIOP 1.2 と 1.1 で、omniORBpy・omniORB C++・JacORB・rustorb との組で走らせ、すべて PASS か既知の失敗（`known-failures.txt`）だけで、置き換え前と同じ。`--naming rustorb`、`run-poa-probe.sh rustorb` も同じ
 4. **CosNaming の置き換え**：`rustorb-naming` に生成した CosNaming（`src/idl/cos_naming.rs`、`rustorb_naming::idl::cos_naming` として公開）を入れ、クライアントのスタブは生成したスタブを呼び、`rustorb-names` のサーバントは生成したスケルトンのトレイトを実装する形にした。公開 API（`NamingContext`、`NamingError`、`to_name` など）はそのまま残し、`NamingError` と生成したエラー型を相互に変換する。`run-naming-check.sh`、`run-matrix.sh --naming rustorb`、`run-openrtm.sh --naming rustorb` が置き換え前と同じ結果
-5. **再生成の確認**：`crates/rustorb-codegen/generate-rust.sh` で生成コードを作り直し、CI（Python のジョブ）で差分がないことを確かめる（Java の `java/generate-stubs.sh` と同じ）
+5. **再生成の確認**：`tools/generate-rust.sh` で生成コードを作り直し、CI（Python のジョブ）で差分がないことを確かめる（Java の `java/generate-stubs.sh` と同じ）
 
 PR は1つ（[#55](https://github.com/rustorb/rustorb/pull/55)）にまとめた。
 
@@ -473,4 +473,4 @@ PR は1つ（[#55](https://github.com/rustorb/rustorb/pull/55)）にまとめた
 - 他の IDL to Rust マッピングとの比較：[rust-mapping-comparison.md](rust-mapping-comparison.md)
 - [IDL4 to Rust Language Mapping RFP](https://www.omg.org/gettingstarted/rfp-IDL4-RLP.htm)（OMG、2026年6月）
 - [IDL 4.2](https://www.omg.org/spec/IDL/4.2)、[CORBA 3.4 Part 2](https://www.omg.org/spec/CORBA/3.4)（CDR、valuetype の符号化）
-- 既存の生成器の設計：[python-codegen.md](python-codegen.md)、[cpp-binding.md](cpp-binding.md)、[java-binding.md](java-binding.md)、[valuetype.md](valuetype.md)
+- 既存の生成器の設計：[python-codegen.md](https://github.com/rustorb/rustorb-idl/blob/main/docs/python-codegen.md)、[cpp-binding.md](cpp-binding.md)、[java-binding.md](java-binding.md)、[valuetype.md](valuetype.md)

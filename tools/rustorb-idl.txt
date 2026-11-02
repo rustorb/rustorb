@@ -1,0 +1,10 @@
+# The IDL compiler that rustorb's tests, examples and checked-in generated
+# code use (https://github.com/rustorb/rustorb-idl), pinned:
+#
+#     pip install -r tools/rustorb-idl.txt
+#
+# To try a rustorb-idl checkout instead, set RUSTORB_IDL_DIR to it (and
+# IDL_PARSER_DIR to an idl_parser checkout if needed); the scripts put
+# $RUSTORB_IDL_DIR/python first on PYTHONPATH.
+rustorb-idl==0.2.0
+idl_parser==0.6.2

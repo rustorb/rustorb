@@ -87,16 +87,26 @@ if(NOT RUSTORB_BUILD_TESTS)
 endif()
 
 # rustorb_idl_generate(<var> <idl>...): runs rustorb-idl -bc++11 on each IDL
-# file and appends the generated sources to <var>.
-set(RUSTORB_IDL_PYTHONPATH "${RUSTORB_ROOT}/crates/rustorb-codegen/python")
+# file and appends the generated sources to <var>. rustorb-idl is the pinned
+# one (pip install -r tools/rustorb-idl.txt), or the checkout in
+# -DRUSTORB_IDL_DIR=...; -DIDL_PARSER_DIR=... puts an idl_parser checkout
+# first.
+set(RUSTORB_IDL_DIR "" CACHE PATH "a rustorb-idl checkout to use instead of the installed one")
+set(RUSTORB_IDL_PYTHONPATH "")
+set(RUSTORB_IDL_GENERATOR "")
+if(RUSTORB_IDL_DIR)
+  set(RUSTORB_IDL_PYTHONPATH "${RUSTORB_IDL_DIR}/python")
+  file(GLOB RUSTORB_IDL_GENERATOR "${RUSTORB_IDL_DIR}/python/rustorb_idl/*.py")
+endif()
 if(IDL_PARSER_DIR)
-  if(WIN32)
+  if(NOT RUSTORB_IDL_PYTHONPATH)
+    set(RUSTORB_IDL_PYTHONPATH "${IDL_PARSER_DIR}")
+  elseif(WIN32)
     set(RUSTORB_IDL_PYTHONPATH "${IDL_PARSER_DIR}\;${RUSTORB_IDL_PYTHONPATH}")
   else()
     set(RUSTORB_IDL_PYTHONPATH "${IDL_PARSER_DIR}:${RUSTORB_IDL_PYTHONPATH}")
   endif()
 endif()
-file(GLOB RUSTORB_IDL_GENERATOR "${RUSTORB_ROOT}/crates/rustorb-codegen/python/rustorb_idl/*.py")
 function(rustorb_idl_generate var)
   set(outdir "${CMAKE_CURRENT_BINARY_DIR}/idl")
   set(sources ${${var}})

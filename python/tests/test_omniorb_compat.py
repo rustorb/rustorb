@@ -4,7 +4,7 @@
 The expected values (descriptors of ``findType``, the bytes of
 ``cdrMarshal``, the TypeCodes ``any.to_any`` chooses) are what omniORBpy
 4.3 gives for the same calls, measured by running it. Run like
-test_orb.py, with the native module built and idl_parser importable.
+test_orb.py, with the native module built and rustorb-idl importable (tools/rustorb-idl.txt).
 """
 
 import filecmp
@@ -15,11 +15,14 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
+# rustorb-idl: installed (tools/rustorb-idl.txt), or the checkout in RUSTORB_IDL_DIR.
+_idl_dir = os.environ.get("RUSTORB_IDL_DIR")
+RUSTORB_IDL_PATH = [os.path.join(_idl_dir, "python")] if _idl_dir else []
 COMPAT = os.path.join(ROOT, "python", "omniorb-compat")
 for p in (
     COMPAT,
     os.path.join(ROOT, "python"),
-    os.path.join(ROOT, "crates", "rustorb-codegen", "python"),
+    *RUSTORB_IDL_PATH,
 ):
     if p not in sys.path:
         sys.path.insert(0, p)
@@ -124,7 +127,7 @@ class ModuleTest(unittest.TestCase):
 
     def test_cosnaming_stubs_up_to_date(self):
         out = tempfile.mkdtemp(prefix="rustorb-compat-cosnaming-")
-        idl = os.path.join(ROOT, "crates", "rustorb-codegen", "tests", "idl", "CosNaming.idl")
+        idl = os.path.join(ROOT, "tests", "mapping", "idl", "CosNaming.idl")
         self.assertEqual(cli.main(["-bpython", "-C", out, idl]), 0)
         for rel in ("CosNaming_idl.py", "CosNaming/__init__.py", "CosNaming/__init__.pyi",
                     "CosNaming__POA/__init__.py", "CosNaming__POA/__init__.pyi"):

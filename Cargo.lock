@@ -441,15 +441,6 @@ name = "rustorb-cdr"
 version = "0.2.0"
 
 [[package]]
-name = "rustorb-codegen"
-version = "0.2.0"
-dependencies = [
- "rustorb-core",
- "rustorb-typesupport",
- "tokio",
-]
-
-[[package]]
 name = "rustorb-core"
 version = "0.2.0"
 dependencies = [
@@ -486,6 +477,15 @@ version = "0.2.0"
 dependencies = [
  "rustorb-core",
  "rustorb-naming",
+]
+
+[[package]]
+name = "rustorb-mapping-tests"
+version = "0.0.0"
+dependencies = [
+ "rustorb-core",
+ "rustorb-typesupport",
+ "tokio",
 ]
 
 [[package]]

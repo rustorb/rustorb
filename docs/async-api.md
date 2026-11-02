@@ -53,4 +53,4 @@
 
 - 名前は `<同期版の名前>_async`（属性は `id_async`・`set_label_async`）。別の操作の Rust 名と重なる IDL は生成時にエラーにする
 - 引数は借用のまま `Future` に入る。生成される型（構造体、列、参照、Any、fixed、valuetype など）はすべて `Send + Sync` なので、返す `Future` は `Send` で `tokio::spawn` できる
-- テスト：`crates/rustorb-codegen/tests/rust_mapping.rs` の `async_calls`（属性、`inout`、ユーザー例外、いろいろな型の引数、valuetype の共有、`tokio::spawn` からの並行呼び出し）
+- テスト：`tests/mapping/tests/rust_mapping.rs` の `async_calls`（属性、`inout`、ユーザー例外、いろいろな型の引数、valuetype の共有、`tokio::spawn` からの並行呼び出し）

@@ -5,7 +5,7 @@
     tools/set-version.py --check    # fail if the files disagree
 
 The version lives in the Cargo workspace (and its path dependencies), the
-three Python packages, rustorb-idl's __version__, the Maven pom and the C++
+two Python packages, the Maven pom and the C++
 CMake project. Cargo.lock is refreshed by the next cargo build; run
 `cargo update --workspace` after a rewrite so that `--locked` builds pass.
 """
@@ -24,8 +24,6 @@ PLACES = [
     ("Cargo.toml", rf'(?m)^rustorb-[a-z]+ = \{{ path = "[^"]+", version = "({VERSION})" \}}$', 5),
     ("python/pyproject.toml", rf'(?m)^version = "({VERSION})"$', 1),
     ("python/omniorb-compat/pyproject.toml", rf'(?m)^version = "({VERSION})"$', 1),
-    ("crates/rustorb-codegen/python/pyproject.toml", rf'(?m)^version = "({VERSION})"$', 1),
-    ("crates/rustorb-codegen/python/rustorb_idl/__init__.py", rf'(?m)^__version__ = "({VERSION})"$', 1),
     ("java/pom.xml", rf"(?m)^  <version>({VERSION})</version>$", 1),
     ("cpp/CMakeLists.txt", rf"(?m)^project\(rustorb_cpp VERSION ({VERSION}) LANGUAGES CXX\)$", 1),
 ]

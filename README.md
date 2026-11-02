@@ -41,7 +41,8 @@ OpenRTM-aist-Python unchanged.
 | C++ (C++17) | `rustorb-native` archive of the GitHub release, or `cmake --install` of `cpp/`; then `find_package(rustorb)` | `rustorb-idl -bc++11` |
 | Java (22+) | `rustorb-<version>.jar` and the shared library of `rustorb-native` from the GitHub release | `rustorb-idl -bjava` |
 
-The IDL compiler is `pip install rustorb-idl` for every language. The naming
+The IDL compiler is `pip install rustorb-idl` for every language; it lives in
+[rustorb/rustorb-idl](https://github.com/rustorb/rustorb-idl) and is released on its own. The naming
 service is `cargo install rustorb-naming` (the `rustorb-names` binary).
 
 ## Quick start
@@ -95,7 +96,7 @@ service; the code is in [examples/](examples/), and
 - Design documents (in Japanese): [development plan](docs/development-plan.md),
   [Rust mapping](docs/rust-mapping.md)
   ([compared with other IDL-to-Rust mappings](docs/rust-mapping-comparison.md)), [Python binding](docs/python-binding.md),
-  [Python generator](docs/python-codegen.md), [omniORBpy compatibility](docs/omniorb-compat.md),
+  [Python generator](https://github.com/rustorb/rustorb-idl/blob/main/docs/python-codegen.md), [omniORBpy compatibility](docs/omniorb-compat.md),
   [C++ binding](docs/cpp-binding.md), [Java binding](docs/java-binding.md),
   [POA](docs/poa-design.md), [Any and TypeCode](docs/any-typecode.md),
   [valuetypes](docs/valuetype.md), [SSLIOP](docs/ssliop.md),
@@ -110,21 +111,21 @@ cargo build --workspace
 cargo test --workspace
 ```
 
-The IDL compiler, the Python, C++ and Java tests need
-[idl_parser](https://github.com/sugarsweetrobotics/idl_parser) importable
-(`pip install idl_parser`, or a checkout on `PYTHONPATH`):
+The Python, C++ and Java tests need the IDL compiler, at the version
+pinned in `tools/rustorb-idl.txt` (`pip install -r tools/rustorb-idl.txt`; to
+try a checkout of [rustorb-idl](https://github.com/rustorb/rustorb-idl), set `RUSTORB_IDL_DIR` to it):
 
 ```sh
+pip install -r tools/rustorb-idl.txt
 python/build-native.sh                    # the native module, into python/rustorb
 python3 -m unittest discover -s python/tests
-python3 -m unittest discover -s crates/rustorb-codegen/python/tests
 cmake -S cpp -B build/cpp && cmake --build build/cpp && ctest --test-dir build/cpp
 mvn -f java/pom.xml verify                # Java 22 or later
 ```
 
 The Rust code generated from IDL that is checked in (`rustorb-naming`,
-`interop/impls/rustorb`, the generator tests) is regenerated with
-`crates/rustorb-codegen/generate-rust.sh` when the IDL or the generator
+`interop/impls/rustorb`, the mapping tests in `tests/mapping`) is regenerated with
+`tools/generate-rust.sh` when the IDL or the generator
 changes; CI checks it. Fuzzing needs nightly and cargo-fuzz:
 `cargo +nightly fuzz run giop_message`.
 
@@ -137,12 +138,13 @@ rustorb is licensed under either of
 
 at your option.
 
-The IDL compiler (`rustorb-idl` and the `rustorb-codegen` crate) is
+The IDL compiler (`rustorb-idl` and the `rustorb-codegen` crate, in the
+separate repository [rustorb/rustorb-idl](https://github.com/rustorb/rustorb-idl)) is
 GPL-3.0-or-later, because it builds on idl_parser. Code it generates is not
 covered by that license: the owner of the input IDL chooses its license, and
 the boilerplate rustorb puts into it is MIT OR Apache-2.0.
 
 Unless you explicitly state otherwise, any contribution intentionally
 submitted for inclusion in rustorb by you, as defined in the Apache-2.0
-license, shall be dual licensed as above (GPL-3.0-or-later for the IDL
-compiler), without any additional terms or conditions.
+license, shall be dual licensed as above, without any additional terms or
+conditions.

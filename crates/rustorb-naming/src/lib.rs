@@ -42,7 +42,7 @@ mod server;
 pub mod store;
 
 /// The code `rustorb-idl -brust` generates from the CosNaming IDL
-/// (`crates/rustorb-codegen/generate-rust.sh` writes `src/idl/`).
+/// (`tools/generate-rust.sh` writes `src/idl/`).
 pub mod idl {
     include!("idl/cos_naming.rs");
 }

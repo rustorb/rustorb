@@ -4,7 +4,7 @@
 Two ORBs in this process, a server and a client, talk over TCP on the
 loopback interface; a few tests call objects of the same ORB. Run from the
 repository root, with the native module built into ``python/rustorb``
-(``python/build-native.sh``) and idl_parser importable::
+(``python/build-native.sh``) and rustorb-idl importable (tools/rustorb-idl.txt)::
 
     PYTHONPATH=path/to/idl_parser python3 -m unittest discover -s python/tests
 
@@ -21,7 +21,10 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
-for p in (os.path.join(ROOT, "python"), os.path.join(ROOT, "crates", "rustorb-codegen", "python")):
+# rustorb-idl: installed (tools/rustorb-idl.txt), or the checkout in RUSTORB_IDL_DIR.
+_idl_dir = os.environ.get("RUSTORB_IDL_DIR")
+RUSTORB_IDL_PATH = [os.path.join(_idl_dir, "python")] if _idl_dir else []
+for p in [os.path.join(ROOT, "python")] + RUSTORB_IDL_PATH:
     if p not in sys.path:
         sys.path.insert(0, p)
 
