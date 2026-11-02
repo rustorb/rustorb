@@ -44,5 +44,7 @@ pub use message::{
     LocateReplyHeader, LocateRequestHeader, LocateStatus, Message, ReplyHeader, ReplyStatus,
     RequestHeader, SystemExceptionBody, TargetAddress, decode_message, response_flags,
 };
-pub use service_context::{CodeSetContext, ServiceContext, code_set, service_id};
+pub use service_context::{
+    BiDirIiopServiceContext, CodeSetContext, ListenPoint, ServiceContext, code_set, service_id,
+};
 pub use writer::{MessageEncoder, OutMessage};

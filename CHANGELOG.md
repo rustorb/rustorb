@@ -9,6 +9,20 @@ break the API).
 
 ### Added
 
+- Bidirectional GIOP (docs/bidir-giop.md): `-ORBofferBiDirectionalGIOP 1`
+  (`OrbOptions::offer_bidir`) sends the ORB's endpoints in a `BI_DIR_IIOP`
+  service context with the first GIOP 1.2 request on each new connection, and
+  requests the server sends back over it reach the POAs with the
+  `BidirectionalPolicy` `BOTH` (`Policy::Bidirectional`, policy type 37 for
+  `create_policy`; others answer `NO_PERMISSION`);
+  `-ORBacceptBiDirectionalGIOP 1` (`OrbOptions::accept_bidir`) makes the
+  server call the objects at those addresses over that connection, unless it
+  has a usable connection to the address already. A `BidirectionalPolicy`
+  override of the ORB does the same as both options. Idle connections are
+  closed only when nothing runs or waits in either direction. Python has the
+  `BiDirPolicy` module (also as `omniORB.BiDirPolicy`), the C ABI
+  `RORB_BIDIRECTIONAL_POLICY_TYPE`; `interop/run-bidir-probe.sh` checks both
+  directions with omniORB C++ and omniORBpy (#103)
 - Portable Interceptors in C, C++ and Java: the C ABI (`rustorb.h`: interceptor
   and initializer vtables, `rorb_register_orb_initializer`, `rorb_orb_init_pi`,
   the `rorb_cri_*` / `rorb_sri_*` / `rorb_ior_info_*` / `rorb_init_info_*`
@@ -65,6 +79,8 @@ break the API).
 
 ### Changed
 
+- Client request ids are even (0, 2, 4, …): the side that opened a connection
+  uses even ids and the other side odd ones, as bidirectional GIOP needs (#103)
 - The C ABI version is 2 (`RORB_ABI_VERSION`): Portable Interceptors, and the
   local exception codes 21 to 26 (#100)
 - A request left without a reply by `CloseConnection` is sent again up to 4

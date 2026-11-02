@@ -1159,6 +1159,13 @@ async fn attempt_on<A: WriteArgs + ?Sized>(
     };
     let mut context = context;
     context.extend_from_slice(x.contexts);
+    // Bidirectional GIOP: the first GIOP 1.2 request offers the connection.
+    let offer = version >= Version::V1_2 && matches!(kind, Kind::Request { .. });
+    let offer = offer
+        && conn.bidir_context().is_some_and(|c| {
+            context.push(c.clone());
+            true
+        });
 
     let request_id = conn.next_request_id();
     let response = match kind {
@@ -1237,6 +1244,7 @@ async fn attempt_on<A: WriteArgs + ?Sized>(
         None
     };
     match conn.send(&msg, deadline).await {
+        Ok(()) if offer => conn.offered(),
         Ok(()) => {}
         // Out of time before the whole request went out (a peer that
         // stopped reading, say): the server did not get it.

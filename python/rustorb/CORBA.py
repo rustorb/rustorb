@@ -1240,6 +1240,10 @@ def _make_policy(type, value):
         from . import Messaging
 
         return Messaging.RelativeRoundtripTimeoutPolicy(value)
+    if type == 37:
+        from . import BiDirPolicy
+
+        return BiDirPolicy.BidirectionalPolicy(value)
     from . import PortableServer
 
     return PortableServer._make_policy(type, value)

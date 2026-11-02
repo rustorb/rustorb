@@ -1,5 +1,6 @@
 """omniORBpy implementation of the InteropTest::Echo server."""
 
+import os
 import sys
 import threading
 
@@ -152,6 +153,14 @@ def main():
         root_poa.create_lifespan_policy(PortableServer.PERSISTENT),
         root_poa.create_id_assignment_policy(PortableServer.USER_ID),
     ]
+    if os.environ.get("INTEROP_BIDIR"):
+        # run-bidir-probe.sh: omniORB calls back over a connection the
+        # client offered for bidirectional GIOP only for references that a
+        # POA with the BidirectionalPolicy BOTH unmarshals.
+        from omniORB import BiDirPolicy
+        policies.append(orb.create_policy(
+            BiDirPolicy.BIDIRECTIONAL_POLICY_TYPE,
+            CORBA.Any(BiDirPolicy._tc_BidrectionalPolicyValue, BiDirPolicy.BOTH)))
     if args.suite == "abstract":
         # The abstract interface suite: AbstractTest::AbstractEcho, which
         # also stops the server.

@@ -14,11 +14,11 @@ use std::sync::{Arc, Mutex, Weak};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyTuple};
 use rustorb_core::{
-    AdapterActivator, CompletionStatus, Cookie, IdAssignment, IdUniqueness, ImplicitActivation,
-    InStream, Lifespan, ObjectId, Poa as CorePoa, PoaCurrent, PoaManager as CorePoaManager,
-    PoaManagerState, Policy, RequestProcessing, Servant, ServantActivator, ServantLocator,
-    ServantManager, ServantManagerError, ServantRetention, ServerReply, SystemException,
-    SystemExceptionKind, ThreadPolicy, minor,
+    AdapterActivator, Bidirectional, CompletionStatus, Cookie, IdAssignment, IdUniqueness,
+    ImplicitActivation, InStream, Lifespan, ObjectId, Poa as CorePoa, PoaCurrent,
+    PoaManager as CorePoaManager, PoaManagerState, Policy, RequestProcessing, Servant,
+    ServantActivator, ServantLocator, ServantManager, ServantManagerError, ServantRetention,
+    ServerReply, SystemException, SystemExceptionKind, ThreadPolicy, minor,
 };
 
 use rustorb_core::dii::ServerRequest;
@@ -580,6 +580,8 @@ fn policy(policy_type: u32, value: u32) -> Option<Policy> {
         (22, 0) => Policy::RequestProcessing(RequestProcessing::ActiveObjectMapOnly),
         (22, 1) => Policy::RequestProcessing(RequestProcessing::UseDefaultServant),
         (22, 2) => Policy::RequestProcessing(RequestProcessing::UseServantManager),
+        (37, 0) => Policy::Bidirectional(Bidirectional::Normal),
+        (37, 1) => Policy::Bidirectional(Bidirectional::Both),
         _ => return None,
     })
 }

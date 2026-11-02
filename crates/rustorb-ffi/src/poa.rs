@@ -5,9 +5,9 @@ use std::ffi::{c_char, c_void};
 use std::sync::Arc;
 
 use rustorb_core::{
-    CompletionStatus, IdAssignment, IdUniqueness, ImplicitActivation, Lifespan, ObjectRef, Poa,
-    PoaCurrent, PoaError, PoaManager, PoaManagerState, Policy, RequestProcessing, Servant,
-    ServantRetention, SystemExceptionKind, ThreadPolicy,
+    Bidirectional, CompletionStatus, IdAssignment, IdUniqueness, ImplicitActivation, Lifespan,
+    ObjectRef, Poa, PoaCurrent, PoaError, PoaManager, PoaManagerState, Policy, RequestProcessing,
+    Servant, ServantRetention, SystemExceptionKind, ThreadPolicy,
 };
 
 use crate::servant::{FfiServant, caller_object, servant_arg};
@@ -71,6 +71,7 @@ const ID_ASSIGNMENT_POLICY_ID: u32 = 19;
 const IMPLICIT_ACTIVATION_POLICY_ID: u32 = 20;
 const SERVANT_RETENTION_POLICY_ID: u32 = 21;
 const REQUEST_PROCESSING_POLICY_ID: u32 = 22;
+const BIDIRECTIONAL_POLICY_TYPE: u32 = 37;
 
 fn policy(p: PolicyFfi) -> Option<Policy> {
     let v = p.value;
@@ -110,6 +111,11 @@ fn policy(p: PolicyFfi) -> Option<Policy> {
             0 => RequestProcessing::ActiveObjectMapOnly,
             1 => RequestProcessing::UseDefaultServant,
             2 => RequestProcessing::UseServantManager,
+            _ => return None,
+        }),
+        BIDIRECTIONAL_POLICY_TYPE => Policy::Bidirectional(match v {
+            0 => Bidirectional::Normal,
+            1 => Bidirectional::Both,
             _ => return None,
         }),
         _ => return None,

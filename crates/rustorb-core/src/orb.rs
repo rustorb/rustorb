@@ -105,6 +105,18 @@ pub struct OrbOptions {
     /// request running, is closed with `CloseConnection`, and new
     /// connections wait in the listen backlog until one ends.
     pub max_server_connections: usize,
+    /// Offers the connections this ORB opens for requests from the server
+    /// (bidirectional GIOP, `-ORBofferBiDirectionalGIOP 0|1`; default
+    /// off): GIOP 1.2 requests carry the addresses of this ORB's endpoints
+    /// in a `BI_DIR_IIOP` service context, and requests that come back
+    /// over the connection reach the POAs with the `BidirectionalPolicy`
+    /// `BOTH`. See docs/bidir-giop.md.
+    pub offer_bidir: bool,
+    /// Uses a connection a client offered for bidirectional GIOP to call
+    /// the objects at the addresses it gave
+    /// (`-ORBacceptBiDirectionalGIOP 0|1`; default off). See
+    /// docs/bidir-giop.md for when the addresses are believed.
+    pub accept_bidir: bool,
     /// The socket send buffer of each connection (`SO_SNDBUF`), client and
     /// server; `None` leaves the operating system's default (which on
     /// Linux grows as needed).
@@ -265,6 +277,8 @@ impl Default for OrbOptions {
             client_idle_timeout: Some(Duration::from_secs(120)),
             server_idle_timeout: Some(Duration::from_secs(180)),
             max_server_connections: 0,
+            offer_bidir: false,
+            accept_bidir: false,
             socket_send_buffer: None,
             socket_receive_buffer: None,
             tls_endpoints: Vec::new(),
@@ -304,6 +318,8 @@ impl OrbOptions {
     /// | `-ORBoutConScanPeriod S` | [`client_idle_timeout`](OrbOptions::client_idle_timeout), in seconds (0 for never) |
     /// | `-ORBinConScanPeriod S` | [`server_idle_timeout`](OrbOptions::server_idle_timeout), in seconds (0 for never) |
     /// | `-ORBmaxServerConnections N` | [`max_server_connections`](OrbOptions::max_server_connections) (0 for no limit) |
+    /// | `-ORBofferBiDirectionalGIOP 0\|1` | [`offer_bidir`](OrbOptions::offer_bidir) |
+    /// | `-ORBacceptBiDirectionalGIOP 0\|1` | [`accept_bidir`](OrbOptions::accept_bidir) |
     /// | `-ORBendPoint giop:ssl:HOST:PORT` | [`tls_endpoints`](OrbOptions::tls_endpoints) (repeatable) |
     /// | `-ORBendPointPublish giop:ssl:HOST:PORT` | [`tls_endpoint_publish`](OrbOptions::tls_endpoint_publish) |
     /// | `-ORBsslCAFile PATH` | [`TlsOptions::ca_file`] |
@@ -340,6 +356,8 @@ impl OrbOptions {
                             | "outConScanPeriod"
                             | "inConScanPeriod"
                             | "maxServerConnections"
+                            | "offerBiDirectionalGIOP"
+                            | "acceptBiDirectionalGIOP"
                             | "sslCAFile"
                             | "sslCertFile"
                             | "sslKeyFile"
@@ -373,6 +391,8 @@ impl OrbOptions {
                     | "outConScanPeriod"
                     | "inConScanPeriod"
                     | "maxServerConnections"
+                    | "offerBiDirectionalGIOP"
+                    | "acceptBiDirectionalGIOP"
                     | "sslCAFile"
                     | "sslCertFile"
                     | "sslKeyFile"
@@ -476,6 +496,8 @@ impl OrbOptions {
                         _ => return Err(bad_option()),
                     };
                 }
+                "offerBiDirectionalGIOP" => self.offer_bidir = flag(&value)?,
+                "acceptBiDirectionalGIOP" => self.accept_bidir = flag(&value)?,
                 "sslVerifyHost" => {
                     self.tls.verify_host = match value.as_str() {
                         "0" => false,
@@ -500,6 +522,14 @@ impl OrbOptions {
         }
         *args = rest;
         Ok(())
+    }
+}
+
+fn flag(value: &str) -> Result<bool, SystemException> {
+    match value {
+        "0" => Ok(false),
+        "1" => Ok(true),
+        _ => Err(bad_option()),
     }
 }
 
@@ -578,7 +608,7 @@ pub(crate) struct OrbInner {
     /// [`timeout::encode`](crate::timeout::encode) stores them.
     call_timeout: AtomicU64,
     connect_timeout: AtomicU64,
-    connections: Arc<ConnectionPool>,
+    pub(crate) connections: Arc<ConnectionPool>,
     /// The task closing idle client connections, started with the first
     /// connection when [`OrbOptions::client_idle_timeout`] is set.
     idle_scan: OnceLock<tokio::task::JoinHandle<()>>,
@@ -603,6 +633,8 @@ pub(crate) struct OrbInner {
     pi_on: AtomicBool,
     /// The Portable Interceptors, until the ORB is destroyed.
     pi: Mutex<Option<Arc<crate::pi::Interceptors>>>,
+    /// The `BidirectionalPolicy` set with [`Orb::set_policy_overrides`].
+    pub(crate) bidir_override: Mutex<Option<crate::Bidirectional>>,
 }
 
 /// An initial reference registered at run time.
@@ -773,6 +805,7 @@ impl Orb {
                 serial: crate::pi::new_serial(),
                 pi_on: AtomicBool::new(false),
                 pi: Mutex::new(None),
+                bidir_override: Mutex::new(None),
             }),
         };
         let mut initializers = crate::pi::registered_initializers();
@@ -1142,6 +1175,26 @@ impl Orb {
     }
 
     /// The server side, if the RootPOA was used.
+    /// Whether connections opened from now on are offered for
+    /// bidirectional GIOP: [`OrbOptions::offer_bidir`], or a
+    /// `BidirectionalPolicy` override of the ORB.
+    pub(crate) fn offers_bidir(&self) -> bool {
+        match *self.inner.bidir_override.lock().unwrap() {
+            Some(v) => v == crate::Bidirectional::Both,
+            None => self.inner.options.offer_bidir,
+        }
+    }
+
+    /// Whether a client's offer of bidirectional GIOP is taken:
+    /// [`OrbOptions::accept_bidir`], or a `BidirectionalPolicy` override
+    /// of the ORB.
+    pub(crate) fn accepts_bidir(&self) -> bool {
+        match *self.inner.bidir_override.lock().unwrap() {
+            Some(v) => v == crate::Bidirectional::Both,
+            None => self.inner.options.accept_bidir,
+        }
+    }
+
     pub(crate) fn server(&self) -> Option<Arc<Server>> {
         self.inner.server.lock().unwrap().clone()
     }
@@ -1419,9 +1472,11 @@ impl Orb {
         let config = if tls { Some(self.tls_client()?) } else { None };
         if let Some(timeout) = self.inner.options.client_idle_timeout {
             self.inner.idle_scan.get_or_init(|| {
-                self.inner
-                    .handle
-                    .spawn(close_idle(Arc::downgrade(&self.inner.connections), timeout))
+                self.inner.handle.spawn(close_idle(
+                    Arc::downgrade(&self.inner.connections),
+                    timeout,
+                    self.inner.options.byte_order,
+                ))
             });
         }
         let connect = Connection::connect(
@@ -1451,6 +1506,16 @@ impl Orb {
         let conn = result.map_err(|_| {
             SystemException::new(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No)
         })?;
+        // Bidirectional GIOP: offered when the ORB has endpoints to give.
+        if self.offers_bidir() {
+            if let Some(server) = self.server() {
+                let (serving, context) =
+                    server.serve_connection(&conn, conn.inbound(), self.inner.handle.clone());
+                if let Some(context) = context {
+                    conn.serve(Arc::downgrade(&server), serving, context);
+                }
+            }
+        }
         let mut conns = self.inner.connections.lock().unwrap();
         match conns.get(&key) {
             // Another caller connected first: use its connection, and
@@ -1468,19 +1533,17 @@ impl Orb {
 
     /// Drops `conn` from the pool, if it is still the pooled one.
     pub(crate) fn discard(&self, conn: &Arc<Connection>) {
-        let mut conns = self.inner.connections.lock().unwrap();
-        if conns
-            .get(conn.endpoint())
-            .is_some_and(|c| Arc::ptr_eq(c, conn))
-        {
-            conns.remove(conn.endpoint());
-        }
+        conn.leave_pool();
     }
 }
 
 /// Closes the client connections of `pool` idle for `timeout`, until the
 /// ORB is gone or shut down (which aborts the task).
-async fn close_idle(pool: std::sync::Weak<ConnectionPool>, timeout: Duration) {
+async fn close_idle(
+    pool: std::sync::Weak<ConnectionPool>,
+    timeout: Duration,
+    order: rustorb_cdr::ByteOrder,
+) {
     let period = crate::idle::scan_period(timeout);
     loop {
         tokio::time::sleep(period).await;
@@ -1503,7 +1566,7 @@ async fn close_idle(pool: std::sync::Weak<ConnectionPool>, timeout: Duration) {
                 conn.endpoint().0,
                 conn.endpoint().1
             );
-            tokio::spawn(async move { conn.close(None).await });
+            tokio::spawn(async move { conn.close_idle(order).await });
         }
     }
 }

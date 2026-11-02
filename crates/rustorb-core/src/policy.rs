@@ -13,8 +13,8 @@ use std::fmt;
 use std::time::Duration;
 
 use crate::poa::{
-    IdAssignment, IdUniqueness, ImplicitActivation, Lifespan, Policy, RequestProcessing,
-    ServantRetention, ThreadPolicy,
+    Bidirectional, IdAssignment, IdUniqueness, ImplicitActivation, Lifespan, Policy,
+    RequestProcessing, ServantRetention, ThreadPolicy,
 };
 use crate::timeout::{duration_to_time_t, time_t_to_duration};
 use crate::typecode::TCKind;
@@ -43,6 +43,8 @@ pub const SERVANT_RETENTION_POLICY_ID: PolicyType = 21;
 pub const REQUEST_PROCESSING_POLICY_ID: PolicyType = 22;
 /// `Messaging::RELATIVE_RT_TIMEOUT_POLICY_TYPE`.
 pub const RELATIVE_RT_TIMEOUT_POLICY_TYPE: PolicyType = 32;
+/// `BiDirPolicy::BIDIRECTIONAL_POLICY_TYPE`.
+pub const BIDIRECTIONAL_POLICY_TYPE: PolicyType = 37;
 
 /// A policy that [`Orb::create_policy`] makes: a POA policy, or a client
 /// side policy that can override the defaults of a reference, a thread or
@@ -68,6 +70,7 @@ impl PolicyValue {
                 Policy::ImplicitActivation(_) => IMPLICIT_ACTIVATION_POLICY_ID,
                 Policy::ServantRetention(_) => SERVANT_RETENTION_POLICY_ID,
                 Policy::RequestProcessing(_) => REQUEST_PROCESSING_POLICY_ID,
+                Policy::Bidirectional(_) => BIDIRECTIONAL_POLICY_TYPE,
             },
             PolicyValue::RelativeRoundtripTimeout(_) => RELATIVE_RT_TIMEOUT_POLICY_TYPE,
         }
@@ -86,6 +89,7 @@ impl PolicyValue {
                 Policy::ImplicitActivation(v) => v as u32,
                 Policy::ServantRetention(v) => v as u32,
                 Policy::RequestProcessing(v) => v as u32,
+                Policy::Bidirectional(v) => v as u32,
             }),
             PolicyValue::RelativeRoundtripTimeout(t) => t,
         }
@@ -137,6 +141,11 @@ impl PolicyValue {
                 2 => RequestProcessing::UseServantManager,
                 _ => return None,
             }),
+            BIDIRECTIONAL_POLICY_TYPE => Policy::Bidirectional(match v {
+                0 => Bidirectional::Normal,
+                1 => Bidirectional::Both,
+                _ => return None,
+            }),
             _ => return None,
         };
         Some(PolicyValue::Poa(p))
@@ -164,6 +173,7 @@ impl PolicyValue {
             REQUEST_PROCESSING_POLICY_ID => {
                 "IDL:omg.org/PortableServer/RequestProcessingPolicy:2.3"
             }
+            BIDIRECTIONAL_POLICY_TYPE => "IDL:omg.org/BiDirPolicy/BidirectionalPolicy:1.0",
             _ => "IDL:omg.org/Messaging/RelativeRoundtripTimeoutPolicy:1.0",
         }
     }
@@ -240,6 +250,17 @@ pub fn create_policy(policy_type: PolicyType, value: &Any) -> Result<PolicyValue
                 });
             }
         }
+    } else if policy_type == BIDIRECTIONAL_POLICY_TYPE {
+        // BiDirPolicy::BidirectionalPolicyValue, an alias of unsigned
+        // short.
+        match (tc.kind(), value.value()) {
+            (TCKind::UShort, Value::UShort(v)) => u64::from(*v),
+            _ => {
+                return Err(PolicyError {
+                    reason: PolicyError::BAD_POLICY_TYPE,
+                });
+            }
+        }
     } else if let Some(id) = poa_value_id(policy_type) {
         // The enum of the policy; its version differs between the IDL
         // of CORBA 2.3 and later (and between ORBs), so it is compared
@@ -281,6 +302,22 @@ fn apply_overrides(
     policies: &[PolicyValue],
     set_add: SetOverrideType,
 ) -> Result<Option<u64>, SystemException> {
+    check_duplicates(policies)?;
+    let mut timeout = match set_add {
+        SetOverrideType::Set => None,
+        SetOverrideType::Add => current,
+    };
+    for p in policies {
+        match p {
+            PolicyValue::RelativeRoundtripTimeout(t) => timeout = Some(*t),
+            PolicyValue::Poa(_) => return Err(no_permission()),
+        }
+    }
+    Ok(timeout)
+}
+
+/// `BAD_PARAM` when two policies of `policies` have the same type.
+fn check_duplicates(policies: &[PolicyValue]) -> Result<(), SystemException> {
     for (i, p) in policies.iter().enumerate() {
         if policies[..i]
             .iter()
@@ -293,17 +330,15 @@ fn apply_overrides(
             ));
         }
     }
-    let mut timeout = match set_add {
-        SetOverrideType::Set => None,
-        SetOverrideType::Add => current,
-    };
-    for p in policies {
-        match p {
-            PolicyValue::RelativeRoundtripTimeout(t) => timeout = Some(*t),
-            PolicyValue::Poa(_) => return Err(no_permission()),
-        }
+    Ok(())
+}
+
+/// The value of a `BidirectionalPolicy`.
+fn bidirectional(p: &PolicyValue) -> Option<Bidirectional> {
+    match p {
+        PolicyValue::Poa(Policy::Bidirectional(v)) => Some(*v),
+        _ => None,
     }
-    Ok(timeout)
 }
 
 /// The overrides of the types `types` (every type when empty) at a scope
@@ -361,22 +396,44 @@ impl Orb {
     /// `PolicyManager::set_policy_overrides` of the ORB (the initial
     /// reference `ORBPolicyManager`): a `RelativeRoundtripTimeoutPolicy`
     /// sets [`call_timeout`](Orb::call_timeout); without one (after
-    /// `SET_OVERRIDE`) calls have no limit. `NO_PERMISSION` for a POA
-    /// policy.
+    /// `SET_OVERRIDE`) calls have no limit. A `BidirectionalPolicy` of
+    /// `BOTH` makes the ORB offer and accept bidirectional GIOP, like
+    /// `-ORBofferBiDirectionalGIOP 1 -ORBacceptBiDirectionalGIOP 1`, for
+    /// the connections opened or accepted from then on
+    /// (docs/bidir-giop.md). `NO_PERMISSION` for the other POA policies.
     pub fn set_policy_overrides(
         &self,
         policies: &[PolicyValue],
         set_add: SetOverrideType,
     ) -> Result<(), SystemException> {
+        check_duplicates(policies)?;
+        let others: Vec<PolicyValue> = policies
+            .iter()
+            .filter(|p| bidirectional(p).is_none())
+            .copied()
+            .collect();
         let current = self.call_timeout().map(duration_to_time_t);
-        let t = apply_overrides(current, policies, set_add)?;
+        let t = apply_overrides(current, &others, set_add)?;
         self.set_call_timeout(t.map(time_t_to_duration));
+        let bidir = policies.iter().find_map(bidirectional);
+        let mut stored = self.inner.bidir_override.lock().unwrap();
+        match (bidir, set_add) {
+            (Some(v), _) => *stored = Some(v),
+            (None, SetOverrideType::Set) => *stored = None,
+            (None, SetOverrideType::Add) => {}
+        }
         Ok(())
     }
 
     /// `PolicyManager::get_policy_overrides` of the ORB.
     pub fn policy_overrides(&self, types: &[PolicyType]) -> Vec<PolicyValue> {
-        overrides(self.call_timeout().map(duration_to_time_t), types)
+        let mut out = overrides(self.call_timeout().map(duration_to_time_t), types);
+        if types.is_empty() || types.contains(&BIDIRECTIONAL_POLICY_TYPE) {
+            if let Some(v) = *self.inner.bidir_override.lock().unwrap() {
+                out.push(PolicyValue::Poa(Policy::Bidirectional(v)));
+            }
+        }
+        out
     }
 }
 

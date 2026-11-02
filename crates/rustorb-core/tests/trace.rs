@@ -114,7 +114,7 @@ fn stderr_without_subscriber() {
         "rustorb: trace: sent Request (GIOP 1.2, ",
         "rustorb: trace: received Reply (GIOP 1.2, ",
         "rustorb: debug: reply to request \"echo_long\" (id 0): NoException",
-        "rustorb: debug: request id 1: replying CORBA::NO_PERMISSION (minor 0x00000003, COMPLETED_NO)",
+        "rustorb: debug: request id 2: replying CORBA::NO_PERMISSION (minor 0x00000003, COMPLETED_NO)",
         "rustorb: debug: request \"refused\" raised CORBA::NO_PERMISSION",
         "rustorb: info: closing the connection to 127.0.0.1:",
     ] {

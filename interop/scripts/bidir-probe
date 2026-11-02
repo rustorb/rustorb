@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+"""Calls back over bidirectional GIOP through the omniORBpy API
+(run-bidir-probe.sh, docs/bidir-giop.md).
+
+    bidir-probe --impl omniorbpy|rustorbpy --naming CORBALOC --name PATH
+                [--server-port N] [ORB options]
+
+The ORB options make the client offer its connections for bidirectional
+GIOP and publish an address nobody listens on, so that the server reaches
+the callback object only over the connection the client opened. Activates
+an InteropTest::Callback in a POA with the BidirectionalPolicy BOTH, calls
+Echo::call_back twice, and checks the answers and that the client has one
+connection to the server port. Prints one line per step and PASS or FAIL;
+the exit status is 0 only for PASS.
+"""
+
+import argparse
+import os
+import subprocess
+import sys
+import time
+
+parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+parser.add_argument("--impl", required=True, choices=["omniorbpy", "rustorbpy"])
+parser.add_argument("--naming", required=True)
+parser.add_argument("--name", required=True)
+parser.add_argument("--server-port", type=int, default=2810)
+parser.add_argument("--timeout", type=float, default=30.0)
+args, orb_args = parser.parse_known_args()
+
+impls = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "impls")
+if args.impl == "rustorbpy":
+    sys.path[:0] = [os.path.join(impls, "rustorbpy", "lib"),
+                    os.path.join(impls, "rustorbpy", "stubs")]
+else:
+    sys.path.insert(0, os.path.join(impls, "omniorbpy", "stubs"))
+
+from omniORB import BiDirPolicy, CORBA, PortableServer  # noqa: E402
+import CosNaming  # noqa: E402
+import InteropTest  # noqa: E402
+import InteropTest__POA  # noqa: E402
+
+
+class Callback(InteropTest__POA.Callback):
+    def notify(self, message):
+        return "ack:" + message
+
+
+def connections():
+    """The client's TCP connections to the server port (not TIME-WAIT)."""
+    out = subprocess.run(["ss", "-Htn", "exclude", "time-wait", f"( dport = :{args.server_port} )"],
+                         capture_output=True, text=True, check=True).stdout
+    return len(out.splitlines())
+
+
+orb = CORBA.ORB_init([sys.argv[0], "-ORBInitRef", f"NameService={args.naming}"] + orb_args,
+                     CORBA.ORB_ID)
+root_poa = orb.resolve_initial_references("RootPOA")
+manager = root_poa._get_the_POAManager()
+# omniORBpy spells the TypeCode _tc_BidrectionalPolicyValue.
+tc = getattr(BiDirPolicy, "_tc_BidirectionalPolicyValue", None) or \
+    BiDirPolicy._tc_BidrectionalPolicyValue
+both = orb.create_policy(BiDirPolicy.BIDIRECTIONAL_POLICY_TYPE, CORBA.Any(tc, BiDirPolicy.BOTH))
+poa = root_poa.create_POA("BiDir", manager, [both])
+cb = poa.id_to_reference(poa.activate_object(Callback()))._narrow(InteropTest.Callback)
+manager.activate()
+
+deadline = time.monotonic() + args.timeout
+while True:
+    try:
+        root = orb.resolve_initial_references("NameService")._narrow(CosNaming.NamingContext)
+        name = [CosNaming.NameComponent(p, "") for p in args.name.split("/") if p]
+        echo = root.resolve(name)._narrow(InteropTest.Echo)
+        break
+    except (CORBA.TRANSIENT, CORBA.COMM_FAILURE, CosNaming.NamingContext.NotFound):
+        if time.monotonic() > deadline:
+            sys.exit("timed out waiting for the Echo server")
+        time.sleep(0.2)
+
+ok = True
+for i, message in enumerate(["bidir", "again"], 1):
+    try:
+        got = echo.call_back(cb, message)
+    except CORBA.SystemException as e:
+        got = repr(e)
+    good = got == "ack:" + message
+    print(f"call_back {i}: {'ok' if good else 'FAIL ' + got}")
+    ok &= good
+n = connections()
+print(f"connections to the server: {n}")
+ok &= n == 1
+orb.destroy()
+print("PASS" if ok else "FAIL")
+sys.exit(0 if ok else 1)

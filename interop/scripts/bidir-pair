@@ -1,0 +1,45 @@
+#!/bin/sh
+# Runs one pair of run-bidir-probe.sh in the container: omniNames, the Echo
+# server of SERVER (with SERVER_ARGS, which make it accept bidirectional
+# GIOP) and the bidir probe of CLIENT (with CLIENT_ARGS, which make it
+# offer it), all on 127.0.0.1. An omniORB server and client also need
+# "bidir" in their transport rules, -ORBserverTransportRule and
+# -ORBclientTransportRule, given as SERVER_RULE and CLIENT_RULE (one
+# argument with a space in it).
+#
+#   bidir-pair CLIENT SERVER
+#
+# CLIENT is omniorbpy or rustorbpy; SERVER a directory under impls/.
+set -eu
+client="$1"
+server="$2"
+cd /opt/interop
+naming=corbaloc::127.0.0.1:2809/NameService
+logdir="$(mktemp -d)"
+omniNames -start 2809 -logdir "$logdir" -ORBendPointPublish giop:tcp:127.0.0.1:2809 \
+  > "$logdir/naming.log" 2>&1 &
+for _ in $(seq 60); do
+  [ -n "$(ss -Hltn '( sport = :2809 )')" ] && break
+  sleep 0.2
+done
+sleep 1
+set --
+[ -n "${SERVER_RULE:-}" ] && set -- -ORBserverTransportRule "$SERVER_RULE"
+# shellcheck disable=SC2086
+"impls/$server/server" --naming "$naming" --name bidir/Echo --host 127.0.0.1 --port 2810 \
+  ${SERVER_ARGS:-} "$@" > "$logdir/server.log" 2>&1 &
+for _ in $(seq 60); do
+  grep -q "server ready" "$logdir/server.log" && break
+  sleep 0.5
+done
+status=0
+set --
+[ -n "${CLIENT_RULE:-}" ] && set -- -ORBclientTransportRule "$CLIENT_RULE"
+# shellcheck disable=SC2086
+scripts/bidir-probe --impl "$client" --naming "$naming" --name bidir/Echo \
+  ${CLIENT_ARGS:-} "$@" || status=1
+if [ $status -ne 0 ]; then
+  echo "--- server log"
+  tail -n 40 "$logdir/server.log"
+fi
+exit $status

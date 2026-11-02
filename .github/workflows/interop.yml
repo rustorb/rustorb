@@ -176,6 +176,9 @@ jobs:
       - name: Close idle connections between rustorb, omniORB and JacORB
         run: interop/run-idle-probe.sh
 
+      - name: Call back over bidirectional GIOP between rustorb and omniORB
+        run: interop/run-bidir-probe.sh
+
       - name: Probe the remaining ORB operations of omniORBpy and rustorbpy
         run: interop/run-orb-ops-probe.sh
 

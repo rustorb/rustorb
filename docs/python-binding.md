@@ -11,6 +11,7 @@ rustorb の Python パッケージ `rustorb` のうち、ORB 本体をつなぐ�
 | `crates/rustorb-python` | ネイティブモジュール `rustorb._native`（PyO3、abi3-py39）。`Orb`、`ObjRef`、`Poa`、`PoaManager` と、TypeCode に従うマーシャリング |
 | `python/rustorb/CORBA.py` | `ORB_init`、`ORB`（`create_policy`、`register_initial_reference` など、[orb-operations.md](orb-operations.md)）、`Object`（`_narrow`、`_is_a`、`_is_equivalent`、`_hash`、`_non_existent`、ポリシーの操作）、`Policy`、`PolicyManager`、`PolicyCurrent`、例外、TypeCode |
 | `python/rustorb/Messaging.py`、`TimeBase.py` | `RelativeRoundtripTimeoutPolicy` と `TimeT` の TypeCode |
+| `python/rustorb/BiDirPolicy.py` | 双方向 GIOP の `BidirectionalPolicy`（[bidir-giop.md](bidir-giop.md)） |
 | `python/rustorb/PortableServer.py` | `Servant`（`_this`、`_default_POA`）、`POA`、`POAManager`、`Current`、ポリシーの値と `create_*_policy`、`ForwardRequest` と POA の例外 |
 | `python/rustorb/PortableServer__POA.py` | `ServantActivator`、`ServantLocator`、`AdapterActivator` のスケルトン |
 | `python/rustorb/_native.pyi` | ネイティブモジュールの型スタブ |

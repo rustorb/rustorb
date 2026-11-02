@@ -813,6 +813,9 @@ void rorb_server_reply_system_exception(rorb_server_reply* reply, const char* id
 #define RORB_IMPLICIT_ACTIVATION_POLICY_ID 20
 #define RORB_SERVANT_RETENTION_POLICY_ID 21
 #define RORB_REQUEST_PROCESSING_POLICY_ID 22
+/* BiDirPolicy::BIDIRECTIONAL_POLICY_TYPE, for rorb_poa_create_poa: NORMAL 0,
+   BOTH 1 (bidirectional GIOP, docs/bidir-giop.md). */
+#define RORB_BIDIRECTIONAL_POLICY_TYPE 37
 
 typedef struct rorb_policy {
   uint32_t type;
