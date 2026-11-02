@@ -11,15 +11,15 @@ use rustorb_cdr::ByteOrder;
 use rustorb_giop::{CorbaName, Corbaloc, Ior, ObjectUrl, Version};
 use tokio::runtime::{Handle, Runtime};
 
-use crate::connection::{Connection, EndpointKey};
+use crate::connection::{Connection, ConnectionPool};
 use crate::poa::{self, MainThreadGuard, Poa};
 use crate::pool::Job;
 use crate::server::Server;
-use crate::tls;
 use crate::{
     CompletionStatus, Exception, ObjectRef, SystemException, SystemExceptionKind, minor, name,
     timeout,
 };
+use crate::{tls, trace};
 
 /// Settings of an [`Orb`].
 #[derive(Debug, Clone)]
@@ -90,6 +90,21 @@ pub struct OrbOptions {
     /// Requests of one connection that may wait or run at once. Beyond
     /// that the connection is not read until one completes.
     pub max_requests_per_connection: usize,
+    /// Closes a client connection nothing was sent or received on for
+    /// this long, with no reply awaited (`-ORBoutConScanPeriod S`, in
+    /// seconds, 0 for never; default 120 s). The next call opens a new
+    /// one. See docs/connections.md.
+    pub client_idle_timeout: Option<Duration>,
+    /// Closes a server connection with `CloseConnection` when no request
+    /// came in for this long and none is running
+    /// (`-ORBinConScanPeriod S`, in seconds, 0 for never; default 180 s).
+    pub server_idle_timeout: Option<Duration>,
+    /// Most connections the server side keeps open at once
+    /// (`-ORBmaxServerConnections N`; 0, the default, for no limit). At
+    /// the limit the connection used least recently, of those with no
+    /// request running, is closed with `CloseConnection`, and new
+    /// connections wait in the listen backlog until one ends.
+    pub max_server_connections: usize,
     /// The socket send buffer of each connection (`SO_SNDBUF`), client and
     /// server; `None` leaves the operating system's default (which on
     /// Linux grows as needed).
@@ -234,6 +249,9 @@ impl Default for OrbOptions {
             follow_linger: Duration::from_millis(1),
             follow_limit: 64,
             max_requests_per_connection: 256,
+            client_idle_timeout: Some(Duration::from_secs(120)),
+            server_idle_timeout: Some(Duration::from_secs(180)),
+            max_server_connections: 0,
             socket_send_buffer: None,
             socket_receive_buffer: None,
             tls_endpoints: Vec::new(),
@@ -264,6 +282,9 @@ impl OrbOptions {
     /// | `-ORBmaxServerThreadPoolSize N` | [`max_server_threads`](OrbOptions::max_server_threads) |
     /// | `-ORBfollowLinger US` | [`follow_linger`](OrbOptions::follow_linger), in microseconds |
     /// | `-ORBfollowLimit N` | [`follow_limit`](OrbOptions::follow_limit) |
+    /// | `-ORBoutConScanPeriod S` | [`client_idle_timeout`](OrbOptions::client_idle_timeout), in seconds (0 for never) |
+    /// | `-ORBinConScanPeriod S` | [`server_idle_timeout`](OrbOptions::server_idle_timeout), in seconds (0 for never) |
+    /// | `-ORBmaxServerConnections N` | [`max_server_connections`](OrbOptions::max_server_connections) (0 for no limit) |
     /// | `-ORBendPoint giop:ssl:HOST:PORT` | [`tls_endpoints`](OrbOptions::tls_endpoints) (repeatable) |
     /// | `-ORBendPointPublish giop:ssl:HOST:PORT` | [`tls_endpoint_publish`](OrbOptions::tls_endpoint_publish) |
     /// | `-ORBsslCAFile PATH` | [`TlsOptions::ca_file`] |
@@ -297,6 +318,9 @@ impl OrbOptions {
                             | "maxServerThreadPoolSize"
                             | "followLinger"
                             | "followLimit"
+                            | "outConScanPeriod"
+                            | "inConScanPeriod"
+                            | "maxServerConnections"
                             | "sslCAFile"
                             | "sslCertFile"
                             | "sslKeyFile"
@@ -325,6 +349,9 @@ impl OrbOptions {
                     | "maxServerThreadPoolSize"
                     | "followLinger"
                     | "followLimit"
+                    | "outConScanPeriod"
+                    | "inConScanPeriod"
+                    | "maxServerConnections"
                     | "sslCAFile"
                     | "sslCertFile"
                     | "sslKeyFile"
@@ -410,6 +437,11 @@ impl OrbOptions {
                 "followLimit" => {
                     self.follow_limit = value.parse().map_err(|_| bad_option())?;
                 }
+                "outConScanPeriod" => self.client_idle_timeout = seconds(&value)?,
+                "inConScanPeriod" => self.server_idle_timeout = seconds(&value)?,
+                "maxServerConnections" => {
+                    self.max_server_connections = value.parse().map_err(|_| bad_option())?;
+                }
                 "sslCAFile" => self.tls.ca_file = Some(value.into()),
                 "sslCertFile" => self.tls.cert_file = Some(value.into()),
                 "sslKeyFile" => self.tls.key_file = Some(value.into()),
@@ -449,6 +481,11 @@ impl OrbOptions {
 fn millis(value: &str) -> Result<Option<Duration>, SystemException> {
     let ms: u64 = value.parse().map_err(|_| bad_option())?;
     Ok((ms > 0).then(|| Duration::from_millis(ms)))
+}
+
+fn seconds(value: &str) -> Result<Option<Duration>, SystemException> {
+    let s: u64 = value.parse().map_err(|_| bad_option())?;
+    Ok((s > 0).then(|| Duration::from_secs(s)))
 }
 
 fn bad_param() -> SystemException {
@@ -516,7 +553,10 @@ pub(crate) struct OrbInner {
     /// [`timeout::encode`](crate::timeout::encode) stores them.
     call_timeout: AtomicU64,
     connect_timeout: AtomicU64,
-    connections: Mutex<HashMap<EndpointKey, Arc<Connection>>>,
+    connections: Arc<ConnectionPool>,
+    /// The task closing idle client connections, started with the first
+    /// connection when [`OrbOptions::client_idle_timeout`] is set.
+    idle_scan: OnceLock<tokio::task::JoinHandle<()>>,
     /// The configuration of client TLS connections, made when first used.
     tls_client: OnceLock<Result<Arc<rustls::ClientConfig>, String>>,
     /// [`Orb::register_initial_reference`] and
@@ -655,7 +695,8 @@ impl Orb {
                 call_timeout: AtomicU64::new(timeout::encode(options.request_timeout)),
                 connect_timeout: AtomicU64::new(timeout::encode(options.connect_timeout)),
                 options,
-                connections: Mutex::new(HashMap::new()),
+                connections: Arc::default(),
+                idle_scan: OnceLock::new(),
                 tls_client: OnceLock::new(),
                 registered: Mutex::default(),
                 shut_down: AtomicBool::new(false),
@@ -1165,11 +1206,14 @@ impl Orb {
             .drain()
             .map(|(_, c)| c)
             .collect();
+        if let Some(task) = self.inner.idle_scan.get() {
+            task.abort();
+        }
         let version = self.inner.options.max_giop_version;
         let order = self.inner.options.byte_order;
         let _ = self.block_on(async move {
             for conn in conns {
-                conn.close(version, order).await;
+                conn.close(Some((version, order))).await;
             }
         });
         self.inner.close_main();
@@ -1263,7 +1307,20 @@ impl Orb {
             }
         }
         let config = if tls { Some(self.tls_client()?) } else { None };
-        let connect = Connection::connect(host, port, config, &self.inner.options);
+        if let Some(timeout) = self.inner.options.client_idle_timeout {
+            self.inner.idle_scan.get_or_init(|| {
+                self.inner
+                    .handle
+                    .spawn(close_idle(Arc::downgrade(&self.inner.connections), timeout))
+            });
+        }
+        let connect = Connection::connect(
+            host,
+            port,
+            config,
+            &self.inner.options,
+            Arc::downgrade(&self.inner.connections),
+        );
         let limit = match self.connect_timeout() {
             Some(t) => Some(Instant::now() + t),
             None => deadline,
@@ -1286,9 +1343,12 @@ impl Orb {
         })?;
         let mut conns = self.inner.connections.lock().unwrap();
         match conns.get(&key) {
-            // Another caller connected first: use its connection, and let
-            // this one close when it is dropped.
-            Some(existing) if existing.is_usable() => Ok(Arc::clone(existing)),
+            // Another caller connected first: use its connection, and
+            // close this one (its reader task would keep it open).
+            Some(existing) if existing.is_usable() => {
+                tokio::spawn(async move { conn.close(None).await });
+                Ok(Arc::clone(existing))
+            }
             _ => {
                 conns.insert(key, Arc::clone(&conn));
                 Ok(conn)
@@ -1304,6 +1364,36 @@ impl Orb {
             .is_some_and(|c| Arc::ptr_eq(c, conn))
         {
             conns.remove(conn.endpoint());
+        }
+    }
+}
+
+/// Closes the client connections of `pool` idle for `timeout`, until the
+/// ORB is gone or shut down (which aborts the task).
+async fn close_idle(pool: std::sync::Weak<ConnectionPool>, timeout: Duration) {
+    let period = crate::idle::scan_period(timeout);
+    loop {
+        tokio::time::sleep(period).await;
+        let Some(pool) = pool.upgrade() else {
+            return;
+        };
+        let idle: Vec<_> = {
+            let mut conns = pool.lock().unwrap();
+            let idle: Vec<_> = conns
+                .iter()
+                .filter(|(_, c)| c.choose_idle(timeout))
+                .map(|(key, _)| key.clone())
+                .collect();
+            idle.iter().filter_map(|key| conns.remove(key)).collect()
+        };
+        drop(pool);
+        for conn in idle {
+            trace::info!(
+                "closing the connection to {}:{}: idle for {timeout:?}",
+                conn.endpoint().0,
+                conn.endpoint().1
+            );
+            tokio::spawn(async move { conn.close(None).await });
         }
     }
 }
