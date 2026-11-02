@@ -18,7 +18,7 @@ use rustorb_core::{
 
 /// The server: `call_back(cb, n)` returns `cb.notify(n) + 1`;
 /// `call_back_later(cb, ms)` (oneway) calls `cb.slow(ms)` from a thread of
-/// its own after 50 ms and records how that ended.
+/// its own at once and records how that ended.
 struct Server {
     later: Arc<Mutex<Option<Result<(), SystemException>>>>,
 }
@@ -64,7 +64,6 @@ impl Servant for Server {
                 let ms = input.read::<u32>()?;
                 let later = Arc::clone(&self.later);
                 thread::spawn(move || {
-                    thread::sleep(Duration::from_millis(50));
                     let r = cb
                         .request("slow")
                         .args(|out| {
@@ -387,20 +386,21 @@ fn poa_without_bidirectional_policy_refuses_callbacks() {
 
 #[test]
 fn client_keeps_the_connection_while_a_callback_runs() {
-    // The client closes connections idle for 100 ms; the callback runs
-    // for 400 ms while the client waits for nothing.
+    // The client closes connections idle for 300 ms; the callback runs
+    // for 1 s while the client waits for nothing. (The callback must
+    // start within the 300 ms, which slow CI machines need.)
     let s = setup(
         OrbOptions {
             server_idle_timeout: None,
             ..accepting()
         },
         OrbOptions {
-            client_idle_timeout: Some(Duration::from_millis(100)),
+            client_idle_timeout: Some(Duration::from_millis(300)),
             ..offering()
         },
         Bidirectional::Both,
     );
-    call_back_later(&s, 400);
+    call_back_later(&s, 1000);
     later(&s).unwrap();
     assert_eq!(s.proxy.accepted.load(Ordering::SeqCst), 1);
     // Then it is idle both ways and closed.
@@ -413,11 +413,11 @@ fn client_keeps_the_connection_while_a_callback_runs() {
 
 #[test]
 fn server_keeps_the_connection_while_it_awaits_a_callback_reply() {
-    // The server closes connections idle for 100 ms; its call to the
-    // client takes 400 ms.
+    // The server closes connections idle for 300 ms; its call to the
+    // client takes 1 s.
     let s = setup(
         OrbOptions {
-            server_idle_timeout: Some(Duration::from_millis(100)),
+            server_idle_timeout: Some(Duration::from_millis(300)),
             ..accepting()
         },
         OrbOptions {
@@ -426,7 +426,7 @@ fn server_keeps_the_connection_while_it_awaits_a_callback_reply() {
         },
         Bidirectional::Both,
     );
-    call_back_later(&s, 400);
+    call_back_later(&s, 1000);
     later(&s).unwrap();
     assert_eq!(s.proxy.accepted.load(Ordering::SeqCst), 1);
 }
