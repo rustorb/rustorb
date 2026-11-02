@@ -1436,7 +1436,8 @@ class ORB : public LocalObject {
   // reference; BAD_PARAM (minor 27) for nil.
   void register_initial_reference(const std::string& identifier,
                                   const object_reference<Object>& obj);
-  // A POA policy from its enumerator, or a
+  // A POA policy from its enumerator, a BiDirPolicy::BidirectionalPolicy
+  // from an unsigned short (BidirectionalPolicyValue), or a
   // Messaging::RelativeRoundtripTimeoutPolicy from a TimeBase::TimeT
   // (uint64_t, in 100 ns). PolicyError: BAD_POLICY for a type rustorb does
   // not know, BAD_POLICY_TYPE for an any of the wrong type,
@@ -2275,6 +2276,33 @@ class RelativeRoundtripTimeoutPolicy : public virtual CORBA::Policy {
 
 }  // namespace Messaging
 
+namespace BiDirPolicy {
+
+using BidirectionalPolicyValue = uint16_t;
+constexpr BidirectionalPolicyValue NORMAL = 0;
+constexpr BidirectionalPolicyValue BOTH = 1;
+constexpr CORBA::PolicyType BIDIRECTIONAL_POLICY_TYPE = 37;
+
+// Bidirectional GIOP (docs/bidir-giop.md): ORB::create_policy with a
+// BidirectionalPolicyValue (an unsigned short) in an any. BOTH on a POA
+// lets its objects take requests over the connections their ORB opened;
+// BOTH on the ORB's PolicyManager is -ORBofferBiDirectionalGIOP 1 and
+// -ORBacceptBiDirectionalGIOP 1.
+class BidirectionalPolicy : public virtual CORBA::Policy {
+ public:
+  explicit BidirectionalPolicy(BidirectionalPolicyValue v) : value_(v) {}
+  BidirectionalPolicyValue value() const { return value_; }
+  CORBA::PolicyType policy_type() const override { return BIDIRECTIONAL_POLICY_TYPE; }
+  CORBA::object_reference<CORBA::Policy> copy() override {
+    return CORBA::object_reference<CORBA::Policy>(std::make_shared<BidirectionalPolicy>(value_));
+  }
+
+ private:
+  BidirectionalPolicyValue value_;
+};
+
+}  // namespace BiDirPolicy
+
 namespace rustorb {
 namespace detail {
 
@@ -2300,6 +2328,10 @@ inline CORBA::object_reference<CORBA::Policy> make_policy(uint32_t type, uint64_
       break;
     case REQUEST_PROCESSING_POLICY_ID:
       p = std::make_shared<RequestProcessingPolicy>(RequestProcessingPolicyValue(v));
+      break;
+    case BiDirPolicy::BIDIRECTIONAL_POLICY_TYPE:
+      p = std::make_shared<BiDirPolicy::BidirectionalPolicy>(
+          static_cast<BiDirPolicy::BidirectionalPolicyValue>(v));
       break;
     case Messaging::RELATIVE_RT_TIMEOUT_POLICY_TYPE:
       p = std::make_shared<Messaging::RelativeRoundtripTimeoutPolicy>(value);
@@ -2332,6 +2364,7 @@ struct RawPolicies {
       RUSTORB_RAW_POLICY(ImplicitActivationPolicy)
       RUSTORB_RAW_POLICY(ServantRetentionPolicy)
       RUSTORB_RAW_POLICY(RequestProcessingPolicy)
+      RUSTORB_RAW_POLICY(BiDirPolicy::BidirectionalPolicy)
 #undef RUSTORB_RAW_POLICY
       if (auto q = std::dynamic_pointer_cast<Messaging::RelativeRoundtripTimeoutPolicy>(sp)) {
         value = q->relative_expiry();
@@ -3062,6 +3095,7 @@ inline CORBA::object_reference<POA> POA::create_POA(
     RUSTORB_POLICY_VALUE(ImplicitActivationPolicy)
     RUSTORB_POLICY_VALUE(ServantRetentionPolicy)
     RUSTORB_POLICY_VALUE(RequestProcessingPolicy)
+    RUSTORB_POLICY_VALUE(BiDirPolicy::BidirectionalPolicy)
     throw InvalidPolicy(static_cast<uint16_t>(i));
 #undef RUSTORB_POLICY_VALUE
     list.push_back(rorb_policy{p->policy_type(), value});

@@ -21,7 +21,8 @@ break the API).
   override of the ORB does the same as both options. Idle connections are
   closed only when nothing runs or waits in either direction. Python has the
   `BiDirPolicy` module (also as `omniORB.BiDirPolicy`), the C ABI
-  `RORB_BIDIRECTIONAL_POLICY_TYPE`; `interop/run-bidir-probe.sh` checks both
+  `RORB_BIDIRECTIONAL_POLICY_TYPE`, C++ `BiDirPolicy::BidirectionalPolicy` and
+  Java `org.omg.BiDirPolicy`; `interop/run-bidir-probe.sh` checks both
   directions with omniORB C++ and omniORBpy (#103)
 
 ### Changed

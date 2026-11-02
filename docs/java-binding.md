@@ -140,6 +140,7 @@ ORB orb = ORB.init(args, props);
   - `MappingTest`：C++ と同じ `cpp/tests/idl/CxxMapping.idl`（`-Wbpackage=mapping`）の定数、union の規則、すべての型を、同じプロセスの2つの ORB の間と同一 ORB 内で往復させる
   - `PoaTest`：C++ の `test_poa.cc` と同じ内容（ServantActivator・ServantLocator・AdapterActivator、転送と例外、ポリシーの検査）を、2つの ORB の間と同一 ORB 内で確かめる
   - `InteropCasesTest`：相互接続の78ケース（`interop/impls/java/interop/Cases.java`）と Any / TypeCode の251ケース（DynAny の組み立て直しを含む）（`AnyTests.java`）を、2つの ORB の間で回す
+  - `BiDirTest`：双方向 GIOP（[bidir-giop.md](bidir-giop.md)）。`org.omg.BiDirPolicy` の `create_policy`、`ORBPolicyManager`、クライアントの開いた接続でのコールバックと、`BOTH` でない POA の `NO_PERMISSION` を、同じプロセスの2つの ORB の間で確かめる
   - `DynAnyTest`：`org.omg.DynamicAny`（[dynany.md](dynany.md)）。生成コードの型の DynAny、valuetype の共有と循環、切り詰め。残りの操作は `interop/impls/rustorbjava/probe/interop/DynAnyProbe.java`（`run-dynany-probe.sh`）で確かめる
   - `PortableTest`：手書きの portable stub（`_request` / `_invoke` / `ApplicationException` / oneway）を2つの ORB の間と同一 ORB 内で、`_releaseReply` の後のストリーム、返事を作ってから操作を呼ぶスケルトンの例外の完了状態、`ORB.create_output_stream` の読み戻し、Any のストリーム操作と `insert_Value` / `extract_Value`
   - `PiTest`：Portable Interceptors。プロパティの初期化子、`DuplicateName`、`pre_init` の `BAD_INV_ORDER`、要求と返事のサービスコンテキスト、クライアントのスレッドから サーバントへのスロット、IOR のコンポーネント、両側の `ForwardRequest`、点が投げた例外、点の後の情報のオブジェクト、`Codec`

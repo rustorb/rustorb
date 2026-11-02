@@ -162,6 +162,13 @@ target_include_directories(test_interop PRIVATE
 target_link_libraries(test_interop PRIVATE rustorb)
 target_compile_options(test_interop PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME interop COMMAND test_interop)
+# Bidirectional GIOP: a callback over the client's connection, in one process.
+add_executable(test_bidir tests/test_bidir.cc ${INTEROP_SOURCES})
+target_include_directories(test_bidir PRIVATE
+  "${CMAKE_CURRENT_BINARY_DIR}/idl" "${RUSTORB_ROOT}/interop/impls/rustorbcpp")
+target_link_libraries(test_bidir PRIVATE rustorb)
+target_compile_options(test_bidir PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME bidir COMMAND test_bidir)
 # any and TypeCode: the stage 2 interop cases, in one process.
 rustorb_idl_generate(ANY_SOURCES "${RUSTORB_ROOT}/interop/idl/AnyTest.idl"
                      "${RUSTORB_ROOT}/interop/idl/AnyTestHidden.idl")
