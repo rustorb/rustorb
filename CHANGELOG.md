@@ -36,6 +36,9 @@ break the API).
   trait, used as `Arc<dyn L>`); the core's `idl` module has the helpers
   (`AbstractValue`, `register_supported`, `ValueHandle::read_base`). The
   rustorb interop client and server run the abstract interface suite (#104)
+- `rustorb-idl -brust` maps abstract valuetypes (a handle and the trait
+  `AMethods`, implemented for the derived valuetypes) and valuetype
+  operations that raise user exceptions (per-operation error enums) (#104)
 
 ### Changed
 

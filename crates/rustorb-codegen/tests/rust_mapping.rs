@@ -1075,3 +1075,118 @@ fn local_interfaces() {
     assert_eq!(a.fire(1, Some(&h)).unwrap(), 201);
     assert_eq!(bell.get().rings, 1);
 }
+
+impl ItemOperations for ItemState {
+    fn stock(&mut self) -> Result<i32, item::StockError> {
+        if self.base < 0.0 {
+            return Err(Empty {}.into());
+        }
+        Ok(3)
+    }
+
+    fn discounted(&mut self, rate: f64) -> Result<f64, discounted::DiscountedError> {
+        if !(0.0..=1.0).contains(&rate) {
+            return Err(Failure {
+                code: 3,
+                message: "rate".into(),
+                kind: Fruit::Apple,
+            }
+            .into());
+        }
+        Ok(self.base * (1.0 - rate))
+    }
+
+    fn price(&mut self) -> idl::Sys<f64> {
+        Ok(self.base)
+    }
+}
+
+struct ShopImpl;
+
+impl ShopServant for ShopImpl {
+    fn echo_priced(&self, p: Option<&Priced>) -> idl::Sys<Option<Priced>> {
+        Ok(p.cloned())
+    }
+
+    fn total(&self, ps: &[Option<Priced>]) -> idl::Sys<f64> {
+        let mut t = 0.0;
+        for p in ps.iter().flatten() {
+            t += p.price()?;
+        }
+        Ok(t)
+    }
+}
+
+#[test]
+fn abstract_valuetypes() {
+    rust_mapping_idl::register_value_types();
+    let tc = Priced::type_code();
+    assert_eq!(tc.kind(), TCKind::Value);
+    assert_eq!(tc.type_modifier().unwrap(), 2);
+
+    let item = Item::new(ItemState { base: 10.0 });
+    assert_eq!(item.stock().unwrap(), 3);
+    let d: Discounted = item.clone().into();
+    assert_eq!(d.discounted(0.25).unwrap(), 7.5);
+    assert!(matches!(
+        d.discounted(2.0),
+        Err(discounted::DiscountedError::Failure(_))
+    ));
+    assert_eq!(d.price().unwrap(), 10.0);
+    let p: Priced = d.into();
+    assert_eq!(p.price().unwrap(), 10.0);
+    assert!(p.handle().ptr_eq(item.handle()));
+    assert!(Priced::from_handle(item.handle().clone()).is_some());
+    assert!(Priced::from_handle(Shape::new(ShapeState::default()).handle().clone()).is_none());
+    item.set(ItemState { base: -1.0 });
+    assert!(matches!(item.stock(), Err(item::StockError::Empty(_))));
+    item.set(ItemState { base: 10.0 });
+
+    // Marshaled as the derived value, sharing kept.
+    let back = round_trip::<Priced>(&Some(p.clone())).unwrap().unwrap();
+    assert_eq!(back.price().unwrap(), 10.0);
+    assert!(Item::from_handle(back.handle().clone()).is_some());
+    let seq = round_trip::<alias::PricedSeq>(&[Some(p.clone()), None, Some(p.clone())]).unwrap();
+    assert!(seq[0].as_ref().unwrap().ptr_eq(seq[2].as_ref().unwrap()));
+    assert!(seq[1].is_none());
+    // A value of a type that does not derive from it.
+    let other = Some(Shape::new(ShapeState::default()));
+    let mut enc = rustorb_core::cdr::Encoder::new(
+        rustorb_core::cdr::ByteOrder::Little,
+        rustorb_core::cdr::CdrVersion::Giop1_2,
+    );
+    <Shape as IdlType>::write(&other, &mut rustorb_core::OutStream::standalone(&mut enc)).unwrap();
+    let bytes = enc.into_bytes();
+    let dec = rustorb_core::cdr::Decoder::new(
+        &bytes,
+        rustorb_core::cdr::ByteOrder::Little,
+        rustorb_core::cdr::CdrVersion::Giop1_2,
+    );
+    let e =
+        <Priced as IdlType>::read(&mut rustorb_core::InStream::standalone(dec, None)).unwrap_err();
+    assert!(e.is(SystemExceptionKind::MARSHAL));
+
+    // In an any, and over TCP.
+    let any = Any::insert::<Priced>(&Some(p.clone())).unwrap();
+    assert_eq!(
+        any.extract::<Priced>().unwrap().unwrap().price().unwrap(),
+        10.0
+    );
+    let server = server_orb();
+    let root = server.root_poa().unwrap();
+    root.the_poa_manager().activate().unwrap();
+    let servant: Arc<dyn Servant> = Arc::new(ShopPoa(ShopImpl));
+    let id = root.activate_object(servant).unwrap();
+    let client = Orb::with_options(OrbOptions::default()).unwrap();
+    let shop = Shop::unchecked_narrow(remote(
+        &client,
+        &server,
+        &root.id_to_reference(&id).unwrap(),
+    ));
+    let back = shop.echo_priced(Some(&p)).unwrap().unwrap();
+    assert_eq!(back.price().unwrap(), 10.0);
+    let other: Priced = Item::new(ItemState { base: 2.5 }).into();
+    assert_eq!(shop.total(&[Some(p), None, Some(other)]).unwrap(), 12.5);
+    drop(client);
+    server.shutdown(true).unwrap();
+}
