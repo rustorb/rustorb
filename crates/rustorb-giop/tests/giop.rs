@@ -894,3 +894,114 @@ fn out_message_fragments_giop_1_2() {
         assert_eq!(v11.clone().fragment(256), v11);
     }
 }
+
+// --- Reply service contexts known after the body ------------------------------------
+
+fn context(len: usize) -> ServiceContext {
+    ServiceContext {
+        context_id: 0x5254_0000,
+        context_data: vec![7; len],
+    }
+}
+
+fn reply_header(contexts: Vec<ServiceContext>) -> ReplyHeader {
+    ReplyHeader {
+        request_id: 9,
+        reply_status: ReplyStatus::NoException,
+        service_context: contexts,
+    }
+}
+
+/// A body with data aligned to 8 bytes among other data, shared octets,
+/// and an encapsulation.
+fn mixed_body(enc: &mut rustorb_cdr::Encoder) {
+    enc.write_octet(1);
+    enc.write_f64(1.5);
+    enc.write_string("abc").unwrap();
+    enc.write_long_double(rustorb_cdr::LongDouble::from(2.5));
+    enc.write_u32(3);
+    enc.write_octet_seq_shared(&Octets::from(vec![5u8; rustorb_cdr::SHARE_MIN + 3]))
+        .unwrap();
+    enc.write_i64(-4);
+    enc.write_u16(6);
+    enc.write_octet_seq_shared(&Octets::from(vec![6u8; rustorb_cdr::SHARE_MIN + 4]))
+        .unwrap();
+    enc.write_u64(7);
+    enc.write_encapsulation(|inner| {
+        inner.write_f64(8.0);
+        Ok(())
+    })
+    .unwrap();
+    enc.write_u64(9);
+}
+
+fn reply_with(
+    version: Version,
+    order: ByteOrder,
+    contexts: Vec<ServiceContext>,
+    body: fn(&mut rustorb_cdr::Encoder),
+) -> rustorb_giop::OutMessage {
+    let mut m = MessageEncoder::reply(version, order, &reply_header(contexts)).unwrap();
+    body(m.body());
+    m.finish_shared().unwrap()
+}
+
+#[test]
+fn reply_header_replaced_after_the_body() {
+    let bodies: [fn(&mut rustorb_cdr::Encoder); 3] = [
+        mixed_body,
+        |enc| enc.write_string("only four-byte data").unwrap(),
+        |_| {},
+    ];
+    for version in VERSIONS {
+        for order in ORDERS {
+            for body in bodies {
+                for before in 0..4 {
+                    for after in 0..12 {
+                        let old = reply_with(version, order, vec![context(before)], body);
+                        let new = vec![context(before), context(after)];
+                        let replaced = old
+                            .with_reply_header(&reply_header(new.clone()))
+                            .unwrap_or_else(|_| panic!("{version:?} {before} {after}"));
+                        let direct = reply_with(version, order, new, body);
+                        assert_eq!(replaced.len(), direct.len());
+                        assert_eq!(
+                            replaced.into_vec(),
+                            direct.into_vec(),
+                            "{version:?} {order:?} {before} {after}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn reply_header_not_replaced_under_a_valuetype() {
+    fn body(enc: &mut rustorb_cdr::Encoder) {
+        assert!(enc.begin_value(1, &["IDL:V:1.0"], false).unwrap());
+        enc.write_f64(1.0);
+        enc.end_value().unwrap();
+    }
+    for version in [Version::V1_0, Version::V1_1] {
+        // 4 more bytes of contexts: the value would have to move.
+        let old = reply_with(version, ByteOrder::Big, vec![context(0)], body);
+        assert!(
+            old.with_reply_header(&reply_header(vec![context(4)]))
+                .is_err()
+        );
+        // 8 more bytes: it stays where it is.
+        let old = reply_with(version, ByteOrder::Big, vec![context(0)], body);
+        let new = vec![context(8)];
+        let replaced = old.with_reply_header(&reply_header(new.clone())).unwrap();
+        let direct = reply_with(version, ByteOrder::Big, new, body);
+        assert_eq!(replaced.into_vec(), direct.into_vec());
+    }
+    // GIOP 1.2 aligns the body itself.
+    let old = reply_with(Version::V1_2, ByteOrder::Big, vec![context(0)], body);
+    assert!(
+        old.with_reply_header(&reply_header(vec![context(4)]))
+            .is_ok()
+    );
+}

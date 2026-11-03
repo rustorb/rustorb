@@ -36,6 +36,13 @@ break the API).
   run the generated Rust code moved to `tests/mapping`
 - Client request ids are even (0, 2, 4, …): the side that opened a connection
   uses even ids and the other side odd ones, as bidirectional GIOP needs (#103)
+- GIOP 1.0 / 1.1 replies now carry the service contexts that server
+  interceptors add in `send_reply` / `send_exception` / `send_other` even when
+  they move the body by 4 bytes: the padding before each 8-byte aligned item
+  of the body is written again (`Encoder::track_align8` / `take_align8`,
+  `OutMessage::with_reply_header`). Only a body with a valuetype, whose chunk
+  lengths and indirections count that padding, still drops them with a
+  warning (#126)
 
 ## [0.2.0] - 2026-11-02
 

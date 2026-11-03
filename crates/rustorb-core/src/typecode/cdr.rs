@@ -78,6 +78,10 @@ impl Writer<'_> {
     /// `base`.
     fn write(&mut self, enc: &mut Encoder, base: isize, index: u32) -> Result<()> {
         enc.align(4);
+        // Indirections point only to kinds of open nodes, whose
+        // encapsulation they are written in, and nothing aligned to 8
+        // stands between the two: their offsets do not change when the
+        // outer stream is moved by 4 bytes (`Encoder::track_align8`).
         let here = base + enc.position() as isize;
         if let Some(&start) = self.open.get(&index) {
             enc.write_u32(INDIRECTION);
