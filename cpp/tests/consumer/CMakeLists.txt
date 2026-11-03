@@ -9,7 +9,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(rustorb_consumer CXX)
 
-find_package(rustorb 0.2 REQUIRED)
+find_package(rustorb 0.3 REQUIRED)
 
 rustorb_idl_generate(SOURCES Echo.idl)
 add_executable(echo main.cc ${SOURCES})
