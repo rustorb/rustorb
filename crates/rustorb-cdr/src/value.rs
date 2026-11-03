@@ -100,6 +100,8 @@ impl Encoder {
     ///
     /// A value nested in a chunked value is chunked as well.
     pub fn begin_value(&mut self, key: u64, ids: &[&str], chunked: bool) -> Result<bool> {
+        // Chunk lengths and indirections depend on stream offsets.
+        self.pin();
         let state = self.values.get_or_insert_with(Default::default);
         if let Some(&tag_at) = state.written.get(&key) {
             self.write_u32(INDIRECTION);

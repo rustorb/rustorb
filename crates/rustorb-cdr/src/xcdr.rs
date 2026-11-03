@@ -438,7 +438,7 @@ impl Encoder {
             extended,
             origin: self.origin,
         };
-        self.origin = self.position();
+        self.origin = self.offset();
         Ok(mark)
     }
 

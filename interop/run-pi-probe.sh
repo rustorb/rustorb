@@ -18,10 +18,15 @@
 #   result: hello
 #
 # The rustorb probes are built on the host and mounted, as in
-# run-matrix.sh. The servers add their reply context in send_reply, after
-# the servant ran: before GIOP 1.2 the core sends it only when it keeps the
-# body aligned (docs/portable-interceptors.md), so the probe runs on GIOP
-# 1.2, the default.
+# run-matrix.sh. Each pair runs with the client limited to GIOP 1.2, 1.1
+# and 1.0 in turn (GIOP_VERSIONS, default "1.2 1.1 1.0"), with the
+# client's -ORBmaxGIOPVersion. A JacORB client uses the version of the
+# server's IOR, which is 1.2 for every server here, so JacORB clients run on
+# 1.2 only (the others are skipped). The servers
+# add their reply context in send_reply, after the servant ran; before GIOP
+# 1.2 that can move the reply body by 4 bytes, which the core makes up for
+# (docs/portable-interceptors.md). The names make the context lengths
+# differ, so some pairs move the body and some do not.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -41,11 +46,16 @@ impls/rustorbcpp/build.sh > /dev/null
 impls/rustorbjava/build.sh > /dev/null
 
 failed=0
+for giop in ${GIOP_VERSIONS:-1.2 1.1 1.0}; do
 for pair in "${pairs[@]}"; do
   IFS=: read -r client server <<< "$pair"
+  if [ "$client" = jacorb ] && [ "$giop" != 1.2 ]; then
+    echo "SKIP $pair GIOP $giop"
+    continue
+  fi
   expected=$(printf 'reply context: %s got: from %s\ncomponent: %s component\nresult: hello' \
     "$server" "$client" "$server")
-  echo "== $client -> $server"
+  echo "== $client -> $server (GIOP $giop)"
   # Inside the container: start the server, wait for its IOR, run the client.
   if actual=$(docker run --rm \
       -v "$PWD/impls/rustorb:/opt/interop/impls/rustorb:ro" \
@@ -53,6 +63,7 @@ for pair in "${pairs[@]}"; do
       -v "$PWD/impls/rustorbcpp:/opt/interop/impls/rustorbcpp:ro" \
       -v "$PWD/impls/rustorbjava:/opt/interop/impls/rustorbjava:ro" \
       "$image" bash -c '
+        client=$1 giop=$3
         probe() {
           case "$1" in
             rustorb) shift; impls/rustorb/bin/rustorb-pi-probe "$@" ;;
@@ -64,16 +75,19 @@ for pair in "${pairs[@]}"; do
         }
         probe "$2" server > /tmp/ior 2> /tmp/server.err &
         for _ in $(seq 100); do grep -q IOR: /tmp/ior && break; sleep 0.1; done
-        probe "$1" client "$(grep IOR: /tmp/ior | head -1)" 2> /tmp/client.err \
+        ior=$(grep IOR: /tmp/ior | head -1)
+        if [ "$1" = jacorb ]; then set --; else set -- -ORBmaxGIOPVersion "$giop"; fi
+        probe "$client" client "$ior" "$@" 2> /tmp/client.err \
           || { cat /tmp/server.err /tmp/client.err >&2; exit 1; }
-      ' _ "$client" "$server") && [ "$actual" = "$expected" ]; then
-    echo "PASS $pair"
+      ' _ "$client" "$server" "$giop") && [ "$actual" = "$expected" ]; then
+    echo "PASS $pair GIOP $giop"
   else
     printf '%s\n' "$actual"
-    echo "FAIL $pair (expected:"
+    echo "FAIL $pair GIOP $giop (expected:"
     printf '%s\n' "$expected"
     echo ")"
     failed=1
   fi
+done
 done
 exit $failed

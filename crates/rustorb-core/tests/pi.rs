@@ -59,6 +59,8 @@ fn sys(kind: SystemExceptionKind, minor: u32) -> SystemException {
 /// exception Oops {};
 /// interface Echo {
 ///   string slot();          // slot 0 of PICurrent, as the servant sees it
+///   double slot8(out string s, out double d);  // 1.5, slot, 2.5
+///   V slot_value(out string s);                // a valuetype, slot
 ///   void user() raises (Oops);
 ///   void system();          // NO_PERMISSION
 ///   oneway void post();
@@ -91,6 +93,21 @@ impl Servant for Echo {
                 reply
                     .output()
                     .write_string(&any_string(&value).unwrap_or_default())
+            }
+            "slot8" | "slot_value" => {
+                let orb = self.orb.lock().unwrap().clone().unwrap();
+                let value = orb.pi_current().get_slot(0).unwrap();
+                let mut out = reply.output();
+                if operation == "slot8" {
+                    out.write_f64(1.5);
+                } else {
+                    assert!(out.begin_value(1, &["IDL:V:1.0"], false).unwrap());
+                    out.write_f64(1.5);
+                    out.end_value().unwrap();
+                }
+                out.write_string(&any_string(&value).unwrap_or_default())?;
+                out.write_f64(2.5);
+                Ok(())
             }
             "user" => {
                 reply.user_exception(OOPS_ID)?;
@@ -952,29 +969,50 @@ fn reply_contexts_with_giop_1_1() {
             ..OrbOptions::default()
         });
         let obj = remote(&client.orb, &server.orb, &echo);
-        client
-            .orb
-            .pi_current()
-            .set_slot(0, string_any("app"))
-            .unwrap();
         // "from app" is 8 bytes: the context is 4 + 4 + 8 + 4 (count)
-        // bytes, a multiple of 8, so it can be sent in every version.
-        assert_eq!(call_slot(&obj).unwrap(), "from app");
-        let log = take(&client.log);
-        assert!(
-            log.contains(&"A receive_reply slot status=0 reply_ctx=from app".to_owned()),
-            "{version:?}: {log:?}"
-        );
-        client
-            .orb
-            .pi_current()
-            .set_slot(0, string_any("app1"))
-            .unwrap();
-        assert_eq!(call_slot(&obj).unwrap(), "from app1");
-        let log = take(&client.log);
-        let sent = log.contains(&"A receive_reply slot status=0 reply_ctx=from app1".to_owned());
-        // 9 bytes of data move a GIOP 1.0/1.1 body: not sent there.
-        assert_eq!(sent, version == Version::V1_2, "{version:?}: {log:?}");
+        // bytes, a multiple of 8. "from app1" is 9 bytes, which moves a
+        // GIOP 1.0/1.1 body by 4 bytes.
+        for slot in ["app", "app1"] {
+            client
+                .orb
+                .pi_current()
+                .set_slot(0, string_any(slot))
+                .unwrap();
+            let expect = format!("A receive_reply slot status=0 reply_ctx=from {slot}");
+            // A body without data aligned to 8 bytes stays as it is.
+            assert_eq!(call_slot(&obj).unwrap(), format!("from {slot}"));
+            let log = take(&client.log);
+            assert!(log.contains(&expect), "{version:?} {slot}: {log:?}");
+            // Data aligned to 8 bytes gets its padding written again.
+            let reply = obj.request("slot8").invoke().unwrap();
+            let mut input = reply.input();
+            assert_eq!(input.read::<f64>().unwrap(), 1.5);
+            assert_eq!(input.read_string().unwrap(), format!("from {slot}"));
+            assert_eq!(input.read::<f64>().unwrap(), 2.5);
+            let log = take(&client.log);
+            let expect = expect.replace(" slot ", " slot8 ");
+            assert!(log.contains(&expect), "{version:?} {slot}: {log:?}");
+            // A valuetype cannot be moved: the context is sent only when
+            // it does not move the body.
+            let reply = obj.request("slot_value").invoke().unwrap();
+            let mut input = reply.input();
+            assert!(matches!(
+                input.read_value_header().unwrap(),
+                rustorb_cdr::ValueHeader::Value { .. }
+            ));
+            assert_eq!(input.read::<f64>().unwrap(), 1.5);
+            input.end_value().unwrap();
+            assert_eq!(input.read_string().unwrap(), format!("from {slot}"));
+            assert_eq!(input.read::<f64>().unwrap(), 2.5);
+            let log = take(&client.log);
+            let expect = expect.replace(" slot8 ", " slot_value ");
+            let sent = log.contains(&expect);
+            assert_eq!(
+                sent,
+                version == Version::V1_2 || slot == "app",
+                "{version:?} {slot}: {log:?}"
+            );
+        }
     }
 }
 

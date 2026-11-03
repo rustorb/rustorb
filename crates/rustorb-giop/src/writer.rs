@@ -187,6 +187,11 @@ impl MessageEncoder {
             }
             self.body_start = Some((before, self.enc.len()));
             self.enc.allow_shared(true);
+            if self.version < Version::V1_2 {
+                // So that `OutMessage::with_reply_header` can move the
+                // body by 4 bytes.
+                self.enc.track_align8();
+            }
         }
         &mut self.enc
     }
@@ -207,6 +212,7 @@ impl MessageEncoder {
     /// [`write_octet_seq_shared`](Encoder::write_octet_seq_shared) stay
     /// where they are, for a vectored write.
     pub fn finish_shared(mut self) -> Result<OutMessage> {
+        let align8 = self.enc.take_align8();
         if let Some((before, after)) = self.body_start {
             if self.enc.len() == after {
                 self.enc.truncate(before);
@@ -230,6 +236,7 @@ impl MessageEncoder {
             shared,
             len,
             header_len,
+            align8,
         })
     }
 }
@@ -245,6 +252,10 @@ pub struct OutMessage {
     /// Where the body starts (before its padding): the message header and
     /// the message-specific header come before it.
     header_len: usize,
+    /// Before GIOP 1.2, the 8-byte alignment points of the body (indexes
+    /// in `bytes` before the padding, and the padding), if its bytes
+    /// depend on stream offsets only through them.
+    align8: Option<Vec<(usize, usize)>>,
 }
 
 impl OutMessage {
@@ -383,9 +394,12 @@ impl OutMessage {
     /// it is: in GIOP 1.2 it starts on an 8-byte boundary after the
     /// header, so it does not depend on the header's length. Before GIOP
     /// 1.2 it follows the header directly and is aligned from the start of
-    /// the message, so a header whose length differs by other than a
-    /// multiple of 8 would misalign it: then `Err` returns the message
-    /// unchanged.
+    /// the message, so a header whose length differs by 4 modulo 8 moves
+    /// it off its alignment. Then the padding before each 8-byte aligned
+    /// item of the body is written again (data aligned to at most 4 bytes
+    /// is unaffected), unless the body holds something else whose bytes
+    /// depend on stream offsets (a valuetype, a `TypeCode` indirection):
+    /// then `Err` returns the message unchanged.
     pub fn with_reply_header(
         self,
         header: &ReplyHeader,
@@ -414,7 +428,15 @@ impl OutMessage {
             (self.header_len, new_header_len)
         };
         if version < Version::V1_2 && (new_start % 8) != (old_start % 8) {
-            return Err(self);
+            // Each point grows the body by at most 4 bytes.
+            let grown =
+                |points: &Vec<(usize, usize)>| self.len - old_start + new_start + 4 * points.len();
+            return match &self.align8 {
+                Some(points) if u32::try_from(grown(points)).is_ok() => {
+                    Ok(self.realigned(bytes, old_start, new_start, order))
+                }
+                _ => Err(self),
+            };
         }
         let size = self.len - old_start + new_start;
         let Ok(message_size) = u32::try_from(size - MessageHeader::SIZE) else {
@@ -437,7 +459,58 @@ impl OutMessage {
             shared,
             len: size,
             header_len: new_header_len,
+            align8: None,
         })
+    }
+
+    /// The body (from `old_start`) after the new header `bytes`, which
+    /// ends at `new_start`, with the padding at each 8-byte alignment
+    /// point of the body written again for its new offset.
+    fn realigned(
+        self,
+        mut bytes: Vec<u8>,
+        old_start: usize,
+        new_start: usize,
+        order: ByteOrder,
+    ) -> OutMessage {
+        bytes.resize(new_start, 0);
+        let header_len = new_start;
+        let mut shared = Vec::with_capacity(self.shared.len());
+        let mut pending = self.shared.into_iter().peekable();
+        // Shared octets placed so far: they come between buffer bytes.
+        let mut extra = 0;
+        let mut from = old_start;
+        for (at, old_pad) in self.align8.unwrap_or_default() {
+            // Shared octets written before this point come before its
+            // padding.
+            while let Some((j, octets)) = pending.next_if(|(j, _)| *j <= at) {
+                extra += octets.len();
+                shared.push((bytes.len() + j - from, octets));
+            }
+            bytes.extend_from_slice(&self.bytes[from..at]);
+            let pad = (8 - (bytes.len() + extra) % 8) % 8;
+            bytes.resize(bytes.len() + pad, 0);
+            from = at + old_pad;
+        }
+        for (j, octets) in pending {
+            extra += octets.len();
+            shared.push((bytes.len() + j - from, octets));
+        }
+        bytes.extend_from_slice(&self.bytes[from..]);
+        let len = bytes.len() + extra;
+        let message_size = (len - MessageHeader::SIZE) as u32;
+        let size_bytes = match order {
+            ByteOrder::Big => message_size.to_be_bytes(),
+            ByteOrder::Little => message_size.to_le_bytes(),
+        };
+        bytes[8..12].copy_from_slice(&size_bytes);
+        OutMessage {
+            bytes,
+            shared,
+            len,
+            header_len,
+            align8: None,
+        }
     }
 
     /// The message as one buffer; copies only if octets were kept apart.
@@ -461,6 +534,7 @@ impl From<Vec<u8>> for OutMessage {
             shared: Vec::new(),
             len,
             header_len: len,
+            align8: None,
         }
     }
 }

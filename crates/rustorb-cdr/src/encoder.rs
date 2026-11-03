@@ -30,6 +30,12 @@ pub struct Encoder {
     /// The valuetypes written so far (for indirections) and the chunk
     /// being written; made with the first value.
     pub(crate) values: Option<Box<crate::value::WriteState>>,
+    /// The 8-byte alignment points written since
+    /// [`track_align8`](Encoder::track_align8), each as the buffer length
+    /// before its padding and the padding written; `None` when not
+    /// tracked, or when something was written whose bytes depend on
+    /// stream offsets (see [`take_align8`](Encoder::take_align8)).
+    align8: Option<Vec<(usize, usize)>>,
 }
 
 macro_rules! write_number {
@@ -66,6 +72,7 @@ impl Encoder {
             origin: 0,
             wstring_bom: true,
             values: None,
+            align8: None,
         }
     }
 
@@ -96,8 +103,46 @@ impl Encoder {
     }
 
     /// The stream offset of the next byte.
+    ///
+    /// A caller that writes bytes depending on it (an offset or an
+    /// indirection) calls [`pin`](Encoder::pin) as well.
     pub fn position(&self) -> usize {
+        self.offset()
+    }
+
+    /// The stream offset of the next byte.
+    pub(crate) fn offset(&self) -> usize {
         self.base + self.len()
+    }
+
+    /// Starts recording where the stream is aligned to 8 bytes, so that
+    /// the bytes written from here on can be moved by 4 bytes with
+    /// [`take_align8`](Encoder::take_align8). Only for GIOP encodings;
+    /// recording stops for good when something is written whose bytes
+    /// depend on stream offsets: a valuetype, a call to
+    /// [`pin`](Encoder::pin), [`set_origin`](Encoder::set_origin),
+    /// [`as_bytes_mut`](Encoder::as_bytes_mut) or
+    /// [`truncate`](Encoder::truncate).
+    pub fn track_align8(&mut self) {
+        self.align8 = self.encoding.is_giop().then(Vec::new);
+    }
+
+    /// Stops recording, and returns the 8-byte alignment points written
+    /// since [`track_align8`](Encoder::track_align8): each is the buffer
+    /// length before its padding and the length of that padding. Data
+    /// whose alignment is at most 4 does not depend on the stream offset
+    /// modulo 8, so the bytes written since can be moved by 4 bytes by
+    /// recomputing the padding at these points alone. `None` if not
+    /// recording, or if recording stopped.
+    pub fn take_align8(&mut self) -> Option<Vec<(usize, usize)>> {
+        self.align8.take()
+    }
+
+    /// Says that bytes written from here on depend on stream offsets, as
+    /// an indirection does, so the stream cannot be moved: stops
+    /// [`track_align8`](Encoder::track_align8) for good.
+    pub fn pin(&mut self) {
+        self.align8 = None;
     }
 
     /// Bytes written so far, shared octets included.
@@ -120,12 +165,14 @@ impl Encoder {
     /// buffer indexes, which differ from stream offsets after shared
     /// octets.
     pub fn as_bytes_mut(&mut self) -> &mut [u8] {
+        self.align8 = None;
         &mut self.buf
     }
 
     /// Drops bytes past `len`, which must not be before shared octets.
     pub fn truncate(&mut self, len: usize) {
         debug_assert!(self.shared.last().is_none_or(|(at, _)| *at <= len));
+        self.align8 = None;
         self.buf.truncate(len);
     }
 
@@ -175,9 +222,15 @@ impl Encoder {
     /// [`set_origin`](Encoder::set_origin)).
     pub fn align(&mut self, align: usize) {
         let align = align.min(self.encoding.max_align());
-        let rem = (self.position() - self.origin) % align;
-        if rem != 0 {
-            self.buf.resize(self.buf.len() + align - rem, 0);
+        let rem = (self.offset() - self.origin) % align;
+        let pad = if rem == 0 { 0 } else { align - rem };
+        if align == 8 {
+            if let Some(points) = self.align8.as_mut() {
+                points.push((self.buf.len(), pad));
+            }
+        }
+        if pad != 0 {
+            self.buf.resize(self.buf.len() + pad, 0);
         }
     }
 
@@ -192,7 +245,8 @@ impl Encoder {
     /// `PUSH(ORIGIN)`; the parameter headers of
     /// [`begin_parameter`](Encoder::begin_parameter) do it themselves.
     pub fn set_origin(&mut self, origin: usize) {
-        debug_assert!(origin <= self.position());
+        debug_assert!(origin <= self.offset());
+        self.align8 = None;
         self.origin = origin;
     }
 

@@ -9,7 +9,7 @@
 - **コア（`rustorb-core` の `pi`・`iop`）**：実装済み。`ORBInitializer`（`register_orb_initializer` と `OrbOptions::initializers`）、クライアント・サーバーの要求インターセプター、IOR インターセプター、`PICurrent`、`IOP::Codec`、`-ORBid` / `-ORBServerId`
   - 試験は `crates/rustorb-core/tests/pi.rs`（22 件）。下の「試験」のうち、`CloseConnection` での送り直し（`TRANSPORT_RETRY`）は試験がまだない
   - ベンチマーク（`cargo bench -p rustorb-core -- orb/echo_long`）：インターセプターなしでは前と差がない（ばらつきの範囲）。何もしないクライアント・サーバーのインターセプターを 1 つずつ入れると、ループバックの 1 呼び出し（約 55 µs）が約 2.4 µs（約 4%）増える
-  - 相互接続：`interop/run-pi-probe.sh`（`interop/impls/rustorb/src/pi_probe.rs` と `interop/impls/jacorb/pi/PiProbe.java`）。rustorb と JacORB 3.9 の間で、両向きの要求・返事のサービスコンテキスト、IOR インターセプターのタグ付きコンポーネント、`Codec`（CDR カプセル 1.2 の `encode_value`）の中身が届くことを確かめた（GIOP 1.2）。プローブのサーバーは返事のコンテキストを `send_reply` で足すので、GIOP 1.0 / 1.1 ではヘッダーの長さ次第で届かない（「返事のサービスコンテキストと GIOP の版」の節のとおり。#100 の 3 つめの PR で確かめ直して分かった。前の版の「GIOP 1.0・1.1・1.2」は、版を絞る引数を誤っていて、どれも 1.2 で動いていた）
+  - 相互接続：`interop/run-pi-probe.sh`（`interop/impls/rustorb/src/pi_probe.rs` と `interop/impls/jacorb/pi/PiProbe.java`）。rustorb と JacORB 3.9 の間で、両向きの要求・返事のサービスコンテキスト、IOR インターセプターのタグ付きコンポーネント、`Codec`（CDR カプセル 1.2 の `encode_value`）の中身が届くことを確かめた。プローブのサーバーは返事のコンテキストを `send_reply` で足す。全 25 組み合わせを GIOP 1.2 で、JacORB がクライアントでない 20 組み合わせを GIOP 1.1 と 1.0 でも回して通過（#126）。1.0 / 1.1 では、名前の長さによってコンテキストが本体を 4 バイトずらす組み合わせ（rustorb のサーバーに rustorb・rustorbpy のクライアントなど）があり、#126 より前のコアではそこで返事のコンテキストが届かなかった。クライアントの版は tcpdump で GIOP ヘッダーを見て確かめた。JacORB のクライアントはサーバーの IOR の版（ここではどれも 1.2）で話すので、1.0 / 1.1 では回さない
   - `pre_init` / `post_init` の例外で ORB の作成を失敗させる点（「ORB の初期化」の節）は、仕様の章の文言をまだ確かめていない
 - **Python（`rustorb.PortableInterceptor`・`rustorb.IOP`）**：実装済み（[python-binding.md](python-binding.md)）。`python/tests/test_pi.py`（11 件）。`run-pi-probe.sh` に rustorbpy（`interop/impls/rustorbpy/pi_probe.py`）を足し、rustorb・rustorbpy・JacORB のすべての組で確かめた
   - DSI の引数は、バインディングの DSI も通る `ServerRequest::write_reply` でコアがインターセプターに渡す
@@ -168,9 +168,11 @@ OrbInner.pi: Option<Arc<Interceptors>>
 `add_reply_service_context` はサーバーのどの点でも使える。返事の本体（サーバントが書く）は返事のヘッダーより後ろにあるのに、ヘッダーのサービスコンテキストは `send_*` まで決まらない。そこで、インターセプターがあるときの `ServerReply` は、本体を別の encoder に書き、送る直前にヘッダーを書いて本体をつなぐ。
 
 - GIOP 1.2：本体はヘッダーの後で 8 バイトに揃えて始まるので、本体のバイト列はヘッダーの長さによらない。どの点で足したコンテキストも送れる
-- GIOP 1.0 / 1.1：本体はヘッダーの直後から始まり、CDR の揃えはメッセージの先頭からなので、ヘッダーの長さが 8 の倍数でずれると本体を書き直す必要がある。ヘッダーの長さは常に 4 の倍数なので、ずれるのは 4 バイトのときだけである。本体は、サーバントを呼ぶ前（`receive_request` まで）に足されたコンテキストでのヘッダーの長さを前提に書く。`send_*` で足したコンテキストがヘッダーの長さを 4 バイトずらすときは、そのコンテキストを送らず、レベル 1 の警告をトレースに出す。ずれないとき（多くの場合）は送る
+- GIOP 1.0 / 1.1：本体はヘッダーの直後から始まり、CDR の揃えはメッセージの先頭からなので、ヘッダーの長さが変わると本体の位置も変わる。ヘッダーの長さは常に 4 の倍数なので、揃えが変わるのは長さが 8 で割って 4 ずれるときだけである。そのとき変わるのは、8 バイトに揃える値（`double`・`long long`・`long double` など）の前の詰め物だけで、4 バイト以下に揃える値のバイト列は変わらない。そこで、1.0 / 1.1 の本体を書く encoder は 8 バイトに揃えた点（揃える前のバッファの位置と、入れた詰め物の長さ）を記録しておき（`Encoder::track_align8`）、`send_*` で足したコンテキストがヘッダーを 4 バイトずらすときは、その点の詰め物だけを新しい位置に合わせて書き直す（`OutMessage::with_reply_header`）。8 バイトに揃える値のない本体（文字列や `long` だけのもの）は、そのままつなぐのと同じになる。カプセル（`TypeCode` の中身や `Codec` の結果）は自分の先頭から揃えるので、書き直しの対象にならない
 
-1.0 / 1.1 で、詰め物のサービスコンテキストを足して長さを合わせる方法も考えたが、使ってよい ID が rustorb にはない（OMG の VSCID を持っていない）ので採らない。相互接続の相手（omniORB・omniORBpy・JacORB）はどれも 1.2 で話すので、実際にはこの制限に当たりにくい。
+本体のバイト列がストリームの位置そのものに依る場合は、この書き直しでは足りない。valuetype（チャンクの長さと indirection がその間の詰め物を数える）を書くと記録をやめ（`Encoder::pin`）、ずれるときはそのコンテキストを送らず、レベル 1 の警告をトレースに出す（前と同じ）。`TypeCode` の indirection はカプセルの中だけを指し、指す先との間に 8 バイトの揃えがないので、位置がずれても変わらない
+
+詰め物のサービスコンテキストを足して長さを合わせる方法は採らない。CORBA の仕様（13.7）では、ID の上位 24 ビットの VSCID のうち 0〜15 は OMG の標準のサービスコンテキスト用で、ほかは OMG から割り当てを受けた業者のものである。実験用に使ってよい範囲はなく、rustorb は VSCID を持っていない。
 
 インターセプターがないときの返事の作り方は今のまま変えない。
 
@@ -305,7 +307,7 @@ pub trait IorInterceptor: Interceptor {
 
 ## 試験
 
-- `crates/rustorb-core/tests/pi.rs`：各点の呼ばれる順（登録順と逆順）、starting point の例外で済ませたものにだけ ending point が呼ばれること、各点の `ForwardRequest`、サービスコンテキストの往復と `replace`、PICurrent の TSC と RSC（クライアント・サーバー・入れ子・同一 ORB 内）、oneway、タイムアウト、`CloseConnection` での送り直し、断られる要求（POA なし・discarding）、DII / DSI の `arguments`、使えない点での `BAD_INV_ORDER`。TCP 越しと同一 ORB 内の両方。GIOP 1.0 / 1.1 / 1.2 の返事のサービスコンテキスト（1.0 / 1.1 の 4 バイトずれの警告を含む）
+- `crates/rustorb-core/tests/pi.rs`：各点の呼ばれる順（登録順と逆順）、starting point の例外で済ませたものにだけ ending point が呼ばれること、各点の `ForwardRequest`、サービスコンテキストの往復と `replace`、PICurrent の TSC と RSC（クライアント・サーバー・入れ子・同一 ORB 内）、oneway、タイムアウト、`CloseConnection` での送り直し、断られる要求（POA なし・discarding）、DII / DSI の `arguments`、使えない点での `BAD_INV_ORDER`。TCP 越しと同一 ORB 内の両方。GIOP 1.0 / 1.1 / 1.2 の返事のサービスコンテキスト（1.0 / 1.1 で本体が 4 バイトずれるとき：8 バイトの揃えのない本体、`double` の詰め物の書き直し、valuetype のある本体での警告）。`crates/rustorb-giop/tests/giop.rs` の `reply_header_replaced_after_the_body`：ヘッダーを替えた返事が、初めからそのヘッダーで書いた返事とバイト単位で同じになること（版・バイト順・コンテキストの長さの組み合わせ、`double`・`long double`・`long long`・共有のオクテット列・カプセルを含む本体）
 - IOR インターセプター：足したコンポーネントが IOR に入ること（omniORB の `catior` で読む）、`get_effective_policy`
 - `Codec`：TypeCode ごとの往復、1.0 の wchar、壊れたカプセル
 - Python・C++・Java：それぞれのテストで、各点と例外の写像、`ForwardRequest`、PICurrent、登録の方法（Java はプロパティ）
@@ -335,5 +337,5 @@ pub trait IorInterceptor: Interceptor {
 - インターセプトは 1 つのアドレスへの 1 回の送信ごと。ORB の送り直しは `TRANSPORT_RETRY` で見せる
 - サーバーの点はすべてアップコールのスレッドで呼ぶ。アップコールの前に断られる要求も、インターセプターがあれば通す
 - 静的なスタブ・スケルトンの `arguments`・`result`・`exceptions` は `NO_RESOURCES`。生成器に TypeCode を出させるのは、需要が出たら
-- GIOP 1.0 / 1.1 で `send_*` が足した返事のコンテキストが揃えをずらすときは送らずに警告する
+- GIOP 1.0 / 1.1 で `send_*` が足した返事のコンテキストが揃えをずらすときは、本体の 8 バイトの詰め物を書き直す。valuetype のある本体だけは送らずに警告する（#126）
 - コアが書くサービスコンテキストはクライアントのインターセプターから見えず、同じ ID は足せない
