@@ -1,0 +1,3 @@
+#!/bin/sh
+# omniORBpy side of run-pi-probe.sh (pi_probe.py).
+exec python3 "$(dirname "$0")/pi_probe.py" "$@"

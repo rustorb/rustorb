@@ -1,0 +1,12 @@
+// The Echo of PiProbe.idl for omniidl, which rejects PiProbe.idl because
+// the operation echo clashes with the interface Echo (IDL names are
+// compared without case). Same repository id and operation, so the wire
+// is the same.
+
+module PiProbeOmni {
+  interface Svc {
+    // Returns s.
+    string echo(in string s);
+  };
+  #pragma ID Svc "IDL:PiProbe/Echo:1.0"
+};

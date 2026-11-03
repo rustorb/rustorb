@@ -131,6 +131,9 @@ public final class PiProbe {
             } catch (Exception e) {
                 got = id(e);
             }
+            // For clients that cannot read the reply context (run-pi-probe.sh).
+            System.out.println("request context: " + got);
+            System.out.flush();
             Any any = ORB.init().create_any();
             any.insert_string(got);
             try {
