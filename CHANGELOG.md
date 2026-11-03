@@ -7,6 +7,11 @@ break the API).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-03
+
+The C ABI version stays 2. Request ids and the moved IDL compiler are the
+changes to look at when upgrading.
+
 ### Added
 
 - Bidirectional GIOP (docs/bidir-giop.md): `-ORBofferBiDirectionalGIOP 1`
@@ -24,6 +29,10 @@ break the API).
   `RORB_BIDIRECTIONAL_POLICY_TYPE`, C++ `BiDirPolicy::BidirectionalPolicy` and
   Java `org.omg.BiDirPolicy`; `interop/run-bidir-probe.sh` checks both
   directions with omniORB C++ and omniORBpy (#103)
+- `interop/run-pi-probe.sh` checks Portable Interceptors against omniORBpy
+  (client and server) and omniORB C++ (client), which carry the probe's
+  service contexts with their own request interceptors; the CI interop
+  workflow runs it (#125)
 
 ### Changed
 
@@ -250,7 +259,8 @@ omniORBpy, and valuetypes in JacORB on Java 17).
   cycles; Java relies on the GC) (#85)
 - On Windows the read path of #66 / #67 falls back to the I/O task (#86)
 
-[Unreleased]: https://github.com/rustorb/rustorb/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/rustorb/rustorb/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/rustorb/rustorb/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/rustorb/rustorb/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/rustorb/rustorb/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/rustorb/rustorb/releases/tag/v0.1.0

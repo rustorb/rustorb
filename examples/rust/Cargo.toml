@@ -9,8 +9,8 @@ publish = false
 [workspace]
 
 [dependencies]
-rustorb-core = { path = "../../crates/rustorb-core", version = "0.2" }
-rustorb-naming = { path = "../../crates/rustorb-naming", version = "0.2" }
+rustorb-core = { path = "../../crates/rustorb-core", version = "0.3" }
+rustorb-naming = { path = "../../crates/rustorb-naming", version = "0.3" }
 
 [build-dependencies]
 # From crates.io: the generator lives in https://github.com/rustorb/rustorb-idl.
