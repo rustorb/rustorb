@@ -18,8 +18,8 @@ C++・Java・Python には、呼び出しの返事を待たずに先に進む標
 | `AMI_<I>Handler`（`Messaging::ReplyHandler` の派生）と `<op>_excep` | 入れる | 普通のインターフェースとして生成する |
 | `Messaging::ExceptionHolder`（`raise_exception`） | 入れる | valuetype として送れる形にする |
 | `raise_exception_with_list` | 入れる | 引数の `Dynamic::ExceptionList` の TypeCode で探す |
-| ポーリング型：`sendp_<op>` と `AMI_<I>Poller` | 入れない（決めること 1） | 需要が出たら |
-| Rust の生成コードの AMI | 入れない（決めること 2） | `op_async` で足りる |
+| ポーリング型：`sendp_<op>` と `AMI_<I>Poller` | 入れない（決めたこと 1） | 需要が出たら |
+| Rust の生成コードの AMI | 入れない（決めたこと 2） | `op_async` で足りる |
 | TII（時間に依存しない呼び出し）、ルーター、`Messaging::ReplyHandler` への返事の転送 | 対象外 | ORB の外で返事を中継する仕組みで、需要がない |
 | `SyncScope`・`RebindPolicy`・`RequestPriority` など他の Messaging のポリシー | 対象外 | unsupported-features.md の別の行。AMI とは独立 |
 | PI の `send_poll` | 呼ばない | TII だけの点（[portable-interceptors.md](portable-interceptors.md)） |
@@ -170,7 +170,7 @@ rorb_status rorb_object_sendc(rorb_object *obj, const rorb_invocation *inv,
 - `-Wbami`：フロントエンドが暗黙の IDL を足す。backend には「Handler は普通のインターフェース」「`sendc_` はスタブだけの操作で、元の操作への参照を持つ」という形で渡し、`sendc_` の生成コードは元の操作の引数の書き込みと返事の読み取りの関数を使い回す
 - `-Wbami` なしでは今と同じ出力（golden は変わらない）
 - 前段（#137）では `sendc_` を backend に渡さず、Handler だけが各言語に出る。各言語の `sendc_` は #138・#141・#139 でそれぞれ足す
-- `-brust -Wbami` は「Rust では使えない」としてエラーにする（決めること 2）
+- `-brust -Wbami` は「Rust では使えない」としてエラーにする（決めたこと 2）
 
 ### Python（#138）
 
@@ -202,11 +202,13 @@ AMI のクライアントの要求は線上では普通の要求なので、サ�
 - `interop/run-ami-probe.sh`：rustorbpy・rustorbcpp・rustorbjava の AMI クライアントから、rustorb・rustorbpy・omniORB C++・omniORBpy・JacORB のサーバーを呼ぶ。結果、`out` / `inout`、ユーザー例外、システム例外（サーバーが投げる `BAD_PARAM` など）、タイムアウト
 - Handler を別のプロセスに置く組（`ExceptionHolder` を valuetype として送る）は、rustorb の各言語どうしで確かめる。他の ORB の Handler に rustorb から返事を届ける組は、その ORB の AMI の生成コードが要るので、omniORB C++ の生成器にそのオプションがあるかを実際に動かして確かめてからにする
 
-## 決めること
+## 決めたこと
 
-1. **ポーリング型（`sendp_` と `AMI_<I>Poller`）**：推奨は入れない。Poller は valuetype で、ORB 側に「返事の受け取り」を持つ必要があり、コールバック型より大きい。C++・Java は `std::future` / `CompletableFuture` を自前で作ればコールバック型の上に載せられる
-2. **Rust の AMI**：推奨は出さない。`async fn op_async` が同じ役割で、Rust の利用者には自然。`-brust -Wbami` はエラーにする
-3. **`-Wbami` で選ぶか、常に出すか**：推奨は `-Wbami` のときだけ。Handler のインターフェースが増えて生成物が大きくなり、名前の衝突の規則で既存の利用者の名前が変わることもないようにするため
+2026-11-03 に 3 点とも推奨どおりと決めた。
+
+1. **ポーリング型（`sendp_` と `AMI_<I>Poller`）**：入れない。Poller は valuetype で、ORB 側に「返事の受け取り」を持つ必要があり、コールバック型より大きい。C++・Java は `std::future` / `CompletableFuture` を自前で作ればコールバック型の上に載せられる
+2. **Rust の AMI**：出さない。`async fn op_async` が同じ役割で、Rust の利用者には自然。`-brust -Wbami` はエラーにする
+3. **`-Wbami` で選ぶか、常に出すか**：`-Wbami` のときだけ。Handler のインターフェースが増えて生成物が大きくなり、名前の衝突の規則で既存の利用者の名前が変わることもないようにするため
 
 ## 試験
 
