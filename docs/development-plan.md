@@ -364,3 +364,5 @@ P0〜P3 の issue がすべて終わった後（2026-10-31）、各設計書の�
 
 - P1：[#100](https://github.com/rustorb/rustorb/issues/100) Portable Interceptors、[#101](https://github.com/rustorb/rustorb/issues/101) 使っていない接続を閉じる、[#102](https://github.com/rustorb/rustorb/issues/102) GIOP メッセージの最大長の設定と送信側の Fragment
 - P2：[#103](https://github.com/rustorb/rustorb/issues/103) 双方向 GIOP、[#104](https://github.com/rustorb/rustorb/issues/104) `-brust` の abstract / local interface など、[#105](https://github.com/rustorb/rustorb/issues/105) ログ・トレースの出力
+
+0.3.0 の後（2026-11-03）、unsupported-features.md の P2 から Messaging AMI を選び、計画 [#135](https://github.com/rustorb/rustorb/issues/135)（設計：[ami.md](ami.md)）と sub-issue #136〜#141 を起票した。
