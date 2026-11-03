@@ -73,6 +73,8 @@ class Probe : public PI::ClientRequestInterceptor,
     } catch (const CORBA::SystemException& e) {
       got = e._rep_id();
     }
+    // For clients that cannot read the reply context (run-pi-probe.sh).
+    std::cout << "request context: " << got << std::endl;
     CORBA::Any a;
     a <<= got;
     ri->set_slot(slot_, a);

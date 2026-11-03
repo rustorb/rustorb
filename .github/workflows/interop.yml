@@ -173,6 +173,12 @@ jobs:
       - name: Call back over bidirectional GIOP between rustorb and omniORB
         run: interop/run-bidir-probe.sh
 
+      # Service contexts and IOR components through the interceptors of
+      # rustorb (Rust, Python, C++, Java), JacORB, omniORBpy and omniORB C++,
+      # on GIOP 1.2, 1.1 and 1.0.
+      - name: Probe Portable Interceptors between rustorb, omniORB and JacORB
+        run: interop/run-pi-probe.sh
+
       - name: Probe the remaining ORB operations of omniORBpy and rustorbpy
         run: interop/run-orb-ops-probe.sh
 

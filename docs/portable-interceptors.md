@@ -9,11 +9,11 @@
 - **コア（`rustorb-core` の `pi`・`iop`）**：実装済み。`ORBInitializer`（`register_orb_initializer` と `OrbOptions::initializers`）、クライアント・サーバーの要求インターセプター、IOR インターセプター、`PICurrent`、`IOP::Codec`、`-ORBid` / `-ORBServerId`
   - 試験は `crates/rustorb-core/tests/pi.rs`（22 件）。下の「試験」のうち、`CloseConnection` での送り直し（`TRANSPORT_RETRY`）は試験がまだない
   - ベンチマーク（`cargo bench -p rustorb-core -- orb/echo_long`）：インターセプターなしでは前と差がない（ばらつきの範囲）。何もしないクライアント・サーバーのインターセプターを 1 つずつ入れると、ループバックの 1 呼び出し（約 55 µs）が約 2.4 µs（約 4%）増える
-  - 相互接続：`interop/run-pi-probe.sh`（`interop/impls/rustorb/src/pi_probe.rs` と `interop/impls/jacorb/pi/PiProbe.java`）。rustorb と JacORB 3.9 の間で、両向きの要求・返事のサービスコンテキスト、IOR インターセプターのタグ付きコンポーネント、`Codec`（CDR カプセル 1.2 の `encode_value`）の中身が届くことを確かめた。プローブのサーバーは返事のコンテキストを `send_reply` で足す。全 25 組み合わせを GIOP 1.2 で、JacORB がクライアントでない 20 組み合わせを GIOP 1.1 と 1.0 でも回して通過（#126）。1.0 / 1.1 では、名前の長さによってコンテキストが本体を 4 バイトずらす組み合わせ（rustorb のサーバーに rustorb・rustorbpy のクライアントなど）があり、#126 より前のコアではそこで返事のコンテキストが届かなかった。クライアントの版は tcpdump で GIOP ヘッダーを見て確かめた。JacORB のクライアントはサーバーの IOR の版（ここではどれも 1.2）で話すので、1.0 / 1.1 では回さない
+  - 相互接続：`interop/run-pi-probe.sh`（`interop/impls/rustorb/src/pi_probe.rs` と `interop/impls/jacorb/pi/PiProbe.java`）。rustorb と JacORB 3.9 の間で、両向きの要求・返事のサービスコンテキスト、IOR インターセプターのタグ付きコンポーネント、`Codec`（CDR カプセル 1.2 の `encode_value`）の中身が届くことを確かめた。プローブのサーバーは返事のコンテキストを `send_reply` で足す。GIOP 1.2・1.1・1.0 で回す（#126）。1.0 / 1.1 では、名前の長さによってコンテキストが本体を 4 バイトずらす組み合わせ（rustorb のサーバーに rustorb・rustorbpy のクライアントなど）があり、#126 より前のコアではそこで返事のコンテキストが届かなかった。クライアントの版は tcpdump で GIOP ヘッダーを見て確かめた。JacORB のクライアントはサーバーの IOR の版（ここではどれも 1.2）で話すので、1.0 / 1.1 では回さない。omniORBpy・omniORB C++ を足した結果は下の「omniORB との相互接続」の節（CI の interop ワークフローで回す）
   - `pre_init` / `post_init` の例外で ORB の作成を失敗させる点（「ORB の初期化」の節）は、仕様の章の文言をまだ確かめていない
 - **Python（`rustorb.PortableInterceptor`・`rustorb.IOP`）**：実装済み（[python-binding.md](python-binding.md)）。`python/tests/test_pi.py`（11 件）。`run-pi-probe.sh` に rustorbpy（`interop/impls/rustorbpy/pi_probe.py`）を足し、rustorb・rustorbpy・JacORB のすべての組で確かめた
   - DSI の引数は、バインディングの DSI も通る `ServerRequest::write_reply` でコアがインターセプターに渡す
-  - omniORBpy との組はまだ。omniORBpy のマニュアルにあるインターセプターの API（`omniORB.interceptors`）で試験用のプログラムを書く必要がある。この環境では相互接続のイメージ（omniORB をソースから作る）を動かせないため、次に回す
+  - omniORBpy・omniORB C++ との組は #125 で確かめた（「omniORB との相互接続」の節）
 - **C ABI（`rustorb-ffi`）**：実装済み。`ABI_VERSION` は 2。`rustorb.h` の「Portable Interceptors and IOP::Codec」の節：インターセプターと初期化子の関数表（`rorb_client_interceptor_vtable` など）、`rorb_register_orb_initializer` と ORB ごとの `rorb_orb_init_pi`（ORB id と初期化子）、情報のアクセサー（`rorb_cri_*`・`rorb_sri_*`・`rorb_ior_info_*`・`rorb_init_info_*`）、`rorb_pi_error_*`、PICurrent（`rorb_orb_pi_current`）、`Codec`（`rorb_orb_create_codec`）。`InvalidSlot`・`DuplicateName`・`UnknownEncoding`・`Codec` の例外は新しい `RORB_*` の局所例外
 - **C++（`<rustorb/pi.h>`）**：実装済み（[cpp-binding.md](cpp-binding.md)）。`cpp/tests/test_pi.cc`。`CORBA::ORB_init` は ORB id を `rorb_orb_init_pi` に渡す。`resolve_initial_references` は `PICurrent`・`CodecFactory` を答える
 - **Java（`org.omg.PortableInterceptor`・`org.omg.IOP`・`org.omg.Dynamic`）**：実装済み（[java-binding.md](java-binding.md)）。型は `java/idl/PortableInterceptor.idl` から `rustorb-idl -bjava` で作る（`java/generate-stubs.sh`）。`PiTest`。初期化子は `ORB.init` のプロパティか system property の `org.omg.PortableInterceptor.ORBInitializerClass.<クラス名>`、ORB id は `org.omg.CORBA.ORBId`
@@ -322,6 +322,16 @@ pub trait IorInterceptor: Interceptor {
 - 相手が自分で送るコンテキスト（CodeSets など）が rustorb のサーバーのインターセプターから `get_request_service_context` で読めること
 - IOR：rustorb が足したコンポーネントが相手の ORB の IOR の解析で壊れないこと（`catior`、相手からの呼び出しが通ること）
 - `interop/run-pi-probe.sh` にまとめ、CI では JacORB と omniORBpy の組を回す
+
+### omniORB との相互接続（#125）
+
+omniORB には C++ にも Python にも標準の Portable Interceptors がなく、それぞれ独自の要求インターセプターがある。使い方は利用者向けの文書（omniORBpy・omniORB 4.3 の user's guide の第 10 章 "Interceptors"）だけから取り、ソースとヘッダーは読まない。
+
+- omniORBpy（`interop/impls/omniorbpy/pi_probe.py`）：`omniORB.interceptors` の `addClientSendRequest`・`addClientReceiveReply`・`addServerReceiveRequest`・`addServerSendReply`。コンテキストは `(id, CDR カプセル)` の組で、カプセルは `omniORB.cdrMarshal` / `cdrUnmarshal` で作り読む。登録は `ORB_init` の前。サーバーは受けた要求のコンテキストをスレッドローカルに置き、返事で `omniorbpy got: …` を返す。IOR にタグ付きコンポーネントを足す口はないので、omniORBpy のサーバーとの組ではコンポーネントの行を比べない。クライアントは渡された IOR の CDR（IIOP のプロファイル）を自分で読んでコンポーネントを取り出す。`PiProbe.idl` は omniidl が受け付けない（操作 `echo` がインターフェース `Echo` と大文字小文字を除いて同じ名前、IDL の規則どおり）ので、同じリポジトリ ID と操作の `PiProbeOmni.idl` を使う。omniORBpy には DSI・DII もないので静的なスタブ
+- omniORB C++（`interop/impls/omniorb-cpp/pi_probe.cc`、クライアントだけ）：文書が中身まで書いているのは `clientSendRequest` の `info_T`（`service_contexts`）だけなので、要求のコンテキストを足すところまで確かめる（返事のコンテキスト、IOR のコンポーネント、サーバーの側は確かめない。2026-11-03 にこの範囲と決めた）。各サーバーのプローブは受けた要求のコンテキストを `request context: …` と出力し、スクリプトはそれも比べる
+- 結果：rustorb・rustorbpy・rustorbcpp・rustorbjava・JacORB・omniORBpy をクライアントとサーバー、omniORB C++ をクライアントにした 42 組を GIOP 1.2、JacORB のクライアントを除く 36 組を 1.1 と 1.0 で回し、すべて通過（omniORBpy・omniORB C++ のクライアントの版は tcpdump で確かめた）
+- 実測で分かった omniORB の動き：omniORB 4.3.4 は GIOP 1.1 の返事にサーバーのインターセプターが足したサービスコンテキストを載せない。コンテキストの長さによらず（0〜7 文字を足して試した）、omniORBpy どうしでも同じで、1.0 と 1.2 では載る（インターセプターは 1.1 でも呼ばれ、コンテキストを足している）。そのため omniORBpy のサーバーと GIOP 1.1 の組では返事のコンテキストの行も比べない
+- omniORB のクライアントから JacORB のサーバーへの組では、JacORB のサーバーのインターセプターが、コンテキストのない呼び出しを要求の前に一度見る（中身は調べていない）。スクリプトはクライアントのコンテキストの行を探す
 
 ## 実装の順（#107 の PR）
 

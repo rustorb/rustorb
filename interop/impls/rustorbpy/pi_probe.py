@@ -67,6 +67,8 @@ class Probe(PortableInterceptor.ClientRequestInterceptor,
             got = decode(self.codec, ri.get_request_service_context(CONTEXT).context_data)
         except CORBA.SystemException as e:
             got = ex_id(e)
+        # For clients that cannot read the reply context (run-pi-probe.sh).
+        print("request context: " + got, flush=True)
         ri.set_slot(self.slot, CORBA.Any(CORBA.TC_string, got))
 
     def send_reply(self, ri):

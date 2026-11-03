@@ -105,6 +105,8 @@ impl ServerRequestInterceptor for Probe {
             Ok(sc) => decode(&self.codec, &sc.context_data),
             Err(e) => e.repository_id,
         };
+        // For clients that cannot read the reply context (run-pi-probe.sh).
+        println!("request context: {got}");
         ri.set_slot(self.slot, Any::new(TypeCode::string(0), Value::String(got)))
             .unwrap();
         Ok(())

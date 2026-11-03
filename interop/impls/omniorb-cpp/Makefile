@@ -1,5 +1,6 @@
 # Builds the omniORB C++ server and client for the interop tests, the POA
-# probe server (run-poa-probe.sh) and the DynAny probe (run-dynany-probe.sh).
+# probe server (run-poa-probe.sh), the DynAny probe (run-dynany-probe.sh) and
+# the client of run-pi-probe.sh.
 #
 #   make OMNIORB=/opt/omniorb IDLDIR=../../idl OUT=/opt/interop/impls/omniorb-cpp install
 
@@ -29,7 +30,7 @@ VALUE_HDR = gen/ValueTest.hh
 ABSTRACT_SRC = gen/AbstractTestSK.cc gen/AbstractTestDynSK.cc
 ABSTRACT_HDR = gen/AbstractTest.hh
 
-all: server client poa_probe_server dynany_probe
+all: server client poa_probe_server dynany_probe pi_probe
 
 $(STUB_SRC) $(STUB_HDR): $(IDLDIR)/InteropTest.idl
 	mkdir -p gen
@@ -67,11 +68,14 @@ poa_probe_server: poa_probe_server.cc $(PROBE_SRC) $(PROBE_HDR)
 dynany_probe: dynany_probe.cc
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -o $@ dynany_probe.cc $(LDLIBS)
 
-install: server client poa_probe_server dynany_probe
+pi_probe: pi_probe.cc
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -o $@ pi_probe.cc $(LDLIBS)
+
+install: server client poa_probe_server dynany_probe pi_probe
 	mkdir -p $(OUT)
-	cp server client poa_probe_server dynany_probe $(OUT)/
+	cp server client poa_probe_server dynany_probe pi_probe $(OUT)/
 
 clean:
-	rm -rf gen server client poa_probe_server dynany_probe
+	rm -rf gen server client poa_probe_server dynany_probe pi_probe
 
 .PHONY: all install clean
