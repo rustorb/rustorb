@@ -53,7 +53,7 @@ jobs:
       - run: cargo test --workspace --locked
 
   python:
-    name: Python (IDL generator, runtime and native module)
+    name: Python (runtime, native module and generated code)
     strategy:
       fail-fast: false
       matrix:
@@ -61,15 +61,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # The generator reads IDL with idl_parser, pinned to a tested commit.
-      - uses: actions/checkout@v4
-        with:
-          repository: sugarsweetrobotics/idl_parser
-          ref: 5eef768bb61e0ee7c5cd08c42c45789a45585f60
-          path: idl_parser
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      # The IDL compiler, pinned (https://github.com/rustorb/rustorb-idl).
+      - run: pip install -r tools/rustorb-idl.txt
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -80,18 +76,14 @@ jobs:
       - run: python/build-native.sh
       - run: python -m unittest discover -s python/tests -v
         env:
-          PYTHONPATH: ${{ github.workspace }}/idl_parser
           RUSTORB_REQUIRE_NATIVE: "1"
-      - run: python -m unittest discover -s crates/rustorb-codegen/python/tests -v
-        env:
-          PYTHONPATH: ${{ github.workspace }}/idl_parser
+      # The generator's own tests are in rustorb-idl; its CI also runs them
+      # against this repository's main branch.
       - name: Check that the committed code of rustorb-idl -brust is up to date
         run: |
-          crates/rustorb-codegen/generate-rust.sh
-          git diff --exit-code -- crates interop/impls/rustorb
-          test -z "$(git status --porcelain -- crates interop/impls/rustorb)"
-        env:
-          IDL_PARSER_DIR: ${{ github.workspace }}/idl_parser
+          tools/generate-rust.sh
+          git diff --exit-code -- crates interop/impls/rustorb tests/mapping
+          test -z "$(git status --porcelain -- crates interop/impls/rustorb tests/mapping)"
       - name: Build the wheel with maturin
         run: pip wheel ./python --no-deps -w dist
       - name: Build the wheel of the omniORBpy compatibility package
@@ -108,17 +100,13 @@ jobs:
       CXX: ${{ matrix.cxx }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: sugarsweetrobotics/idl_parser
-          ref: 5eef768bb61e0ee7c5cd08c42c45789a45585f60
-          path: idl_parser
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - run: pip install -r tools/rustorb-idl.txt
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cmake -S cpp -B build/cpp -DIDL_PARSER_DIR=${{ github.workspace }}/idl_parser
+      - run: cmake -S cpp -B build/cpp
       - run: cmake --build build/cpp
       - run: ctest --test-dir build/cpp --output-on-failure
 
@@ -127,14 +115,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: sugarsweetrobotics/idl_parser
-          ref: 5eef768bb61e0ee7c5cd08c42c45789a45585f60
-          path: idl_parser
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - run: pip install -r tools/rustorb-idl.txt
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       # Every C++ test with ASan; LeakSanitizer reports what the C++ runtime
@@ -142,7 +126,7 @@ jobs:
       # all).
       - run: >
           cmake -S cpp -B build/cpp -DCMAKE_CXX_COMPILER=g++ -DRUSTORB_SANITIZE=address
-          -DIDL_PARSER_DIR=${{ github.workspace }}/idl_parser
+         
       - run: cmake --build build/cpp
       - run: ctest --test-dir build/cpp --output-on-failure
 
@@ -159,30 +143,22 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: sugarsweetrobotics/idl_parser
-          ref: 5eef768bb61e0ee7c5cd08c42c45789a45585f60
-          path: idl_parser
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - run: pip install -r tools/rustorb-idl.txt
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: ${{ matrix.java }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # bash: PowerShell would split -Didl.parser.dir=... at the dot.
-      - run: mvn -B -f java/pom.xml -Dpython=python "-Didl.parser.dir=${{ github.workspace }}/idl_parser" verify
-        shell: bash
+      - run: mvn -B -f java/pom.xml -Dpython=python verify
       - name: Check that Ffi.java is up to date with rustorb.h
         run: python java/tools/gen-ffi.py --check
       - name: Check that the committed CosNaming stubs are up to date
         if: runner.os == 'Linux'
         run: java/generate-stubs.sh && git diff --exit-code -- java
-        env:
-          IDL_PARSER_DIR: ${{ github.workspace }}/idl_parser
 
   docs:
     name: rustdoc
@@ -213,7 +189,7 @@ jobs:
           workspaces: |
             .
             examples/rust
-      # rustorb-idl takes idl_parser from PyPI here, as a user's install would.
+      # rustorb-idl and idl_parser from PyPI, as a user's install would.
       - run: examples/run-all.sh
 
   msrv:

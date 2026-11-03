@@ -3,7 +3,7 @@
 # -bjava: the CosNaming ones (org.omg.CosNaming), and org.omg.IOP,
 # org.omg.Dynamic and org.omg.PortableInterceptor with the few
 # org.omg.CORBA classes they need that the runtime does not write by hand
-# (from idl/PortableInterceptor.idl). Needs idl_parser importable (or
+# (from idl/PortableInterceptor.idl). Needs rustorb-idl importable (tools/rustorb-idl.txt) (or
 # IDL_PARSER_DIR set to a checkout of it). CI checks that the committed stubs
 # are up to date (it runs this and git diff).
 set -euo pipefail
@@ -11,15 +11,15 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$here/.."
 out="${1:-$here/src/main/java}"
-pythonpath="$root/crates/rustorb-codegen/python"
-[ -n "${IDL_PARSER_DIR:-}" ] && pythonpath="$IDL_PARSER_DIR:$pythonpath"
+pythonpath="${RUSTORB_IDL_DIR:+$RUSTORB_IDL_DIR/python}"
+[ -n "${IDL_PARSER_DIR:-}" ] && pythonpath="$IDL_PARSER_DIR${pythonpath:+:$pythonpath}"
 idl() {
-  PYTHONPATH="$pythonpath${PYTHONPATH:+:$PYTHONPATH}" python3 -m rustorb_idl -bjava \
+  PYTHONPATH="$pythonpath${PYTHONPATH:+${pythonpath:+:}$PYTHONPATH}" python3 -m rustorb_idl -bjava \
     -Wbpackage=org.omg "$@"
 }
 
 rm -rf "$out/org/omg/CosNaming"
-idl -C "$out" "$root/crates/rustorb-codegen/tests/idl/CosNaming.idl"
+idl -C "$out" "$root/tests/mapping/idl/CosNaming.idl"
 
 # The CORBA classes of the generated ones that the runtime lacks.
 corba=(OctetSeqHelper ParameterMode ParameterModeHelper ParameterModeHolder

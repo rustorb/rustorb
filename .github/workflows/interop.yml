@@ -20,10 +20,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 80
     env:
-      # rustorb-idl generates the stubs of the rustorb Python client and
-      # server (impls/rustorbpy/build.sh) and the code of
-      # run-pymapping-check.sh.
-      IDL_PARSER_DIR: ${{ github.workspace }}/idl_parser
       # run-matrix.sh runs this many client / server pairs at a time.
       INTEROP_JOBS: "4"
     steps:
@@ -37,16 +33,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      # rustorb-idl runs on the runner. The runner's Python is the image's
-      # (3.12, Ubuntu 24.04).
-      - uses: actions/checkout@v4
-        with:
-          repository: sugarsweetrobotics/idl_parser
-          ref: 5eef768bb61e0ee7c5cd08c42c45789a45585f60
-          path: idl_parser
+      # rustorb-idl (pinned in tools/rustorb-idl.txt) runs on the runner and
+      # generates the stubs of the rustorb clients and servers and the code
+      # of run-pymapping-check.sh. The runner's Python is the image's (3.12,
+      # Ubuntu 24.04).
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - run: pip install -r tools/rustorb-idl.txt
       # javac for the rustorb Java client and server
       # (impls/rustorbjava/build.sh), for Java 22 (the FFM API); the image
       # runs them on Java 25.

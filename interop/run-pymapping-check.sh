@@ -8,7 +8,7 @@
 # --update   rewrites the expected files with the current output
 #
 # omniidl runs in the omniORB image and its code is dumped under omniORBpy;
-# rustorb-idl runs on the host (idl_parser must be importable, or set
+# rustorb-idl runs on the host (rustorb-idl must be importable (tools/rustorb-idl.txt), or set
 # IDL_PARSER_DIR to a checkout of it) and its code is dumped under the
 # rustorb Python package (../python). The outputs are compared with
 # expected/pymapping-omniorbpy.txt and expected/pymapping-rustorb.txt; the
@@ -21,7 +21,7 @@ if [ "${1:-}" = "--update" ]; then
   update=1
 fi
 image=${SERVER_IMAGE:-rustorb-interop-omniorb:latest}
-codegen_idl=../crates/rustorb-codegen/tests/idl
+codegen_idl=../tests/mapping/idl
 modules=(Mapping _GlobalIDL Mapping__POA _GlobalIDL__POA CosNaming CosNaming__POA
          InteropTest InteropTest__POA PoaProbe PoaProbe__POA)
 
@@ -38,8 +38,8 @@ docker run --rm -u "$(id -u):$(id -g)" \
     /scripts/pymapping-dump --runtime omniorbpy "$@"' bash "${modules[@]}" \
   > out/pymapping-omniorbpy.txt
 
-pythonpath=$PWD/../crates/rustorb-codegen/python
-[ -n "${IDL_PARSER_DIR:-}" ] && pythonpath=$IDL_PARSER_DIR:$pythonpath
+pythonpath="${RUSTORB_IDL_DIR:+$RUSTORB_IDL_DIR/python}"
+[ -n "${IDL_PARSER_DIR:-}" ] && pythonpath="$IDL_PARSER_DIR${pythonpath:+:$pythonpath}"
 for f in "$codegen_idl/Mapping.idl" "$codegen_idl/CosNaming.idl" idl/InteropTest.idl idl/PoaProbe.idl; do
   PYTHONPATH=$pythonpath python3 -m rustorb_idl -bpython -C out/pymapping/rustorb "$f"
 done

@@ -152,7 +152,7 @@ for pair in "${pairs[@]}"; do
   fi
 done
 # The rustorb Python package with its native module, and the stubs from
-# rustorb-idl (idl_parser must be importable, or IDL_PARSER_DIR set).
+# rustorb-idl (rustorb-idl must be importable (tools/rustorb-idl.txt), or IDL_PARSER_DIR set).
 for pair in "${pairs[@]}"; do
   case " ${pair%%:*} ${pair##*:} " in
     *" rustorbpy "*|*" rustorbpy-dii "*)

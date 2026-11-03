@@ -13,4 +13,5 @@ rustorb-core = { path = "../../crates/rustorb-core", version = "0.2" }
 rustorb-naming = { path = "../../crates/rustorb-naming", version = "0.2" }
 
 [build-dependencies]
-rustorb-codegen = { path = "../../crates/rustorb-codegen", version = "0.2" }
+# From crates.io: the generator lives in https://github.com/rustorb/rustorb-idl.
+rustorb-codegen = "0.2"

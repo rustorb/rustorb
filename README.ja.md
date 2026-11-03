@@ -18,7 +18,7 @@ Rust製のCORBA実装（[English](README.md)）
 - [入門ガイド（英語）](docs/getting-started.md)と[例](examples/)
 - [開発計画](docs/development-plan.md)
 - [未対応の CORBA 機能と対応する issue](docs/unsupported-features.md)
-- [Python生成器（rustorb-idl -bpython）](docs/python-codegen.md)
+- [Python生成器（rustorb-idl -bpython）](https://github.com/rustorb/rustorb-idl/blob/main/docs/python-codegen.md)
 - [IDL to Rust マッピング（rustorb-idl -brust）](docs/rust-mapping.md)
 - [Python バインディング（PyO3）](docs/python-binding.md)
 - [C++ バインディング（C ABI + IDL to C++11）](docs/cpp-binding.md)
@@ -36,7 +36,8 @@ Rust製のCORBA実装（[English](README.md)）
 | `rustorb-naming` | CosNaming（Naming Service） | MIT OR Apache-2.0 |
 | `rustorb-python` | Python パッケージ `rustorb` のネイティブモジュール `rustorb._native`（PyO3、[docs/python-binding.md](docs/python-binding.md)） | MIT OR Apache-2.0 |
 | `rustorb-ffi` | C++・Javaバインディング向けの安定C ABI層 | MIT OR Apache-2.0 |
-| `rustorb-codegen` | IDLコード生成器（idl_parserのASTを入力）。`python/` に `rustorb-idl` コマンド（Rust・Python・C++11・Java のバックエンド、[docs/python-codegen.md](docs/python-codegen.md)、[docs/rust-mapping.md](docs/rust-mapping.md)）と、`build.rs` から `-brust` を呼ぶ `rustorb_codegen::Config` | GPL-3.0-or-later |
+
+IDL コード生成器（`rustorb-idl` コマンドと、`build.rs` から使う `rustorb-codegen` クレート。GPL-3.0-or-later）は別のリポジトリ [rustorb/rustorb-idl](https://github.com/rustorb/rustorb-idl) にあり、別の版でリリースします。このリポジトリのテストと例は `tools/rustorb-idl.txt` で固定した版を使います（`pip install -r tools/rustorb-idl.txt`。手元のチェックアウトを試すときは `RUSTORB_IDL_DIR` に指定）。
 
 Python パッケージ `rustorb`（`python/rustorb`）は、Python から使う rustorb です。IDL から `rustorb-idl -bpython` で生成したコードと、`from rustorb import CORBA, PortableServer` で使います。`pip install ./python` で maturin がネイティブモジュール（`crates/rustorb-python`）をビルドしてインストールします。
 
@@ -47,15 +48,15 @@ cargo build --workspace
 cargo test --workspace
 ```
 
-Python のテスト（ORB と生成器のテストには [idl_parser](https://github.com/sugarsweetrobotics/idl_parser) が必要。ORB のテストはネイティブモジュールをソースツリーに置いてから）：
+Python のテスト（固定した版の rustorb-idl が必要。ORB のテストはネイティブモジュールをソースツリーに置いてから）：
 
 ```sh
+pip install -r tools/rustorb-idl.txt
 python/build-native.sh
-PYTHONPATH=path/to/idl_parser python3 -m unittest discover -s python/tests
-PYTHONPATH=path/to/idl_parser python3 -m unittest discover -s crates/rustorb-codegen/python/tests
+python3 -m unittest discover -s python/tests
 ```
 
-チェックインしている Rust の生成コード（`rustorb-naming`、`interop/impls/rustorb`、生成器のテスト）は、IDL か生成器を変えたら `IDL_PARSER_DIR=path/to/idl_parser crates/rustorb-codegen/generate-rust.sh` で作り直します（CI が差分を確かめます）。
+チェックインしている Rust の生成コード（`rustorb-naming`、`interop/impls/rustorb`、`tests/mapping` のマッピングのテスト）は、IDL か固定した生成器の版を変えたら `tools/generate-rust.sh` で作り直します（CI が差分を確かめます）。
 
 C++ と Java のテスト（CMake、Maven。どちらも cargo でネイティブライブラリをビルドし、rustorb-idl でテスト用の IDL からコードを生成する）：
 

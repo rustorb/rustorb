@@ -26,6 +26,13 @@ break the API).
 
 ### Changed
 
+- The IDL compiler (`rustorb-idl` and the `rustorb-codegen` crate) moved to its
+  own repository, https://github.com/rustorb/rustorb-idl, with its history,
+  and is released from there on its own (#118). This repository is MIT OR
+  Apache-2.0 only now. Its tests, examples and checked-in generated code use
+  the version pinned in `tools/rustorb-idl.txt` (`pip install -r
+  tools/rustorb-idl.txt`; `RUSTORB_IDL_DIR` for a checkout). The tests that
+  run the generated Rust code moved to `tests/mapping`
 - Client request ids are even (0, 2, 4, …): the side that opened a connection
   uses even ids and the other side odd ones, as bidirectional GIOP needs (#103)
 

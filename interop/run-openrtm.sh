@@ -11,7 +11,7 @@
 # out/openrtm, unless OPENRTM_DIR, RTSHELL_DIR or RTCTREE_DIR name
 # checkouts. The rustorb package, the rustorb stubs (rtctree's with
 # -Wbpackage=rtctree.rtc) and rustorb-names are built on the host
-# (idl_parser must be importable, or IDL_PARSER_DIR set); omniidl, the
+# (rustorb-idl must be importable (tools/rustorb-idl.txt), or IDL_PARSER_DIR set); omniidl, the
 # naming service and the RTCs run in the omniORB image, which has the C++
 # examples of OpenRTM-aist.
 #
@@ -76,8 +76,8 @@ idl_include=$src/OpenRTM_aist/RTM_IDL
 impls/rustorbpy/build.sh
 rm -rf "$out/rustorb-stubs" "$out/omniorbpy-stubs"
 mkdir -p "$out/rustorb-stubs" "$out/omniorbpy-stubs"
-pythonpath=$PWD/../crates/rustorb-codegen/python
-[ -n "${IDL_PARSER_DIR:-}" ] && pythonpath=$IDL_PARSER_DIR:$pythonpath
+pythonpath="${RUSTORB_IDL_DIR:+$RUSTORB_IDL_DIR/python}"
+[ -n "${IDL_PARSER_DIR:-}" ] && pythonpath="$IDL_PARSER_DIR${pythonpath:+:$pythonpath}"
 PYTHONPATH=$pythonpath python3 -m rustorb_idl -bpython -C "$out/rustorb-stubs" \
   -I"$idl_include" "${idls[@]}"
 

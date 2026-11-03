@@ -16,7 +16,7 @@ rustorb の `any` と `TypeCode` の実装をまとめる。M5 の範囲は Rust
 | `python/rustorb/CORBA.py`、`_rt.py` | `ORB.create_*_tc`、実行時に受け取った型のクラス生成 |
 | `crates/rustorb-ffi/src/any.rs` | C ABI の `rorb_typecode` / `rorb_any` |
 | `cpp/include/rustorb/corba.h`、`cdr.h` | `CORBA::TypeCode`、`CORBA::Any`、`<<=` / `>>=`、`ORB::create_*_tc` |
-| `crates/rustorb-codegen/python/rustorb_idl/cxx_backend.py` | 型ごとの `_tc_<名前>` と `rustorb::cdr::type_code` |
+| rustorb-idl の `python/rustorb_idl/cxx_backend.py` | 型ごとの `_tc_<名前>` と `rustorb::cdr::type_code` |
 | `interop/idl/AnyTest.idl`、`AnyTestHidden.idl` | 相互接続の IDL |
 
 ## TypeCode の表現

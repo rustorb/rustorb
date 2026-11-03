@@ -1,5 +1,5 @@
 //! The code `rustorb-idl -brust` generates from the test IDLs
-//! (`crates/rustorb-codegen/generate-rust.sh` writes it to `idl/`), shared
+//! (`tools/generate-rust.sh` writes it to `idl/`), shared
 //! by the client and the server.
 
 #![allow(dead_code)]

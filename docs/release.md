@@ -2,15 +2,16 @@
 
 Oct 31, 2026 · [#83](https://github.com/rustorb/rustorb/issues/83)
 
+IDL コード生成器（`rustorb-idl` と `rustorb-codegen`）は 0.2.0 の後に [rustorb/rustorb-idl](https://github.com/rustorb/rustorb-idl) に分け、そちらから別の版でリリースする（#118）。rustorb は `tools/rustorb-idl.txt` で生成器の版を固定する。
+
 rustorb のリリースで何を出すか、どう作るか、公開をどう行うかをまとめる。`.github/workflows/release.yml` がタグから成果物をビルドして確かめ、GitHub Release の下書きに付けたあと、crates.io と PyPI に公開し、Release を公開する。公開は取り消せないので、すべてのビルドと確認が通ったときだけ行い、公開のジョブは `release` 環境で動かす（環境の保護ルールで承認を必須にできる）。
 
 ## 出すもの
 
 | 成果物 | 中身 | 公開先 |
 | --- | --- | --- |
-| クレート | `rustorb-cdr`、`rustorb-typesupport`、`rustorb-giop`、`rustorb-core`、`rustorb-naming`（`rustorb-names` を含む）、`rustorb-ffi`、`rustorb-codegen` | crates.io |
+| クレート | `rustorb-cdr`、`rustorb-typesupport`、`rustorb-giop`、`rustorb-core`、`rustorb-naming`（`rustorb-names` を含む）、`rustorb-ffi` | crates.io |
 | `rustorb` の wheel | ネイティブモジュール込みの abi3 wheel（CPython 3.9 以降）。Linux x86_64 / aarch64（manylinux 2_28）、macOS x86_64 / arm64、Windows x64。sdist も | PyPI |
-| `rustorb-idl` | IDL コンパイラ（純 Python。idl_parser 0.6.2 以降に依存） | PyPI |
 | `rustorb-omniorb-compat` | omniORBpy 互換パッケージ（純 Python） | PyPI |
 | `rustorb-native-<版>-<環境>` | `librustorb_ffi`（静的と共有）、C++ のヘッダ、CMake のパッケージ（`find_package(rustorb)`）。Linux x86_64 / aarch64、macOS arm64、Windows x86_64 | GitHub Release |
 | `rustorb-<版>.jar` | Java のマッピング。共有ライブラリは上の `rustorb-native` から使う | GitHub Release |
@@ -19,7 +20,7 @@ rustorb のリリースで何を出すか、どう作るか、公開をどう行
 
 ## バージョン
 
-バージョンは Cargo のワークスペース、3つの `pyproject.toml`、`rustorb_idl.__version__`、`java/pom.xml`、`cpp/CMakeLists.txt` に書いてあり、すべて同じにする。
+バージョンは Cargo のワークスペース、2つの `pyproject.toml`、`java/pom.xml`、`cpp/CMakeLists.txt` に書いてあり、すべて同じにする。
 
 ```sh
 tools/set-version.py 0.2.0          # まとめて書き換える
@@ -36,11 +37,11 @@ tools/set-version.py --check        # そろっているか（CI とリリース
 3. Release のワークフローが次を行う。ビルドか確認のどれかが失敗したら、何も公開しない
    - タグとパッケージのバージョンが同じで、`CHANGELOG.md` にその版があること
    - `cargo publish --workspace --dry-run`（依存の順にパッケージにし、パッケージどうしでビルドする）と `.crate` の作成
-   - wheel（各環境で入れて import する）、sdist、純 Python のパッケージ（`rustorb-idl` は PyPI の idl_parser と入れて動かす）
+   - wheel（各環境で入れて import する）、sdist、純 Python のパッケージ（`rustorb-omniorb-compat`）
    - `rustorb-native`（CMake で入れ、`cpp/tests/consumer` を `find_package` でビルドして動かす）、jar
    - Release `vx.y.z` の下書きに成果物、`SHA256SUMS`、`CHANGELOG.md` のその版の節を付ける
-   - crates.io に依存の順（cdr → typesupport → giop → core → codegen → ffi → naming）で公開する（`crates-io` ジョブ）
-   - PyPI に `rustorb`（wheel と sdist）、`rustorb-idl`、`rustorb-omniorb-compat` を公開する（`pypi` ジョブ）
+   - crates.io に依存の順（cdr → typesupport → giop → core → ffi → naming）で公開する（`crates-io` ジョブ）
+   - PyPI に `rustorb`（wheel と sdist）と `rustorb-omniorb-compat` を公開する（`pypi` ジョブ）
    - 両方が終わったら Release を公開する（`publish-release` ジョブ）
 4. 公開のジョブが途中で失敗したら、原因を直してから、失敗したジョブを Actions の画面で再実行する。公開済みのクレートとファイルは飛ばす（クレートは crates.io にその版があるか確かめ、PyPI は `skip-existing`）
 5. 何も公開する前に失敗し、直すのにワークフローかソースの変更が要るときは（再実行はタグのコミットのワークフローで走るので）、直したものを main に入れてから、Release とタグ `vx.y.z` を消し（Release の画面の Delete と、Tags の画面のタグの Delete）、main の上に作り直す
@@ -53,17 +54,16 @@ tools/set-version.py --check        # そろっているか（CI とリリース
 
 一度だけ、リポジトリの設定で次を用意する。
 
-- **環境 `release`**（Settings → Environments）：crates.io と PyPI の `rustorb` の公開が使う（PyPI の他の2つは下の表の環境）。Required reviewers を付けると、公開の前に承認を求める。Deployment branches and tags でタグ `v*` だけに絞るとよい
+- **環境 `release`**（Settings → Environments）：crates.io と PyPI の `rustorb` の公開が使う（PyPI の `rustorb-omniorb-compat` は下の表の環境）。Required reviewers を付けると、公開の前に承認を求める。Deployment branches and tags でタグ `v*` だけに絞るとよい
 - **crates.io**：crates.io の [API Tokens](https://crates.io/settings/tokens) で `publish-new` と `publish-update` のスコープのトークンを作り、環境 `release` のシークレット `CARGO_REGISTRY_TOKEN` に入れる。新しいクレートの最初の公開にはトークンが要る（crates.io の Trusted Publishing は、クレートができた後でしか設定できない）
-- **PyPI**：Trusted Publishing を使う。PyPI の [Publishing](https://pypi.org/manage/account/publishing/) で、3つのプロジェクトに pending publisher を登録する。Owner `rustorb`、Repository `rustorb`、Workflow `release.yml` は共通で、Environment だけをプロジェクトごとに変える（PyPI は、同じ設定の pending publisher を1つのプロジェクトにしか登録できないため）。環境は GitHub 側にも作る
+- **PyPI**：Trusted Publishing を使う。PyPI の [Publishing](https://pypi.org/manage/account/publishing/) で、2つのプロジェクトに pending publisher を登録する。Owner `rustorb`、Repository `rustorb`、Workflow `release.yml` は共通で、Environment だけをプロジェクトごとに変える（PyPI は、同じ設定の pending publisher を1つのプロジェクトにしか登録できないため）。環境は GitHub 側にも作る
 
   | PyPI のプロジェクト | Environment |
   | --- | --- |
   | `rustorb` | `release` |
-  | `rustorb-idl` | `release-rustorb-idl` |
   | `rustorb-omniorb-compat` | `release-rustorb-omniorb-compat` |
 
-  トークンを使うなら、代わりに各環境のシークレット `PYPI_API_TOKEN` に入れる
+  トークンを使うなら、代わりに各環境のシークレット `PYPI_API_TOKEN` に入れる。`rustorb-idl` の trusted publisher と環境 `release-rustorb-idl` は、rustorb-idl のリポジトリに移したので不要になった
 
 公開した版は取り消せない（crates.io は yank、PyPI は yank か削除しても同じ版は二度と上げられない）。間違えたら次のパッチ版を出す。
 

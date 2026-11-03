@@ -4,7 +4,7 @@
 # AnyTestHidden.idl (the client only), ValueTest.idl, CustomTest.idl, AbstractTest.idl, CosNaming.idl, PoaProbe.idl (the
 # probe server only) and PiProbe.idl (the PI probe only) from rustorb-idl -bc++11 (in gen/), linked with
 # librustorb_ffi statically. run-matrix.sh, run-poa-probe.sh, run-dynany-probe.sh,
-# run-naming-check.sh, run-pi-probe.sh and run-load-local.py run it; idl_parser must be importable, or IDL_PARSER_DIR set to a
+# run-naming-check.sh, run-pi-probe.sh and run-load-local.py run it; rustorb-idl must be importable (tools/rustorb-idl.txt), or IDL_PARSER_DIR set to a
 # checkout of it. CXX picks the compiler (default g++, c++ on macOS).
 #
 # The binaries run in the interop image (Ubuntu 24.04), so the host needs a
@@ -28,11 +28,11 @@ cargo build --release --locked -p rustorb-ffi --manifest-path "$root/Cargo.toml"
 
 rm -rf "$here/gen" "$here/bin"
 mkdir -p "$here/gen" "$here/bin"
-pythonpath="$root/crates/rustorb-codegen/python"
-[ -n "${IDL_PARSER_DIR:-}" ] && pythonpath="$IDL_PARSER_DIR:$pythonpath"
+pythonpath="${RUSTORB_IDL_DIR:+$RUSTORB_IDL_DIR/python}"
+[ -n "${IDL_PARSER_DIR:-}" ] && pythonpath="$IDL_PARSER_DIR${pythonpath:+:$pythonpath}"
 PYTHONPATH="$pythonpath" python3 -m rustorb_idl -bc++11 -C "$here/gen" \
   "$root/interop/idl/InteropTest.idl" "$root/interop/idl/AnyTest.idl" \
-  "$root/interop/idl/AnyTestHidden.idl" "$root/crates/rustorb-codegen/tests/idl/CosNaming.idl" \
+  "$root/interop/idl/AnyTestHidden.idl" "$root/tests/mapping/idl/CosNaming.idl" \
   "$root/interop/idl/PoaProbe.idl" "$root/interop/idl/ValueTest.idl" \
   "$root/interop/idl/CustomTest.idl" "$root/interop/idl/AbstractTest.idl" \
   "$root/interop/idl/PiProbe.idl"

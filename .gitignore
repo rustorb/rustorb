@@ -10,8 +10,6 @@ __pycache__/
 /python/omniorb-compat/*.egg-info
 # Maven output of java/
 /java/target
-/crates/rustorb-codegen/python/build
-/crates/rustorb-codegen/python/*.egg-info
 /dist
 # The examples (examples/run-all.sh builds into build/examples)
 /examples/rust/target
