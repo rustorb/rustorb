@@ -7,6 +7,15 @@ break the API).
 
 ## [Unreleased]
 
+The C ABI version is 3.
+
+### Added
+
+- The core of AMI (docs/ami.md, #136): `ObjectRef::request_callback` returns a
+  `CallbackRequest` that `send`s without waiting and hands the reply or the
+  exception to a callback, exactly once, on a thread of the ORB's new reply
+  pool. The C ABI has it as `rorb_object_sendc` with a `rorb_sendc_done_fn`.
+
 ## [0.3.0] - 2026-11-03
 
 The C ABI version stays 2. Request ids and the moved IDL compiler are the

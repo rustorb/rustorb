@@ -63,7 +63,7 @@ pub const LOCAL_EXCEPTION: Status = 3;
 pub const CALLBACK_FAILED: Status = 4;
 
 /// The version of the ABI in the header (`RORB_ABI_VERSION`).
-pub const ABI_VERSION: u32 = 2;
+pub const ABI_VERSION: u32 = 3;
 
 /// Values of [`Exception::local`] (`RORB_ADAPTER_ALREADY_EXISTS`, ...).
 pub mod local {
@@ -105,6 +105,20 @@ pub struct Exception {
     pub completed: u32,
     pub local: u32,
     pub index: u32,
+}
+
+impl Exception {
+    /// No exception, as a zeroed `rorb_exception`.
+    pub(crate) fn empty() -> Exception {
+        Exception {
+            repository_id: std::ptr::null_mut(),
+            repository_id_len: 0,
+            minor: 0,
+            completed: 0,
+            local: 0,
+            index: 0,
+        }
+    }
 }
 
 /// `rorb_bytes`.
