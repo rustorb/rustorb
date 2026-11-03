@@ -72,7 +72,8 @@ public abstract class ORB {
     }
 
     /**
-     * A POA policy from its enumerator, or a
+     * A POA policy from its enumerator, a BiDirPolicy::BidirectionalPolicy
+     * from an unsigned short (BidirectionalPolicyValueHelper), or a
      * Messaging::RelativeRoundtripTimeoutPolicy from an unsigned long long
      * (TimeBase::TimeT, in units of 100 ns), in the any val.
      */

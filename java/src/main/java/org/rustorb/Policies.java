@@ -1,10 +1,13 @@
-// The seven POA policies and Messaging::RelativeRoundtripTimeoutPolicy, and
+// The seven POA policies, BiDirPolicy::BidirectionalPolicy and
+// Messaging::RelativeRoundtripTimeoutPolicy, and
 // their form for the core: a type and a value (rorb_each_policy).
 //
 // Licensed under MIT OR Apache-2.0, like the rest of the rustorb core.
 
 package org.rustorb;
 
+import org.omg.BiDirPolicy.BIDIRECTIONAL_POLICY_TYPE;
+import org.omg.BiDirPolicy.BidirectionalPolicy;
 import org.omg.CORBA.CompletionStatus;
 import org.omg.CORBA.NO_PERMISSION;
 import org.omg.CORBA.Policy;
@@ -33,6 +36,8 @@ final class Policies {
                 return new ServantRetention(ServantRetentionPolicyValue.from_int(v));
             case 22:
                 return new RequestProcessing(RequestProcessingPolicyValue.from_int(v));
+            case BIDIRECTIONAL_POLICY_TYPE.value:
+                return new Bidirectional((short) v);
             case RELATIVE_RT_TIMEOUT_POLICY_TYPE.value:
                 return new RelativeRoundtripTimeout(value);
             default:
@@ -237,6 +242,22 @@ final class Policies {
         @Override
         public Policy copy() {
             return new RequestProcessing(value());
+        }
+    }
+
+    static final class Bidirectional extends Base implements BidirectionalPolicy {
+        Bidirectional(short v) {
+            super(BIDIRECTIONAL_POLICY_TYPE.value, v);
+        }
+
+        @Override
+        public short value() {
+            return (short) value;
+        }
+
+        @Override
+        public Policy copy() {
+            return new Bidirectional(value());
         }
     }
 }

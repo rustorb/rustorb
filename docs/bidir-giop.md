@@ -38,7 +38,22 @@ both = orb.create_policy(
 poa = root_poa.create_POA("callbacks", root_poa._get_the_POAManager(), [both])
 ```
 
-`create_policy` の値は `BiDirPolicy::BidirectionalPolicyValue`（`unsigned short` の別名）で、`NORMAL` が 0、`BOTH` が 1。ポリシーの型は 37（`BIDIRECTIONAL_POLICY_TYPE`）。C ABI では `rorb_poa_create_poa` に `{RORB_BIDIRECTIONAL_POLICY_TYPE, 1}` を渡す。C++ と Java の `BiDirPolicy` の API はまだない（ORB オプションは使える）。
+```cpp
+CORBA::Any a;
+a <<= BiDirPolicy::BOTH;   // BiDirPolicy::BidirectionalPolicyValue（uint16_t）
+auto poa = root->create_POA(
+    "callbacks", root->the_POAManager(),
+    {orb->create_policy(BiDirPolicy::BIDIRECTIONAL_POLICY_TYPE, a)});
+```
+
+```java
+Any a = orb.create_any();
+BidirectionalPolicyValueHelper.insert(a, BOTH.value);   // org.omg.BiDirPolicy
+POA poa = root.create_POA("callbacks", root.the_POAManager(),
+        new Policy[] {orb.create_policy(BIDIRECTIONAL_POLICY_TYPE.value, a)});
+```
+
+`create_policy` の値は `BiDirPolicy::BidirectionalPolicyValue`（`unsigned short` の別名）で、`NORMAL` が 0、`BOTH` が 1。ポリシーの型は 37（`BIDIRECTIONAL_POLICY_TYPE`）。できるポリシーは C++ では `BiDirPolicy::BidirectionalPolicy`、Java では `org.omg.BiDirPolicy.BidirectionalPolicy` で、`value()` で値を返す。どちらも ORB の `ORBPolicyManager` に置ける。C ABI では `rorb_poa_create_poa` に `{RORB_BIDIRECTIONAL_POLICY_TYPE, 1}` を渡す。
 
 ## クライアント側
 
