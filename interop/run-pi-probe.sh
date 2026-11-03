@@ -19,8 +19,10 @@
 #
 # The rustorb probes are built on the host and mounted, as in
 # run-matrix.sh. Each pair runs with the client limited to GIOP 1.2, 1.1
-# and 1.0 in turn (GIOP_VERSIONS, default "1.2 1.1 1.0"): the client's
-# -ORBmaxGIOPVersion, or jacorb.giop_minor_version for JacORB. The servers
+# and 1.0 in turn (GIOP_VERSIONS, default "1.2 1.1 1.0"), with the
+# client's -ORBmaxGIOPVersion. A JacORB client uses the version of the
+# server's IOR, which is 1.2 for every server here, so JacORB clients run on
+# 1.2 only (the others are skipped). The servers
 # add their reply context in send_reply, after the servant ran; before GIOP
 # 1.2 that can move the reply body by 4 bytes, which the core makes up for
 # (docs/portable-interceptors.md). The names make the context lengths
@@ -47,6 +49,10 @@ failed=0
 for giop in ${GIOP_VERSIONS:-1.2 1.1 1.0}; do
 for pair in "${pairs[@]}"; do
   IFS=: read -r client server <<< "$pair"
+  if [ "$client" = jacorb ] && [ "$giop" != 1.2 ]; then
+    echo "SKIP $pair GIOP $giop"
+    continue
+  fi
   expected=$(printf 'reply context: %s got: from %s\ncomponent: %s component\nresult: hello' \
     "$server" "$client" "$server")
   echo "== $client -> $server (GIOP $giop)"
@@ -57,7 +63,7 @@ for pair in "${pairs[@]}"; do
       -v "$PWD/impls/rustorbcpp:/opt/interop/impls/rustorbcpp:ro" \
       -v "$PWD/impls/rustorbjava:/opt/interop/impls/rustorbjava:ro" \
       "$image" bash -c '
-        giop=$3
+        client=$1 giop=$3
         probe() {
           case "$1" in
             rustorb) shift; impls/rustorb/bin/rustorb-pi-probe "$@" ;;
@@ -70,12 +76,8 @@ for pair in "${pairs[@]}"; do
         probe "$2" server > /tmp/ior 2> /tmp/server.err &
         for _ in $(seq 100); do grep -q IOR: /tmp/ior && break; sleep 0.1; done
         ior=$(grep IOR: /tmp/ior | head -1)
-        if [ "$1" = jacorb ]; then
-          JAVA_TOOL_OPTIONS="-Djacorb.giop_minor_version=${giop#1.}" \
-            probe "$1" client "$ior" 2> /tmp/client.err
-        else
-          probe "$1" client "$ior" -ORBmaxGIOPVersion "$giop" 2> /tmp/client.err
-        fi \
+        if [ "$1" = jacorb ]; then set --; else set -- -ORBmaxGIOPVersion "$giop"; fi
+        probe "$client" client "$ior" "$@" 2> /tmp/client.err \
           || { cat /tmp/server.err /tmp/client.err >&2; exit 1; }
       ' _ "$client" "$server" "$giop") && [ "$actual" = "$expected" ]; then
     echo "PASS $pair GIOP $giop"
