@@ -152,6 +152,18 @@ impl ObjectRef {
         }
     }
 
+    /// Starts a request for `operation` whose reply goes to a callback
+    /// ([`CallbackRequest`]): the base of the asynchronous method
+    /// invocation (AMI) of the language bindings.
+    pub fn request_callback(&self, operation: &str) -> CallbackRequest {
+        CallbackRequest {
+            obj: self.clone(),
+            operation: operation.to_owned(),
+            args: None,
+            timeout: None,
+        }
+    }
+
     /// The slots of the calling thread for a request on this reference,
     /// if its ORB has client interceptors.
     pub(crate) fn request_slots(&self) -> Option<Vec<crate::Any>> {
@@ -459,6 +471,126 @@ impl<'a> AsyncRequest<'a> {
                 Err(Exception::User(_)) => unreachable!("a oneway request has no reply"),
             }
         })
+    }
+}
+
+/// A request that returns at once and hands its reply to a callback: what
+/// the `sendc_` operations of AMI (`docs/ami.md`) are built on.
+///
+/// The request is sent by the ORB's runtime, as [`AsyncRequest`] does,
+/// and the callback runs on a thread of the ORB's reply pool, not on the
+/// thread that sent it nor on a tokio worker, so it may use the
+/// synchronous API (to call a `ReplyHandler`, say). The timeout and the
+/// Portable Interceptors' request scope slots are those of the thread
+/// that calls [`send`](CallbackRequest::send).
+pub struct CallbackRequest {
+    obj: ObjectRef,
+    operation: String,
+    args: Option<Box<SendArgsFn<'static>>>,
+    timeout: Option<Option<Duration>>,
+}
+
+impl fmt::Debug for CallbackRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CallbackRequest")
+            .field("operation", &self.operation)
+            .field("timeout", &self.timeout)
+            .finish_non_exhaustive()
+    }
+}
+
+impl CallbackRequest {
+    /// [`Request::args`]. The function owns what it writes: it runs after
+    /// [`send`](CallbackRequest::send) has returned, on the ORB's runtime,
+    /// once or more (when the request is forwarded or sent again).
+    pub fn args<F>(mut self, f: F) -> CallbackRequest
+    where
+        F: Fn(&mut OutStream<'_>) -> Result<(), SystemException> + Send + Sync + 'static,
+    {
+        self.args = Some(Box::new(f));
+        self
+    }
+
+    /// [`Request::timeout`].
+    pub fn timeout(mut self, timeout: Option<Duration>) -> CallbackRequest {
+        self.timeout = Some(timeout);
+        self
+    }
+
+    /// Sends the request without waiting for it. `done` gets the reply or
+    /// the exception exactly once, on a thread of the reply pool. Fails
+    /// only when the ORB is shut down (`BAD_INV_ORDER`), and then `done`
+    /// is not called.
+    ///
+    /// If the ORB is destroyed or its runtime ends before the reply
+    /// arrives, `done` gets the exception of the failed call
+    /// (`COMM_FAILURE` or `TRANSIENT`), on the thread that ends it.
+    pub fn send<F>(self, done: F) -> Result<(), SystemException>
+    where
+        F: FnOnce(Result<Reply, Exception>) + Send + 'static,
+    {
+        let CallbackRequest {
+            obj,
+            operation,
+            args,
+            timeout,
+        } = self;
+        let orb = obj.orb.clone();
+        orb.check_running()?;
+        let timeout = timeout.unwrap_or_else(|| obj.effective_timeout());
+        let slots = request_slots(&obj);
+        let pending = PendingReply {
+            orb: orb.clone(),
+            done: Some(done),
+            result: None,
+        };
+        orb.runtime_handle().spawn(async move {
+            let mut pending = pending;
+            let request = AsyncRequest {
+                obj: &obj,
+                operation,
+                args: args.map(|a| a as Box<SendArgsFn<'_>>),
+                timeout: Some(timeout),
+                dii: None,
+                slots: Some(slots),
+            };
+            pending.result = Some(request.invoke().await);
+            pending.deliver();
+        });
+        Ok(())
+    }
+}
+
+/// The callback of a [`CallbackRequest`] and, once known, its result.
+/// Dropped without being delivered (its task or its job dropped by an
+/// ending runtime or pool), it calls the callback where it is dropped.
+struct PendingReply<F: FnOnce(Result<Reply, Exception>) + Send + 'static> {
+    orb: Orb,
+    done: Option<F>,
+    result: Option<Result<Reply, Exception>>,
+}
+
+impl<F: FnOnce(Result<Reply, Exception>) + Send + 'static> PendingReply<F> {
+    /// Runs the callback on the reply pool.
+    fn deliver(self) {
+        let orb = self.orb.clone();
+        orb.submit_reply(Box::new(move || drop(self)));
+    }
+}
+
+impl<F: FnOnce(Result<Reply, Exception>) + Send + 'static> Drop for PendingReply<F> {
+    fn drop(&mut self) {
+        if let Some(done) = self.done.take() {
+            let result = self.result.take().unwrap_or_else(|| {
+                Err(sys(
+                    SystemExceptionKind::COMM_FAILURE,
+                    0,
+                    CompletionStatus::Maybe,
+                )
+                .into())
+            });
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| done(result)));
+        }
     }
 }
 

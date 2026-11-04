@@ -2,9 +2,15 @@
 
 Nov 3, 2026
 
-[#135](https://github.com/rustorb/rustorb/issues/135)（sub-issue は着手順に [#136](https://github.com/rustorb/rustorb/issues/136) コア・C ABI、[#137](https://github.com/rustorb/rustorb/issues/137) 生成器の前段、[#138](https://github.com/rustorb/rustorb/issues/138) Python、[#141](https://github.com/rustorb/rustorb/issues/141) C++、[#139](https://github.com/rustorb/rustorb/issues/139) Java、[#140](https://github.com/rustorb/rustorb/issues/140) 相互接続と文書）。CORBA 3.x の Messaging の章にある非同期呼び出し（AMI、Asynchronous Method Invocation）のうち、コールバック型（暗黙の IDL の `sendc_<op>` と `AMI_<I>Handler`）を、C++・Java・Python の生成コードとランタイムに入れる。この文書は実装の前に書いた設計で、実装が進んだら「実装の状況」の節を足す。
+[#135](https://github.com/rustorb/rustorb/issues/135)（sub-issue は着手順に [#136](https://github.com/rustorb/rustorb/issues/136) コア・C ABI、[#137](https://github.com/rustorb/rustorb/issues/137) 生成器の前段、[#138](https://github.com/rustorb/rustorb/issues/138) Python、[#141](https://github.com/rustorb/rustorb/issues/141) C++、[#139](https://github.com/rustorb/rustorb/issues/139) Java、[#140](https://github.com/rustorb/rustorb/issues/140) 相互接続と文書）。CORBA 3.x の Messaging の章にある非同期呼び出し（AMI、Asynchronous Method Invocation）のうち、コールバック型（暗黙の IDL の `sendc_<op>` と `AMI_<I>Handler`）を、C++・Java・Python の生成コードとランタイムに入れる。この文書は実装の前に書いた設計で、実装の状況は次の節にまとめる。実装で設計から変えたところは各節を直した。
 
 根拠は CORBA 3.x の仕様（Messaging の章の「AMI」と「暗黙の IDL」、`Messaging` モジュールの IDL）だけで、他の ORB のソースは読まない（[development-plan.md](development-plan.md) の方針）。AMI の呼び出しは線上では普通の要求と返事なので、相互接続は rustorb の AMI クライアントから他の ORB のサーバーを呼んで確かめる。
+
+## 実装の状況
+
+- **コア（`rustorb-core`）**：実装済み（#136）。`ObjectRef::request_callback` → `CallbackRequest`（下の「コア」の節）。試験は `crates/rustorb-core/tests/ami.rs`（6 件）
+- **C ABI（`rustorb-ffi`）**：実装済み（#136）。`rorb_object_sendc` と `rorb_sendc_done_fn`。`ABI_VERSION` は 3。試験は `crates/rustorb-ffi/tests/sendc.rs`（2 件）
+- 生成器（#137）、Python（#138）、C++（#141）、Java（#139）、相互接続（#140）はまだ
 
 ## 目的
 
@@ -98,20 +104,20 @@ module Messaging {
 
 ### 送るとき
 
-- `sendc_` は引数を呼び出し元のスレッドでマーシャルしてから返す。返った後に呼び出し元が引数の値を変えても、送る内容は変わらない
+- `sendc_` は引数の値を写し取ってから返す。返った後に呼び出し元が引数の値を変えても、送る内容は変わらない。コアは引数を書く関数を送るとき（転送や送り直しではそのたび）に呼ぶので、写しは各言語のスタブが持つ（C++ は値のコピー、Java・Python は #139・#138 で決める）。送る前に CDR にしておく形は、接続ごとに決まるコードセットと、GIOP 1.0 / 1.1 の本体の位置合わせのために取らなかった
 - 送信そのもの（接続、転送、アドレスの順の試行、送り直し）は ORB のランタイム（tokio）で行い、`sendc_` は待たない
 - `sendc_` が直接投げる例外は、要求を ORB に渡す前に分かるものだけ：ORB が終了している（`BAD_INV_ORDER`、minor 4）、マーシャルの失敗（`MARSHAL` / `BAD_PARAM`）、対象が nil（`INV_OBJREF` か言語の慣習）。それ以外（接続できない、`TRANSIENT`、タイムアウトなど）はすべて Handler の `<op>_excep` に届く
 - `ami_handler` が nil なら返事は捨てる（仕様の規則）。要求は普通に送る
 
 ### 返事を届けるとき
 
-- 返事（または例外）は ORB のアップコール用スレッドプールのスレッドで受け、生成コードがそれを言語の値に戻して、`ami_handler` の参照の `<op>`（か `<op>_excep`）を **普通の呼び出しとして** 呼ぶ
+- 返事（または例外）は ORB の返事用のスレッドプール（サーバントのアップコール用とは別。最初の `sendc_` で作り、`-ORBmaxServerThreadPoolSize` までスレッドを増やし、使わないスレッドは終わる。ORB の `destroy` で止める）のスレッドで受け、生成コードがそれを言語の値に戻して、`ami_handler` の参照の `<op>`（か `<op>_excep`）を **普通の呼び出しとして** 呼ぶ
   - Handler が同じ ORB のサーバントなら同一 ORB 内呼び出しになり、POA のポリシー（スレッド、POAManager の状態）とサーバー側の PI がそのまま効く
   - Handler が別のプロセスにあっても動く（`ExceptionHolder` が valuetype として送れるため）
-- 呼び出し元のスレッドが ORB の `run` / `perform_work` を呼んでいなくても届く（rustorb のアップコールはもともと ORB のプールで動く）。MAIN_THREAD_MODEL の POA の Handler だけは、メインスレッドが `run` か `perform_work` を呼ぶまで待つ
+- 呼び出し元のスレッドが ORB の `run` / `perform_work` を呼んでいなくても届く。サーバー側を持たない ORB（RootPOA を使っていないもの）でも届く。MAIN_THREAD_MODEL の POA の Handler だけは、メインスレッドが `run` か `perform_work` を呼ぶまで待つ
 - Handler の呼び出しが例外を投げても捨てる（呼び出し元に返す先がない）。`-ORBtraceLevel` が 10 以上なら記録する
 - 返事の順は保証しない。同じ対象に続けて `sendc_` しても、Handler の呼ばれる順は返事の届いた順で、Handler はプールの複数のスレッドで並行に呼ばれうる（POA が SINGLE_THREAD_MODEL なら順に）
-- PI：クライアントの要求インターセプターは同期の呼び出しと同じに呼ぶ。`send_request` は送るとき（ランタイムのスレッドではなく `sendc_` の呼び出しの中で）、`receive_reply` / `receive_exception` / `receive_other` は返事を受けたプールのスレッドで、Handler を呼ぶ前に。PICurrent のスロットは `sendc_` を呼んだスレッドのものを要求に写す
+- PI：クライアントの要求インターセプターは async API の呼び出しと同じに、ORB のランタイムで呼ぶ（`send_request` は送るとき、`receive_*` は返事を受けたとき、どちらも Handler を呼ぶ前）。PICurrent のスロットは `sendc_` を呼んだスレッドのものを要求に写す（DII の `send_deferred` と同じ）
 
 ### `ExceptionHolder`
 
@@ -124,46 +130,54 @@ module Messaging {
 ### タイムアウトと終了
 
 - タイムアウト（[timeouts.md](timeouts.md)）は同期の呼び出しと同じ優先順位で、`sendc_` を呼んだ時点で決める。切れたら Handler の `<op>_excep` に `TIMEOUT` が届く（送る前なら `COMPLETED_NO`、送った後なら `COMPLETED_MAYBE`）。`CancelRequest` も同期と同じに送る
-- `shutdown` / `destroy` の時点で返事を待っている AMI の要求は、`shutdown(wait_for_completion)` が返る前に Handler の `<op>_excep` に `BAD_INV_ORDER`（minor 4、`COMPLETED_MAYBE`）を届ける。ただし Handler が同じ ORB にあって POA が既に止まっている場合は届かない（呼び出しが `OBJ_ADAPTER` などで失敗し、捨てる）。終了を待つ側が Handler の呼び出しを待ち続けないように、Handler の呼び出しは終了の待ち合わせに含めない
+- `shutdown` / `destroy` の時点で返事を待っている AMI の要求は、同期の呼び出しと同じく接続が閉じて `COMM_FAILURE` か `TRANSIENT` で終わり、コアの完了の関数はそれを受ける（必ずちょうど 1 回。ランタイムが先に終わって送信のタスクが捨てられた場合も、捨てたスレッドで `COMM_FAILURE` を渡す）。ただし ORB が終了した後は Handler を呼ぶ呼び出しも `BAD_INV_ORDER` になるので、同じ ORB の Handler には届かない（スタブはその失敗を捨てる）。設計の段階では `BAD_INV_ORDER` を Handler に届けるとしていたが、終了した ORB からは Handler を呼べないので、この形にした
+- `destroy` は返事用のプールを止め、プールで待っている完了の関数は `destroy` を呼んだスレッドで呼ぶ
 
 ## 各層の作り
 
 ### コア（`rustorb-core`、#136）
 
 ```rust
-impl<'a> Request<'a> {
-    /// 引数をここで書き、送信は ORB のランタイムで行う。返事か例外は
-    /// アップコール用スレッドプールで `done` に渡す。
-    pub fn send_callback<F>(self, done: F) -> Result<(), SystemException>
+impl ObjectRef {
+    pub fn request_callback(&self, operation: &str) -> CallbackRequest;
+}
+
+impl CallbackRequest {
+    /// 引数を書く関数。送るときに（転送や送り直しではそのたび）
+    /// ORB のランタイムで呼ぶので、書くものを自分で持つ。
+    pub fn args<F>(self, f: F) -> CallbackRequest
+    where
+        F: Fn(&mut OutStream<'_>) -> Result<(), SystemException> + Send + Sync + 'static;
+    pub fn timeout(self, timeout: Option<Duration>) -> CallbackRequest;
+    /// 待たずに送る。`done` は返事か例外を、返事用のプールのスレッドで
+    /// ちょうど 1 回受ける。失敗は ORB が終了しているとき（BAD_INV_ORDER）
+    /// だけで、そのときは `done` を呼ばない。
+    pub fn send<F>(self, done: F) -> Result<(), SystemException>
     where
         F: FnOnce(Result<Reply, Exception>) + Send + 'static;
 }
 ```
 
-- 引数の書き込みは `Request::args` の関数を `send_callback` の中で 1 回だけ呼び、エンコードした本体を持って非同期の呼び出し（`invoke_async` の `Walk`）に渡す。転送や送り直しでは同じ本体を送る。GIOP 1.0 / 1.1 で要求のヘッダーの長さによって本体の位置合わせが変わる場合（#126 と同じ問題）は、本体を書き直す。1.0 / 1.1 の位置合わせの扱いは `send_deferred` の作りを確かめてから実装で決める
-- 返事は接続の読み取りタスクで受け、`done` をプールに渡す（I/O のワーカーで `done` を呼ばない）
-- 同一 ORB 内の対象は、サーバントの実行もプールに渡す（async API と同じ）
-- 待っている AMI の要求を ORB が数えて、`shutdown` で上の「終了」の規則どおりに `done` を呼ぶ
-- DII の `send_deferred` は今の作りのまま（チャネルで受ける）。`send_callback` と作りを揃えるかは実装のときに決める
+- 送信は `AsyncRequest` を ORB のランタイムの新しいタスクで動かす（DII の `send_deferred` と同じ形）。タイムアウトと PICurrent のスロットは `send` を呼んだスレッドで決める
+- 結果は返事用のプール（`Orb` が持つ。サーバントのプールとは別）に渡す。I/O のワーカーでは `done` を呼ばない。プールのスレッドはランタイムの外なので、`done` の中で同期 API を使える（Handler の呼び出し）
+- `done` と結果をまとめた値（`PendingReply`）は、渡されずに捨てられると（ランタイムの終了でタスクが、`destroy` でプールのジョブが捨てられると）捨てたスレッドで `done` を呼ぶ。これで「ちょうど 1 回」を守る。`done` のパニックは捕まえて捨てる
+- 同一 ORB 内の対象は、async API と同じくサーバントをアップコール用のプールで動かす
+- DII の `send_deferred` は今の作りのまま（チャネルで受ける）
 
 ### C ABI（`rustorb-ffi`、#136）
 
 ```c
-typedef void (*rorb_sendc_done_fn)(void *context, rorb_status status,
-                                   rorb_in *reply_or_exception,
-                                   const char *user_exception_id,
-                                   size_t user_exception_id_len,
-                                   const rorb_exception *system_exception);
+typedef void (*rorb_sendc_done_fn)(void* context, rorb_status status, const rorb_exception* exc);
 
-rorb_status rorb_object_sendc(rorb_object *obj, const rorb_invocation *inv,
-                              rorb_sendc_done_fn done, void *done_context,
-                              void (*release_context)(void *),
-                              rorb_exception *exc);
+rorb_status rorb_object_sendc(rorb_object* obj, const rorb_invocation* inv, rorb_sendc_done_fn done,
+                              rorb_exception* exc);
 ```
 
-- `inv` の `write_args` は `rorb_object_sendc` の中で呼ぶ。`read_reply` と `read_user_exception` は使わず、`done` が返事の本体かユーザー例外の本体を `rorb_in` で受ける（`done` の中だけで有効）
-- `done` は必ずちょうど 1 回呼ぶ（`rorb_object_sendc` が失敗を返したときは呼ばない）。`release_context` は `done` の後に呼ぶ
-- `ABI_VERSION` を 3 に上げる
+- `rorb_invocation` は `rorb_object_invoke` と同じものを使う。`inv` は写し取り、操作名もコピーするので、呼び出し元はすぐ手放してよい。`context` と各コールバックは `done` が呼ばれるまで、どのスレッドからでも使えるようにしておく
+- `write_args` は送るときに ORB のランタイムのスレッドで呼ぶ（転送や送り直しではそのたび）。`read_reply` / `read_user_exception` は返事用のプールのスレッドで、同期の呼び出しと同じ約束で呼ぶ
+- `done` はその後に必ずちょうど 1 回呼ぶ。`status` は `rorb_object_invoke` の戻り値と同じ（`RORB_OK`・`RORB_USER_EXCEPTION`・`RORB_SYSTEM_EXCEPTION`・`RORB_CALLBACK_FAILED`）で、`exc` は `RORB_SYSTEM_EXCEPTION` の中身（`done` の中だけで有効）。`done` の後に呼ぶコールバックはないので、`done` で `context` を解放する（設計の段階の `release_context` は要らなくなった）
+- `rorb_object_sendc` が失敗を返したとき（oneway、`done` が NULL なら `BAD_PARAM`、ORB が終了していれば `BAD_INV_ORDER`）は `done` を呼ばない
+- `ABI_VERSION` を 3 に上げた（Java の `Native` の検査も 3 にした）
 
 ### 生成器（rustorb-idl、#137・#138・#141・#139）
 
@@ -176,7 +190,7 @@ rorb_status rorb_object_sendc(rorb_object *obj, const rorb_invocation *inv,
 
 - 暗黙の IDL を標準の IDL to Python マッピングで写す：`Demo.AMI_CalcHandler`（スタブ）、`Demo__POA.AMI_CalcHandler`（スケルトン）、スタブ `Demo._objref_Calc` に `sendc_add(ami_handler, a, b)` など
 - `rustorb.Messaging`（既存）に `ReplyHandler`・`_objref_ReplyHandler`・`Messaging__POA.ReplyHandler`、`ExceptionHolder`（valuetype、`raise_exception()`・`raise_exception_with_list(exc_list)`）を足す
-- `rustorb-python`：`send_callback` を Python の呼び出し可能なオブジェクトに橋渡しする。`done` はプールのスレッドで GIL を取って呼ぶ
+- `rustorb-python`：`CallbackRequest` を Python の呼び出し可能なオブジェクトに橋渡しする。`done` はプールのスレッドで GIL を取って呼ぶ
 - omniORBpy 互換のシム（`omniorb-compat`）には何も足さない（omniORBpy の AMI の API との互換は、使うアプリケーションが出てから仕様・ドキュメント・実際の動きで確かめる）
 - 試験：`python/tests/test_ami.py`（結果、`inout` / `out`、属性、ユーザー例外、システム例外、タイムアウト、nil の Handler、別の ORB の Handler、並行する多数の `sendc_`、終了時）
 
@@ -212,7 +226,7 @@ AMI のクライアントの要求は線上では普通の要求なので、サ�
 
 ## 試験
 
-- コア：`crates/rustorb-core/tests/ami.rs`（TCP 越しと同一 ORB 内の対象、返事、ユーザー例外、システム例外、転送（`LOCATION_FORWARD`）、タイムアウト、`shutdown` で待っている要求、nil の Handler に当たるもの、PI のインターセプターの呼ばれ方）
-- C ABI：`crates/rustorb-ffi/tests` に `rorb_object_sendc`（`done` がちょうど 1 回呼ばれること、`release_context`）
+- コア：`crates/rustorb-core/tests/ami.rs`（サーバー側のないクライアントから TCP 越しに 50 個並行に送り、返事用のプールのスレッドで受けること、`send` の後に書く引数、ユーザー例外・システム例外・相手がいないとき、要求と参照のタイムアウト、同一 ORB 内の対象と `done` の中の同期呼び出し、`destroy` で待っている要求がちょうど 1 回終わることと終了後の `BAD_INV_ORDER`、共有したランタイムのワーカーから送ること）。転送と PI は async API の経路そのままなので、そちらの試験に任せた
+- C ABI：`crates/rustorb-ffi/tests/sendc.rs`（返事・ユーザー例外・システム例外・`write_args` の失敗がそれぞれの `status` で `done` にちょうど 1 回届くこと、oneway と NULL の `done` を断ること、`destroy` で待っている要求、終了後の失敗）
 - 生成器：rustorb-idl の golden に `-Wbami` の出力、名前の衝突の IDL
 - 各言語：上の各節

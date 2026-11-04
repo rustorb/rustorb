@@ -635,6 +635,10 @@ pub(crate) struct OrbInner {
     pi: Mutex<Option<Arc<crate::pi::Interceptors>>>,
     /// The `BidirectionalPolicy` set with [`Orb::set_policy_overrides`].
     pub(crate) bidir_override: Mutex<Option<crate::Bidirectional>>,
+    /// The threads that run the callbacks of
+    /// [`CallbackRequest`](crate::CallbackRequest)s, started with the
+    /// first; `Err` once the ORB is destroyed.
+    replies: Mutex<Result<Option<crate::pool::Pool>, ()>>,
 }
 
 /// An initial reference registered at run time.
@@ -806,6 +810,7 @@ impl Orb {
                 pi_on: AtomicBool::new(false),
                 pi: Mutex::new(None),
                 bidir_override: Mutex::new(None),
+                replies: Mutex::new(Ok(None)),
             }),
         };
         let mut initializers = crate::pi::registered_initializers();
@@ -1387,6 +1392,9 @@ impl Orb {
         if let Some(server) = self.inner.server.lock().unwrap().take() {
             server.stop_pool();
         }
+        // The callbacks queued run on this thread (the pool drops them).
+        let replies = std::mem::replace(&mut *self.inner.replies.lock().unwrap(), Err(()));
+        drop(replies);
         // Local objects may hold the ORB.
         let registered = std::mem::take(&mut *self.inner.registered.lock().unwrap());
         drop(registered);
@@ -1397,6 +1405,31 @@ impl Orb {
             pi.destroy();
         }
         Ok(())
+    }
+
+    /// Runs `job` on the reply pool of [`CallbackRequest`]s, or on the
+    /// calling thread once the ORB is destroyed.
+    ///
+    /// [`CallbackRequest`]: crate::CallbackRequest
+    pub(crate) fn submit_reply(&self, job: Job) {
+        let mut replies = self.inner.replies.lock().unwrap();
+        match &mut *replies {
+            Ok(pool) => {
+                let options = &self.inner.options;
+                pool.get_or_insert_with(|| {
+                    crate::pool::Pool::new(
+                        0,
+                        options.max_server_threads,
+                        options.server_thread_idle_timeout,
+                    )
+                })
+                .submit(job);
+            }
+            Err(()) => {
+                drop(replies);
+                run_job(job);
+            }
+        }
     }
 
     pub(crate) fn check_running(&self) -> Result<(), SystemException> {

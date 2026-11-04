@@ -5,6 +5,8 @@ use std::cell::Cell;
 use std::collections::hash_map::DefaultHasher;
 use std::ffi::{c_char, c_void};
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use rustorb_core::{
@@ -131,7 +133,7 @@ type UserExceptionFn = extern "C" fn(*mut c_void, *const c_char, usize, *mut Ror
 
 /// `rorb_invocation`.
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Invocation {
     pub operation: *const c_char,
     pub operation_len: usize,
@@ -212,46 +214,130 @@ pub unsafe extern "C" fn rorb_object_invoke(
             Ok(sent) => sent,
             Err(status) => return status,
         };
-        match sent {
-            Sent::Oneway => OK,
-            Sent::Reply(reply) => {
-                let Some(read_reply) = inv.read_reply else {
-                    return OK;
-                };
-                let mut stream = reply.input();
-                let mut input = In::new(&mut stream, CompletionStatus::Yes);
-                if read_reply(inv.context, input.as_ptr()) != OK {
-                    return CALLBACK_FAILED;
-                }
-                match input.error {
+        unsafe { read_sent(inv, sent, exc) }
+    })
+}
+
+/// Hands what an invocation got back to the read callbacks of `inv`.
+unsafe fn read_sent(inv: &Invocation, sent: Sent, exc: *mut Exception) -> Status {
+    match sent {
+        Sent::Oneway => OK,
+        Sent::Reply(reply) => {
+            let Some(read_reply) = inv.read_reply else {
+                return OK;
+            };
+            let mut stream = reply.input();
+            let mut input = In::new(&mut stream, CompletionStatus::Yes);
+            if read_reply(inv.context, input.as_ptr()) != OK {
+                return CALLBACK_FAILED;
+            }
+            match input.error {
+                Some(e) => unsafe { set_system(exc, &e) },
+                None => OK,
+            }
+        }
+        Sent::User(u) => {
+            let Some(read_user_exception) = inv.read_user_exception else {
+                return unsafe { set_system(exc, &unlisted()) };
+            };
+            let mut stream = match u.input() {
+                Ok(s) => s,
+                Err(e) => return unsafe { set_system(exc, &e) },
+            };
+            let id = u.repository_id();
+            let mut input = In::new(&mut stream, CompletionStatus::Yes);
+            match read_user_exception(
+                inv.context,
+                id.as_ptr() as *const c_char,
+                id.len(),
+                input.as_ptr(),
+            ) {
+                USER_EXCEPTION => match input.error {
                     Some(e) => unsafe { set_system(exc, &e) },
-                    None => OK,
-                }
+                    None => USER_EXCEPTION,
+                },
+                SYSTEM_EXCEPTION => unsafe { set_system(exc, &unlisted()) },
+                _ => CALLBACK_FAILED,
             }
-            Sent::User(u) => {
-                let Some(read_user_exception) = inv.read_user_exception else {
-                    return unsafe { set_system(exc, &unlisted()) };
-                };
-                let mut stream = match u.input() {
-                    Ok(s) => s,
-                    Err(e) => return unsafe { set_system(exc, &e) },
-                };
-                let id = u.repository_id();
-                let mut input = In::new(&mut stream, CompletionStatus::Yes);
-                match read_user_exception(
-                    inv.context,
-                    id.as_ptr() as *const c_char,
-                    id.len(),
-                    input.as_ptr(),
-                ) {
-                    USER_EXCEPTION => match input.error {
-                        Some(e) => unsafe { set_system(exc, &e) },
-                        None => USER_EXCEPTION,
-                    },
-                    SYSTEM_EXCEPTION => unsafe { set_system(exc, &unlisted()) },
-                    _ => CALLBACK_FAILED,
+        }
+    }
+}
+
+/// `rorb_sendc_done_fn`.
+type DoneFn = extern "C" fn(*mut c_void, Status, *const Exception);
+
+/// An invocation of [`rorb_object_sendc`], used on other threads until its
+/// `done` has been called.
+struct Pending(Invocation);
+
+// SAFETY: the caller of rorb_object_sendc makes the context and the
+// callbacks usable from any thread until `done` is called.
+unsafe impl Send for Pending {}
+unsafe impl Sync for Pending {}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_object_sendc(
+    obj: *mut ObjectRef,
+    inv: *const Invocation,
+    done: Option<DoneFn>,
+    exc: *mut Exception,
+) -> Status {
+    guard(exc, || {
+        let obj = unsafe { &*obj };
+        let inv = unsafe { *inv };
+        let Some(done) = done else {
+            return unsafe { set_system(exc, &crate::bad_param()) };
+        };
+        if inv.oneway != 0 {
+            return unsafe { set_system(exc, &crate::bad_param()) };
+        }
+        let operation = match unsafe { str_arg(inv.operation, inv.operation_len) } {
+            Ok(op) => op.to_owned(),
+            Err(e) => return unsafe { set_system(exc, &e) },
+        };
+        // The operation name is copied: its pointer is not kept.
+        let pending = Arc::new(Pending(Invocation {
+            operation: std::ptr::null(),
+            operation_len: 0,
+            ..inv
+        }));
+        // Set when write_args failed.
+        let failed = Arc::new(AtomicBool::new(false));
+        let mut request = obj.request_callback(&operation);
+        if let Some(write_args) = inv.write_args {
+            let pending = Arc::clone(&pending);
+            let failed = Arc::clone(&failed);
+            request = request.args(move |out: &mut OutStream<'_>| {
+                let mut o = Out::new(out);
+                if write_args(pending.0.context, o.as_ptr()) != OK {
+                    failed.store(true, Ordering::Relaxed);
+                    return Err(sys(SystemExceptionKind::UNKNOWN, 0, CompletionStatus::No));
                 }
-            }
+                match o.error {
+                    Some(e) => Err(e),
+                    None => Ok(()),
+                }
+            });
+        }
+        if inv.timeout_us >= 0 {
+            let timeout = u64::try_from(inv.timeout_us).unwrap_or(0);
+            request = request.timeout((timeout > 0).then(|| Duration::from_micros(timeout)));
+        }
+        let sent = request.send(move |result| {
+            let inv = &pending.0;
+            let mut e = crate::Exception::empty();
+            let status = match result {
+                Err(CoreException::System(_)) if failed.load(Ordering::Relaxed) => CALLBACK_FAILED,
+                Err(CoreException::System(s)) => unsafe { set_system(&mut e, &s) },
+                Ok(reply) => unsafe { read_sent(inv, Sent::Reply(reply), &mut e) },
+                Err(CoreException::User(u)) => unsafe { read_sent(inv, Sent::User(u), &mut e) },
+            };
+            done(inv.context, status, &e);
+            unsafe { crate::rorb_exception_clear(&mut e) };
+        });
+        match sent {
+            Ok(()) => OK,
+            Err(e) => unsafe { set_system(exc, &e) },
         }
     })
 }

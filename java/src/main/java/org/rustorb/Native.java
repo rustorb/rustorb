@@ -57,8 +57,8 @@ final class Native {
         } catch (Throwable t) {
             throw Library.rethrow(t);
         }
-        if (abi != 2) {
-            throw new UnsatisfiedLinkError("librustorb_ffi has ABI version " + abi + ", not 2");
+        if (abi != 3) {
+            throw new UnsatisfiedLinkError("librustorb_ffi has ABI version " + abi + ", not 3");
         }
         try {
             Ffi.rorb_set_value_type_resolver.invokeExact(Upcalls.RESOLVE, 0L);

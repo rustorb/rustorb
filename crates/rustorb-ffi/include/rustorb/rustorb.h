@@ -39,7 +39,7 @@ extern "C" {
 #endif
 
 /* Version of this ABI; rorb_abi_version() returns the library's. */
-#define RORB_ABI_VERSION 2
+#define RORB_ABI_VERSION 3
 
 typedef struct rorb_orb rorb_orb;
 typedef struct rorb_object rorb_object;
@@ -596,6 +596,24 @@ typedef struct rorb_invocation {
 /* Returns RORB_OK, RORB_SYSTEM_EXCEPTION, RORB_USER_EXCEPTION or
    RORB_CALLBACK_FAILED. A stream error in a read callback is MARSHAL. */
 rorb_status rorb_object_invoke(rorb_object* obj, const rorb_invocation* inv, rorb_exception* exc);
+
+/* Called once when an rorb_object_sendc invocation ends, on a thread of
+   the ORB's reply pool, after read_reply or read_user_exception. status is
+   RORB_OK, RORB_USER_EXCEPTION, RORB_SYSTEM_EXCEPTION (exc says which;
+   valid during the call) or RORB_CALLBACK_FAILED. No callback of the
+   invocation runs after it, so it may release the context. */
+typedef void (*rorb_sendc_done_fn)(void* context, rorb_status status, const rorb_exception* exc);
+
+/* Sends inv without waiting (AMI, docs/ami.md): returns once the request
+   is handed to the ORB, and done gets the outcome. inv is copied and the
+   operation name is not kept, but the context and the callbacks must stay
+   usable from any thread until done is called: write_args runs later, on
+   another thread, once or more. inv may not be oneway (BAD_PARAM) and
+   done may not be NULL. Returns RORB_OK, or RORB_SYSTEM_EXCEPTION
+   (BAD_INV_ORDER once the ORB is shut down), and then done is not
+   called. */
+rorb_status rorb_object_sendc(rorb_object* obj, const rorb_invocation* inv, rorb_sendc_done_fn done,
+                              rorb_exception* exc);
 
 /* --- streams --------------------------------------------------------------- */
 
