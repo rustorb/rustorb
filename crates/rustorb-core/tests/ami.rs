@@ -305,12 +305,16 @@ fn shut_down_orbs() {
         })
         .send(move |r| {
             counted.fetch_add(1, Ordering::SeqCst);
-            let _ = tx.send(r);
+            // Not on a thread of a runtime, where the synchronous API fails.
+            let outside = tokio::runtime::Handle::try_current().is_err();
+            let _ = tx.send((r, outside));
         })
         .unwrap();
     thread::sleep(Duration::from_millis(100));
     client.destroy().unwrap();
-    let e = system_of(rx.recv_timeout(Duration::from_secs(10)).unwrap());
+    let (r, outside) = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert!(outside);
+    let e = system_of(r);
     assert!(
         matches!(
             e.kind(),

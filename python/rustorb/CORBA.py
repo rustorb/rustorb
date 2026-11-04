@@ -812,6 +812,16 @@ class Object(object):
         """Call operation ``op`` (an ``Operation`` of the generated code)."""
         return self._orb_object().invoke(op, args)
 
+    def _sendc(self, op, ami_handler, reply, excep, args):
+        """Send operation ``op`` without waiting, for the ``sendc_``
+        operations of callback AMI (``rustorb-idl -Wbami``): the reply goes
+        to ``ami_handler``'s operation ``reply`` with the results, an
+        exception to its operation ``excep`` with a
+        ``Messaging.ExceptionHolder``. A nil handler drops the reply."""
+        from . import Messaging
+
+        self._orb_object().sendc(op, args, Messaging._NP_deliver(ami_handler, reply, excep))
+
     def _is_a(self, repoId):
         return self._orb_object().is_a(repoId)
 

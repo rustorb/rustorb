@@ -1427,7 +1427,7 @@ impl Orb {
             }
             Err(()) => {
                 drop(replies);
-                run_job(job);
+                run_reply_job(job);
             }
         }
     }
@@ -1608,6 +1608,31 @@ async fn close_idle(
 /// code themselves; this keeps the loop going if anything else panics.
 fn run_job(job: Job) {
     let _ = panic::catch_unwind(AssertUnwindSafe(job));
+}
+
+/// Runs a reply callback that cannot go to the reply pool (the ORB is
+/// destroyed, or it was dropped undelivered): on this thread, unless this
+/// is a thread of a runtime, where the synchronous API the callback may
+/// use fails; then on a thread of its own.
+pub(crate) fn run_reply_job(job: Job) {
+    if Handle::try_current().is_err() {
+        run_job(job);
+        return;
+    }
+    let job = Arc::new(Mutex::new(Some(job)));
+    let theirs = Arc::clone(&job);
+    let spawned = std::thread::Builder::new()
+        .name("rustorb-reply".into())
+        .spawn(move || {
+            if let Some(job) = theirs.lock().unwrap().take() {
+                run_job(job);
+            }
+        });
+    if spawned.is_err() {
+        if let Some(job) = job.lock().unwrap().take() {
+            run_job(job);
+        }
+    }
 }
 
 /// See [`Orb::in_runtime`].

@@ -579,6 +579,9 @@ impl<F: FnOnce(Result<Reply, Exception>) + Send + 'static> PendingReply<F> {
 }
 
 impl<F: FnOnce(Result<Reply, Exception>) + Send + 'static> Drop for PendingReply<F> {
+    /// Calls the callback: on the reply pool through `deliver`; here when
+    /// dropped undelivered (the task or the job was dropped), with
+    /// `COMM_FAILURE`, off the threads of a runtime.
     fn drop(&mut self) {
         if let Some(done) = self.done.take() {
             let result = self.result.take().unwrap_or_else(|| {
@@ -589,7 +592,7 @@ impl<F: FnOnce(Result<Reply, Exception>) + Send + 'static> Drop for PendingReply
                 )
                 .into())
             });
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| done(result)));
+            crate::orb::run_reply_job(Box::new(move || done(result)));
         }
     }
 }

@@ -10,7 +10,9 @@ Nov 3, 2026
 
 - **コア（`rustorb-core`）**：実装済み（#136）。`ObjectRef::request_callback` → `CallbackRequest`（下の「コア」の節）。試験は `crates/rustorb-core/tests/ami.rs`（6 件）
 - **C ABI（`rustorb-ffi`）**：実装済み（#136）。`rorb_object_sendc` と `rorb_sendc_done_fn`。`ABI_VERSION` は 3。試験は `crates/rustorb-ffi/tests/sendc.rs`（2 件）
-- 生成器（#137）、Python（#138）、C++（#141）、Java（#139）、相互接続（#140）はまだ
+- **生成器の前段（rustorb-idl、#137）**：実装済み（rustorb/rustorb-idl#4）。`-Wbami` で Handler を各言語に出す
+- **Python（#138）**：実装済み。`rustorb.Messaging` の `ReplyHandler`・`ExceptionHolder`、`rustorb.Messaging__POA`、`CORBA.Object._sendc`、ネイティブの `ObjRef.sendc`。生成器の `sendc_` は rustorb/rustorb-idl#6。試験は `python/tests/test_ami.py`（12 件。rustorb-idl のリリースまでは CI が rustorb-idl のコミットを使う）
+- C++（#141）、Java（#139）、相互接続（#140）はまだ
 
 ## 目的
 
@@ -104,7 +106,7 @@ module Messaging {
 
 ### 送るとき
 
-- `sendc_` は引数の値を写し取ってから返す。返った後に呼び出し元が引数の値を変えても、送る内容は変わらない。コアは引数を書く関数を送るとき（転送や送り直しではそのたび）に呼ぶので、写しは各言語のスタブが持つ（C++ は値のコピー、Java・Python は #139・#138 で決める）。送る前に CDR にしておく形は、接続ごとに決まるコードセットと、GIOP 1.0 / 1.1 の本体の位置合わせのために取らなかった
+- `sendc_` は引数の値を写し取ってから返す。返った後に呼び出し元が引数の値を変えても、送る内容は変わらない。コアは引数を書く関数を送るとき（転送や送り直しではそのたび）に呼ぶので、写しは各言語のスタブが持つ（C++ は値のコピー、Java は #139 で決める。Python はネイティブモジュールが `sendc_` の中で引数を IDL の値（Rust の値）に変換して持つ）。送る前に CDR にしておく形は、接続ごとに決まるコードセットと、GIOP 1.0 / 1.1 の本体の位置合わせのために取らなかった
 - 送信そのもの（接続、転送、アドレスの順の試行、送り直し）は ORB のランタイム（tokio）で行い、`sendc_` は待たない
 - `sendc_` が直接投げる例外は、要求を ORB に渡す前に分かるものだけ：ORB が終了している（`BAD_INV_ORDER`、minor 4）、マーシャルの失敗（`MARSHAL` / `BAD_PARAM`）、対象が nil（`INV_OBJREF` か言語の慣習）。それ以外（接続できない、`TRANSIENT`、タイムアウトなど）はすべて Handler の `<op>_excep` に届く
 - `ami_handler` が nil なら返事は捨てる（仕様の規則）。要求は普通に送る
@@ -115,13 +117,13 @@ module Messaging {
   - Handler が同じ ORB のサーバントなら同一 ORB 内呼び出しになり、POA のポリシー（スレッド、POAManager の状態）とサーバー側の PI がそのまま効く
   - Handler が別のプロセスにあっても動く（`ExceptionHolder` が valuetype として送れるため）
 - 呼び出し元のスレッドが ORB の `run` / `perform_work` を呼んでいなくても届く。サーバー側を持たない ORB（RootPOA を使っていないもの）でも届く。MAIN_THREAD_MODEL の POA の Handler だけは、メインスレッドが `run` か `perform_work` を呼ぶまで待つ
-- Handler の呼び出しが例外を投げても捨てる（呼び出し元に返す先がない）。`-ORBtraceLevel` が 10 以上なら記録する
+- Handler の呼び出しが例外を投げても捨てる（呼び出し元に返す先がない）。Python は `logging` の `rustorb.ami` に INFO で記録する
 - 返事の順は保証しない。同じ対象に続けて `sendc_` しても、Handler の呼ばれる順は返事の届いた順で、Handler はプールの複数のスレッドで並行に呼ばれうる（POA が SINGLE_THREAD_MODEL なら順に）
 - PI：クライアントの要求インターセプターは async API の呼び出しと同じに、ORB のランタイムで呼ぶ（`send_request` は送るとき、`receive_*` は返事を受けたとき、どちらも Handler を呼ぶ前）。PICurrent のスロットは `sendc_` を呼んだスレッドのものを要求に写す（DII の `send_deferred` と同じ）
 
 ### `ExceptionHolder`
 
-- `is_system_exception`・`byte_order`・`marshaled_exception` は仕様の状態メンバーで、`marshaled_exception` は例外を CDR でエンコードしたもの（リポジトリ ID から。`byte_order` はそのバイト順）
+- `is_system_exception`・`byte_order`・`marshaled_exception` は仕様の状態メンバーで、`marshaled_exception` は例外を返事の本体と同じ形で CDR にしたもの（リポジトリ ID の string、続いてユーザー例外ならメンバー、システム例外なら minor と完了状態の unsigned long）。オフセット 0 から位置を合わせる素の CDR（カプセル化ではない）で、`byte_order` はそのバイト順（TRUE がリトルエンディアン）。char / wchar のコードセットは `cdr_marshal` と同じ ISO 8859-1 / UTF-16
 - `raise_exception()` は、ユーザー例外なら生成コードの読み取り関数（操作の `raises` の例外）で戻して投げ、知らないリポジトリ ID なら `UNKNOWN`（minor 1、同期の呼び出しと同じ）。システム例外ならその例外を投げる
 - 返事の例外をいったん CDR に戻すのは、別のプロセスの Handler に送れるようにするため。同じプロセスの Handler に届く `ExceptionHolder` には、エンコードした内容と並べて、言語の例外の値と読み取り関数を持たせ、`raise_exception` でそれを使う（戻し直さない）
 - 別のプロセスから届いた `ExceptionHolder` の `raise_exception` は、各言語のランタイムの例外の登録（リポジトリ ID → 型）で探す。登録のない例外は `UNKNOWN`
@@ -130,7 +132,7 @@ module Messaging {
 ### タイムアウトと終了
 
 - タイムアウト（[timeouts.md](timeouts.md)）は同期の呼び出しと同じ優先順位で、`sendc_` を呼んだ時点で決める。切れたら Handler の `<op>_excep` に `TIMEOUT` が届く（送る前なら `COMPLETED_NO`、送った後なら `COMPLETED_MAYBE`）。`CancelRequest` も同期と同じに送る
-- `shutdown` / `destroy` の時点で返事を待っている AMI の要求は、同期の呼び出しと同じく接続が閉じて `COMM_FAILURE` か `TRANSIENT` で終わり、コアの完了の関数はそれを受ける（必ずちょうど 1 回。ランタイムが先に終わって送信のタスクが捨てられた場合も、捨てたスレッドで `COMM_FAILURE` を渡す）。ただし ORB が終了した後は Handler を呼ぶ呼び出しも `BAD_INV_ORDER` になるので、同じ ORB の Handler には届かない（スタブはその失敗を捨てる）。設計の段階では `BAD_INV_ORDER` を Handler に届けるとしていたが、終了した ORB からは Handler を呼べないので、この形にした
+- `shutdown` / `destroy` の時点で返事を待っている AMI の要求は、同期の呼び出しと同じく接続が閉じて `COMM_FAILURE` か `TRANSIENT` で終わり、コアの完了の関数はそれを受ける（必ずちょうど 1 回。ランタイムが先に終わって送信のタスクが捨てられた場合も `COMM_FAILURE` を渡す。捨てたのがランタイムのスレッドなら、同期 API が使えないので別のスレッドで呼ぶ）。ただし ORB が終了した後は Handler を呼ぶ呼び出しも `BAD_INV_ORDER` になるので、同じ ORB の Handler には届かない（スタブはその失敗を捨てる）。設計の段階では `BAD_INV_ORDER` を Handler に届けるとしていたが、終了した ORB からは Handler を呼べないので、この形にした
 - `destroy` は返事用のプールを止め、プールで待っている完了の関数は `destroy` を呼んだスレッドで呼ぶ
 
 ## 各層の作り
@@ -160,7 +162,7 @@ impl CallbackRequest {
 
 - 送信は `AsyncRequest` を ORB のランタイムの新しいタスクで動かす（DII の `send_deferred` と同じ形）。タイムアウトと PICurrent のスロットは `send` を呼んだスレッドで決める
 - 結果は返事用のプール（`Orb` が持つ。サーバントのプールとは別）に渡す。I/O のワーカーでは `done` を呼ばない。プールのスレッドはランタイムの外なので、`done` の中で同期 API を使える（Handler の呼び出し）
-- `done` と結果をまとめた値（`PendingReply`）は、渡されずに捨てられると（ランタイムの終了でタスクが、`destroy` でプールのジョブが捨てられると）捨てたスレッドで `done` を呼ぶ。これで「ちょうど 1 回」を守る。`done` のパニックは捕まえて捨てる
+- `done` と結果をまとめた値（`PendingReply`）は、渡されずに捨てられると（ランタイムの終了でタスクが、`destroy` でプールのジョブが捨てられると）捨てたスレッドで `done` を呼ぶ（ランタイムのスレッドなら、`done` の中の同期の呼び出しが `BAD_INV_ORDER` になるので、`rustorb-reply` という別のスレッドで呼ぶ。#138 の試験で見つけて直した）。これで「ちょうど 1 回」を守る。`done` のパニックは捕まえて捨てる
 - 同一 ORB 内の対象は、async API と同じくサーバントをアップコール用のプールで動かす
 - DII の `send_deferred` は今の作りのまま（チャネルで受ける）
 
@@ -188,11 +190,12 @@ rorb_status rorb_object_sendc(rorb_object* obj, const rorb_invocation* inv, rorb
 
 ### Python（#138）
 
-- 暗黙の IDL を標準の IDL to Python マッピングで写す：`Demo.AMI_CalcHandler`（スタブ）、`Demo__POA.AMI_CalcHandler`（スケルトン）、スタブ `Demo._objref_Calc` に `sendc_add(ami_handler, a, b)` など
-- `rustorb.Messaging`（既存）に `ReplyHandler`・`_objref_ReplyHandler`・`Messaging__POA.ReplyHandler`、`ExceptionHolder`（valuetype、`raise_exception()`・`raise_exception_with_list(exc_list)`）を足す
-- `rustorb-python`：`CallbackRequest` を Python の呼び出し可能なオブジェクトに橋渡しする。`done` はプールのスレッドで GIL を取って呼ぶ
+- 暗黙の IDL を標準の IDL to Python マッピングで写す：`Demo.AMI_CalcHandler`（スタブ）、`Demo__POA.AMI_CalcHandler`（スケルトン）、スタブ `Demo._objref_Calc` に `sendc_add(ami_handler, a, b)` など。生成コードの `Messaging` はランタイムの `rustorb.Messaging` / `rustorb.Messaging__POA`（`Messaging.idl` からは生成しない）
+- `rustorb.Messaging`（既存）に `ReplyHandler`・`_objref_ReplyHandler`・`_tc_ReplyHandler`、`ExceptionHolder`（valuetype、`raise_exception()`・`raise_exception_with_list(exc_list)`、`_tc_ExceptionHolder`、値のファクトリも登録）を足し、`rustorb.Messaging__POA.ReplyHandler` を新しく置く
+- 生成した `sendc_` は `CORBA.Object._sendc(Operation, ami_handler, "<op>", "<op>_excep", args)` を呼ぶ。`_sendc` はネイティブの `ObjRef.sendc(op, args, done)` に渡し、ネイティブ側は引数をその場で IDL の値に変換して `CallbackRequest` で送る。返事は返事用のプールのスレッドで GIL なしで読み、GIL を取って `done(kind, value, data, little)` を呼ぶ（kind 0 は結果の list、1 はユーザー例外、2 はシステム例外で、どちらも `marshaled_exception` の CDR を添える）。`done` が Handler の `<op>(*結果)` か `<op>_excep(ExceptionHolder)` を普通の呼び出しとして呼ぶ
+- 同じプロセスで作った `ExceptionHolder` は例外の値も持ち（`_NP_exception`）、`raise_exception` はそれを投げる。別の ORB から届いたもの（状態メンバーだけ）は、システム例外は `CORBA.system_exceptions` から、ユーザー例外は `_rt.typecodes`（`raise_exception_with_list` では一覧）の TypeCode で `ORB.unmarshal_exception`（ネイティブ）を使って戻す
 - omniORBpy 互換のシム（`omniorb-compat`）には何も足さない（omniORBpy の AMI の API との互換は、使うアプリケーションが出てから仕様・ドキュメント・実際の動きで確かめる）
-- 試験：`python/tests/test_ami.py`（結果、`inout` / `out`、属性、ユーザー例外、システム例外、タイムアウト、nil の Handler、別の ORB の Handler、並行する多数の `sendc_`、終了時）
+- 試験：`python/tests/test_ami.py`（結果、`inout` / `out` と引数の写し、属性、ユーザー例外、システム例外、タイムアウト、nil の Handler、別の ORB の Handler（`ExceptionHolder` を valuetype として送る）、並行する 100 件の `sendc_`、例外を投げる Handler、oneway と nil の対象、終了時）
 
 ### C++（#141）
 
