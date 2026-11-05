@@ -80,7 +80,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: rustorb/rustorb-idl
-          ref: 3607d056dba7d9f0150f6981b91eef7976272735
+          ref: 83fcc3e83de03d450daba866950d8d5ccc4bdce2
           path: rustorb-idl
       - run: python -m unittest discover -s python/tests -v
         env:
@@ -121,7 +121,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: rustorb/rustorb-idl
-          ref: 3607d056dba7d9f0150f6981b91eef7976272735
+          ref: 83fcc3e83de03d450daba866950d8d5ccc4bdce2
           path: rustorb-idl
       - run: cmake -S cpp -B build/cpp -DRUSTORB_IDL_DIR=${{ github.workspace }}/rustorb-idl
       - run: cmake --build build/cpp
@@ -142,7 +142,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: rustorb/rustorb-idl
-          ref: 3607d056dba7d9f0150f6981b91eef7976272735
+          ref: 83fcc3e83de03d450daba866950d8d5ccc4bdce2
           path: rustorb-idl
       # Every C++ test with ASan; LeakSanitizer reports what the C++ runtime
       # and librustorb_ffi left unfreed at exit (tests/test_leak.cc above
@@ -177,12 +177,22 @@ jobs:
           java-version: ${{ matrix.java }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: mvn -B -f java/pom.xml -Dpython=python verify
+      # Callback AMI (AmiTest) and org.omg.Messaging need a rustorb-idl with
+      # -bjava -Wbami, not released yet: this commit until
+      # tools/rustorb-idl.txt pins a release with it (#140).
+      - uses: actions/checkout@v4
+        with:
+          repository: rustorb/rustorb-idl
+          ref: 83fcc3e83de03d450daba866950d8d5ccc4bdce2
+          path: rustorb-idl
+      - run: mvn -B -f java/pom.xml -Dpython=python "-Drustorb.idl.dir=${{ github.workspace }}/rustorb-idl" verify
       - name: Check that Ffi.java is up to date with rustorb.h
         run: python java/tools/gen-ffi.py --check
-      - name: Check that the committed CosNaming stubs are up to date
+      - name: Check that the committed CosNaming and Messaging stubs are up to date
         if: runner.os == 'Linux'
         run: java/generate-stubs.sh && git diff --exit-code -- java
+        env:
+          RUSTORB_IDL_DIR: ${{ github.workspace }}/rustorb-idl
 
   docs:
     name: rustdoc

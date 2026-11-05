@@ -117,6 +117,27 @@
               </arguments>
             </configuration>
           </execution>
+          <!-- Callback AMI (AmiTest): -Wbami. -->
+          <execution>
+            <id>rustorb-idl-ami</id>
+            <phase>generate-test-sources</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>${python}</executable>
+              <environmentVariables>
+                <PYTHONPATH>${idl.pythonpath}</PYTHONPATH>
+              </environmentVariables>
+              <arguments>
+                <argument>-m</argument>
+                <argument>rustorb_idl</argument>
+                <argument>-bjava</argument>
+                <argument>-Wbami</argument>
+                <argument>-C</argument>
+                <argument>${idl.out}</argument>
+                <argument>${project.basedir}/src/test/idl/AmiTest.idl</argument>
+              </arguments>
+            </configuration>
+          </execution>
           <!-- Definitions outside modules need a package prefix. -->
           <execution>
             <id>rustorb-idl-mapping</id>

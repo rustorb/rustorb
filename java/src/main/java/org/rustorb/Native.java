@@ -707,6 +707,59 @@ final class Native {
         }
     }
 
+    /** rorb_object_sendc: the done upcall gets call (an Ami.Request) back
+     * exactly once; fails (and never calls it) only before sending. */
+    static void objectSendc(long obj, String op, long timeoutUs, Call call) {
+        long ctx = CALLS.add(call);
+        Scratch s = Scratch.get();
+        long mark = s.mark();
+        boolean sent = false;
+        try {
+            long inv = invocation(s, op, false, timeoutUs, ctx, Upcalls.CALL_WRITE,
+                    Upcalls.CALL_READ, Upcalls.CALL_READ_EXCEPTION);
+            long exc = s.alloc(EXCEPTION);
+            int st = (int) Ffi.rorb_object_sendc.invokeExact(obj, inv, Upcalls.SENDC_DONE, exc);
+            sent = st == OK;
+            check(st, exc);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        } finally {
+            s.reset(mark);
+            if (!sent) {
+                CALLS.remove(ctx);
+            }
+        }
+    }
+
+    /** rorb_cdr_encode: what call writes, as plain CDR from offset 0. A
+     * failed write leaves its error in call. */
+    static byte[] cdrEncode(Call call, boolean littleEndian) {
+        long ctx = CALLS.add(call);
+        try {
+            return bytes((s, out, exc) -> {
+                int st = (int) Ffi.rorb_cdr_encode.invokeExact(Upcalls.CALL_WRITE, ctx,
+                        littleEndian ? 1 : 0, out, exc);
+                if (st == CALLBACK_FAILED) {
+                    putLong(out, 0L);
+                    putLong(out + 8, 0L);
+                    return OK;
+                }
+                return st;
+            });
+        } finally {
+            CALLS.remove(ctx);
+        }
+    }
+
+    /** rorb_in_from_bytes: a stream over data as rorb_cdr_encode writes it. */
+    static long inFromBytes(byte[] data, boolean littleEndian, long orb) {
+        return word((s, out, exc) -> {
+            long p = data.length == 0 ? 0 : s.bytes(data);
+            return (int) Ffi.rorb_in_from_bytes.invokeExact(p, (long) data.length,
+                    littleEndian ? 1 : 0, orb, out, exc);
+        });
+    }
+
     // --- output streams ----------------------------------------------------
 
     static void outBoolean(long out, boolean v) {
@@ -3100,6 +3153,7 @@ final class Native {
         static final long CALL_READ = stub("callRead", fd(JAVA_INT, JAVA_LONG, JAVA_LONG));
         static final long CALL_READ_EXCEPTION = stub("callReadException",
                 fd(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG));
+        static final long SENDC_DONE = stub("sendcDone", fd(null, JAVA_LONG, JAVA_INT, JAVA_LONG));
         static final long PUSH_NAME = stub("pushName", fd(null, JAVA_LONG, JAVA_LONG, JAVA_LONG));
         static final long PUSH_POA = stub("pushPoa", fd(null, JAVA_LONG, JAVA_LONG));
         static final long PUSH_POLICY = stub("pushPolicy", fd(null, JAVA_LONG, JAVA_INT, JAVA_LONG));
@@ -3175,6 +3229,26 @@ final class Native {
                 return Bridge.callReadException(call, Library.utf8(id, idLen), in);
             } catch (Throwable t) {
                 return CALLBACK_FAILED;
+            }
+        }
+
+        /** rorb_sendc_done_fn: exactly once for each sent request. */
+        private static void sendcDone(long ctx, int status, long exc) {
+            try {
+                Call call = CALLS.remove(ctx);
+                if (!(call instanceof Ami.Request)) {
+                    return;
+                }
+                RuntimeException system = null;
+                if (status == SYSTEM_EXCEPTION) {
+                    long id = getLong(exc);
+                    String repositoryId = id == 0 ? UNKNOWN : Library.utf8(id, getLong(exc + 8));
+                    system = Bridge.systemException(repositoryId, getInt(exc + 16),
+                            getInt(exc + 20));
+                }
+                Ami.done((Ami.Request) call, status, system);
+            } catch (Throwable t) {
+                // dropped
             }
         }
 

@@ -13,7 +13,8 @@ Nov 3, 2026
 - **生成器の前段（rustorb-idl、#137）**：実装済み（rustorb/rustorb-idl#4）。`-Wbami` で Handler を各言語に出す
 - **Python（#138）**：実装済み。`rustorb.Messaging` の `ReplyHandler`・`ExceptionHolder`、`rustorb.Messaging__POA`、`CORBA.Object._sendc`、ネイティブの `ObjRef.sendc`。生成器の `sendc_` は rustorb/rustorb-idl#6。試験は `python/tests/test_ami.py`（12 件。rustorb-idl のリリースまでは CI が rustorb-idl のコミットを使う）
 - **C++（#141）**：実装済み。`<rustorb/messaging.h>` の `Messaging::ReplyHandler`・`Messaging::ExceptionHolder`・`POA_Messaging::ReplyHandler`・`rustorb::detail::sendc`、C ABI の `rorb_cdr_encode` / `rorb_in_from_bytes`。生成器の `sendc_` は rustorb/rustorb-idl#7。試験は `cpp/tests/test_ami.cc`（12 項目、ASan / LSan でも通す）と `crates/rustorb-ffi/tests/holder_cdr.rs`（4 件）。rustorb-idl のリリースまでは CI が rustorb-idl のコミットを使う
-- Java（#139）、相互接続（#140）はまだ
+- **Java（#139）**：実装済み。`org.omg.Messaging` の `ReplyHandler` 一式と `ExceptionHolder`、`org.rustorb.Stubs.sendc`・`SendcCall`、FFM の `rorb_object_sendc` / `rorb_cdr_encode` / `rorb_in_from_bytes`。生成器の `sendc_` は rustorb/rustorb-idl#10。試験は `java/src/test/java/org/rustorb/test/AmiTest.java`（13 件。rustorb-idl のリリースまでは CI が rustorb-idl のコミットを使う）
+- 相互接続（#140）はまだ
 
 ## 目的
 
@@ -210,11 +211,13 @@ rorb_status rorb_object_sendc(rorb_object* obj, const rorb_invocation* inv, rorb
 
 ### Java（#139）
 
-- 暗黙の IDL を IDL to Java で写す：`Demo.AMI_CalcHandler`・`AMI_CalcHandlerOperations`・`AMI_CalcHandlerPOA`・`AMI_CalcHandlerHelper` など
-- `sendc_` はスタブクラス `Demo._CalcStub` に置く。`Calc` / `CalcOperations` には足さない（サーバントが実装しなくてよいように）。使う側は `((Demo._CalcStub) calc).sendc_add(handler, a, b)` のようにスタブにキャストする。これは仕様の Java の写し方を #139 で実装の前に確かめ、仕様が別の置き場所を定めていればそれに従う
-- `org.omg.Messaging`（既存）に `ReplyHandler` 一式と `ExceptionHolder`（valuetype、`raise_exception()` が `org.omg.CORBA.UserException` を投げる）を足す
-- FFM：`rorb_object_sendc` の `done` を upcall にする。プールのスレッドは今と同じく JVM にアタッチする
-- 試験：`AmiTest`
+- 暗黙の IDL を IDL to Java で写す：`Demo.AMI_CalcHandler`・`AMI_CalcHandlerOperations`・`AMI_CalcHandlerPOA`・`AMI_CalcHandlerHelper` など。生成コードの `Messaging` はランタイムのパッケージ `org.omg.Messaging`（`-Wbpackage` によらない）
+- `sendc_` はスタブクラス `Demo._CalcStub` に置く（インターフェースとその基底の分。基底の操作はその基底の Handler を取る）。`Calc` / `CalcOperations` には足さない（サーバントが実装しなくてよいように）。使う側は `((Demo._CalcStub) calc).sendc_add(handler, a, b)` のようにスタブにキャストする。IDL to Java のマッピングには AMI の写し方の定めが見当たらなかったので、設計どおりこの形にした
+- 生成した `sendc_` は、`org.rustorb.SendcCall` を継承したローカルクラス（`write` が引数を書き、`read` が結果と out / inout をフィールドに読み、`reply()` が Handler の `<op>(...)`、`excep(holder)` が `<op>_excep(holder)` を呼ぶ）を作って `org.rustorb.Stubs.sendc(this, "<op>", ami_handler, call)` を呼ぶ。`Stubs.sendc` はその場で `write` を記録用のストリーム（`PortableOutputStream`）に書かせて引数を写し取り（配列は複製。valuetype は参照のまま）、送るときはそれを書き直す。nil の Handler なら返事は読むだけで捨てる。Handler の呼び出しが投げた例外は捨てる
+- FFM：`rorb_object_sendc` の `done` を upcall（`Native.Upcalls.sendcDone`）にした。返事用のプールのスレッドからの upcall は JVM が自動でアタッチする。`done` まで `Call` はレジストリに残し、`done` で外す
+- `org.omg.Messaging`：`ReplyHandler`・`ReplyHandlerOperations`・`ReplyHandlerPOA`・`_ReplyHandlerStub` などと `ExceptionHolderHelper` などは rustorb-idl の `Messaging.idl` から生成する（`java/generate-stubs.sh`）。`ExceptionHolder` は手で書き、`raise_exception()`・`raise_exception_with_list(TypeCode[])` が `org.omg.CORBA.UserException`（またはシステム例外）を投げる
+- 同じプロセスで作った `ExceptionHolder`（`org.rustorb.Ami.LocalHolder`）は例外そのものも持つ。別の ORB から届いたもの（状態メンバーだけ）は、システム例外はリポジトリ ID から、ユーザー例外はリポジトリ ID から見つけた生成コードの `<E>Helper.read` で戻す（valuetype と同じ名前の探し方）。Helper が見つからない ID は `UNKNOWN`（minor 0x4f4d0001、`COMPLETED_YES`）、壊れた CDR は `MARSHAL`
+- 試験：`AmiTest`（C++ と同じ項目に、`sendc_` がスタブクラスだけにあることを足した 13 件）
 
 ## 相互接続（#140）
 

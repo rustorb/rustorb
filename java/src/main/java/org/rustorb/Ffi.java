@@ -49,6 +49,8 @@ final class Ffi {
             FunctionDescriptor.of(JAVA_LONG, JAVA_LONG));
     static final MethodHandle rorb_bytes_free = fn("rorb_bytes_free",
             FunctionDescriptor.ofVoid(BYTES));
+    static final MethodHandle rorb_cdr_encode = fn("rorb_cdr_encode",
+            FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_INT, JAVA_LONG, JAVA_LONG));
     static final MethodHandle rorb_codec_decode = fn("rorb_codec_decode",
             FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG));
     static final MethodHandle rorb_codec_encode = fn("rorb_codec_encode",
@@ -239,6 +241,8 @@ final class Ffi {
             FunctionDescriptor.ofVoid(JAVA_LONG), CRITICAL);
     static final MethodHandle rorb_in_failed = fn("rorb_in_failed",
             FunctionDescriptor.of(JAVA_INT, JAVA_LONG), CRITICAL);
+    static final MethodHandle rorb_in_from_bytes = fn("rorb_in_from_bytes",
+            FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_LONG));
     static final MethodHandle rorb_in_new = fn("rorb_in_new",
             FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG));
     static final MethodHandle rorb_in_read_any = fn("rorb_in_read_any",
@@ -345,6 +349,8 @@ final class Ffi {
             FunctionDescriptor.of(JAVA_LONG, JAVA_LONG));
     static final MethodHandle rorb_object_release = fn("rorb_object_release",
             FunctionDescriptor.ofVoid(JAVA_LONG));
+    static final MethodHandle rorb_object_sendc = fn("rorb_object_sendc",
+            FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG));
     static final MethodHandle rorb_object_set_call_timeout = fn("rorb_object_set_call_timeout",
             FunctionDescriptor.ofVoid(JAVA_LONG, JAVA_LONG));
     static final MethodHandle rorb_object_set_policy_overrides = fn("rorb_object_set_policy_overrides",
