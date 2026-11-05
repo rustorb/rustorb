@@ -186,14 +186,29 @@ jobs:
           ref: 83fcc3e83de03d450daba866950d8d5ccc4bdce2
           path: rustorb-idl
       - run: mvn -B -f java/pom.xml -Dpython=python "-Drustorb.idl.dir=${{ github.workspace }}/rustorb-idl" verify
-      # TEMPORARY (#139): the tests again, to check that an intermittent JVM crash on Windows is gone.
-      - name: Run the Java tests again (temporary)
-        if: runner.os == 'Windows'
+      # TEMPORARY (#139): each AmiTest test on its own, again and again, to
+      # find the one behind an intermittent crash of the JVM on Windows.
+      - name: Run each AmiTest test alone (temporary)
+        if: always() && runner.os == 'Windows'
         shell: bash
         run: |
-          for i in 1 2 3 4 5 6 7 8; do
-            mvn -B -q -f java/pom.xml -Dpython=python "-Drustorb.idl.dir=${{ github.workspace }}/rustorb-idl" surefire:test || exit 1
+          mvn -B -q -f java/pom.xml dependency:build-classpath -Dmdep.outputFile=cp.txt -Dmdep.includeScope=test
+          curl -sSfL -o console.jar https://repo1.maven.org/maven2/org/junit/platform/junit-platform-console-standalone/1.10.2/junit-platform-console-standalone-1.10.2.jar
+          CP="java/target/test-classes;java/target/classes;$(cat java/cp.txt);console.jar"
+          crashed=0
+          for t in results inoutAndOut attributes userException systemException handlerOfAnotherOrb timeout nilHandler many handlerThrows unreachableTarget shutDownClient; do
+            line="$t:"
+            for i in 1 2 3 4 5 6 7 8; do
+              timeout 120 java "-Djava.library.path=target\debug" --enable-native-access=ALL-UNNAMED -cp "$CP" \
+                org.junit.platform.console.ConsoleLauncher --disable-banner --details=none \
+                --select-method "org.rustorb.test.AmiTest#$t" > run.log 2>&1
+              st=$?
+              line="$line $st"
+              [ $st -ne 0 ] && [ $st -ne 1 ] && crashed=1
+            done
+            echo "$line"
           done
+          exit $crashed
       - name: Check that Ffi.java is up to date with rustorb.h
         run: python java/tools/gen-ffi.py --check
       - name: Check that the committed CosNaming and Messaging stubs are up to date
