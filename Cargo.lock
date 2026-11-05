@@ -461,6 +461,7 @@ version = "0.3.0"
 dependencies = [
  "rustorb-cdr",
  "rustorb-core",
+ "tokio",
 ]
 
 [[package]]

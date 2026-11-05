@@ -275,6 +275,12 @@ struct Pending(Invocation);
 unsafe impl Send for Pending {}
 unsafe impl Sync for Pending {}
 
+/// A pointer handed to the thread that runs a callback (crate::offload).
+struct SendPtr<T>(*mut T);
+
+// SAFETY: used by one thread at a time, while its owner waits.
+unsafe impl<T> Send for SendPtr<T> {}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rorb_object_sendc(
     obj: *mut ObjectRef,
@@ -308,15 +314,25 @@ pub unsafe extern "C" fn rorb_object_sendc(
             let pending = Arc::clone(&pending);
             let failed = Arc::clone(&failed);
             request = request.args(move |out: &mut OutStream<'_>| {
-                let mut o = Out::new(out);
-                if write_args(pending.0.context, o.as_ptr()) != OK {
-                    failed.store(true, Ordering::Relaxed);
-                    return Err(sys(SystemExceptionKind::UNKNOWN, 0, CompletionStatus::No));
-                }
-                match o.error {
-                    Some(e) => Err(e),
-                    None => Ok(()),
-                }
+                // Written on a thread of the runtime: the caller's callback
+                // runs elsewhere (crate::offload).
+                let out = SendPtr(out as *mut OutStream<'_>);
+                let pending = &pending;
+                let failed = &failed;
+                crate::offload::run(move || {
+                    let out = out;
+                    // SAFETY: the stream outlives this call, which run
+                    // waits for, and nothing else uses it meanwhile.
+                    let mut o = Out::new(unsafe { &mut *out.0 });
+                    if write_args(pending.0.context, o.as_ptr()) != OK {
+                        failed.store(true, Ordering::Relaxed);
+                        return Err(sys(SystemExceptionKind::UNKNOWN, 0, CompletionStatus::No));
+                    }
+                    match o.error {
+                        Some(e) => Err(e),
+                        None => Ok(()),
+                    }
+                })
             });
         }
         if inv.timeout_us >= 0 {

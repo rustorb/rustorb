@@ -608,7 +608,8 @@ typedef void (*rorb_sendc_done_fn)(void* context, rorb_status status, const rorb
    is handed to the ORB, and done gets the outcome. inv is copied and the
    operation name is not kept, but the context and the callbacks must stay
    usable from any thread until done is called: write_args runs later, on
-   another thread, once or more. inv may not be oneway (BAD_PARAM) and
+   another thread (one of rustorb's, never one of the ORB's I/O threads),
+   once or more. inv may not be oneway (BAD_PARAM) and
    done may not be NULL. Returns RORB_OK, or RORB_SYSTEM_EXCEPTION
    (BAD_INV_ORDER once the ORB is shut down), and then done is not
    called. */
