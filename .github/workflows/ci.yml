@@ -186,6 +186,26 @@ jobs:
           ref: 83fcc3e83de03d450daba866950d8d5ccc4bdce2
           path: rustorb-idl
       - run: mvn -B -f java/pom.xml -Dpython=python "-Drustorb.idl.dir=${{ github.workspace }}/rustorb-idl" verify
+      # TEMPORARY (#139): the tests again, to catch an intermittent JVM crash on Windows.
+      - name: Run the Java tests again (temporary)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          for i in 1 2 3 4 5 6; do
+            mvn -B -q -f java/pom.xml -Dpython=python "-Drustorb.idl.dir=${{ github.workspace }}/rustorb-idl" surefire:test || exit 1
+          done
+      # What a crashed test JVM left: its hs_err file and surefire's dumps.
+      - name: Upload what a crashed JVM left
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-crash-${{ matrix.os }}-${{ matrix.java }}
+          path: |
+            java/hs_err_pid*.log
+            java/*.mdmp
+            java/target/surefire-reports/*.dump*
+            java/target/surefire-reports/*-output.txt
+          if-no-files-found: ignore
       - name: Check that Ffi.java is up to date with rustorb.h
         run: python java/tools/gen-ffi.py --check
       - name: Check that the committed CosNaming and Messaging stubs are up to date
