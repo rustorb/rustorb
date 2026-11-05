@@ -223,8 +223,18 @@ jobs:
           workspaces: |
             .
             examples/rust
-      # rustorb-idl and idl_parser from PyPI, as a user's install would.
+      # A rustorb-idl with -Wbami (the Java test IDLs), not released yet:
+      # this commit until tools/rustorb-idl.txt pins a release with it (#140).
+      - uses: actions/checkout@v4
+        with:
+          repository: rustorb/rustorb-idl
+          ref: 83fcc3e83de03d450daba866950d8d5ccc4bdce2
+          path: rustorb-idl
+      # rustorb-idl and idl_parser from PyPI, as a user's install would
+      # (but the Java build, which takes the checkout above).
       - run: examples/run-all.sh
+        env:
+          RUSTORB_IDL_DIR: ${{ github.workspace }}/rustorb-idl
 
   msrv:
     runs-on: ubuntu-latest
