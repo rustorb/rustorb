@@ -194,6 +194,15 @@ jobs:
           for i in 1 2 3 4 5 6; do
             mvn -B -q -f java/pom.xml -Dpython=python "-Drustorb.idl.dir=${{ github.workspace }}/rustorb-idl" surefire:test || exit 1
           done
+      - name: Show what a crashed JVM left (temporary)
+        if: failure()
+        shell: bash
+        run: |
+          ls -la java java/target/surefire-reports || true
+          for f in java/hs_err_pid*.log java/target/surefire-reports/*.dump*; do
+            [ -f "$f" ] && { echo "=== $f"; head -c 20000 "$f"; }
+          done
+          true
       # What a crashed test JVM left: its hs_err file and surefire's dumps.
       - name: Upload what a crashed JVM left
         if: failure()

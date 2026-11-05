@@ -218,6 +218,13 @@ class AmiTest {
         return root.servant_to_reference(servant);
     }
 
+    // TEMPORARY (#139): which test a crash on Windows is in.
+    @org.junit.jupiter.api.BeforeEach
+    void name(org.junit.jupiter.api.TestInfo info) {
+        System.out.println("AmiTest: " + info.getDisplayName());
+        System.out.flush();
+    }
+
     @BeforeAll
     static void init() throws Exception {
         server = orb();
