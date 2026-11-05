@@ -34,22 +34,24 @@ if(RUSTORB_IDL AND NOT RUSTORB_IDL_DIR)
   set(RUSTORB_IDL_DIR "${RUSTORB_IDL_DIR}" CACHE PATH "the standard IDL files of rustorb-idl")
 endif()
 
-# rustorb_idl_generate(<var> <idl>...): runs rustorb-idl -bc++11 on each IDL
-# file into ${CMAKE_CURRENT_BINARY_DIR}/idl and appends the generated
-# sources to <var>.
+# rustorb_idl_generate(<var> <idl>... [OPTIONS <option>...]): runs
+# rustorb-idl -bc++11 on each IDL file (with the options, such as -Wbami for
+# callback AMI) into ${CMAKE_CURRENT_BINARY_DIR}/idl and appends the
+# generated sources to <var>.
 function(rustorb_idl_generate var)
   if(NOT RUSTORB_IDL)
     message(FATAL_ERROR "rustorb-idl not found: pip install rustorb-idl, or set RUSTORB_IDL")
   endif()
+  cmake_parse_arguments(PARSE_ARGV 1 RIG "" "" "OPTIONS")
   set(outdir "${CMAKE_CURRENT_BINARY_DIR}/idl")
   file(MAKE_DIRECTORY "${outdir}")
   set(sources ${${var}})
-  foreach(idl ${ARGN})
+  foreach(idl ${RIG_UNPARSED_ARGUMENTS})
     get_filename_component(idl "${idl}" ABSOLUTE)
     get_filename_component(base "${idl}" NAME_WE)
     add_custom_command(
       OUTPUT "${outdir}/${base}.hh" "${outdir}/${base}.cc"
-      COMMAND "${RUSTORB_IDL}" -bc++11 -C "${outdir}" "${idl}"
+      COMMAND "${RUSTORB_IDL}" -bc++11 ${RIG_OPTIONS} -C "${outdir}" "${idl}"
       DEPENDS "${idl}"
       COMMENT "rustorb-idl -bc++11 ${base}.idl"
       VERBATIM)

@@ -728,6 +728,18 @@ const char* rorb_in_exception_id(rorb_in* in, size_t* len);
    RORB_CALLBACK_FAILED. */
 rorb_status rorb_in_new(rorb_status (*write)(void* context, rorb_out* out), void* context,
                         rorb_orb* orb, rorb_in** in, rorb_exception* exc);
+/* The bytes write(context, out) writes on a standalone stream: plain CDR
+   from offset 0 (not an encapsulation) in the byte order little_endian (1)
+   or big endian (0), with the native code sets (UTF-8 and UTF-16), as
+   Messaging::ExceptionHolder::marshaled_exception holds an exception
+   (docs/ami.md). *bytes is freed with rorb_bytes_free. */
+rorb_status rorb_cdr_encode(rorb_status (*write)(void* context, rorb_out* out), void* context,
+                            int32_t little_endian, rorb_bytes* bytes, rorb_exception* exc);
+/* An owned stream over len bytes at data, in the form rorb_cdr_encode
+   writes. Object references read from it belong to orb (may be NULL), else
+   to the first ORB initialised. */
+rorb_status rorb_in_from_bytes(const uint8_t* data, size_t len, int32_t little_endian,
+                               rorb_orb* orb, rorb_in** in, rorb_exception* exc);
 /* A stream over the value of the any (without its TypeCode), as
    rorb_out_write_any_value writes it; an exception starts with its
    repository id. */

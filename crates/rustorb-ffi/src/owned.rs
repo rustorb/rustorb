@@ -23,6 +23,7 @@ enum Source {
     /// read from them.
     Bytes {
         data: Vec<u8>,
+        order: ByteOrder,
         orb: Option<Orb>,
     },
     Reply(Reply),
@@ -58,8 +59,8 @@ fn make(source: Source, exception_id: Option<String>) -> Result<*mut RorbIn, Sys
     // The source stays where it is until the stream is released.
     let src: &'static Source = unsafe { &*source };
     let stream = match src {
-        Source::Bytes { data, orb } => Ok(InStream::standalone(
-            Decoder::new(data, ByteOrder::Big, Encoding::Giop1_2),
+        Source::Bytes { data, order, orb } => Ok(InStream::standalone(
+            Decoder::new(data, *order, Encoding::Giop1_2),
             orb.as_ref(),
         )),
         Source::Reply(r) => Ok(r.input()),
@@ -180,6 +181,74 @@ pub unsafe extern "C" fn rorb_in_new(
             .or_else(default_orb);
         let source = Source::Bytes {
             data: enc.into_bytes(),
+            order: ByteOrder::Big,
+            orb,
+        };
+        unsafe { put(make(source, None), input, exc, OK) }
+    })
+}
+
+fn order(little_endian: i32) -> ByteOrder {
+    if little_endian != 0 {
+        ByteOrder::Little
+    } else {
+        ByteOrder::Big
+    }
+}
+
+/// The bytes `write` writes on a standalone stream: plain CDR from offset
+/// 0 (not an encapsulation) in the byte order `little_endian`, with the
+/// native code sets. `Messaging::ExceptionHolder::marshaled_exception`
+/// holds an exception so (docs/ami.md).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_cdr_encode(
+    write: WriteFn,
+    context: *mut c_void,
+    little_endian: i32,
+    bytes: *mut crate::Bytes,
+    exc: *mut Exception,
+) -> Status {
+    guard(exc, || {
+        let mut enc = rustorb_cdr::Encoder::new(order(little_endian), Encoding::Giop1_2);
+        {
+            let mut stream = OutStream::standalone(&mut enc);
+            let mut out = Out::standalone(&mut stream);
+            if let Some(write) = write {
+                if write(context, out.as_ptr()) != OK {
+                    return CALLBACK_FAILED;
+                }
+            }
+            if let Some(e) = out.error.take() {
+                return unsafe { set_system(exc, &e) };
+            }
+        }
+        unsafe { *bytes = crate::Bytes::new(enc.into_bytes()) };
+        OK
+    })
+}
+
+/// An owned stream over `len` bytes at `data` in the form
+/// [`rorb_cdr_encode`] writes. Object references read from it belong to
+/// `orb`, else to the default ORB.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_in_from_bytes(
+    data: *const u8,
+    len: usize,
+    little_endian: i32,
+    orb: *mut Orb,
+    input: *mut *mut RorbIn,
+    exc: *mut Exception,
+) -> Status {
+    guard(exc, || {
+        let data = if len == 0 {
+            Vec::new()
+        } else {
+            unsafe { std::slice::from_raw_parts(data, len) }.to_vec()
+        };
+        let orb = unsafe { orb.as_ref() }.cloned().or_else(default_orb);
+        let source = Source::Bytes {
+            data,
+            order: order(little_endian),
             orb,
         };
         unsafe { put(make(source, None), input, exc, OK) }
@@ -205,6 +274,7 @@ pub unsafe extern "C" fn rorb_any_input(
             .or_else(default_orb);
         let source = Source::Bytes {
             data: enc.into_bytes(),
+            order: ByteOrder::Big,
             orb,
         };
         unsafe { put(make(source, None), input, exc, OK) }

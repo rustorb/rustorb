@@ -81,9 +81,10 @@ class ExceptionHolder(CORBA.ValueBase):
     The state is that of the IDL: ``is_system_exception``, ``byte_order``
     (True for little endian) and ``marshaled_exception``, the exception as
     a reply carries it (the repository id, then the members, or the minor
-    code and the completion status), plain CDR from offset 0. It is what a
-    handler in another process receives. A holder made by the ORB of this
-    process also keeps the exception itself."""
+    code and the completion status), plain CDR from offset 0 with the code
+    sets UTF-8 and UTF-16. It is what a handler in another process
+    receives. A holder made by the ORB of this process also keeps the
+    exception itself."""
 
     _NP_RepositoryId = "IDL:omg.org/Messaging/ExceptionHolder:1.0"
     _NP_members = ("is_system_exception", "byte_order", "marshaled_exception")
@@ -156,7 +157,7 @@ def _read_string(data, little):
     (n,) = _struct.unpack_from("<I" if little else ">I", data, 0)
     if n == 0 or 4 + n > len(data):
         raise ValueError("bad string")
-    return data[4 : 4 + n - 1].decode("latin-1"), 4 + n
+    return data[4 : 4 + n - 1].decode("utf-8"), 4 + n
 
 
 def _any_orb():

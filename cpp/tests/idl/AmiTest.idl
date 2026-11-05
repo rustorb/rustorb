@@ -1,0 +1,24 @@
+// Callback AMI from C++ (test_ami.cc): rustorb-idl -bc++11 -Wbami.
+
+module AmiCpp {
+  exception Oops {
+    long code;
+    string why;
+  };
+
+  struct Pair {
+    long a;
+    string b;
+  };
+  typedef sequence<Pair> Pairs;
+
+  interface Calc {
+    long add(in long a, in long b, out long carry) raises (Oops);
+    Pairs swap(inout Pairs ps, in string tag);
+    void fail(in unsigned long minor);
+    void sleep(in unsigned long ms);
+    attribute string label;
+    readonly attribute long count;
+    oneway void fire(in long n);
+  };
+};

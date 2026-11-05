@@ -329,7 +329,6 @@ impl Orb {
             .detach(|| {
                 let dec = Decoder::new(data, order(little), Encoding::Giop1_2);
                 let mut input = InStream::standalone(dec, Some(&self.orb));
-                input.set_code_sets(MARSHAL_CODE_SETS);
                 if input.read_string()? != id {
                     return Err(marshal(CompletionStatus::No));
                 }
@@ -746,8 +745,8 @@ impl Reply {
 }
 
 /// A stream for `ExceptionHolder.marshaled_exception`: plain CDR from
-/// offset 0, in the byte order of the host, with the code sets of
-/// `cdr_marshal`.
+/// offset 0, in the byte order of the host, with the native code sets
+/// (UTF-8 and UTF-16), as the C ABI's `rorb_cdr_encode` writes it.
 fn holder_encoder() -> Encoder {
     Encoder::new(order(HOLDER_LITTLE), Encoding::Giop1_2)
 }
@@ -757,7 +756,6 @@ fn holder_encoder() -> Encoder {
 fn system_cdr(e: &SystemException) -> Vec<u8> {
     let mut enc = holder_encoder();
     let mut out = OutStream::standalone(&mut enc);
-    out.set_code_sets(MARSHAL_CODE_SETS);
     let _ = out.write_string(&e.repository_id);
     out.write_u32(e.minor);
     out.write_u32(match e.completed {
@@ -773,7 +771,6 @@ fn system_cdr(e: &SystemException) -> Vec<u8> {
 fn user_cdr(id: &str, tc: &TcRef, members: &Value) -> Result<Vec<u8>, SystemException> {
     let mut enc = holder_encoder();
     let mut out = OutStream::standalone(&mut enc);
-    out.set_code_sets(MARSHAL_CODE_SETS);
     out.write_string(id)?;
     encode(tc, members, &mut out)?;
     drop(out);

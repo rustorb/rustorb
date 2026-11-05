@@ -12,7 +12,8 @@ Nov 3, 2026
 - **C ABI（`rustorb-ffi`）**：実装済み（#136）。`rorb_object_sendc` と `rorb_sendc_done_fn`。`ABI_VERSION` は 3。試験は `crates/rustorb-ffi/tests/sendc.rs`（2 件）
 - **生成器の前段（rustorb-idl、#137）**：実装済み（rustorb/rustorb-idl#4）。`-Wbami` で Handler を各言語に出す
 - **Python（#138）**：実装済み。`rustorb.Messaging` の `ReplyHandler`・`ExceptionHolder`、`rustorb.Messaging__POA`、`CORBA.Object._sendc`、ネイティブの `ObjRef.sendc`。生成器の `sendc_` は rustorb/rustorb-idl#6。試験は `python/tests/test_ami.py`（12 件。rustorb-idl のリリースまでは CI が rustorb-idl のコミットを使う）
-- C++（#141）、Java（#139）、相互接続（#140）はまだ
+- **C++（#141）**：実装済み。`<rustorb/messaging.h>` の `Messaging::ReplyHandler`・`Messaging::ExceptionHolder`・`POA_Messaging::ReplyHandler`・`rustorb::detail::sendc`、C ABI の `rorb_cdr_encode` / `rorb_in_from_bytes`。生成器の `sendc_` は rustorb/rustorb-idl#7。試験は `cpp/tests/test_ami.cc`（12 項目、ASan / LSan でも通す）と `crates/rustorb-ffi/tests/holder_cdr.rs`（4 件）。rustorb-idl のリリースまでは CI が rustorb-idl のコミットを使う
+- Java（#139）、相互接続（#140）はまだ
 
 ## 目的
 
@@ -123,7 +124,7 @@ module Messaging {
 
 ### `ExceptionHolder`
 
-- `is_system_exception`・`byte_order`・`marshaled_exception` は仕様の状態メンバーで、`marshaled_exception` は例外を返事の本体と同じ形で CDR にしたもの（リポジトリ ID の string、続いてユーザー例外ならメンバー、システム例外なら minor と完了状態の unsigned long）。オフセット 0 から位置を合わせる素の CDR（カプセル化ではない）で、`byte_order` はそのバイト順（TRUE がリトルエンディアン）。char / wchar のコードセットは `cdr_marshal` と同じ ISO 8859-1 / UTF-16
+- `is_system_exception`・`byte_order`・`marshaled_exception` は仕様の状態メンバーで、`marshaled_exception` は例外を返事の本体と同じ形で CDR にしたもの（リポジトリ ID の string、続いてユーザー例外ならメンバー、システム例外なら minor と完了状態の unsigned long）。オフセット 0 から位置を合わせる素の CDR（カプセル化ではない）で、`byte_order` はそのバイト順（TRUE がリトルエンディアン）。char / wchar のコードセットは UTF-8 / UTF-16（C ABI の `rorb_cdr_encode` / `rorb_in_from_bytes` と同じ。言語の間で同じ形にする）
 - `raise_exception()` は、ユーザー例外なら生成コードの読み取り関数（操作の `raises` の例外）で戻して投げ、知らないリポジトリ ID なら `UNKNOWN`（minor 1、同期の呼び出しと同じ）。システム例外ならその例外を投げる
 - 返事の例外をいったん CDR に戻すのは、別のプロセスの Handler に送れるようにするため。同じプロセスの Handler に届く `ExceptionHolder` には、エンコードした内容と並べて、言語の例外の値と読み取り関数を持たせ、`raise_exception` でそれを使う（戻し直さない）
 - 別のプロセスから届いた `ExceptionHolder` の `raise_exception` は、各言語のランタイムの例外の登録（リポジトリ ID → 型）で探す。登録のない例外は `UNKNOWN`
@@ -199,10 +200,13 @@ rorb_status rorb_object_sendc(rorb_object* obj, const rorb_invocation* inv, rorb
 
 ### C++（#141）
 
-- 暗黙の IDL を IDL to C++11 で写す：`Demo::AMI_CalcHandler`（`IDL::traits<>`、`_ref_type`）、`POA_Demo::AMI_CalcHandler`、`Calc` のスタブ（`IDL::traits<Calc>::ref_type` の指す型）に `sendc_add(IDL::traits<AMI_CalcHandler>::ref_type ami_handler, int32_t a, int32_t b)`
-- `<rustorb/messaging.h>`：`Messaging::ReplyHandler`、`Messaging::ExceptionHolder`（`raise_exception()` が C++ の例外を投げる）。`ExceptionHolder` の valuetype のファクトリを ORB に登録する
-- `rorb_object_sendc` の `context` はスタブが作る（Handler の参照と返事を読む関数）。`done` で C++ の値に戻して Handler を呼ぶ
-- 試験：`cpp/tests/test_ami.cc`（Python と同じ項目、ASan / LSan で漏れがないこと）
+- 暗黙の IDL を IDL to C++11 で写す：`Demo::AMI_CalcHandler`（`IDL::traits<>`、`_ref_type`）、`POA_Demo::AMI_CalcHandler`、`Calc` のスタブ（`IDL::traits<Calc>::ref_type` の指す型）に仮想関数 `sendc_add(IDL::traits<AMI_CalcHandler>::ref_type ami_handler, int32_t a, int32_t b)`。属性は `sendc_get_x(ami_handler)` / `sendc_set_x(ami_handler, attr_x)`。生成コードの `Messaging` はランタイムの `<rustorb/messaging.h>`（`Messaging.idl` からは生成しない）
+- `<rustorb/messaging.h>`：`Messaging::ReplyHandler`（`_tc_ReplyHandler`）、`POA_Messaging::ReplyHandler`、`Messaging::ExceptionHolder`（valuetype、`raise_exception()`・`raise_exception_with_list(exc_list)` が C++ の例外を投げる）と `OBV_Messaging::ExceptionHolder`。`ExceptionHolder` の値のファクトリはヘッダーの inline 変数で登録する。状態メンバーは仕様どおり private（C++ では protected）
+- 生成した `sendc_` は `rustorb::detail::sendc<raises の例外...>(this, "<op>", handler, write, read, excep)` を呼ぶ。`write` は引数を値で写し取ったラムダ（引数の写しはこれ）、`read` は返事を読んで「Handler の `<op>(結果...)` を呼ぶ関数」を返すラムダ、`excep` は `<op>_excep(holder)` を呼ぶラムダ。`sendc` は `context`（Handler の参照と三つの関数）をヒープに作って `rorb_object_sendc` に渡し、`done` で Handler を呼んでから解放する。Handler が nil なら返事は読むだけで捨てる。Handler の呼び出しが投げた例外は捨てる（返事用のプールを止めない）
+- `done` で作る `ExceptionHolder`：ユーザー例外は raises の型で読み（知らないものは `UNKNOWN`）、システム例外は `throw_system` と同じ対応で C++ の例外にする。どちらも例外そのもの（`std::exception_ptr`）と `marshaled_exception` の CDR（`rorb_cdr_encode`、ホストのバイト順）を持つ。同じプロセスの Handler には例外そのものを投げ直し、別の ORB から届いたもの（状態メンバーだけ）は `rorb_in_from_bytes` で読む。システム例外はリポジトリ ID から、ユーザー例外は `-Wbami` の生成コードがファイルごとに登録する読み手（`rustorb::detail::UserExceptionRegistration<E>`）で戻す。登録のない ID は `UNKNOWN`（minor 0x4f4d0001、`COMPLETED_YES`）、壊れた CDR は `MARSHAL`
+- C ABI に足したもの（`ABI_VERSION` は 3 のまま）：`rorb_cdr_encode(write, context, little_endian, bytes, exc)`（オフセット 0 からの素の CDR を書く）と `rorb_in_from_bytes(data, len, little_endian, orb, input, exc)`（その形を読むストリーム、`rorb_in_release` で手放す）。コードセットはどちらも UTF-8 / UTF-16。Python の `ExceptionHolder` もこの形に揃えた
+- CMake：`rustorb_idl_generate(<var> <idl>... OPTIONS -Wbami)`（インストールした `rustorbConfig.cmake` も同じ）
+- 試験：`cpp/tests/test_ami.cc`（結果、`inout` / `out` と引数の写し、属性、ユーザー例外、システム例外、タイムアウト、nil の Handler、別の ORB の Handler と `_copy_value`、並行する 100 件の `sendc_`、例外を投げる Handler、終了した ORB の対象、終了時）
 
 ### Java（#139）
 
@@ -230,6 +234,6 @@ AMI のクライアントの要求は線上では普通の要求なので、サ�
 ## 試験
 
 - コア：`crates/rustorb-core/tests/ami.rs`（サーバー側のないクライアントから TCP 越しに 50 個並行に送り、返事用のプールのスレッドで受けること、`send` の後に書く引数、ユーザー例外・システム例外・相手がいないとき、要求と参照のタイムアウト、同一 ORB 内の対象と `done` の中の同期呼び出し、`destroy` で待っている要求がちょうど 1 回終わることと終了後の `BAD_INV_ORDER`、共有したランタイムのワーカーから送ること）。転送と PI は async API の経路そのままなので、そちらの試験に任せた
-- C ABI：`crates/rustorb-ffi/tests/sendc.rs`（返事・ユーザー例外・システム例外・`write_args` の失敗がそれぞれの `status` で `done` にちょうど 1 回届くこと、oneway と NULL の `done` を断ること、`destroy` で待っている要求、終了後の失敗）
+- C ABI：`crates/rustorb-ffi/tests/holder_cdr.rs`（`rorb_cdr_encode` の両方のバイト順の並び、`rorb_in_from_bytes` での往復、足りない入力、書く関数の失敗）、`crates/rustorb-ffi/tests/sendc.rs`（返事・ユーザー例外・システム例外・`write_args` の失敗がそれぞれの `status` で `done` にちょうど 1 回届くこと、oneway と NULL の `done` を断ること、`destroy` で待っている要求、終了後の失敗）
 - 生成器：rustorb-idl の golden に `-Wbami` の出力、名前の衝突の IDL
 - 各言語：上の各節
