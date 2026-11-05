@@ -185,6 +185,18 @@ jobs:
           repository: rustorb/rustorb-idl
           ref: 83fcc3e83de03d450daba866950d8d5ccc4bdce2
           path: rustorb-idl
+      - name: Keep a minidump of a crashed java.exe (temporary)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path D:\dumps | Out-Null
+          $k = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\java.exe'
+          New-Item -Force -Path $k | Out-Null
+          Set-ItemProperty -Path $k -Name DumpFolder -Value 'D:\dumps' -Type ExpandString
+          Set-ItemProperty -Path $k -Name DumpType -Value 1 -Type DWord
+          Set-ItemProperty -Path $k -Name DumpCount -Value 5 -Type DWord
+          Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting' -Name DontShowUI -Value 1 -Type DWord
+          Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting' -Name Disabled -Value 0 -Type DWord
       - run: mvn -B -f java/pom.xml -Dpython=python "-Drustorb.idl.dir=${{ github.workspace }}/rustorb-idl" verify
       # TEMPORARY (#139): the tests again, to catch an intermittent JVM crash on Windows.
       - name: Run the Java tests again (temporary)
@@ -203,6 +215,17 @@ jobs:
             [ -f "$f" ] && { echo "=== $f"; head -c 20000 "$f"; }
           done
           true
+      - name: Analyze the minidumps (temporary)
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-ChildItem D:\dumps -ErrorAction SilentlyContinue
+          $cdb = Get-ChildItem -Recurse -ErrorAction SilentlyContinue -Path 'C:\Program Files (x86)\Windows Kits\10\Debuggers' -Filter cdb.exe | Where-Object { $_.FullName -match 'x64' } | Select-Object -First 1
+          Write-Output "cdb: $($cdb.FullName)"
+          foreach ($d in Get-ChildItem D:\dumps -Filter *.dmp -ErrorAction SilentlyContinue) {
+            Write-Output "=== $($d.FullName)"
+            & $cdb.FullName -z $d.FullName -y "${{ github.workspace }}\target\debug" -c ".ecxr; kn 60; !analyze -v; ~*kn 30; q" 2>&1 | Select-Object -First 1500
+          }
       # What a crashed test JVM left: its hs_err file and surefire's dumps.
       - name: Upload what a crashed JVM left
         if: failure()
