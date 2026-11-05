@@ -208,12 +208,12 @@ jobs:
           curl -sSfL -o console.jar https://repo1.maven.org/maven2/org/junit/platform/junit-platform-console-standalone/1.10.2/junit-platform-console-standalone-1.10.2.jar
           CP="java/target/test-classes;java/target/classes;$(cat java/cp.txt);console.jar"
           CDB="/c/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe"
-          printf '%s\n' 'sxd av' 'sxd sov' 'sxd ii' 'sxd dz' 'sxd gp' 'sxd c000041d' 'g' '.echo CRASHED' 'r' '.ecxr' 'kn 100' '~*kn 60' 'lm' 'q' > cdb.txt
+          printf '%s\n' 'sxd av' 'sxd sov' 'sxd ii' 'sxd dz' 'sxd gp' 'sxd c000041d' 'g' '.echo CRASHED' '~' '!teb' '.echo STACKDUMP' 'dps @rsp+0x2970 L0x3000' '.echo ENDSTACK' 'q' > cdb.txt
           for i in $(seq 1 12); do
             "$CDB" -G -lines -y "target\debug" -cf cdb.txt \
               java "-Djava.library.path=target\debug" --enable-native-access=ALL-UNNAMED -cp "$CP" \
               org.junit.platform.console.ConsoleLauncher --disable-banner --details=none --select-class org.rustorb.test.AmiTest > cdb.log 2>&1 || true
-            if grep -q 'second chance' cdb.log; then sed -n '/second chance/,$p' cdb.log | head -3000; exit 1; fi
+            if grep -q 'second chance' cdb.log; then sed -n '/second chance/,/STACKDUMP/p' cdb.log | head -600; sed -n '/STACKDUMP/,/ENDSTACK/p' cdb.log | grep '!' | head -1500; exit 1; fi
             tail -5 cdb.log
           done
       - name: Show what a crashed JVM left (temporary)
