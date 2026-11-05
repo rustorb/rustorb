@@ -198,13 +198,23 @@ jobs:
           Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting' -Name DontShowUI -Value 1 -Type DWord
           Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting' -Name Disabled -Value 0 -Type DWord
       - run: mvn -B -f java/pom.xml -Dpython=python "-Drustorb.idl.dir=${{ github.workspace }}/rustorb-idl" verify
-      # TEMPORARY (#139): the tests again, to catch an intermittent JVM crash on Windows.
-      - name: Run the Java tests again (temporary)
-        if: runner.os == 'Windows'
+      # TEMPORARY (#139): AmiTest under cdb, to see where an intermittent crash on Windows is.
+      - name: Run AmiTest under cdb (temporary)
+        if: always() && runner.os == 'Windows'
         shell: bash
         run: |
-          for i in 1 2 3 4 5 6; do
-            mvn -B -q -f java/pom.xml -Dpython=python "-Drustorb.idl.dir=${{ github.workspace }}/rustorb-idl" surefire:test || exit 1
+          set -x
+          mvn -B -q -f java/pom.xml dependency:build-classpath -Dmdep.outputFile=cp.txt -Dmdep.includeScope=test
+          curl -sSfL -o console.jar https://repo1.maven.org/maven2/org/junit/platform/junit-platform-console-standalone/1.10.2/junit-platform-console-standalone-1.10.2.jar
+          CP="java/target/test-classes;java/target/classes;$(cat java/cp.txt);console.jar"
+          CDB="/c/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe"
+          printf '%s\n' 'sxd av' 'sxd sov' 'sxd ii' 'sxd dz' 'sxd gp' 'sxd c000041d' 'g' '.echo CRASHED' 'r' '.ecxr' 'kn 100' '~*kn 60' 'lm' 'q' > cdb.txt
+          for i in $(seq 1 12); do
+            "$CDB" -G -lines -y "target\debug" -cf cdb.txt \
+              java "-Djava.library.path=target\debug" --enable-native-access=ALL-UNNAMED -cp "$CP" \
+              org.junit.platform.console.ConsoleLauncher --disable-banner --details=none --select-class org.rustorb.test.AmiTest > cdb.log 2>&1 || true
+            if grep -q 'second chance' cdb.log; then sed -n '/second chance/,$p' cdb.log | head -3000; exit 1; fi
+            tail -5 cdb.log
           done
       - name: Show what a crashed JVM left (temporary)
         if: failure()
