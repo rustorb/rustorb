@@ -80,7 +80,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: rustorb/rustorb-idl
-          ref: 948e0c013d92a5da5b2b50b43ea52d10f96287ee
+          ref: 3607d056dba7d9f0150f6981b91eef7976272735
           path: rustorb-idl
       - run: python -m unittest discover -s python/tests -v
         env:
@@ -115,7 +115,15 @@ jobs:
       - run: pip install -r tools/rustorb-idl.txt
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cmake -S cpp -B build/cpp
+      # Callback AMI (test_ami.cc) needs a rustorb-idl with -bc++11 -Wbami,
+      # not released yet: the build uses this commit of rustorb-idl until
+      # tools/rustorb-idl.txt pins a release with it (#140).
+      - uses: actions/checkout@v4
+        with:
+          repository: rustorb/rustorb-idl
+          ref: 3607d056dba7d9f0150f6981b91eef7976272735
+          path: rustorb-idl
+      - run: cmake -S cpp -B build/cpp -DRUSTORB_IDL_DIR=${{ github.workspace }}/rustorb-idl
       - run: cmake --build build/cpp
       - run: ctest --test-dir build/cpp --output-on-failure
 
@@ -130,11 +138,18 @@ jobs:
       - run: pip install -r tools/rustorb-idl.txt
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # rustorb-idl with -Wbami, as in the cpp job above (#140).
+      - uses: actions/checkout@v4
+        with:
+          repository: rustorb/rustorb-idl
+          ref: 3607d056dba7d9f0150f6981b91eef7976272735
+          path: rustorb-idl
       # Every C++ test with ASan; LeakSanitizer reports what the C++ runtime
       # and librustorb_ffi left unfreed at exit (tests/test_leak.cc above
       # all).
       - run: >
           cmake -S cpp -B build/cpp -DCMAKE_CXX_COMPILER=g++ -DRUSTORB_SANITIZE=address
+          -DRUSTORB_IDL_DIR=${{ github.workspace }}/rustorb-idl
          
       - run: cmake --build build/cpp
       - run: ctest --test-dir build/cpp --output-on-failure

@@ -1854,12 +1854,11 @@ inline std::string exception_id(const rorb_exception& exc) {
   return std::string(exc.repository_id ? exc.repository_id : "", exc.repository_id_len);
 }
 
-[[noreturn]] inline void throw_system(rorb_exception& exc) {
+// Throws the system exception with the repository id (OtherSystemException
+// for one this header does not name).
+[[noreturn]] inline void throw_system(std::string id, uint32_t minor,
+                                      CORBA::CompletionStatus completed) {
   using namespace CORBA;
-  std::string id = exception_id(exc);
-  uint32_t minor = exc.minor;
-  CompletionStatus completed = static_cast<CompletionStatus>(exc.completed % 3);
-  rorb_exception_clear(&exc);
   const std::string prefix = "IDL:omg.org/CORBA/";
   if (id.compare(0, prefix.size(), prefix) == 0 && id.size() > prefix.size() + 4 &&
       id.compare(id.size() - 4, 4, ":1.0") == 0) {
@@ -1909,6 +1908,14 @@ inline std::string exception_id(const rorb_exception& exc) {
 #undef RUSTORB_THROW
   }
   throw OtherSystemException(std::move(id), minor, completed);
+}
+
+[[noreturn]] inline void throw_system(rorb_exception& exc) {
+  std::string id = exception_id(exc);
+  uint32_t minor = exc.minor;
+  auto completed = static_cast<CORBA::CompletionStatus>(exc.completed % 3);
+  rorb_exception_clear(&exc);
+  throw_system(std::move(id), minor, completed);
 }
 
 inline void check(rorb_status status, rorb_exception& exc) {

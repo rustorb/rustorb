@@ -86,8 +86,9 @@ if(NOT RUSTORB_BUILD_TESTS)
   return()
 endif()
 
-# rustorb_idl_generate(<var> <idl>...): runs rustorb-idl -bc++11 on each IDL
-# file and appends the generated sources to <var>. rustorb-idl is the pinned
+# rustorb_idl_generate(<var> <idl>... [OPTIONS <option>...]): runs
+# rustorb-idl -bc++11 on each IDL file (with the options, such as -Wbami)
+# and appends the generated sources to <var>. rustorb-idl is the pinned
 # one (pip install -r tools/rustorb-idl.txt), or the checkout in
 # -DRUSTORB_IDL_DIR=...; -DIDL_PARSER_DIR=... puts an idl_parser checkout
 # first.
@@ -108,14 +109,15 @@ if(IDL_PARSER_DIR)
   endif()
 endif()
 function(rustorb_idl_generate var)
+  cmake_parse_arguments(PARSE_ARGV 1 RIG "" "" "OPTIONS")
   set(outdir "${CMAKE_CURRENT_BINARY_DIR}/idl")
   set(sources ${${var}})
-  foreach(idl ${ARGN})
+  foreach(idl ${RIG_UNPARSED_ARGUMENTS})
     get_filename_component(base "${idl}" NAME_WE)
     add_custom_command(
       OUTPUT "${outdir}/${base}.hh" "${outdir}/${base}.cc"
       COMMAND "${CMAKE_COMMAND}" -E env "PYTHONPATH=${RUSTORB_IDL_PYTHONPATH}"
-              "${Python3_EXECUTABLE}" -m rustorb_idl -bc++11 -C "${outdir}" "${idl}"
+              "${Python3_EXECUTABLE}" -m rustorb_idl -bc++11 ${RIG_OPTIONS} -C "${outdir}" "${idl}"
       DEPENDS "${idl}" ${RUSTORB_IDL_GENERATOR}
       COMMENT "rustorb-idl -bc++11 ${base}.idl"
       VERBATIM)
@@ -156,6 +158,15 @@ target_include_directories(test_idl4 PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl")
 target_link_libraries(test_idl4 PRIVATE rustorb)
 target_compile_options(test_idl4 PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME idl4 COMMAND test_idl4)
+
+# Callback AMI (docs/ami.md): sendc_, AMI_<I>Handler and
+# Messaging::ExceptionHolder, generated with -Wbami.
+rustorb_idl_generate(AMI_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/tests/idl/AmiTest.idl" OPTIONS -Wbami)
+add_executable(test_ami tests/test_ami.cc ${AMI_SOURCES})
+target_include_directories(test_ami PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl")
+target_link_libraries(test_ami PRIVATE rustorb)
+target_compile_options(test_ami PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME ami COMMAND test_ami)
 
 # Servant managers, adapter activators and default servants.
 add_executable(test_poa tests/test_poa.cc ${MAPPING_SOURCES})
@@ -232,7 +243,7 @@ target_include_directories(test_leak PRIVATE
 target_link_libraries(test_leak PRIVATE rustorb)
 target_compile_options(test_leak PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME leak COMMAND test_leak)
-set_tests_properties(mapping poa interop any value dynany orb_ops pi leak PROPERTIES TIMEOUT 120)
+set_tests_properties(mapping ami poa interop any value dynany orb_ops pi leak PROPERTIES TIMEOUT 120)
 if(RUSTORB_SANITIZE MATCHES "address")
   # The servant of this one receives and returns valuetype graphs with
   # cycles, which the shared_ptr based mapping does not free (the
