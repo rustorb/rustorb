@@ -310,6 +310,34 @@ impl Orb {
             .map_err(|e| sys_err(py, &e))?;
         to_py(py, &compiled, value)
     }
+
+    /// The user exception of the type `tc` (a `CORBA.TypeCode`) in
+    /// `data`, as `Messaging.ExceptionHolder.marshaled_exception` holds
+    /// it: the repository id, then the members, plain CDR in the byte
+    /// order `little`. `MARSHAL` if the id is not that of `tc`.
+    fn unmarshal_exception<'py>(
+        &self,
+        py: Python<'py>,
+        tc: &Bound<'py, PyAny>,
+        data: &[u8],
+        little: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let compiled = compile_tc(tc)?;
+        let id: String = tc.getattr("_id")?.extract()?;
+        let _scope = ValueScope::enter();
+        let value = py
+            .detach(|| {
+                let dec = Decoder::new(data, order(little), Encoding::Giop1_2);
+                let mut input = InStream::standalone(dec, Some(&self.orb));
+                input.set_code_sets(MARSHAL_CODE_SETS);
+                if input.read_string()? != id {
+                    return Err(marshal(CompletionStatus::No));
+                }
+                decode(&compiled, &mut input, CompletionStatus::No)
+            })
+            .map_err(|e| sys_err(py, &e))?;
+        to_py(py, &compiled, value)
+    }
 }
 
 /// The code sets of `cdr_marshal` and `cdr_unmarshal`: ISO 8859-1 and
@@ -396,6 +424,56 @@ impl ObjRef {
                 Err(PyErr::from_value(exc))
             }
         }
+    }
+
+    /// Sends `op`, a two-way `_rt.Operation`, with the `in` and `inout`
+    /// arguments `args`, without waiting (callback AMI, `docs/ami.md`).
+    /// The arguments are converted now, so later changes to them are not
+    /// sent. `done(kind, value, data, little)` is called once, on a thread
+    /// of the ORB's reply pool, with the GIL: kind 0 with the list of the
+    /// results, kind 1 with a user exception and kind 2 with a system
+    /// exception, both also as CDR (`data`, in the byte order `little`):
+    /// the repository id and the members, as `Messaging.ExceptionHolder`
+    /// keeps them.
+    fn sendc<'py>(
+        &self,
+        py: Python<'py>,
+        op: &Bound<'py, PyAny>,
+        args: &Bound<'py, PyTuple>,
+        done: Py<PyAny>,
+    ) -> PyResult<()> {
+        let compiled = compile_op(op)?;
+        let op: &CompiledOp = compiled.get();
+        if args.len() != op.in_types.len() || op.oneway {
+            return Err(sys_err(
+                py,
+                &SystemException::new(SystemExceptionKind::BAD_PARAM, 0, CompletionStatus::No),
+            ));
+        }
+        // The values outlive the scope: they are written at each send.
+        let _scope = ValueScope::ensure();
+        let mut values = Vec::with_capacity(args.len());
+        for (tc, arg) in op.in_types.iter().zip(args.iter()) {
+            values.push(from_py(tc, &arg).map_err(|e| marshal_err(py, e))?);
+        }
+        let ins = op.in_types.clone();
+        let reply = Reply {
+            out_types: op.out_types.clone(),
+            exceptions: op.exceptions.clone(),
+        };
+        let name = op.name.clone();
+        py.detach(|| {
+            self.obj
+                .request_callback(&name)
+                .args(move |out| {
+                    for (tc, v) in ins.iter().zip(&values) {
+                        encode(tc, v, out)?;
+                    }
+                    Ok(())
+                })
+                .send(move |result| reply.deliver(result, done))
+        })
+        .map_err(|e| sys_err(py, &e))
     }
 
     fn is_a(&self, py: Python<'_>, repository_id: &str) -> PyResult<bool> {
@@ -565,6 +643,141 @@ fn setting(seconds: Option<f64>) -> PyResult<Option<Option<Duration>>> {
 
 fn seconds_of_setting(setting: Option<Option<Duration>>) -> Option<f64> {
     setting.map(|t| t.map_or(f64::INFINITY, |t| t.as_secs_f64()))
+}
+
+/// What a `sendc` decodes its reply with.
+struct Reply {
+    out_types: Vec<TcRef>,
+    exceptions: Vec<(String, TcRef)>,
+}
+
+/// How a `sendc` ended, decoded but not yet in Python.
+enum Delivery {
+    Return(Vec<Value>),
+    /// A declared user exception: its index, members and CDR.
+    User(usize, Value, Vec<u8>),
+    System(SystemException, Vec<u8>),
+}
+
+/// The byte order `ExceptionHolder.marshaled_exception` is written in.
+const HOLDER_LITTLE: bool = cfg!(target_endian = "little");
+
+impl Reply {
+    /// Decodes `result` on the reply pool thread, then calls `done` with
+    /// the GIL. An exception of `done` is dropped (and traced).
+    fn deliver(self, result: Result<rustorb_core::Reply, Exception>, done: Py<PyAny>) {
+        let delivery = self.decode(result);
+        Python::attach(|py| {
+            if let Err(e) = self.call(py, delivery, &done) {
+                e.print(py);
+            }
+            drop(done);
+        });
+    }
+
+    fn decode(&self, result: Result<rustorb_core::Reply, Exception>) -> Delivery {
+        let system = |e: SystemException| {
+            let data = system_cdr(&e);
+            Delivery::System(e, data)
+        };
+        match result {
+            Ok(reply) => {
+                let mut input = reply.input();
+                match decode_all(&self.out_types, &mut input, CompletionStatus::Yes) {
+                    Ok(results) => Delivery::Return(results),
+                    Err(e) => system(e),
+                }
+            }
+            Err(Exception::System(e)) => system(e),
+            Err(Exception::User(u)) => {
+                let Some(i) = self
+                    .exceptions
+                    .iter()
+                    .position(|(id, _)| id == u.repository_id())
+                else {
+                    return system(SystemException::new(
+                        SystemExceptionKind::UNKNOWN,
+                        minor::UNLISTED_USER_EXCEPTION,
+                        CompletionStatus::Yes,
+                    ));
+                };
+                let tc = &self.exceptions[i].1;
+                let decoded = u.input().and_then(|mut input| {
+                    let members = decode(tc, &mut input, CompletionStatus::Yes)?;
+                    let data = user_cdr(u.repository_id(), tc, &members)?;
+                    Ok((members, data))
+                });
+                match decoded {
+                    Ok((members, data)) => Delivery::User(i, members, data),
+                    Err(e) => system(e),
+                }
+            }
+        }
+    }
+
+    fn call(&self, py: Python<'_>, delivery: Delivery, done: &Py<PyAny>) -> PyResult<()> {
+        let _scope = ValueScope::enter();
+        let args = match delivery {
+            Delivery::Return(results) => {
+                let mut objs = Vec::with_capacity(results.len());
+                for (tc, v) in self.out_types.iter().zip(results) {
+                    objs.push(to_py(py, tc, v)?);
+                }
+                (
+                    0,
+                    pyo3::types::PyList::new(py, objs)?.into_any(),
+                    py.None().into_bound(py),
+                )
+            }
+            Delivery::User(i, members, data) => (
+                1,
+                to_py(py, &self.exceptions[i].1, members)?,
+                PyBytes::new(py, &data).into_any(),
+            ),
+            Delivery::System(e, data) => (
+                2,
+                sys_err(py, &e).into_value(py).into_bound(py).into_any(),
+                PyBytes::new(py, &data).into_any(),
+            ),
+        };
+        done.call1(py, (args.0, args.1, args.2, HOLDER_LITTLE))?;
+        Ok(())
+    }
+}
+
+/// A stream for `ExceptionHolder.marshaled_exception`: plain CDR from
+/// offset 0, in the byte order of the host, with the code sets of
+/// `cdr_marshal`.
+fn holder_encoder() -> Encoder {
+    Encoder::new(order(HOLDER_LITTLE), Encoding::Giop1_2)
+}
+
+/// A system exception as a reply carries it: repository id, minor code,
+/// completion status.
+fn system_cdr(e: &SystemException) -> Vec<u8> {
+    let mut enc = holder_encoder();
+    let mut out = OutStream::standalone(&mut enc);
+    out.set_code_sets(MARSHAL_CODE_SETS);
+    let _ = out.write_string(&e.repository_id);
+    out.write_u32(e.minor);
+    out.write_u32(match e.completed {
+        CompletionStatus::Yes => 0,
+        CompletionStatus::No => 1,
+        CompletionStatus::Maybe => 2,
+    });
+    drop(out);
+    enc.as_bytes().to_vec()
+}
+
+/// A user exception as a reply carries it: repository id, then members.
+fn user_cdr(id: &str, tc: &TcRef, members: &Value) -> Result<Vec<u8>, SystemException> {
+    let mut enc = holder_encoder();
+    let mut out = OutStream::standalone(&mut enc);
+    out.set_code_sets(MARSHAL_CODE_SETS);
+    out.write_string(id)?;
+    encode(tc, members, &mut out)?;
+    drop(out);
+    Ok(enc.as_bytes().to_vec())
 }
 
 /// Sends the request and decodes the reply, detached from Python.
