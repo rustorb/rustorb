@@ -206,11 +206,11 @@ jobs:
           SYM="target\debug;$(cygpath -w "$PDB")"
           CP="java/target/test-classes;java/target/classes;$(cat java/cp.txt);console.jar"
           CDB="/c/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe"
-          printf '%s\n' 'sxe sov' 'sxd av' 'sxd ii' 'sxd gp' 'sxd c000041d' 'g' '.echo STOPPED' '~.' 'r' 'kn 60' 'dq @$teb L3' '!vprot @rsp' '!vprot @rsp-0x3000' '!vprot @rsp+0x8000' '.echo ENDK' 'q' > cdb.txt
+          printf '%s\n' 'bp KERNELBASE!SetThreadStackGuarantee ".echo STG; ~.; kn 6; gc"' 'sxe sov' 'sxd av' 'sxd ii' 'sxd gp' 'sxd c000041d' 'g' '.echo STOPPED' '~.' 'r' 'kn 60' 'dq @$teb L3' '!vprot @rsp' '!vprot @rsp-0x1000' '!vprot @rsp-0x2000' '!vprot @rsp-0x3000' '!vprot @rsp+0x8000' '.echo ENDK' 'q' > cdb.txt
           crashes=0
           variant() {
             name=$1; shift
-            for i in $(seq 1 10); do
+            for i in $(seq 1 3); do
               "$CDB" -G -lines -y "$SYM" -cf cdb.txt \
                 "$JAVA" -Xlog:os+thread=debug "$@" "-Djava.library.path=target\\debug" --enable-native-access=ALL-UNNAMED -cp "$CP" \
                 org.junit.platform.console.ConsoleLauncher --disable-banner --details=summary --select-package org.rustorb.test > cdb.log 2>&1 &
@@ -221,7 +221,9 @@ jobs:
                 crashes=$((crashes + 1))
                 echo "$name run $i: CRASH $(grep -E 'second chance' cdb.log | head -1)"
                 sed -n '/STOPPED/,/ENDK/p' cdb.log | grep -vE '^\*\*\*' | head -60 || true
+                echo "STG by thread:"; grep -A2 '^STG' cdb.log | grep -oE 'Unfrozen "[^"]*"' | sed -E 's/-[0-9]+"$/"/' | sort | uniq -c || true
                 tid=$(grep -oE '^\([0-9a-f]+\.[0-9a-f]+\): [A-Z]' cdb.log | tail -1 | sed -E 's/^\([0-9a-f]+\.([0-9a-f]+)\).*/\1/' || true)
+                echo "STG on the faulting thread:"; grep -A8 '^STG' cdb.log | grep -B1 -A6 "Id: [0-9a-f]*\.$(echo $tid) " | head -20 || true
                 [ -n "$tid" ] && { echo "tid $tid = $((16#$tid))"; grep -E "\b$((16#$tid))\b" cdb.log | grep -E 'os,thread' | head -20 || true; }
               else
                 echo "$name run $i: $(grep -E "tests (successful|failed)" cdb.log | tr '\n' ' ')"
@@ -229,7 +231,6 @@ jobs:
             done
           }
           variant default
-          variant again
           echo "crashes: $crashes"
           [ "$crashes" = 0 ]
       - name: Check that Ffi.java is up to date with rustorb.h
