@@ -194,7 +194,7 @@ jobs:
         shell: pwsh
         run: |
           $gflags = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\gflags.exe'
-          & $gflags /p /enable java.exe /full /dlls rustorb_ffi.dll
+          & $gflags /p /enable java.exe /full
           & $gflags /p
           $status = 0
           foreach ($i in 1..8) {
