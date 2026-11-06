@@ -186,25 +186,32 @@ jobs:
           ref: 83fcc3e83de03d450daba866950d8d5ccc4bdce2
           path: rustorb-idl
       - run: mvn -B -f java/pom.xml -Dpython=python "-Drustorb.idl.dir=${{ github.workspace }}/rustorb-idl" verify
-      # TEMPORARY (#139): the tests again with full page heap on what
-      # rustorb_ffi.dll allocates, to catch the culprit of an intermittent
-      # heap corruption on Windows where it writes.
-      - name: Run the Java tests again with page heap (temporary)
+      # TEMPORARY (#139): AmiTest under cdb, stopping at the first stack
+      # overflow or heap corruption, to see where an intermittent crash on
+      # Windows starts.
+      - name: Run AmiTest under cdb (temporary)
         if: always() && runner.os == 'Windows'
-        shell: pwsh
+        shell: bash
         run: |
-          $gflags = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\gflags.exe'
-          & $gflags /p /enable java.exe /full
-          & $gflags /p
-          $status = 0
-          foreach ($i in 1..8) {
-            mvn -B -q -f java/pom.xml -Dpython=python "-Drustorb.idl.dir=${{ github.workspace }}/rustorb-idl" surefire:test -Dtest=AmiTest
-            if ($LASTEXITCODE -ne 0) { $status = 1; break }
-            Write-Output "run $i passed"
-          }
-          & $gflags /p /disable java.exe
-          foreach ($f in Get-ChildItem java -Filter 'hs_err_pid*.log') { Write-Output "=== $($f.FullName)"; Get-Content $f.FullName -TotalCount 1500 }
-          exit $status
+          mvn -B -q -f java/pom.xml dependency:build-classpath -Dmdep.outputFile=cp.txt -Dmdep.includeScope=test
+          curl -sSfL -o console.jar https://repo1.maven.org/maven2/org/junit/platform/junit-platform-console-standalone/1.10.2/junit-platform-console-standalone-1.10.2.jar
+          CP="java/target/test-classes;java/target/classes;$(cat java/cp.txt);console.jar"
+          CDB="/c/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe"
+          printf '%s\n' 'sxe sov' 'sxd av' 'sxd ii' 'sxd gp' 'sxd c000041d' 'g' '.echo STOPPED' '~.' '!teb' 'kn 250' '.echo ENDK' 'q' > cdb.txt
+          for i in $(seq 1 15); do
+            "$CDB" -G -lines -y "target\debug" -cf cdb.txt \
+              java "-Djava.library.path=target\debug" --enable-native-access=ALL-UNNAMED -cp "$CP" \
+              org.junit.platform.console.ConsoleLauncher --disable-banner --details=none --select-class org.rustorb.test.AmiTest > cdb.log 2>&1 &
+            pid=$!
+            ( sleep 120; kill $pid 2>/dev/null ) & killer=$!
+            wait $pid; kill $killer 2>/dev/null
+            if grep -qE 'Stack overflow - code|second chance|Critical error detected' cdb.log; then
+              grep -E 'Stack overflow - code|second chance|Critical error' cdb.log
+              sed -n '/STOPPED/,/ENDK/p' cdb.log | head -400
+              exit 1
+            fi
+            echo "run $i: $(grep -E 'tests (successful|failed)' cdb.log | tr '\n' ' ')"
+          done
       - name: Check that Ffi.java is up to date with rustorb.h
         run: python java/tools/gen-ffi.py --check
       - name: Check that the committed CosNaming and Messaging stubs are up to date
