@@ -186,37 +186,51 @@ jobs:
           ref: 83fcc3e83de03d450daba866950d8d5ccc4bdce2
           path: rustorb-idl
       - run: mvn -B -f java/pom.xml -Dpython=python "-Drustorb.idl.dir=${{ github.workspace }}/rustorb-idl" verify
-      # TEMPORARY (#139): AmiTest under cdb, stopping at the first stack
-      # overflow or heap corruption, to see where an intermittent crash on
-      # Windows starts.
-      - name: Run AmiTest under cdb (temporary)
+      # TEMPORARY (#139): AmiTest again and again on Windows, under cdb,
+      # with JDK 25 as is, JDK 25 interpreting only, and JDK 22, to see
+      # where an intermittent crash comes from.
+      - uses: actions/setup-java@v4
+        if: always() && runner.os == 'Windows'
+        id: jdk22
+        with:
+          distribution: temurin
+          java-version: "22"
+      - name: Run AmiTest again and again (temporary)
         if: always() && runner.os == 'Windows'
         shell: bash
+        env:
+          JDK25: ${{ env.JAVA_HOME_25_X64 }}
+          JDK22: ${{ steps.jdk22.outputs.path }}
         run: |
           mvn -B -q -f java/pom.xml dependency:build-classpath -Dmdep.outputFile=cp.txt -Dmdep.includeScope=test
           curl -sSfL -o console.jar https://repo1.maven.org/maven2/org/junit/platform/junit-platform-console-standalone/1.10.2/junit-platform-console-standalone-1.10.2.jar
           CP="java/target/test-classes;java/target/classes;$(cat java/cp.txt);console.jar"
           CDB="/c/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe"
-          printf '%s\n' 'sxe sov' 'sxd av' 'sxd ii' 'sxd gp' 'sxd c000041d' 'g' '.echo STOPPED' '~.' 'dq @$teb L3' 'r' 'kn 250' '.echo RAWSTACK' 'dps @rsp L3000' '.echo ENDK' 'q' > cdb.txt
-          for i in $(seq 1 15); do
-            "$CDB" -G -lines -y "target\debug" -cf cdb.txt \
-              java -Xlog:os+thread=info "-Djava.library.path=target\debug" --enable-native-access=ALL-UNNAMED -cp "$CP" \
-              org.junit.platform.console.ConsoleLauncher --disable-banner --details=summary --select-class org.rustorb.test.AmiTest > cdb.log 2>&1 &
-            pid=$!
-            ( sleep 120; kill $pid 2>/dev/null ) & killer=$!
-            wait $pid || true; kill $killer 2>/dev/null || true
-            if grep -qE 'Stack overflow - code|second chance|Critical error detected' cdb.log; then
-              grep -E 'Stack overflow - code|second chance|Critical error' cdb.log
-              tid=$(grep -oE '^\([0-9a-f]+\.[0-9a-f]+\): (Security check|Stack overflow|Critical)' cdb.log | head -1 | sed -E 's/^\([0-9a-f]+\.([0-9a-f]+)\).*/\1/' || true)
-              echo "faulting tid: $tid"
-              [ -n "$tid" ] && { grep -E "tid: $((16#$tid))\b" cdb.log || true; }
-              sed -n '/STOPPED/,/RAWSTACK/p' cdb.log | head -100
-              sed -n '/RAWSTACK/,/ENDK/p' cdb.log | grep -E '!' | grep -vE 'jvm!topLevel' | head -150 || true
-              exit 1
-            fi
-            echo "run $i: $(grep -E 'tests (successful|failed)' cdb.log | tr '\n' ' ')"
-            grep -qE 'tests successful' cdb.log || { echo "run $i did not finish:"; grep -v 'AMI done' cdb.log | tail -40; }
-          done
+          printf '%s\n' 'sxe sov' 'sxd av' 'sxd ii' 'sxd gp' 'sxd c000041d' 'g' '.echo STOPPED' '~.' 'r' 'kn 12' '.echo ENDK' 'q' > cdb.txt
+          crashes=0
+          variant() {
+            name=$1; java=$2; shift 2
+            for i in $(seq 1 8); do
+              "$CDB" -G -lines -y "target\debug" -cf cdb.txt \
+                "$java" "$@" "-Djava.library.path=target\debug" --enable-native-access=ALL-UNNAMED -cp "$CP" \
+                org.junit.platform.console.ConsoleLauncher --disable-banner --details=summary --select-class org.rustorb.test.AmiTest > cdb.log 2>&1 &
+              pid=$!
+              ( sleep 150; kill $pid 2>/dev/null ) & killer=$!
+              wait $pid || true; kill $killer 2>/dev/null || true
+              if grep -qE 'second chance|Critical error detected' cdb.log; then
+                crashes=$((crashes + 1))
+                echo "$name run $i: CRASH $(grep -E 'second chance' cdb.log | head -1)"
+                sed -n '/STOPPED/,/ENDK/p' cdb.log | grep -E 'Id: |^jvm!|^[0-9a-f]{2} ' | head -16 || true
+              else
+                echo "$name run $i: $(grep -E 'tests (successful|failed)' cdb.log | tr '\n' ' ')"
+              fi
+            done
+          }
+          variant jdk25 "$JDK25/bin/java.exe"
+          variant jdk25-Xint "$JDK25/bin/java.exe" -Xint
+          variant jdk22 "$JDK22/bin/java.exe"
+          echo "crashes: $crashes"
+          [ "$crashes" = 0 ]
       - name: Check that Ffi.java is up to date with rustorb.h
         run: python java/tools/gen-ffi.py --check
       - name: Check that the committed CosNaming and Messaging stubs are up to date
