@@ -197,7 +197,7 @@ jobs:
           curl -sSfL -o console.jar https://repo1.maven.org/maven2/org/junit/platform/junit-platform-console-standalone/1.10.2/junit-platform-console-standalone-1.10.2.jar
           CP="java/target/test-classes;java/target/classes;$(cat java/cp.txt);console.jar"
           CDB="/c/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe"
-          printf '%s\n' 'sxe sov' 'sxd av' 'sxd ii' 'sxd gp' 'sxd c000041d' 'g' '.echo STOPPED' '~.' 'dq @$teb L3' '!address @rsp' 'r' 'kn 250' '.echo ENDK' 'q' > cdb.txt
+          printf '%s\n' 'sxe sov' 'sxd av' 'sxd ii' 'sxd gp' 'sxd c000041d' 'g' '.echo STOPPED' '~.' 'dq @$teb L3' 'r' 'kn 250' '.echo RAWSTACK' 'dps @rsp L3000' '.echo ENDK' 'q' > cdb.txt
           for i in $(seq 1 15); do
             "$CDB" -G -lines -y "target\debug" -cf cdb.txt \
               java -Xlog:os+thread=info "-Djava.library.path=target\debug" --enable-native-access=ALL-UNNAMED -cp "$CP" \
@@ -209,12 +209,9 @@ jobs:
               grep -E 'Stack overflow - code|second chance|Critical error' cdb.log
               tid=$(grep -oE '^\([0-9a-f]+\.[0-9a-f]+\): (Security check|Stack overflow|Critical)' cdb.log | head -1 | sed -E 's/^\([0-9a-f]+\.([0-9a-f]+)\).*/\1/' || true)
               echo "faulting tid: $tid"
-              grep -E "tid $tid\b" cdb.log | tail -20 || true
-              grep -E 'pool thread ends' cdb.log | tail -20 || true
               [ -n "$tid" ] && { grep -E "tid: $((16#$tid))\b" cdb.log || true; }
-              grep -E '^#' cdb.log | head -40 || true
-              grep -E 'AMI done|    at |sendc done|pool thread ends' cdb.log | tail -30
-              sed -n '/STOPPED/,/ENDK/p' cdb.log | head -400
+              sed -n '/STOPPED/,/RAWSTACK/p' cdb.log | head -100
+              sed -n '/RAWSTACK/,/ENDK/p' cdb.log | grep -E '!' | grep -vE 'jvm!topLevel' | head -150 || true
               exit 1
             fi
             echo "run $i: $(grep -E 'tests (successful|failed)' cdb.log | tr '\n' ' ')"
