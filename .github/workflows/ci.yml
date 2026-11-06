@@ -207,8 +207,11 @@ jobs:
             wait $pid || true; kill $killer 2>/dev/null || true
             if grep -qE 'Stack overflow - code|second chance|Critical error detected' cdb.log; then
               grep -E 'Stack overflow - code|second chance|Critical error' cdb.log
-              grep -E 'AMI done|    at |sendc done' cdb.log | tail -150
-              grep 'sendc done' cdb.log | sort -t' ' -k8 -n | tail -5
+              tid=$(grep -oE '^\([0-9a-f]+\.[0-9a-f]+\): (Security check|Stack overflow|Critical)' cdb.log | head -1 | sed -E 's/^\([0-9a-f]+\.([0-9a-f]+)\).*/\1/' || true)
+              echo "faulting tid: $tid"
+              grep -E "tid $tid\b" cdb.log | tail -20 || true
+              grep -E 'pool thread ends' cdb.log | tail -20 || true
+              grep -E 'AMI done|    at |sendc done|pool thread ends' cdb.log | tail -80
               sed -n '/STOPPED/,/ENDK/p' cdb.log | head -400
               exit 1
             fi

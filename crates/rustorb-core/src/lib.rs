@@ -72,7 +72,7 @@ mod poa;
 pub mod policy;
 mod pool;
 #[doc(hidden)]
-pub use pool::stack_used as pool_stack_used;
+pub use pool::{os_thread_id, stack_used as pool_stack_used};
 mod servant;
 mod server;
 mod stream;

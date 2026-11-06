@@ -152,6 +152,22 @@ thread_local! {
     static STACK_START: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
+/// TEMPORARY (#139): the id of the calling thread in the OS (Windows only).
+#[doc(hidden)]
+pub fn os_thread_id() -> u32 {
+    #[cfg(windows)]
+    {
+        unsafe extern "system" {
+            fn GetCurrentThreadId() -> u32;
+        }
+        unsafe { GetCurrentThreadId() }
+    }
+    #[cfg(not(windows))]
+    {
+        0
+    }
+}
+
 /// TEMPORARY (#139): the bytes of stack a pool thread uses here.
 #[doc(hidden)]
 pub fn stack_used() -> usize {
@@ -197,6 +213,8 @@ fn work(shared: &Shared) {
         }
     }
     state.threads -= 1;
+    drop(state);
+    eprintln!("pool thread ends: tid {:x}", os_thread_id());
 }
 
 #[cfg(test)]
