@@ -147,7 +147,26 @@ fn spawn(shared: &Arc<Shared>, state: &mut State) {
     }
 }
 
+thread_local! {
+    // TEMPORARY (#139): where the stack of a pool thread starts.
+    static STACK_START: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// TEMPORARY (#139): the bytes of stack a pool thread uses here.
+#[doc(hidden)]
+pub fn stack_used() -> usize {
+    let here = 0u8;
+    let start = STACK_START.with(|s| s.get());
+    if start == 0 {
+        0
+    } else {
+        start.saturating_sub(&here as *const u8 as usize)
+    }
+}
+
 fn work(shared: &Shared) {
+    let mark = 0u8;
+    STACK_START.with(|s| s.set(&mark as *const u8 as usize));
     let me = Arc::new(Waiter::default());
     let mut state = shared.state.lock().unwrap();
     loop {

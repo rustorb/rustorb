@@ -348,6 +348,12 @@ pub unsafe extern "C" fn rorb_object_sendc(
                 Ok(reply) => unsafe { read_sent(inv, Sent::Reply(reply), &mut e) },
                 Err(CoreException::User(u)) => unsafe { read_sent(inv, Sent::User(u), &mut e) },
             };
+            // TEMPORARY (#139)
+            eprintln!(
+                "sendc done: thread {:?} status {status} stack used {}",
+                std::thread::current().name(),
+                rustorb_core::pool_stack_used()
+            );
             done(inv.context, status, &e);
             unsafe { crate::rorb_exception_clear(&mut e) };
         });
