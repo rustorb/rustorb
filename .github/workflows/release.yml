@@ -205,7 +205,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       # The tests run in CI; the test IDLs still need rustorb-idl to compile.
       - run: python -m pip install -r tools/rustorb-idl.txt
-      - run: mvn -B -f java/pom.xml -Dpython=python -DskipTests package
+      # AmiTest.idl needs -bjava -Wbami, not released yet: this commit of
+      # rustorb-idl until tools/rustorb-idl.txt pins a release with it (#140).
+      - uses: actions/checkout@v4
+        with:
+          repository: rustorb/rustorb-idl
+          ref: 83fcc3e83de03d450daba866950d8d5ccc4bdce2
+          path: rustorb-idl
+      - run: mvn -B -f java/pom.xml -Dpython=python "-Drustorb.idl.dir=${{ github.workspace }}/rustorb-idl" -DskipTests package
       - uses: actions/upload-artifact@v4
         with:
           name: java

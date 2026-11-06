@@ -166,6 +166,7 @@ pub unsafe extern "C" fn rorb_in_new(
             let mut stream = OutStream::standalone(&mut enc);
             let mut out = Out::standalone(&mut stream);
             if let Some(write) = write {
+                crate::stack::commit();
                 if write(context, out.as_ptr()) != OK {
                     return CALLBACK_FAILED;
                 }
@@ -214,6 +215,7 @@ pub unsafe extern "C" fn rorb_cdr_encode(
             let mut stream = OutStream::standalone(&mut enc);
             let mut out = Out::standalone(&mut stream);
             if let Some(write) = write {
+                crate::stack::commit();
                 if write(context, out.as_ptr()) != OK {
                     return CALLBACK_FAILED;
                 }

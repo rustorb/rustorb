@@ -74,10 +74,16 @@ class TimeoutTest(unittest.TestCase):
         CORBA.ORB_init(["prog"], "timeouts")
         # The ORB the functions without an ORB use.
         cls.orb = CORBA._default_orb()
-        cls.sink = Sink()
+
+    def setUp(self):
+        # A sink of each test's own: the cancels of the requests one test
+        # timed out may arrive while the next one counts.
+        self.sink = Sink()
 
     def tearDown(self):
         from rustorb import timeouts
+
+        self.sink.sock.close()
 
         timeouts.set_call_timeout(None, self.orb)
         timeouts.set_connect_timeout(None, self.orb)

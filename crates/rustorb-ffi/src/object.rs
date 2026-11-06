@@ -172,6 +172,7 @@ pub(crate) unsafe fn send(
             return Ok(());
         };
         let mut o = Out::new(out);
+        crate::stack::commit();
         if write_args(inv.context, o.as_ptr()) != OK {
             failed.set(true);
             return Err(sys(SystemExceptionKind::UNKNOWN, 0, CompletionStatus::No));
@@ -228,6 +229,7 @@ unsafe fn read_sent(inv: &Invocation, sent: Sent, exc: *mut Exception) -> Status
             };
             let mut stream = reply.input();
             let mut input = In::new(&mut stream, CompletionStatus::Yes);
+            crate::stack::commit();
             if read_reply(inv.context, input.as_ptr()) != OK {
                 return CALLBACK_FAILED;
             }
@@ -246,6 +248,7 @@ unsafe fn read_sent(inv: &Invocation, sent: Sent, exc: *mut Exception) -> Status
             };
             let id = u.repository_id();
             let mut input = In::new(&mut stream, CompletionStatus::Yes);
+            crate::stack::commit();
             match read_user_exception(
                 inv.context,
                 id.as_ptr() as *const c_char,
@@ -274,6 +277,12 @@ struct Pending(Invocation);
 // callbacks usable from any thread until `done` is called.
 unsafe impl Send for Pending {}
 unsafe impl Sync for Pending {}
+
+/// A pointer handed to the thread that runs a callback (crate::offload).
+struct SendPtr<T>(*mut T);
+
+// SAFETY: used by one thread at a time, while its owner waits.
+unsafe impl<T> Send for SendPtr<T> {}
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rorb_object_sendc(
@@ -308,15 +317,26 @@ pub unsafe extern "C" fn rorb_object_sendc(
             let pending = Arc::clone(&pending);
             let failed = Arc::clone(&failed);
             request = request.args(move |out: &mut OutStream<'_>| {
-                let mut o = Out::new(out);
-                if write_args(pending.0.context, o.as_ptr()) != OK {
-                    failed.store(true, Ordering::Relaxed);
-                    return Err(sys(SystemExceptionKind::UNKNOWN, 0, CompletionStatus::No));
-                }
-                match o.error {
-                    Some(e) => Err(e),
-                    None => Ok(()),
-                }
+                // Written on a thread of the runtime: the caller's callback
+                // runs elsewhere (crate::offload).
+                let out = SendPtr(out as *mut OutStream<'_>);
+                let pending = &pending;
+                let failed = &failed;
+                crate::offload::run(move || {
+                    let out = out;
+                    // SAFETY: the stream outlives this call, which run
+                    // waits for, and nothing else uses it meanwhile.
+                    let mut o = Out::new(unsafe { &mut *out.0 });
+                    crate::stack::commit();
+                    if write_args(pending.0.context, o.as_ptr()) != OK {
+                        failed.store(true, Ordering::Relaxed);
+                        return Err(sys(SystemExceptionKind::UNKNOWN, 0, CompletionStatus::No));
+                    }
+                    match o.error {
+                        Some(e) => Err(e),
+                        None => Ok(()),
+                    }
+                })
             });
         }
         if inv.timeout_us >= 0 {
@@ -332,6 +352,7 @@ pub unsafe extern "C" fn rorb_object_sendc(
                 Ok(reply) => unsafe { read_sent(inv, Sent::Reply(reply), &mut e) },
                 Err(CoreException::User(u)) => unsafe { read_sent(inv, Sent::User(u), &mut e) },
             };
+            crate::stack::commit();
             done(inv.context, status, &e);
             unsafe { crate::rorb_exception_clear(&mut e) };
         });

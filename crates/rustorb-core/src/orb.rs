@@ -718,6 +718,7 @@ impl Orb {
     /// Initialises an ORB with `options`. Fails with the exception of an
     /// [`OrbInitializer`](crate::pi::OrbInitializer) that failed.
     pub fn with_options(options: OrbOptions) -> Result<Orb, SystemException> {
+        ignore_sigpipe();
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(options.io_threads.max(1))
             .thread_name("rustorb-io")
@@ -1613,27 +1614,49 @@ fn run_job(job: Job) {
 /// Runs a reply callback that cannot go to the reply pool (the ORB is
 /// destroyed, or it was dropped undelivered): on this thread, unless this
 /// is a thread of a runtime, where the synchronous API the callback may
-/// use fails; then on a thread of its own.
+/// use fails; then on a thread of [`REPLY_FALLBACK`].
+/// Sets SIGPIPE to be ignored, once, if nothing in the process has set it
+/// (a Rust program ignores it already; a C++ one does not). The ORB writes
+/// to sockets with `writev`, which raises SIGPIPE when the other side has
+/// closed: the write should fail with EPIPE instead of ending the process.
+#[cfg(unix)]
+fn ignore_sigpipe() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        // SAFETY: sigaction with a zeroed, then filled, struct; the old
+        // action is kept unless it is the default one.
+        unsafe {
+            let mut old: libc::sigaction = std::mem::zeroed();
+            if libc::sigaction(libc::SIGPIPE, std::ptr::null(), &mut old) == 0
+                && old.sa_sigaction == libc::SIG_DFL
+            {
+                let mut ignore: libc::sigaction = std::mem::zeroed();
+                ignore.sa_sigaction = libc::SIG_IGN;
+                libc::sigemptyset(&mut ignore.sa_mask);
+                libc::sigaction(libc::SIGPIPE, &ignore, std::ptr::null_mut());
+            }
+        }
+    });
+}
+
+#[cfg(not(unix))]
+fn ignore_sigpipe() {}
+
 pub(crate) fn run_reply_job(job: Job) {
     if Handle::try_current().is_err() {
         run_job(job);
         return;
     }
-    let job = Arc::new(Mutex::new(Some(job)));
-    let theirs = Arc::clone(&job);
-    let spawned = std::thread::Builder::new()
-        .name("rustorb-reply".into())
-        .spawn(move || {
-            if let Some(job) = theirs.lock().unwrap().take() {
-                run_job(job);
-            }
-        });
-    if spawned.is_err() {
-        if let Some(job) = job.lock().unwrap().take() {
-            run_job(job);
-        }
-    }
+    REPLY_FALLBACK
+        .get_or_init(|| crate::pool::Pool::new(0, 64, Duration::from_secs(600)))
+        .submit(job);
 }
+
+/// The threads of the reply callbacks of [`run_reply_job`], for every
+/// ORB. Threads that stay, rather than one started for each callback: a
+/// JVM called on a thread that ended right after crashed now and then on
+/// Windows.
+static REPLY_FALLBACK: std::sync::OnceLock<crate::pool::Pool> = std::sync::OnceLock::new();
 
 /// See [`Orb::in_runtime`].
 pub(crate) struct InRuntime<F> {

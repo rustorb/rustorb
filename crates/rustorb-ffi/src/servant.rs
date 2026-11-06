@@ -83,6 +83,7 @@ impl Servant for FfiServant {
     }
 
     fn is_a(&self, repository_id: &str) -> bool {
+        crate::stack::commit();
         (self.vtable().is_a)(
             self.this,
             repository_id.as_ptr() as *const c_char,
@@ -101,6 +102,7 @@ impl Servant for FfiServant {
             out: Out::reply(reply),
             system: None,
         };
+        crate::stack::commit();
         let status = (self.vtable().dispatch)(
             self.this,
             operation.as_ptr() as *const c_char,

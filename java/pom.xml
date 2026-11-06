@@ -36,7 +36,8 @@
     <maven.compiler.release>22</maven.compiler.release>
     <rustorb.root>${project.basedir}/..</rustorb.root>
     <idl.parser.dir></idl.parser.dir>
-    <!-- A rustorb-idl checkout to use instead of the installed one (tools/rustorb-idl.txt). -->
+    <!-- A rustorb-idl checkout to use instead of the installed one (tools/rustorb-idl.txt);
+         also taken from the environment variable RUSTORB_IDL_DIR. -->
     <rustorb.idl.dir></rustorb.idl.dir>
     <idl.pythonpath>${idl.parser.dir}${path.separator}${rustorb.idl.dir}/python</idl.pythonpath>
     <idl.out>${project.build.directory}/generated-test-sources/idl</idl.out>
@@ -117,6 +118,27 @@
               </arguments>
             </configuration>
           </execution>
+          <!-- Callback AMI (AmiTest): -Wbami. -->
+          <execution>
+            <id>rustorb-idl-ami</id>
+            <phase>generate-test-sources</phase>
+            <goals><goal>exec</goal></goals>
+            <configuration>
+              <executable>${python}</executable>
+              <environmentVariables>
+                <PYTHONPATH>${idl.pythonpath}</PYTHONPATH>
+              </environmentVariables>
+              <arguments>
+                <argument>-m</argument>
+                <argument>rustorb_idl</argument>
+                <argument>-bjava</argument>
+                <argument>-Wbami</argument>
+                <argument>-C</argument>
+                <argument>${idl.out}</argument>
+                <argument>${project.basedir}/src/test/idl/AmiTest.idl</argument>
+              </arguments>
+            </configuration>
+          </execution>
           <!-- Definitions outside modules need a package prefix. -->
           <execution>
             <id>rustorb-idl-mapping</id>
@@ -172,4 +194,17 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!-- RUSTORB_IDL_DIR in the environment, as for the Python tests and generate-stubs.sh. -->
+    <profile>
+      <id>rustorb-idl-dir</id>
+      <activation>
+        <property><name>env.RUSTORB_IDL_DIR</name></property>
+      </activation>
+      <properties>
+        <rustorb.idl.dir>${env.RUSTORB_IDL_DIR}</rustorb.idl.dir>
+      </properties>
+    </profile>
+  </profiles>
 </project>

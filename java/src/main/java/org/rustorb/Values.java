@@ -127,7 +127,7 @@ public final class Values {
 
     /** The generated class of id with suffix ("Helper"), by the names of
      * the IDL to Java mapping. */
-    private static Class<?> generated(String id, String suffix) {
+    static Class<?> generated(String id, String suffix) {
         for (String name : classNames(id)) {
             for (String prefix : PACKAGES) {
                 try {

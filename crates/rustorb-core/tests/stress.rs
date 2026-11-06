@@ -954,7 +954,19 @@ fn a_stalled_connection_does_not_hold_up_the_others() {
         assert_eq!(echo_long(&direct, i).unwrap(), i);
     }
     proxy.stalled.store(false, Ordering::Relaxed);
-    assert_eq!(echo_long(&stuck, 2).unwrap(), 2);
+    // Where the request was written whole (Windows), the proxy now hands
+    // the server its 16 MiB first, which can take more than the 500 ms
+    // call timeout: only a timeout is tried again.
+    let mut tries = 0;
+    loop {
+        match echo_long(&stuck, 2) {
+            Ok(v) => break assert_eq!(v, 2),
+            Err(Exception::System(e)) if tries < 5 && e.is(SystemExceptionKind::TIMEOUT) => {
+                tries += 1
+            }
+            Err(e) => panic!("{e:?}"),
+        }
+    }
 
     // The client stops reading: the server cannot write the whole reply.
     // That holds up neither the server's other connections nor the

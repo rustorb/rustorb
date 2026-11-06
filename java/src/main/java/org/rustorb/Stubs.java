@@ -41,6 +41,20 @@ public final class Stubs {
         }
     }
 
+    /**
+     * The sendc_ operation op of a stub generated with -Wbami (callback
+     * AMI, docs/ami.md): records the arguments call writes and sends
+     * without waiting. The reply is read into call on a thread of the ORB's
+     * reply pool, which then calls call.reply(), or call.excep() with a
+     * Messaging.ExceptionHolder; with a null handler the reply is dropped.
+     * Throws only what is known before sending (the ORB is shut down:
+     * BAD_INV_ORDER).
+     */
+    public static void sendc(ObjectImpl self, String op, org.omg.CORBA.Object handler,
+            SendcCall call) {
+        Ami.sendc(self, op, handler, call);
+    }
+
     /** ORB.create_output_stream: a stream whose create_input_stream reads
      * back what was written (object references belong to orb). */
     public static org.omg.CORBA.portable.OutputStream newOutputStream(org.omg.CORBA.ORB orb) {
