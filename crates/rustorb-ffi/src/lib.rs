@@ -41,6 +41,7 @@ pub mod pi;
 pub mod poa;
 pub mod policy;
 pub mod servant;
+mod stack;
 pub mod stream;
 pub mod value;
 

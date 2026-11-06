@@ -654,6 +654,7 @@ pub unsafe extern "C" fn rorb_any_insert(
             }
             let mut out = Out::standalone(&mut stream);
             if let Some(write) = write {
+                crate::stack::commit();
                 let status = unsafe { write(context, out.as_ptr()) };
                 if status != OK {
                     return CALLBACK_FAILED;
@@ -715,6 +716,7 @@ pub unsafe extern "C" fn rorb_any_extract(
         }
         let mut input = In::new(&mut stream, CompletionStatus::No);
         if let Some(read) = read {
+            crate::stack::commit();
             let status = unsafe { read(context, input.as_ptr()) };
             if status != OK {
                 return CALLBACK_FAILED;

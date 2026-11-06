@@ -172,6 +172,7 @@ pub(crate) unsafe fn send(
             return Ok(());
         };
         let mut o = Out::new(out);
+        crate::stack::commit();
         if write_args(inv.context, o.as_ptr()) != OK {
             failed.set(true);
             return Err(sys(SystemExceptionKind::UNKNOWN, 0, CompletionStatus::No));
@@ -228,6 +229,7 @@ unsafe fn read_sent(inv: &Invocation, sent: Sent, exc: *mut Exception) -> Status
             };
             let mut stream = reply.input();
             let mut input = In::new(&mut stream, CompletionStatus::Yes);
+            crate::stack::commit();
             if read_reply(inv.context, input.as_ptr()) != OK {
                 return CALLBACK_FAILED;
             }
@@ -246,6 +248,7 @@ unsafe fn read_sent(inv: &Invocation, sent: Sent, exc: *mut Exception) -> Status
             };
             let id = u.repository_id();
             let mut input = In::new(&mut stream, CompletionStatus::Yes);
+            crate::stack::commit();
             match read_user_exception(
                 inv.context,
                 id.as_ptr() as *const c_char,
@@ -324,6 +327,7 @@ pub unsafe extern "C" fn rorb_object_sendc(
                     // SAFETY: the stream outlives this call, which run
                     // waits for, and nothing else uses it meanwhile.
                     let mut o = Out::new(unsafe { &mut *out.0 });
+                    crate::stack::commit();
                     if write_args(pending.0.context, o.as_ptr()) != OK {
                         failed.store(true, Ordering::Relaxed);
                         return Err(sys(SystemExceptionKind::UNKNOWN, 0, CompletionStatus::No));
@@ -348,6 +352,7 @@ pub unsafe extern "C" fn rorb_object_sendc(
                 Ok(reply) => unsafe { read_sent(inv, Sent::Reply(reply), &mut e) },
                 Err(CoreException::User(u)) => unsafe { read_sent(inv, Sent::User(u), &mut e) },
             };
+            crate::stack::commit();
             done(inv.context, status, &e);
             unsafe { crate::rorb_exception_clear(&mut e) };
         });
