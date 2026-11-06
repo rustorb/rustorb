@@ -108,17 +108,30 @@ final class Ami {
      * made on the reply pool's native thread inside the upcall, crashed
      * the JVM on Windows now and then.
      */
-    private static final ExecutorService HANDLERS = new ThreadPoolExecutor(0, Integer.MAX_VALUE,
-            60L, TimeUnit.SECONDS, new SynchronousQueue<>(), new ThreadFactory() {
-                private final AtomicInteger next = new AtomicInteger();
+    private static final ExecutorService HANDLERS = handlers();
 
-                @Override
-                public Thread newThread(Runnable task) {
-                    Thread t = new Thread(task, "rustorb-ami-" + next.incrementAndGet());
-                    t.setDaemon(true);
-                    return t;
-                }
-            });
+    private static ExecutorService handlers() {
+        ThreadFactory factory = new ThreadFactory() {
+            private final AtomicInteger next = new AtomicInteger();
+
+            @Override
+            public Thread newThread(Runnable task) {
+                Thread t = new Thread(task, "rustorb-ami-" + next.incrementAndGet());
+                t.setDaemon(true);
+                return t;
+            }
+        };
+        // TEMPORARY (#139): a fixed number of threads, to try.
+        int n = Integer.getInteger("rustorb.amiThreads", 0);
+        if (n > 0) {
+            ThreadPoolExecutor e = new ThreadPoolExecutor(n, n, 60L, TimeUnit.SECONDS,
+                    new java.util.concurrent.LinkedBlockingQueue<>(), factory);
+            e.allowCoreThreadTimeOut(true);
+            return e;
+        }
+        return new ThreadPoolExecutor(0, Integer.MAX_VALUE, 60L, TimeUnit.SECONDS,
+                new SynchronousQueue<>(), factory);
+    }
 
     /** The done upcall: the handler is called on a thread of HANDLERS (a
      * nil handler drops the reply at once). */

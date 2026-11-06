@@ -206,26 +206,29 @@ jobs:
           SYM="target\debug;$(cygpath -w "$PDB")"
           CP="java/target/test-classes;java/target/classes;$(cat java/cp.txt);console.jar"
           CDB="/c/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe"
-          printf '%s\n' 'bp KERNELBASE!SetThreadStackGuarantee ".echo STG; ~.; kn 8; gc"' 'sxe sov' 'sxd av' 'sxd ii' 'sxd gp' 'sxd c000041d' 'g' '.echo STOPPED' '~.' 'r' 'kn 60' 'dq @$teb L3' '!vprot @rsp' '!vprot @rsp-0x3000' '!vprot @rsp+0x8000' '.echo ENDK' 'q' > cdb.txt
+          printf '%s\n' 'sxe sov' 'sxd av' 'sxd ii' 'sxd gp' 'sxd c000041d' 'g' '.echo STOPPED' '~.' 'r' 'kn 60' 'dq @$teb L3' '!vprot @rsp' '!vprot @rsp-0x3000' '!vprot @rsp+0x8000' '.echo ENDK' 'q' > cdb.txt
           crashes=0
-          for i in $(seq 1 16); do
-            "$CDB" -G -lines -y "$SYM" -cf cdb.txt \
-              "$JAVA" "-Djava.library.path=target\debug" --enable-native-access=ALL-UNNAMED -cp "$CP" \
-              org.junit.platform.console.ConsoleLauncher --disable-banner --details=summary --select-class org.rustorb.test.AmiTest > cdb.log 2>&1 &
-            pid=$!
-            ( sleep 150; kill $pid 2>/dev/null ) & killer=$!
-            wait $pid || true; kill $killer 2>/dev/null || true
-            if grep -qE 'second chance|Critical error detected' cdb.log; then
-              crashes=$((crashes + 1))
-              echo "run $i: CRASH $(grep -E 'second chance' cdb.log | head -1)"
-              echo "STG calls: $(grep -c '^STG' cdb.log || true)"
-              grep -A12 '^STG' cdb.log | head -60 || true
-              sed -n '/STOPPED/,/ENDK/p' cdb.log | grep -vE '^\*\*\*' | head -90 || true
-              [ "$crashes" -ge 3 ] && break
-            else
-              echo "run $i: $(grep -E 'tests (successful|failed)' cdb.log | tr '\n' ' ')"
-            fi
-          done
+          variant() {
+            name=$1; shift
+            for i in $(seq 1 10); do
+              "$CDB" -G -lines -y "$SYM" -cf cdb.txt \
+                "$JAVA" "$@" "-Djava.library.path=target\\debug" --enable-native-access=ALL-UNNAMED -cp "$CP" \
+                org.junit.platform.console.ConsoleLauncher --disable-banner --details=summary --select-class org.rustorb.test.AmiTest > cdb.log 2>&1 &
+              pid=$!
+              ( sleep 150; kill $pid 2>/dev/null ) & killer=$!
+              wait $pid || true; kill $killer 2>/dev/null || true
+              if grep -qE 'second chance|Critical error detected' cdb.log; then
+                crashes=$((crashes + 1))
+                echo "$name run $i: CRASH $(grep -E 'second chance' cdb.log | head -1)"
+                sed -n '/STOPPED/,/ENDK/p' cdb.log | grep -E 'Id: |^0[0-9] ' | head -12 || true
+              else
+                echo "$name run $i: $(grep -E 'tests (successful|failed)' cdb.log | tr '\n' ' ')"
+              fi
+            done
+          }
+          variant threads-1 -Drustorb.amiThreads=1
+          variant threads-4 -Drustorb.amiThreads=4
+          variant unbounded
           echo "crashes: $crashes"
           [ "$crashes" = 0 ]
       - name: Check that Ffi.java is up to date with rustorb.h
