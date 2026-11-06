@@ -204,7 +204,7 @@ jobs:
               org.junit.platform.console.ConsoleLauncher --disable-banner --details=none --select-class org.rustorb.test.AmiTest > cdb.log 2>&1 &
             pid=$!
             ( sleep 120; kill $pid 2>/dev/null ) & killer=$!
-            wait $pid; kill $killer 2>/dev/null
+            wait $pid || true; kill $killer 2>/dev/null || true
             if grep -qE 'Stack overflow - code|second chance|Critical error detected' cdb.log; then
               grep -E 'Stack overflow - code|second chance|Critical error' cdb.log
               grep -E 'AMI done|    at ' cdb.log | tail -150
@@ -212,6 +212,7 @@ jobs:
               exit 1
             fi
             echo "run $i: $(grep -E 'tests (successful|failed)' cdb.log | tr '\n' ' ')"
+            grep -qE 'tests successful' cdb.log || { echo "run $i did not finish:"; grep -v 'AMI done' cdb.log | tail -40; }
           done
       - name: Check that Ffi.java is up to date with rustorb.h
         run: python java/tools/gen-ffi.py --check
