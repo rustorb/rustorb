@@ -201,7 +201,7 @@ jobs:
           for i in $(seq 1 15); do
             "$CDB" -G -lines -y "target\debug" -cf cdb.txt \
               java "-Djava.library.path=target\debug" --enable-native-access=ALL-UNNAMED -cp "$CP" \
-              org.junit.platform.console.ConsoleLauncher --disable-banner --details=none --select-class org.rustorb.test.AmiTest > cdb.log 2>&1 &
+              org.junit.platform.console.ConsoleLauncher --disable-banner --details=summary --select-class org.rustorb.test.AmiTest > cdb.log 2>&1 &
             pid=$!
             ( sleep 120; kill $pid 2>/dev/null ) & killer=$!
             wait $pid || true; kill $killer 2>/dev/null || true
