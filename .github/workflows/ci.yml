@@ -201,12 +201,12 @@ jobs:
           JAVA=$(ls -d jdk/*/)bin/java.exe
           find dbg -iname 'jvm.*' | head
           diz=$(find dbg -iname jvm.diz | head -1); [ -n "$diz" ] && unzip -q -o "$diz" -d "$(dirname "$diz")"
-          PDB=$(dirname "$(find dbg -iname jvm.pdb | head -1)")
+          PDB=$(dirname "$(find dbg -iname 'jvm*.pdb' | head -1)")
           echo "java: $JAVA pdb: $PDB"; "$JAVA" -version
           SYM="target\debug;$(cygpath -w "$PDB")"
           CP="java/target/test-classes;java/target/classes;$(cat java/cp.txt);console.jar"
           CDB="/c/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe"
-          printf '%s\n' 'sxe sov' 'sxd av' 'sxd ii' 'sxd gp' 'sxd c000041d' 'g' '.echo STOPPED' '~.' 'r' 'kn 60' 'dq @$teb L3' '!vprot @rsp' '!vprot @rsp-0x3000' '!vprot @rsp+0x8000' '.echo ENDK' 'q' > cdb.txt
+          printf '%s\n' 'bp KERNELBASE!SetThreadStackGuarantee ".echo STG; ~.; kn 8; gc"' 'sxe sov' 'sxd av' 'sxd ii' 'sxd gp' 'sxd c000041d' 'g' '.echo STOPPED' '~.' 'r' 'kn 60' 'dq @$teb L3' '!vprot @rsp' '!vprot @rsp-0x3000' '!vprot @rsp+0x8000' '.echo ENDK' 'q' > cdb.txt
           crashes=0
           for i in $(seq 1 16); do
             "$CDB" -G -lines -y "$SYM" -cf cdb.txt \
@@ -218,6 +218,8 @@ jobs:
             if grep -qE 'second chance|Critical error detected' cdb.log; then
               crashes=$((crashes + 1))
               echo "run $i: CRASH $(grep -E 'second chance' cdb.log | head -1)"
+              echo "STG calls: $(grep -c '^STG' cdb.log || true)"
+              grep -A12 '^STG' cdb.log | head -60 || true
               sed -n '/STOPPED/,/ENDK/p' cdb.log | grep -vE '^\*\*\*' | head -90 || true
               [ "$crashes" -ge 3 ] && break
             else
