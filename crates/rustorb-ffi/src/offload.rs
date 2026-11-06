@@ -50,8 +50,12 @@ fn elsewhere<R: Send>(f: impl FnOnce() -> R + Send) -> R {
     let done_ref: &Done<R> = &done;
     let job: Box<dyn FnOnce() + Send + '_> = Box::new(move || {
         let r = panic::catch_unwind(AssertUnwindSafe(f));
-        *done_ref.result.lock().unwrap() = Some(r);
+        // Notified under the lock: once the waiter sees the result it
+        // returns, and done is gone.
+        let mut result = done_ref.result.lock().unwrap();
+        *result = Some(r);
         done_ref.cond.notify_one();
+        drop(result);
     });
     // SAFETY: this function does not return before the job has run (it
     // waits for its result below), so what the job borrows outlives it.

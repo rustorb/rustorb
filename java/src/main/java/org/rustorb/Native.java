@@ -3246,7 +3246,7 @@ final class Native {
                     system = Bridge.systemException(repositoryId, getInt(exc + 16),
                             getInt(exc + 20));
                 }
-                Ami.done((Ami.Request) call, status, system);
+                Ami.deliver((Ami.Request) call, status, system);
             } catch (Throwable t) {
                 // dropped
             }
