@@ -98,6 +98,16 @@ final class Ami {
      * handler (a nil handler drops the reply). What the handler throws is
      * dropped. */
     static void done(Request r, int status, RuntimeException system) {
+        // TEMPORARY (#139): the thread and depth of each done upcall.
+        StackTraceElement[] trace = new Throwable().getStackTrace();
+        System.err.println("AMI done: " + Thread.currentThread().getName() + " status " + status
+                + " depth " + trace.length);
+        if (trace.length > 60) {
+            for (int i = 0; i < 60; i++) {
+                System.err.println("    at " + trace[i]);
+            }
+        }
+        System.err.flush();
         if (!r.hasHandler) {
             return;
         }
