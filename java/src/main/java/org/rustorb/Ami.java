@@ -16,12 +16,6 @@ import java.lang.ref.Reference;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.ByteOrder;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import org.omg.CORBA.CompletionStatus;
 import org.omg.CORBA.MARSHAL;
@@ -100,48 +94,9 @@ final class Ami {
         }
     }
 
-    /** The number of threads that call handlers. */
-    private static final int HANDLER_THREADS = 4;
-
-    /**
-     * The handlers run here: daemon threads of the JVM, at most
-     * HANDLER_THREADS, ended after a minute unused; replies wait in a queue
-     * for one. The done upcall, on a thread of the ORB's reply pool, only
-     * hands the reply over. A handler mostly calls on (its reference is a
-     * CORBA object, often remote). Made on the reply pool's native threads
-     * inside the upcall, or on as many JVM threads as replies came at once,
-     * those calls crashed the JVM on Windows now and then; on a few threads
-     * they did not.
-     */
-    private static final ExecutorService HANDLERS = handlers();
-
-    private static ExecutorService handlers() {
-        ThreadFactory factory = new ThreadFactory() {
-            private final AtomicInteger next = new AtomicInteger();
-
-            @Override
-            public Thread newThread(Runnable task) {
-                Thread t = new Thread(task, "rustorb-ami-" + next.incrementAndGet());
-                t.setDaemon(true);
-                return t;
-            }
-        };
-        ThreadPoolExecutor e = new ThreadPoolExecutor(HANDLER_THREADS, HANDLER_THREADS, 60L,
-                TimeUnit.SECONDS, new LinkedBlockingQueue<>(), factory);
-        e.allowCoreThreadTimeOut(true);
-        return e;
-    }
-
-    /** The done upcall: the handler is called on a thread of HANDLERS (a
-     * nil handler drops the reply at once). */
-    static void deliver(Request r, int status, RuntimeException system) {
-        if (!r.hasHandler) {
-            return;
-        }
-        HANDLERS.execute(() -> done(r, status, system));
-    }
-
-    /** Calls the handler. What the handler throws is dropped. */
+    /** The done callback, on a thread of the ORB's reply pool: calls the
+     * handler (a nil handler drops the reply). What the handler throws is
+     * dropped. */
     static void done(Request r, int status, RuntimeException system) {
         if (!r.hasHandler) {
             return;

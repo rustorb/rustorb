@@ -4,7 +4,7 @@
 //! request goes out, on a thread of the ORB's I/O runtime. The callbacks
 //! that write them are the caller's code (the JVM, for the Java mapping),
 //! which should not run there: it would hold up the I/O of every connection
-//! of the ORB, and a JVM made to run on those threads crashed on Windows.
+//! of the ORB.
 //! They run on a thread of this module instead, while the runtime thread
 //! waits (in tokio's block_in_place, so that its other tasks move on).
 
