@@ -17,7 +17,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.ByteOrder;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -100,13 +100,18 @@ final class Ami {
         }
     }
 
+    /** The number of threads that call handlers. */
+    private static final int HANDLER_THREADS = 4;
+
     /**
-     * The handlers run here: daemon threads of the JVM, made as needed and
-     * ended after a minute unused. The done upcall, on a thread of the
-     * ORB's reply pool, only hands the reply over. A handler mostly calls
-     * on (its reference is a CORBA object, often remote), and that call,
-     * made on the reply pool's native thread inside the upcall, crashed
-     * the JVM on Windows now and then.
+     * The handlers run here: daemon threads of the JVM, at most
+     * HANDLER_THREADS, ended after a minute unused; replies wait in a queue
+     * for one. The done upcall, on a thread of the ORB's reply pool, only
+     * hands the reply over. A handler mostly calls on (its reference is a
+     * CORBA object, often remote). Made on the reply pool's native threads
+     * inside the upcall, or on as many JVM threads as replies came at once,
+     * those calls crashed the JVM on Windows now and then; on a few threads
+     * they did not.
      */
     private static final ExecutorService HANDLERS = handlers();
 
@@ -121,16 +126,10 @@ final class Ami {
                 return t;
             }
         };
-        // TEMPORARY (#139): a fixed number of threads, to try.
-        int n = Integer.getInteger("rustorb.amiThreads", 0);
-        if (n > 0) {
-            ThreadPoolExecutor e = new ThreadPoolExecutor(n, n, 60L, TimeUnit.SECONDS,
-                    new java.util.concurrent.LinkedBlockingQueue<>(), factory);
-            e.allowCoreThreadTimeOut(true);
-            return e;
-        }
-        return new ThreadPoolExecutor(0, Integer.MAX_VALUE, 60L, TimeUnit.SECONDS,
-                new SynchronousQueue<>(), factory);
+        ThreadPoolExecutor e = new ThreadPoolExecutor(HANDLER_THREADS, HANDLER_THREADS, 60L,
+                TimeUnit.SECONDS, new LinkedBlockingQueue<>(), factory);
+        e.allowCoreThreadTimeOut(true);
+        return e;
     }
 
     /** The done upcall: the handler is called on a thread of HANDLERS (a

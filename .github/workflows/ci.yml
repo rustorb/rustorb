@@ -226,9 +226,8 @@ jobs:
               fi
             done
           }
-          variant threads-1 -Drustorb.amiThreads=1
-          variant threads-4 -Drustorb.amiThreads=4
-          variant unbounded
+          variant default
+          variant again
           echo "crashes: $crashes"
           [ "$crashes" = 0 ]
       - name: Check that Ffi.java is up to date with rustorb.h
