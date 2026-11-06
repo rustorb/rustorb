@@ -120,7 +120,7 @@ public final class AmiProbe {
     /** Answers after 2 s, longer than the call timeout of the last case. */
     static final class SlowCallback extends CallbackPOA {
         @Override
-        public String notify(String message) {
+        public String _notify(String message) {
             try {
                 Thread.sleep(2000);
             } catch (InterruptedException e) {
