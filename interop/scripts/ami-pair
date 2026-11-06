@@ -1,0 +1,37 @@
+#!/bin/sh
+# Runs one pair of run-ami-probe.sh in the container: omniNames, the Echo
+# server of SERVER and the AMI probe of CLIENT, all on 127.0.0.1. The
+# probe's output goes to stdout.
+#
+#   ami-pair CLIENT SERVER
+#
+# CLIENT is rustorbpy, rustorbcpp or rustorbjava; SERVER a directory under
+# impls/.
+set -eu
+client="$1"
+server="$2"
+cd /opt/interop
+naming=corbaloc::127.0.0.1:2809/NameService
+logdir="$(mktemp -d)"
+omniNames -start 2809 -logdir "$logdir" -ORBendPointPublish giop:tcp:127.0.0.1:2809 \
+  > "$logdir/naming.log" 2>&1 &
+for _ in $(seq 60); do
+  [ -n "$(ss -Hltn '( sport = :2809 )')" ] && break
+  sleep 0.2
+done
+sleep 1
+"impls/$server/server" --naming "$naming" --name ami/Echo --host 127.0.0.1 --port 2810 \
+  > "$logdir/server.log" 2>&1 &
+for _ in $(seq 60); do
+  grep -q "server ready" "$logdir/server.log" && break
+  sleep 0.5
+done
+status=0
+"impls/$client/ami-probe" "corbaname::127.0.0.1:2809#ami/Echo" 2> "$logdir/client.err" || status=1
+if [ $status -ne 0 ]; then
+  echo "--- client stderr"
+  tail -n 40 "$logdir/client.err"
+  echo "--- server log"
+  tail -n 40 "$logdir/server.log"
+fi
+exit $status

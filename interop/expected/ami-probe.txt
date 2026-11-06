@@ -1,0 +1,12 @@
+echo_long: 42
+echo_string: hello AMI
+swap: 3 2 1
+divide: 3 1
+divide_excep: DivideByZero
+fail_excep: Oops 7 bad
+fail_system_excep: BAD_PARAM 42 COMPLETED_NO
+set_counter
+get_counter: 5
+get_name: rustorb-interop-echo
+nil handler: counter 9
+trigger_excep: TIMEOUT 0 COMPLETED_MAYBE

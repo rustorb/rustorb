@@ -155,6 +155,10 @@ auto orb = CORBA::ORB_init(argc, argv, "my-orb");  // ORBInitInfo::orb_id() は 
 - 構造体（`IOP::ServiceContext`、`TaggedComponent`、`Encoding`、`Dynamic::Parameter`）はマッピングどおりアクセサーを持つ。静的なスタブの要求では `arguments` などは `NO_RESOURCES`（C++ には DII / DSI がない）
 - C ABI は `rustorb.h` の「Portable Interceptors and IOP::Codec」の節（関数表、`rorb_orb_init_pi`、`rorb_cri_*` などのアクセサー）
 
+## AMI
+
+`rustorb-idl -bc++11 -Wbami`（CMake は `rustorb_idl_generate(... OPTIONS -Wbami)`）で生成すると、スタブに `sendc_<op>(ami_handler, ...)`・`sendc_get_<attr>`・`sendc_set_<attr>` が付き、IDL の各インターフェースに `AMI_<I>Handler`（サーバントは `CORBA::servant_traits<M::AMI_<I>Handler>::base_type` を継承）ができる。返事は ORB の返事用のスレッドで Handler の `<op>` に、例外は `<op>_excep(excep_holder)` に届く。`Messaging::ExceptionHolder`（`<rustorb/messaging.h>`）の `raise_exception()` で例外に戻す。タイムアウトは `rustorb::setClientCallTimeout` などがそのまま効く。設計と振る舞いは [ami.md](ami.md)、試験は `cpp/tests/test_ami.cc`、相互接続は `interop/run-ami-probe.sh`。
+
 ## テスト
 
 - `cpp/tests/test_mapping.cc`：`cpp/tests/idl/CxxMapping.idl`（定数、typedef、`fixed`（typedef・struct のメンバー・列・inout / out・定数・Any・四則演算と結果の型・`round` / `truncate`）、上限付きの型、多次元配列、再帰的な struct と union、すべての種類の判別子、入れ子の型、予約語の名前、多重継承、oneway、inout / out、ユーザー例外とシステム例外、オブジェクト参照の列）を、同じプロセスの2つの ORB の間と、同一 ORB 内で往復させる

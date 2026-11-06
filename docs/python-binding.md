@@ -124,6 +124,19 @@ POA の操作の例外は `PortableServer.POA.ObjectNotActive` など標準の�
 
 `Servant._this()` は、そのサーバントの要求の実行中ならその要求のオブジェクトを、そうでなければ `_default_POA()`（最初に初期化した ORB の RootPOA）で `servant_to_reference` した参照を返す。
 
+## AMI
+
+`rustorb-idl -bpython -Wbami` で生成すると、スタブに `sendc_<op>(ami_handler, ...)`・`sendc_get_<attr>`・`sendc_set_<attr>` が付き、IDL の各インターフェースに `AMI_<I>Handler`（`<M>__POA.AMI_<I>Handler` がサーバントの基底）ができる。返事は ORB の返事用のスレッドで Handler の `<op>` に、例外は `<op>_excep(excep_holder)` に届く。`excep_holder` は `rustorb.Messaging.ExceptionHolder` で、`raise_exception()` で例外に戻す。タイムアウトは `rustorb.timeouts` のものがそのまま効く。設計と振る舞いは [ami.md](ami.md)、試験は `python/tests/test_ami.py`、相互接続は `interop/run-ami-probe.sh`。
+
+```python
+class Handler(Demo__POA.AMI_CalcHandler):
+    def add(self, ami_return_val, carry): ...
+    def add_excep(self, excep_holder):
+        excep_holder.raise_exception()     # Demo.Busy や CORBA.TIMEOUT など
+
+calc.sendc_add(handler_ref, 1, 2)          # 待たずに返る
+```
+
 ## テスト
 
 - `python/tests/test_orb.py`：同じプロセスにサーバー用とクライアント用の2つの ORB を作り、ループバックの TCP 越しに `InteropTest.idl` と `python/tests/idl/NativeTest.idl`（char の列、上限付きの型、fixed、再帰構造体、予約語の名前、boolean・char の判別子、`Object`）を呼ぶ。POA の各操作、servant manager、POAManager の状態、同一 ORB 内の呼び出しも確かめる。CI では `RUSTORB_REQUIRE_NATIVE=1` でネイティブモジュールと idl\_parser が必須

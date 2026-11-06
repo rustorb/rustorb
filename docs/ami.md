@@ -14,7 +14,7 @@ Nov 3, 2026
 - **Python（#138）**：実装済み。`rustorb.Messaging` の `ReplyHandler`・`ExceptionHolder`、`rustorb.Messaging__POA`、`CORBA.Object._sendc`、ネイティブの `ObjRef.sendc`。生成器の `sendc_` は rustorb/rustorb-idl#6。試験は `python/tests/test_ami.py`（12 件。rustorb-idl のリリースまでは CI が rustorb-idl のコミットを使う）
 - **C++（#141）**：実装済み。`<rustorb/messaging.h>` の `Messaging::ReplyHandler`・`Messaging::ExceptionHolder`・`POA_Messaging::ReplyHandler`・`rustorb::detail::sendc`、C ABI の `rorb_cdr_encode` / `rorb_in_from_bytes`。生成器の `sendc_` は rustorb/rustorb-idl#7。試験は `cpp/tests/test_ami.cc`（12 項目、ASan / LSan でも通す）と `crates/rustorb-ffi/tests/holder_cdr.rs`（4 件）。rustorb-idl のリリースまでは CI が rustorb-idl のコミットを使う
 - **Java（#139）**：実装済み。`org.omg.Messaging` の `ReplyHandler` 一式と `ExceptionHolder`、`org.rustorb.Stubs.sendc`・`SendcCall`、FFM の `rorb_object_sendc` / `rorb_cdr_encode` / `rorb_in_from_bytes`。生成器の `sendc_` は rustorb/rustorb-idl#10。試験は `java/src/test/java/org/rustorb/test/AmiTest.java`（13 件。rustorb-idl のリリースまでは CI が rustorb-idl のコミットを使う）
-- 相互接続（#140）はまだ
+- 相互接続（#140）：確認済み。rustorbpy・rustorbcpp・rustorbjava の AMI クライアントから omniORB C++・omniORBpy・JacORB・rustorb のサーバーへ、`interop/run-ami-probe.sh`（CI の interop.yml）。下の「相互接続」の節
 
 ## 目的
 
@@ -221,10 +221,12 @@ rorb_status rorb_object_sendc(rorb_object* obj, const rorb_invocation* inv, rorb
 
 ## 相互接続（#140）
 
-AMI のクライアントの要求は線上では普通の要求なので、サーバー側の ORB には何も要らない。確かめるのは、rustorb の AMI クライアントが他の ORB のサーバーの返事・例外を正しく Handler に届けることと、他の ORB のクライアントから rustorb のサーバーを呼んでも何も変わらないこと。
+AMI のクライアントの要求は線上では普通の要求なので、サーバー側の ORB には何も要らない。確かめるのは、rustorb の AMI クライアントが他の ORB のサーバーの返事・例外を正しく Handler に届けること。
 
-- `interop/run-ami-probe.sh`：rustorbpy・rustorbcpp・rustorbjava の AMI クライアントから、rustorb・rustorbpy・omniORB C++・omniORBpy・JacORB のサーバーを呼ぶ。結果、`out` / `inout`、ユーザー例外、システム例外（サーバーが投げる `BAD_PARAM` など）、タイムアウト
-- Handler を別のプロセスに置く組（`ExceptionHolder` を valuetype として送る）は、rustorb の各言語どうしで確かめる。他の ORB の Handler に rustorb から返事を届ける組は、その ORB の AMI の生成コードが要るので、omniORB C++ の生成器にそのオプションがあるかを実際に動かして確かめてからにする
+- `interop/run-ami-probe.sh`：rustorbpy（`impls/rustorbpy/ami_probe.py`）・rustorbcpp（`impls/rustorbcpp/ami_probe.cc`）・rustorbjava（`impls/rustorbjava/probe/interop/AmiProbe.java`）の AMI クライアントから、omniORB C++・omniORBpy・JacORB・rustorb（Rust）の `InteropTest::Echo` のサーバーを呼ぶ（既定で 12 組。サーバーは相互接続の行列と同じもので、AMI のための変更はない）。各ケースで Handler が受けたものを 1 行に書き、`interop/expected/ami-probe.txt` と比べる
+- ケース：戻り値（`echo_long`・`echo_string`）、`inout`（`swap`）と `out`（`divide`）、ユーザー例外（`DivideByZero`、メンバーのある `Oops`）、システム例外（`BAD_PARAM`、minor 42、`COMPLETED_NO`）、属性の `sendc_set_` / `sendc_get_`、nil の Handler（要求は届き返事は捨てる）、タイムアウト（クライアントのコールバックが 2 秒かかる `trigger` を 500 ms で呼び、`TIMEOUT`・`COMPLETED_MAYBE`）。例外は Handler の中で `raise_exception()` して確かめる
+- 相互接続の実装は InteropTest.idl を `-Wbami` で生成する（`impls/*/build.sh`）。そのとき AnyTest.idl で、`CORBA::TypeCode` を使う操作の暗黙の IDL を生成器が作れない不具合が見つかり、rustorb-idl で直した（rustorb/rustorb-idl#11）
+- Handler を別のプロセスに置く組（`ExceptionHolder` を valuetype として送る）は、各言語の試験で rustorb どうしで確かめた。他の ORB の Handler に rustorb から返事を届ける組は、その ORB の AMI の生成コードが要るので確かめていない
 
 ## 決めたこと
 
