@@ -199,12 +199,14 @@ jobs:
           curl -sSfL -o dbg.zip https://api.adoptium.net/v3/binary/latest/25/ga/windows/x64/debugimage/hotspot/normal/eclipse
           mkdir -p jdk dbg && unzip -q jdk.zip -d jdk && unzip -q dbg.zip -d dbg
           JAVA=$(ls -d jdk/*/)bin/java.exe
+          find dbg -iname 'jvm.*' | head
+          diz=$(find dbg -iname jvm.diz | head -1); [ -n "$diz" ] && unzip -q -o "$diz" -d "$(dirname "$diz")"
           PDB=$(dirname "$(find dbg -iname jvm.pdb | head -1)")
           echo "java: $JAVA pdb: $PDB"; "$JAVA" -version
           SYM="target\debug;$(cygpath -w "$PDB")"
           CP="java/target/test-classes;java/target/classes;$(cat java/cp.txt);console.jar"
           CDB="/c/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe"
-          printf '%s\n' 'sxe sov' 'sxd av' 'sxd ii' 'sxd gp' 'sxd c000041d' 'g' '.echo STOPPED' '~.' 'r' 'kn 60' '.echo ENDK' 'q' > cdb.txt
+          printf '%s\n' 'sxe sov' 'sxd av' 'sxd ii' 'sxd gp' 'sxd c000041d' 'g' '.echo STOPPED' '~.' 'r' 'kn 60' 'dq @$teb L3' '!vprot @rsp' '!vprot @rsp-0x3000' '!vprot @rsp+0x8000' '.echo ENDK' 'q' > cdb.txt
           crashes=0
           for i in $(seq 1 16); do
             "$CDB" -G -lines -y "$SYM" -cf cdb.txt \
