@@ -1201,7 +1201,12 @@ fn orb_id_and_arguments() {
     struct IdCheck(Mutex<Option<(String, Vec<String>)>>);
     impl OrbInitializer for IdCheck {
         fn pre_init(&self, info: &mut OrbInitInfo<'_>) -> Result<(), SystemException> {
-            *self.0.lock().unwrap() = Some((info.orb_id().to_owned(), info.arguments().to_vec()));
+            // Initializers are global: the ORBs other tests make meanwhile
+            // come here too.
+            if info.orb_id() == "myorb" {
+                *self.0.lock().unwrap() =
+                    Some((info.orb_id().to_owned(), info.arguments().to_vec()));
+            }
             Ok(())
         }
     }
