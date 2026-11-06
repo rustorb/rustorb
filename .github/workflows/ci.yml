@@ -191,16 +191,19 @@ jobs:
       # heap corruption on Windows where it writes.
       - name: Run the Java tests again with page heap (temporary)
         if: always() && runner.os == 'Windows'
-        shell: bash
+        shell: pwsh
         run: |
-          GFLAGS="/c/Program Files (x86)/Windows Kits/10/Debuggers/x64/gflags.exe"
-          "$GFLAGS" -p -enable java.exe -full -dlls rustorb_ffi.dll
-          status=0
-          for i in 1 2 3 4 5 6 7 8; do
-            mvn -B -q -f java/pom.xml -Dpython=python "-Drustorb.idl.dir=${{ github.workspace }}/rustorb-idl" surefire:test -Dtest=AmiTest || { status=1; break; }
-          done
-          "$GFLAGS" -p -disable java.exe
-          for f in java/hs_err_pid*.log; do [ -f "$f" ] && { echo "=== $f"; head -c 60000 "$f"; }; done
+          $gflags = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\gflags.exe'
+          & $gflags /p /enable java.exe /full /dlls rustorb_ffi.dll
+          & $gflags /p
+          $status = 0
+          foreach ($i in 1..8) {
+            mvn -B -q -f java/pom.xml -Dpython=python "-Drustorb.idl.dir=${{ github.workspace }}/rustorb-idl" surefire:test -Dtest=AmiTest
+            if ($LASTEXITCODE -ne 0) { $status = 1; break }
+            Write-Output "run $i passed"
+          }
+          & $gflags /p /disable java.exe
+          foreach ($f in Get-ChildItem java -Filter 'hs_err_pid*.log') { Write-Output "=== $($f.FullName)"; Get-Content $f.FullName -TotalCount 1500 }
           exit $status
       - name: Check that Ffi.java is up to date with rustorb.h
         run: python java/tools/gen-ffi.py --check
