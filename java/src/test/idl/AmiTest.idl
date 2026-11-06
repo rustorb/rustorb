@@ -22,3 +22,17 @@ module AmiJava {
     oneway void fire(in long n);
   };
 };
+
+// A repository id prefix, which the Java package names leave out: a holder
+// from another process still finds the exception's Helper.
+#pragma prefix "rustorb.org"
+
+module AmiPrefixed {
+  exception Busy {
+    long retry;
+  };
+
+  interface Worker {
+    void work(in long n) raises (Busy);
+  };
+};

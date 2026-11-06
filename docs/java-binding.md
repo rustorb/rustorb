@@ -134,6 +134,10 @@ ORB orb = ORB.init(args, props);
 - `resolve_initial_references("PICurrent")` は `org.omg.PortableInterceptor.Current`、`"CodecFactory"` は `org.omg.IOP.CodecFactory`
 - `ORBInitInfo.register_policy_factory` は `NO_IMPLEMENT`。静的なスタブの要求では `arguments` などは `NO_RESOURCES`（Java のランタイムには DII / DSI がない）
 
+## AMI
+
+`rustorb-idl -bjava -Wbami` で生成すると、スタブクラス `_<I>Stub` に `sendc_<op>(ami_handler, ...)`・`sendc_get_<attr>`・`sendc_set_<attr>` が付き（参照を `_<I>Stub` にキャストして使う）、IDL の各インターフェースに `AMI_<I>Handler` とその `POA`・`POATie` などができる。返事は ORB の返事用のスレッドで Handler の `<op>` に、例外は `<op>_excep(excep_holder)` に届く。`org.omg.Messaging.ExceptionHolder` の `raise_exception()` で例外に戻す。タイムアウトは `org.rustorb.Timeouts` のものがそのまま効く。設計と振る舞いは [ami.md](ami.md)、試験は `java/src/test/java/org/rustorb/test/AmiTest.java`、相互接続は `interop/run-ami-probe.sh`。
+
 ## テスト
 
 - `java/src/test`（`mvn -f java/pom.xml -Didl.parser.dir=... verify`。cargo で `librustorb_ffi` を、`rustorb-idl -bjava` でテスト用 IDL のコードを作る）

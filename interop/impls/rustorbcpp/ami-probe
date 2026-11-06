@@ -1,0 +1,3 @@
+#!/bin/sh
+# rustorb C++ side of run-ami-probe.sh (ami_probe.cc), built by build.sh.
+exec "$(dirname "$0")/bin/ami_probe" "$@"

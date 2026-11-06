@@ -1,0 +1,6 @@
+#!/bin/sh
+# rustorb Java side of run-ami-probe.sh (probe/interop/AmiProbe.java), after
+# build.sh.
+here="$(dirname "$0")"
+exec "${RUSTORB_JAVA:-java}" --enable-native-access=ALL-UNNAMED -Djava.library.path="$here/lib" -cp "$here/classes" \
+  interop.AmiProbe "$@"
