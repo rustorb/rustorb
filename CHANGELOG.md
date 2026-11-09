@@ -43,6 +43,10 @@ The C ABI version is 3.
   its classes.
 - C ABI: `rorb_cdr_encode` and `rorb_in_from_bytes`, plain CDR from offset 0
   in either byte order, the form of `ExceptionHolder::marshaled_exception`.
+- Interop: `interop/run-ami-probe.sh` checks callback AMI from the Python, C++
+  and Java clients against the omniORB C++, omniORBpy, JacORB and rustorb
+  servers (results, inout and out arguments, user and system exceptions,
+  attributes, a nil handler, a call timeout), in CI (#140).
 
 ## [0.3.0] - 2026-11-03
 

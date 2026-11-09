@@ -26,6 +26,12 @@ import AmiJava.OopsHelper;
 import AmiJava.Pair;
 import AmiJava.PairsHolder;
 import AmiJava._CalcStub;
+import AmiPrefixed.AMI_WorkerHandlerHelper;
+import AmiPrefixed.AMI_WorkerHandlerPOA;
+import AmiPrefixed.Busy;
+import AmiPrefixed.WorkerHelper;
+import AmiPrefixed.WorkerPOA;
+import AmiPrefixed._WorkerStub;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -451,6 +457,34 @@ class AmiTest {
         assertTrue(e instanceof TRANSIENT || e instanceof COMM_FAILURE, e.toString());
         assertNull(h.calls.poll(200, TimeUnit.MILLISECONDS));
         assertThrows(BAD_INV_ORDER.class, () -> shortCalc.sendc_add(ref, 1, 2));
+    }
+
+    @Test
+    void prefixedUserException() throws Exception {
+        // IDL:rustorb.org/AmiPrefixed/Busy:1.0 is the class AmiPrefixed.Busy.
+        // The handler gets the holder through the ORB, as its state only.
+        _WorkerStub worker = (_WorkerStub) WorkerHelper.narrow(client.string_to_object(
+                server.object_to_string(activate(server, new WorkerPOA() {
+                    @Override
+                    public void work(int n) throws Busy {
+                        throw new Busy(n);
+                    }
+                }))));
+        BlockingQueue<ExceptionHolder> got = new LinkedBlockingQueue<>();
+        AMI_WorkerHandlerPOA h = new AMI_WorkerHandlerPOA() {
+            @Override
+            public void work() {}
+
+            @Override
+            public void work_excep(ExceptionHolder excep_holder) {
+                got.add(excep_holder);
+            }
+        };
+        worker.sendc_work(AMI_WorkerHandlerHelper.narrow(activate(client, h)), 3);
+        ExceptionHolder holder = got.poll(WAIT, TimeUnit.SECONDS);
+        assertTrue(holder != null, "no call of the handler");
+        Busy e = assertThrows(Busy.class, holder::raise_exception);
+        assertEquals(3, e.retry);
     }
 
     @Test

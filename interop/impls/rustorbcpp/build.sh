@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Builds the rustorb C++ client, server, load client, POA probe server, DynAny probe,
-# naming check and PI probe on the host, into bin/: the stubs and skeletons of InteropTest.idl, AnyTest.idl,
+# naming check, PI probe and AMI probe on the host, into bin/: the stubs and skeletons of InteropTest.idl, AnyTest.idl,
 # AnyTestHidden.idl (the client only), ValueTest.idl, CustomTest.idl, AbstractTest.idl, CosNaming.idl, PoaProbe.idl (the
-# probe server only) and PiProbe.idl (the PI probe only) from rustorb-idl -bc++11 (in gen/), linked with
+# probe server only) and PiProbe.idl (the PI probe only) from rustorb-idl -bc++11 -Wbami (in gen/; -Wbami adds the
+# AMI_<I>Handler interfaces and sendc_ operations of callback AMI), linked with
 # librustorb_ffi statically. run-matrix.sh, run-poa-probe.sh, run-dynany-probe.sh,
-# run-naming-check.sh, run-pi-probe.sh and run-load-local.py run it; rustorb-idl must be importable (tools/rustorb-idl.txt), or IDL_PARSER_DIR set to a
+# run-naming-check.sh, run-pi-probe.sh, run-ami-probe.sh and run-load-local.py run it; rustorb-idl must be importable (tools/rustorb-idl.txt), or IDL_PARSER_DIR set to a
 # checkout of it. CXX picks the compiler (default g++, c++ on macOS).
 #
 # The binaries run in the interop image (Ubuntu 24.04), so the host needs a
@@ -30,7 +31,7 @@ rm -rf "$here/gen" "$here/bin"
 mkdir -p "$here/gen" "$here/bin"
 pythonpath="${RUSTORB_IDL_DIR:+$RUSTORB_IDL_DIR/python}"
 [ -n "${IDL_PARSER_DIR:-}" ] && pythonpath="$IDL_PARSER_DIR${pythonpath:+:$pythonpath}"
-PYTHONPATH="$pythonpath" python3 -m rustorb_idl -bc++11 -C "$here/gen" \
+PYTHONPATH="$pythonpath" python3 -m rustorb_idl -bc++11 -Wbami -C "$here/gen" \
   "$root/interop/idl/InteropTest.idl" "$root/interop/idl/AnyTest.idl" \
   "$root/interop/idl/AnyTestHidden.idl" "$root/tests/mapping/idl/CosNaming.idl" \
   "$root/interop/idl/PoaProbe.idl" "$root/interop/idl/ValueTest.idl" \
@@ -58,3 +59,4 @@ link poa_probe_server "$here/poa_probe_server.cc" "$here/gen/PoaProbe.o"
 link dynany_probe "$here/dynany_probe.cc"
 link naming_check "$here/naming_check.cc" "$here/gen/CosNaming.o"
 link pi_probe "$here/pi_probe.cc" "$here/gen/PiProbe.o"
+link ami_probe "$here/ami_probe.cc" "$here/gen/InteropTest.o"

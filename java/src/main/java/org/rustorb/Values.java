@@ -147,7 +147,9 @@ public final class Values {
 
     /** Java class names an IDL repository id may stand for:
      * "IDL:M/I/V:1.0" is M.I.V or M.IPackage.V, and a pragma prefix with
-     * dots ("omg.org") is reversed into packages (org.omg). */
+     * dots ("omg.org") is reversed into packages (org.omg) or, as the IDL
+     * to Java mapping leaves a prefix out of package names (rustorb-idl
+     * -bjava does), dropped. */
     static List<String> classNames(String id) {
         List<String> out = new ArrayList<>();
         if (!id.startsWith("IDL:")) {
@@ -169,6 +171,7 @@ public final class Values {
             }
             String[] rest = java.util.Arrays.copyOfRange(parts, 1, parts.length);
             names.add(b + String.join(".", rest));
+            names.add(String.join(".", rest));
         }
         for (String n : names) {
             out.add(n);
