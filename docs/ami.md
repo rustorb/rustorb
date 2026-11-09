@@ -10,10 +10,10 @@ Nov 3, 2026
 
 - **コア（`rustorb-core`）**：実装済み（#136）。`ObjectRef::request_callback` → `CallbackRequest`（下の「コア」の節）。試験は `crates/rustorb-core/tests/ami.rs`（6 件）
 - **C ABI（`rustorb-ffi`）**：実装済み（#136）。`rorb_object_sendc` と `rorb_sendc_done_fn`。`ABI_VERSION` は 3。試験は `crates/rustorb-ffi/tests/sendc.rs`（2 件）
-- **生成器の前段（rustorb-idl、#137）**：実装済み（rustorb/rustorb-idl#4）。`-Wbami` で Handler を各言語に出す
-- **Python（#138）**：実装済み。`rustorb.Messaging` の `ReplyHandler`・`ExceptionHolder`、`rustorb.Messaging__POA`、`CORBA.Object._sendc`、ネイティブの `ObjRef.sendc`。生成器の `sendc_` は rustorb/rustorb-idl#6。試験は `python/tests/test_ami.py`（12 件。rustorb-idl のリリースまでは CI が rustorb-idl のコミットを使う）
-- **C++（#141）**：実装済み。`<rustorb/messaging.h>` の `Messaging::ReplyHandler`・`Messaging::ExceptionHolder`・`POA_Messaging::ReplyHandler`・`rustorb::detail::sendc`、C ABI の `rorb_cdr_encode` / `rorb_in_from_bytes`。生成器の `sendc_` は rustorb/rustorb-idl#7。試験は `cpp/tests/test_ami.cc`（12 項目、ASan / LSan でも通す）と `crates/rustorb-ffi/tests/holder_cdr.rs`（4 件）。rustorb-idl のリリースまでは CI が rustorb-idl のコミットを使う
-- **Java（#139）**：実装済み。`org.omg.Messaging` の `ReplyHandler` 一式と `ExceptionHolder`、`org.rustorb.Stubs.sendc`・`SendcCall`、FFM の `rorb_object_sendc` / `rorb_cdr_encode` / `rorb_in_from_bytes`。生成器の `sendc_` は rustorb/rustorb-idl#10。試験は `java/src/test/java/org/rustorb/test/AmiTest.java`（14 件。rustorb-idl のリリースまでは CI が rustorb-idl のコミットを使う）
+- **生成器の前段（rustorb-idl、#137）**：実装済み（rustorb/rustorb-idl#4）。rustorb-idl 0.3.0 でリリースした。`-Wbami` で Handler を各言語に出す
+- **Python（#138）**：実装済み。`rustorb.Messaging` の `ReplyHandler`・`ExceptionHolder`、`rustorb.Messaging__POA`、`CORBA.Object._sendc`、ネイティブの `ObjRef.sendc`。生成器の `sendc_` は rustorb/rustorb-idl#6。試験は `python/tests/test_ami.py`（12 件）
+- **C++（#141）**：実装済み。`<rustorb/messaging.h>` の `Messaging::ReplyHandler`・`Messaging::ExceptionHolder`・`POA_Messaging::ReplyHandler`・`rustorb::detail::sendc`、C ABI の `rorb_cdr_encode` / `rorb_in_from_bytes`。生成器の `sendc_` は rustorb/rustorb-idl#7。試験は `cpp/tests/test_ami.cc`（12 項目、ASan / LSan でも通す）と `crates/rustorb-ffi/tests/holder_cdr.rs`（4 件）
+- **Java（#139）**：実装済み。`org.omg.Messaging` の `ReplyHandler` 一式と `ExceptionHolder`、`org.rustorb.Stubs.sendc`・`SendcCall`、FFM の `rorb_object_sendc` / `rorb_cdr_encode` / `rorb_in_from_bytes`。生成器の `sendc_` は rustorb/rustorb-idl#10。試験は `java/src/test/java/org/rustorb/test/AmiTest.java`（14 件）
 - 相互接続（#140）：確認済み。rustorbpy・rustorbcpp・rustorbjava の AMI クライアントから omniORB C++・omniORBpy・JacORB・rustorb のサーバーへ、`interop/run-ami-probe.sh`（CI の interop.yml）。下の「相互接続」の節
 
 ## 目的

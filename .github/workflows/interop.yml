@@ -61,21 +61,10 @@ jobs:
           cache-from: type=gha,scope=interop-omniorb
           cache-to: type=gha,scope=interop-omniorb,mode=max
 
-      # The rustorb implementations generate their stubs with -Wbami (the
-      # AMI probes of run-ami-probe.sh), which needs a rustorb-idl not
-      # released yet: this commit until tools/rustorb-idl.txt pins a
-      # release with it (#140).
-      - uses: actions/checkout@v4
-        with:
-          repository: rustorb/rustorb-idl
-          ref: 2bbf8eeaf75490c8730423b7ac26fe4effa120c4
-          path: rustorb-idl
 
       # Every rustorb client and server once; the scripts below would build
       # them again each time without INTEROP_PREBUILT.
       - name: Build the rustorb implementations
-        env:
-          RUSTORB_IDL_DIR: ${{ github.workspace }}/rustorb-idl
         run: |
           interop/impls/rustorbpy/build.sh
           interop/impls/rustorbcpp/build.sh
