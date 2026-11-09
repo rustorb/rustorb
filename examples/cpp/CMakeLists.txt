@@ -10,7 +10,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(rustorb_example CXX)
 
-find_package(rustorb 0.3 REQUIRED)
+find_package(rustorb 0.4 REQUIRED)
 
 # Echo.idl, and CosNaming.idl from rustorb-idl's standard IDL files.
 rustorb_idl_generate(SOURCES ../idl/Echo.idl "${RUSTORB_IDL_DIR}/CosNaming.idl")

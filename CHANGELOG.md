@@ -7,7 +7,11 @@ break the API).
 
 ## [Unreleased]
 
-The C ABI version is 3.
+## [0.4.0] - 2026-11-09
+
+The C ABI version is 3 (callback AMI added `rorb_object_sendc`,
+`rorb_cdr_encode` and `rorb_in_from_bytes`). Callback AMI needs code generated
+by rustorb-idl 0.3.0 or later with `-Wbami`.
 
 ### Added
 
@@ -312,7 +316,8 @@ omniORBpy, and valuetypes in JacORB on Java 17).
   cycles; Java relies on the GC) (#85)
 - On Windows the read path of #66 / #67 falls back to the I/O task (#86)
 
-[Unreleased]: https://github.com/rustorb/rustorb/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/rustorb/rustorb/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/rustorb/rustorb/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/rustorb/rustorb/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/rustorb/rustorb/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/rustorb/rustorb/compare/v0.1.0...v0.1.1

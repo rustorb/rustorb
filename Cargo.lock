@@ -438,11 +438,11 @@ dependencies = [
 
 [[package]]
 name = "rustorb-cdr"
-version = "0.3.0"
+version = "0.4.0"
 
 [[package]]
 name = "rustorb-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "criterion",
  "libc",
@@ -457,7 +457,7 @@ dependencies = [
 
 [[package]]
 name = "rustorb-ffi"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "rustorb-cdr",
  "rustorb-core",
@@ -466,7 +466,7 @@ dependencies = [
 
 [[package]]
 name = "rustorb-giop"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "rustorb-cdr",
  "serde_json",
@@ -474,7 +474,7 @@ dependencies = [
 
 [[package]]
 name = "rustorb-interop"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "rustorb-core",
  "rustorb-naming",
@@ -491,14 +491,14 @@ dependencies = [
 
 [[package]]
 name = "rustorb-naming"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "rustorb-core",
 ]
 
 [[package]]
 name = "rustorb-python"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "pyo3",
  "pyo3-build-config",
@@ -508,7 +508,7 @@ dependencies = [
 
 [[package]]
 name = "rustorb-typesupport"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "rustorb-cdr",
 ]
