@@ -6,12 +6,12 @@ const _: () = ::rustorb_core::idl::GENERATED_CODE_VERSION_1;
 
 pub mod any_test_hidden {
     /// IDL typedef `AnyTestHidden::PointSeq`.
-    pub type PointSeq = Vec<crate::idl::any_test::Point>;
+    pub type PointSeq = ::std::vec::Vec<crate::idl::any_test::Point>;
 
     /// IDL struct `AnyTestHidden::Secret`.
     #[derive(Debug, Clone, PartialEq, Default)]
     pub struct Secret {
-        pub text: String,
+        pub text: ::std::string::String,
         pub points: PointSeq,
         pub shade: crate::idl::any_test::Shade,
     }
@@ -217,7 +217,7 @@ pub mod any_test_hidden {
     }
 
     /// IDL typedef `AnyTestHidden::Moods`.
-    pub type Moods = Vec<Mood>;
+    pub type Moods = ::std::vec::Vec<Mood>;
 
     /// The descriptors of the typedefs of this scope.
     pub mod alias {

@@ -9,13 +9,13 @@ pub mod interop_test {
     pub const MAGIC: i32 = 1381323604;
 
     /// IDL typedef `InteropTest::LongSeq`.
-    pub type LongSeq = Vec<i32>;
+    pub type LongSeq = ::std::vec::Vec<i32>;
 
     /// IDL typedef `InteropTest::StringSeq`.
-    pub type StringSeq = Vec<String>;
+    pub type StringSeq = ::std::vec::Vec<::std::string::String>;
 
     /// IDL typedef `InteropTest::OctetSeq`.
-    pub type OctetSeq = Vec<u8>;
+    pub type OctetSeq = ::std::vec::Vec<u8>;
 
     /// IDL typedef `InteropTest::LongArray`.
     pub type LongArray = [i32; 4];
@@ -140,7 +140,7 @@ pub mod interop_test {
     #[derive(Debug, Clone, PartialEq, Default)]
     pub struct Record {
         pub id: i32,
-        pub name: String,
+        pub name: ::std::string::String,
         pub hue: Color,
         pub pos: Point,
         pub values: LongSeq,
@@ -214,7 +214,7 @@ pub mod interop_test {
     }
 
     /// IDL typedef `InteropTest::RecordSeq`.
-    pub type RecordSeq = Vec<Record>;
+    pub type RecordSeq = ::std::vec::Vec<Record>;
 
     /// IDL union `InteropTest::Value`.
     #[derive(Debug, Clone, PartialEq)]
@@ -223,7 +223,7 @@ pub mod interop_test {
         /// Member `l`.
         L(i32),
         /// Member `s`.
-        S(String),
+        S(::std::string::String),
         /// Member `p`.
         P(Point),
         /// Member `seq`, with its discriminator.
@@ -323,7 +323,7 @@ pub mod interop_test {
         /// Member `level`.
         Level(u8),
         /// Member `label`.
-        Label(String),
+        Label(::std::string::String),
         /// No member: a discriminator no label has.
         Default(Color),
     }
@@ -393,7 +393,7 @@ pub mod interop_test {
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
     pub struct Oops {
         pub code: i32,
-        pub reason: String,
+        pub reason: ::std::string::String,
     }
 
     impl Oops {
@@ -575,7 +575,10 @@ pub mod interop_test {
 
         /// `notify`.
         #[allow(clippy::type_complexity)]
-        pub fn notify(&self, message: &str) -> Result<String, ::rustorb_core::SystemException> {
+        pub fn notify(
+            &self,
+            message: &str,
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request("notify").args(|out| {
                 <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(message, out)?;
                 Ok(())
@@ -594,7 +597,7 @@ pub mod interop_test {
         pub async fn notify_async(
             &self,
             message: &str,
-        ) -> Result<String, ::rustorb_core::SystemException> {
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request_async("notify").args(|out| {
                 <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(message, out)?;
                 Ok(())
@@ -645,7 +648,10 @@ pub mod interop_test {
     pub trait CallbackServant: Send + Sync {
         /// `notify`.
         #[allow(clippy::type_complexity)]
-        fn notify(&self, message: &str) -> Result<String, ::rustorb_core::SystemException>;
+        fn notify(
+            &self,
+            message: &str,
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException>;
     }
 
     /// The skeleton of `Callback`: makes a `CallbackServant` a servant.
@@ -1425,7 +1431,10 @@ pub mod interop_test {
 
         /// `echo_string`.
         #[allow(clippy::type_complexity)]
-        pub fn echo_string(&self, v: &str) -> Result<String, ::rustorb_core::SystemException> {
+        pub fn echo_string(
+            &self,
+            v: &str,
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_string").args(|out| {
                 <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(v, out)?;
                 Ok(())
@@ -1444,7 +1453,7 @@ pub mod interop_test {
         pub async fn echo_string_async(
             &self,
             v: &str,
-        ) -> Result<String, ::rustorb_core::SystemException> {
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_string").args(|out| {
                 <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(v, out)?;
                 Ok(())
@@ -1461,7 +1470,10 @@ pub mod interop_test {
 
         /// `echo_wstring`.
         #[allow(clippy::type_complexity)]
-        pub fn echo_wstring(&self, v: &str) -> Result<String, ::rustorb_core::SystemException> {
+        pub fn echo_wstring(
+            &self,
+            v: &str,
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_wstring").args(|out| {
                 <::rustorb_core::idl::WString as ::rustorb_core::idl::IdlType>::write(v, out)?;
                 Ok(())
@@ -1480,7 +1492,7 @@ pub mod interop_test {
         pub async fn echo_wstring_async(
             &self,
             v: &str,
-        ) -> Result<String, ::rustorb_core::SystemException> {
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_wstring").args(|out| {
                 <::rustorb_core::idl::WString as ::rustorb_core::idl::IdlType>::write(v, out)?;
                 Ok(())
@@ -1811,7 +1823,7 @@ pub mod interop_test {
         #[allow(clippy::type_complexity)]
         pub fn echo_string_seq(
             &self,
-            v: &[String],
+            v: &[::std::string::String],
         ) -> Result<StringSeq, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_string_seq").args(|out| {
                 <alias::StringSeq as ::rustorb_core::idl::IdlType>::write(v, out)?;
@@ -1829,7 +1841,7 @@ pub mod interop_test {
         #[allow(clippy::type_complexity)]
         pub async fn echo_string_seq_async(
             &self,
-            v: &[String],
+            v: &[::std::string::String],
         ) -> Result<StringSeq, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_string_seq").args(|out| {
                 <alias::StringSeq as ::rustorb_core::idl::IdlType>::write(v, out)?;
@@ -2107,7 +2119,7 @@ pub mod interop_test {
 
         /// `_get_name`.
         #[allow(clippy::type_complexity)]
-        pub fn name(&self) -> Result<String, ::rustorb_core::SystemException> {
+        pub fn name(&self) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request("_get_name");
             let reply = request
                 .invoke()
@@ -2120,7 +2132,9 @@ pub mod interop_test {
 
         /// `_get_name`, on the async API: like [`name`](Self::name).
         #[allow(clippy::type_complexity)]
-        pub async fn name_async(&self) -> Result<String, ::rustorb_core::SystemException> {
+        pub async fn name_async(
+            &self,
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request_async("_get_name");
             let reply = request
                 .invoke()
@@ -2184,7 +2198,9 @@ pub mod interop_test {
 
         /// `self_ref`.
         #[allow(clippy::type_complexity)]
-        pub fn self_ref(&self) -> Result<Option<Echo>, ::rustorb_core::SystemException> {
+        pub fn self_ref(
+            &self,
+        ) -> Result<::std::option::Option<Echo>, ::rustorb_core::SystemException> {
             let request = self.0.request("self_ref");
             let reply = request
                 .invoke()
@@ -2198,7 +2214,7 @@ pub mod interop_test {
         #[allow(clippy::type_complexity)]
         pub async fn self_ref_async(
             &self,
-        ) -> Result<Option<Echo>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Echo>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("self_ref");
             let reply = request
                 .invoke()
@@ -2214,7 +2230,7 @@ pub mod interop_test {
         pub fn echo_ref(
             &self,
             other: Option<&Echo>,
-        ) -> Result<Option<Echo>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Echo>, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_ref").args(|out| {
                 Echo::_write(other, out)?;
                 Ok(())
@@ -2232,7 +2248,7 @@ pub mod interop_test {
         pub async fn echo_ref_async(
             &self,
             other: Option<&Echo>,
-        ) -> Result<Option<Echo>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Echo>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_ref").args(|out| {
                 Echo::_write(other, out)?;
                 Ok(())
@@ -2291,7 +2307,7 @@ pub mod interop_test {
             &self,
             cb: Option<&Callback>,
             message: &str,
-        ) -> Result<String, ::rustorb_core::SystemException> {
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request("call_back").args(|out| {
                 Callback::_write(cb, out)?;
                 <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(message, out)?;
@@ -2312,7 +2328,7 @@ pub mod interop_test {
             &self,
             cb: Option<&Callback>,
             message: &str,
-        ) -> Result<String, ::rustorb_core::SystemException> {
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request_async("call_back").args(|out| {
                 Callback::_write(cb, out)?;
                 <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(message, out)?;
@@ -2363,7 +2379,7 @@ pub mod interop_test {
 
         /// `trigger`.
         #[allow(clippy::type_complexity)]
-        pub fn trigger(&self, message: &str) -> Result<String, echo::TriggerError> {
+        pub fn trigger(&self, message: &str) -> Result<::std::string::String, echo::TriggerError> {
             let request = self.0.request("trigger").args(|out| {
                 <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(message, out)?;
                 Ok(())
@@ -2379,7 +2395,10 @@ pub mod interop_test {
 
         /// `trigger`, on the async API: like [`trigger`](Self::trigger).
         #[allow(clippy::type_complexity)]
-        pub async fn trigger_async(&self, message: &str) -> Result<String, echo::TriggerError> {
+        pub async fn trigger_async(
+            &self,
+            message: &str,
+        ) -> Result<::std::string::String, echo::TriggerError> {
             let request = self.0.request_async("trigger").args(|out| {
                 <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(message, out)?;
                 Ok(())
@@ -2494,11 +2513,17 @@ pub mod interop_test {
 
         /// `echo_string`.
         #[allow(clippy::type_complexity)]
-        fn echo_string(&self, v: &str) -> Result<String, ::rustorb_core::SystemException>;
+        fn echo_string(
+            &self,
+            v: &str,
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException>;
 
         /// `echo_wstring`.
         #[allow(clippy::type_complexity)]
-        fn echo_wstring(&self, v: &str) -> Result<String, ::rustorb_core::SystemException>;
+        fn echo_wstring(
+            &self,
+            v: &str,
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException>;
 
         /// `echo_color`.
         #[allow(clippy::type_complexity)]
@@ -2543,7 +2568,7 @@ pub mod interop_test {
         #[allow(clippy::type_complexity)]
         fn echo_string_seq(
             &self,
-            v: &[String],
+            v: &[::std::string::String],
         ) -> Result<StringSeq, ::rustorb_core::SystemException>;
 
         /// `echo_octets`.
@@ -2580,7 +2605,7 @@ pub mod interop_test {
 
         /// `_get_name`.
         #[allow(clippy::type_complexity)]
-        fn name(&self) -> Result<String, ::rustorb_core::SystemException>;
+        fn name(&self) -> Result<::std::string::String, ::rustorb_core::SystemException>;
 
         /// `post`.
         #[allow(clippy::type_complexity)]
@@ -2592,14 +2617,14 @@ pub mod interop_test {
 
         /// `self_ref`.
         #[allow(clippy::type_complexity)]
-        fn self_ref(&self) -> Result<Option<Echo>, ::rustorb_core::SystemException>;
+        fn self_ref(&self) -> Result<::std::option::Option<Echo>, ::rustorb_core::SystemException>;
 
         /// `echo_ref`.
         #[allow(clippy::type_complexity)]
         fn echo_ref(
             &self,
             other: Option<&Echo>,
-        ) -> Result<Option<Echo>, ::rustorb_core::SystemException>;
+        ) -> Result<::std::option::Option<Echo>, ::rustorb_core::SystemException>;
 
         /// `is_nil`.
         #[allow(clippy::type_complexity)]
@@ -2611,7 +2636,7 @@ pub mod interop_test {
             &self,
             cb: Option<&Callback>,
             message: &str,
-        ) -> Result<String, ::rustorb_core::SystemException>;
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException>;
 
         /// `register_callback`.
         #[allow(clippy::type_complexity)]
@@ -2622,7 +2647,7 @@ pub mod interop_test {
 
         /// `trigger`.
         #[allow(clippy::type_complexity)]
-        fn trigger(&self, message: &str) -> Result<String, echo::TriggerError>;
+        fn trigger(&self, message: &str) -> Result<::std::string::String, echo::TriggerError>;
 
         /// `shutdown`.
         #[allow(clippy::type_complexity)]

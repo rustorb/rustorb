@@ -125,7 +125,7 @@ pub mod any_test {
         /// Member `l`.
         L(i32),
         /// Member `s`, with its discriminator.
-        S(i32, String),
+        S(i32, ::std::string::String),
         /// The `default` member, with its discriminator.
         B(i32, bool),
     }
@@ -204,27 +204,27 @@ pub mod any_test {
     pub type Count = i32;
 
     /// IDL typedef `AnyTest::Short5`.
-    pub type Short5 = String;
+    pub type Short5 = ::std::string::String;
 
     /// IDL typedef `AnyTest::Money`.
     pub type Money = ::rustorb_core::Fixed;
 
     /// IDL typedef `AnyTest::LongSeq`.
-    pub type LongSeq = Vec<i32>;
+    pub type LongSeq = ::std::vec::Vec<i32>;
 
     /// IDL typedef `AnyTest::Octets`.
-    pub type Octets = Vec<u8>;
+    pub type Octets = ::std::vec::Vec<u8>;
 
     /// IDL typedef `AnyTest::ShortArray`.
     pub type ShortArray = [i16; 3];
 
     /// IDL typedef `AnyTest::NodeSeq`.
-    pub type NodeSeq = Vec<Node>;
+    pub type NodeSeq = ::std::vec::Vec<Node>;
 
     /// IDL struct `AnyTest::Node`.
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
     pub struct Node {
-        pub name: String,
+        pub name: ::std::string::String,
         pub children: NodeSeq,
     }
 
@@ -280,7 +280,7 @@ pub mod any_test {
     /// IDL struct `AnyTest::NameValue`.
     #[derive(Debug, Clone, PartialEq, Default)]
     pub struct NameValue {
-        pub name: String,
+        pub name: ::std::string::String,
         pub value: ::rustorb_core::Any,
     }
 
@@ -334,12 +334,12 @@ pub mod any_test {
     }
 
     /// IDL typedef `AnyTest::NVList`.
-    pub type NvList = Vec<NameValue>;
+    pub type NvList = ::std::vec::Vec<NameValue>;
 
     /// IDL exception `AnyTest::Oops`.
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
     pub struct Oops {
-        pub why: String,
+        pub why: ::std::string::String,
         pub code: i32,
     }
 
@@ -403,7 +403,7 @@ pub mod any_test {
     }
 
     /// IDL typedef `AnyTest::Names`.
-    pub type Names = Vec<String>;
+    pub type Names = ::std::vec::Vec<::std::string::String>;
 
     /// A reference to an object of the IDL interface `AnyTest::AnyEcho`.
     ///
@@ -790,7 +790,7 @@ pub mod any_test {
         pub fn describe(
             &self,
             a: &::rustorb_core::Any,
-        ) -> Result<String, ::rustorb_core::SystemException> {
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request("describe").args(|out| {
                 <::rustorb_core::idl::Any as ::rustorb_core::idl::IdlType>::write(a, out)?;
                 Ok(())
@@ -809,7 +809,7 @@ pub mod any_test {
         pub async fn describe_async(
             &self,
             a: &::rustorb_core::Any,
-        ) -> Result<String, ::rustorb_core::SystemException> {
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request_async("describe").args(|out| {
                 <::rustorb_core::idl::Any as ::rustorb_core::idl::IdlType>::write(a, out)?;
                 Ok(())
@@ -916,7 +916,7 @@ pub mod any_test {
         fn describe(
             &self,
             a: &::rustorb_core::Any,
-        ) -> Result<String, ::rustorb_core::SystemException>;
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException>;
     }
 
     /// The skeleton of `AnyEcho`: makes a `AnyEchoServant` a servant.
