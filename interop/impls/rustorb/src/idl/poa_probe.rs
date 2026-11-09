@@ -6,14 +6,14 @@ const _: () = ::rustorb_core::idl::GENERATED_CODE_VERSION_1;
 
 pub mod poa_probe {
     /// IDL typedef `PoaProbe::StringSeq`.
-    pub type StringSeq = Vec<String>;
+    pub type StringSeq = ::std::vec::Vec<::std::string::String>;
 
     /// IDL struct `PoaProbe::CallInfo`.
     #[derive(Debug, Clone, PartialEq, Default)]
     pub struct CallInfo {
-        pub thread: String,
-        pub object_id: String,
-        pub poa: String,
+        pub thread: ::std::string::String,
+        pub object_id: ::std::string::String,
+        pub poa: ::std::string::String,
         pub start: f64,
         pub end: f64,
     }
@@ -172,7 +172,7 @@ pub mod poa_probe {
             &self,
             other: Option<&Target>,
             ms: i32,
-        ) -> Result<(CallInfo, String), ::rustorb_core::SystemException> {
+        ) -> Result<(CallInfo, ::std::string::String), ::rustorb_core::SystemException> {
             let request = self.0.request("relay").args(|out| {
                 Target::_write(other, out)?;
                 <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&ms, out)?;
@@ -194,7 +194,7 @@ pub mod poa_probe {
             &self,
             other: Option<&Target>,
             ms: i32,
-        ) -> Result<(CallInfo, String), ::rustorb_core::SystemException> {
+        ) -> Result<(CallInfo, ::std::string::String), ::rustorb_core::SystemException> {
             let request = self.0.request_async("relay").args(|out| {
                 Target::_write(other, out)?;
                 <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&ms, out)?;
@@ -283,7 +283,7 @@ pub mod poa_probe {
             &self,
             other: Option<&Target>,
             ms: i32,
-        ) -> Result<(CallInfo, String), ::rustorb_core::SystemException>;
+        ) -> Result<(CallInfo, ::std::string::String), ::rustorb_core::SystemException>;
 
         /// `post`.
         #[allow(clippy::type_complexity)]
@@ -381,7 +381,7 @@ pub mod poa_probe {
     /// IDL exception `PoaProbe::Failed`.
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
     pub struct Failed {
-        pub reason: String,
+        pub reason: ::std::string::String,
     }
 
     impl Failed {
@@ -894,7 +894,11 @@ pub mod poa_probe {
 
         /// `reference`.
         #[allow(clippy::type_complexity)]
-        pub fn reference(&self, poa: &str, oid: &str) -> Result<String, control::ReferenceError> {
+        pub fn reference(
+            &self,
+            poa: &str,
+            oid: &str,
+        ) -> Result<::std::string::String, control::ReferenceError> {
             let request = self.0.request("reference").args(|out| {
                 <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(poa, out)?;
                 <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(oid, out)?;
@@ -915,7 +919,7 @@ pub mod poa_probe {
             &self,
             poa: &str,
             oid: &str,
-        ) -> Result<String, control::ReferenceError> {
+        ) -> Result<::std::string::String, control::ReferenceError> {
             let request = self.0.request_async("reference").args(|out| {
                 <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(poa, out)?;
                 <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(oid, out)?;
@@ -1089,7 +1093,7 @@ pub mod poa_probe {
         pub fn shutdown_inside(
             &self,
             wait_for_completion: bool,
-        ) -> Result<String, ::rustorb_core::SystemException> {
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request("shutdown_inside").args(|out| {
                 <::rustorb_core::idl::Boolean as ::rustorb_core::idl::IdlType>::write(
                     &wait_for_completion,
@@ -1111,7 +1115,7 @@ pub mod poa_probe {
         pub async fn shutdown_inside_async(
             &self,
             wait_for_completion: bool,
-        ) -> Result<String, ::rustorb_core::SystemException> {
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request_async("shutdown_inside").args(|out| {
                 <::rustorb_core::idl::Boolean as ::rustorb_core::idl::IdlType>::write(
                     &wait_for_completion,
@@ -1195,7 +1199,11 @@ pub mod poa_probe {
     pub trait ControlServant: Send + Sync {
         /// `reference`.
         #[allow(clippy::type_complexity)]
-        fn reference(&self, poa: &str, oid: &str) -> Result<String, control::ReferenceError>;
+        fn reference(
+            &self,
+            poa: &str,
+            oid: &str,
+        ) -> Result<::std::string::String, control::ReferenceError>;
 
         /// `set_state`.
         #[allow(clippy::type_complexity)]
@@ -1227,7 +1235,7 @@ pub mod poa_probe {
         fn shutdown_inside(
             &self,
             wait_for_completion: bool,
-        ) -> Result<String, ::rustorb_core::SystemException>;
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException>;
 
         /// `shutdown_later`.
         #[allow(clippy::type_complexity)]

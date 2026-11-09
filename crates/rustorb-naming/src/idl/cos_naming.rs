@@ -6,7 +6,7 @@ const _: () = ::rustorb_core::idl::GENERATED_CODE_VERSION_1;
 
 pub mod cos_naming {
     /// IDL typedef `CosNaming::Istring`.
-    pub type Istring = String;
+    pub type Istring = ::std::string::String;
 
     /// IDL struct `CosNaming::NameComponent`.
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
@@ -82,7 +82,7 @@ pub mod cos_naming {
     }
 
     /// IDL typedef `CosNaming::Name`.
-    pub type Name = Vec<NameComponent>;
+    pub type Name = ::std::vec::Vec<NameComponent>;
 
     /// IDL enum `CosNaming::BindingType`.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
@@ -212,7 +212,7 @@ pub mod cos_naming {
     }
 
     /// IDL typedef `CosNaming::BindingList`.
-    pub type BindingList = Vec<Binding>;
+    pub type BindingList = ::std::vec::Vec<Binding>;
 
     /// The definitions inside `CosNaming::NamingContext`.
     pub mod naming_context {
@@ -373,7 +373,7 @@ pub mod cos_naming {
         /// IDL exception `CosNaming::NamingContext::CannotProceed`.
         #[derive(Debug, Clone, PartialEq, Default)]
         pub struct CannotProceed {
-            pub cxt: Option<super::NamingContext>,
+            pub cxt: ::std::option::Option<super::NamingContext>,
             pub rest_of_name: super::Name,
         }
 
@@ -1729,7 +1729,8 @@ pub mod cos_naming {
         pub fn resolve(
             &self,
             n: &[NameComponent],
-        ) -> Result<Option<::rustorb_core::ObjectRef>, naming_context::ResolveError> {
+        ) -> Result<::std::option::Option<::rustorb_core::ObjectRef>, naming_context::ResolveError>
+        {
             let request = self.0.request("resolve").args(|out| {
                 <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
                 Ok(())
@@ -1748,7 +1749,8 @@ pub mod cos_naming {
         pub async fn resolve_async(
             &self,
             n: &[NameComponent],
-        ) -> Result<Option<::rustorb_core::ObjectRef>, naming_context::ResolveError> {
+        ) -> Result<::std::option::Option<::rustorb_core::ObjectRef>, naming_context::ResolveError>
+        {
             let request = self.0.request_async("resolve").args(|out| {
                 <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
                 Ok(())
@@ -1797,7 +1799,7 @@ pub mod cos_naming {
         #[allow(clippy::type_complexity)]
         pub fn new_context(
             &self,
-        ) -> Result<Option<NamingContext>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<NamingContext>, ::rustorb_core::SystemException> {
             let request = self.0.request("new_context");
             let reply = request
                 .invoke()
@@ -1811,7 +1813,7 @@ pub mod cos_naming {
         #[allow(clippy::type_complexity)]
         pub async fn new_context_async(
             &self,
-        ) -> Result<Option<NamingContext>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<NamingContext>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("new_context");
             let reply = request
                 .invoke()
@@ -1827,7 +1829,8 @@ pub mod cos_naming {
         pub fn bind_new_context(
             &self,
             n: &[NameComponent],
-        ) -> Result<Option<NamingContext>, naming_context::BindNewContextError> {
+        ) -> Result<::std::option::Option<NamingContext>, naming_context::BindNewContextError>
+        {
             let request = self.0.request("bind_new_context").args(|out| {
                 <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
                 Ok(())
@@ -1845,7 +1848,8 @@ pub mod cos_naming {
         pub async fn bind_new_context_async(
             &self,
             n: &[NameComponent],
-        ) -> Result<Option<NamingContext>, naming_context::BindNewContextError> {
+        ) -> Result<::std::option::Option<NamingContext>, naming_context::BindNewContextError>
+        {
             let request = self.0.request_async("bind_new_context").args(|out| {
                 <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
                 Ok(())
@@ -1885,8 +1889,10 @@ pub mod cos_naming {
         pub fn list(
             &self,
             how_many: u32,
-        ) -> Result<(BindingList, Option<BindingIterator>), ::rustorb_core::SystemException>
-        {
+        ) -> Result<
+            (BindingList, ::std::option::Option<BindingIterator>),
+            ::rustorb_core::SystemException,
+        > {
             let request = self.0.request("list").args(|out| {
                 <::rustorb_core::idl::ULong as ::rustorb_core::idl::IdlType>::write(
                     &how_many, out,
@@ -1907,8 +1913,10 @@ pub mod cos_naming {
         pub async fn list_async(
             &self,
             how_many: u32,
-        ) -> Result<(BindingList, Option<BindingIterator>), ::rustorb_core::SystemException>
-        {
+        ) -> Result<
+            (BindingList, ::std::option::Option<BindingIterator>),
+            ::rustorb_core::SystemException,
+        > {
             let request = self.0.request_async("list").args(|out| {
                 <::rustorb_core::idl::ULong as ::rustorb_core::idl::IdlType>::write(
                     &how_many, out,
@@ -1996,7 +2004,7 @@ pub mod cos_naming {
         fn resolve(
             &self,
             n: &[NameComponent],
-        ) -> Result<Option<::rustorb_core::ObjectRef>, naming_context::ResolveError>;
+        ) -> Result<::std::option::Option<::rustorb_core::ObjectRef>, naming_context::ResolveError>;
 
         /// `unbind`.
         #[allow(clippy::type_complexity)]
@@ -2004,14 +2012,16 @@ pub mod cos_naming {
 
         /// `new_context`.
         #[allow(clippy::type_complexity)]
-        fn new_context(&self) -> Result<Option<NamingContext>, ::rustorb_core::SystemException>;
+        fn new_context(
+            &self,
+        ) -> Result<::std::option::Option<NamingContext>, ::rustorb_core::SystemException>;
 
         /// `bind_new_context`.
         #[allow(clippy::type_complexity)]
         fn bind_new_context(
             &self,
             n: &[NameComponent],
-        ) -> Result<Option<NamingContext>, naming_context::BindNewContextError>;
+        ) -> Result<::std::option::Option<NamingContext>, naming_context::BindNewContextError>;
 
         /// `destroy`.
         #[allow(clippy::type_complexity)]
@@ -2022,7 +2032,10 @@ pub mod cos_naming {
         fn list(
             &self,
             how_many: u32,
-        ) -> Result<(BindingList, Option<BindingIterator>), ::rustorb_core::SystemException>;
+        ) -> Result<
+            (BindingList, ::std::option::Option<BindingIterator>),
+            ::rustorb_core::SystemException,
+        >;
     }
 
     /// The skeleton of `NamingContext`: makes a `NamingContextServant` a servant.
@@ -2457,13 +2470,13 @@ pub mod cos_naming {
     /// The definitions inside `CosNaming::NamingContextExt`.
     pub mod naming_context_ext {
         /// IDL typedef `CosNaming::NamingContextExt::StringName`.
-        pub type StringName = String;
+        pub type StringName = ::std::string::String;
 
         /// IDL typedef `CosNaming::NamingContextExt::Address`.
-        pub type Address = String;
+        pub type Address = ::std::string::String;
 
         /// IDL typedef `CosNaming::NamingContextExt::URLString`.
-        pub type UrlString = String;
+        pub type UrlString = ::std::string::String;
 
         /// IDL exception `CosNaming::NamingContextExt::InvalidAddress`.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -3200,8 +3213,10 @@ pub mod cos_naming {
         pub fn resolve_str(
             &self,
             n: &str,
-        ) -> Result<Option<::rustorb_core::ObjectRef>, naming_context_ext::ResolveStrError>
-        {
+        ) -> Result<
+            ::std::option::Option<::rustorb_core::ObjectRef>,
+            naming_context_ext::ResolveStrError,
+        > {
             let request = self.0.request("resolve_str").args(|out| {
                 <naming_context_ext::alias::StringName as ::rustorb_core::idl::IdlType>::write(
                     n, out,
@@ -3222,8 +3237,10 @@ pub mod cos_naming {
         pub async fn resolve_str_async(
             &self,
             n: &str,
-        ) -> Result<Option<::rustorb_core::ObjectRef>, naming_context_ext::ResolveStrError>
-        {
+        ) -> Result<
+            ::std::option::Option<::rustorb_core::ObjectRef>,
+            naming_context_ext::ResolveStrError,
+        > {
             let request = self.0.request_async("resolve_str").args(|out| {
                 <naming_context_ext::alias::StringName as ::rustorb_core::idl::IdlType>::write(
                     n, out,
@@ -3393,7 +3410,8 @@ pub mod cos_naming {
         pub fn resolve(
             &self,
             n: &[NameComponent],
-        ) -> Result<Option<::rustorb_core::ObjectRef>, naming_context::ResolveError> {
+        ) -> Result<::std::option::Option<::rustorb_core::ObjectRef>, naming_context::ResolveError>
+        {
             let request = self.0.request("resolve").args(|out| {
                 <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
                 Ok(())
@@ -3412,7 +3430,8 @@ pub mod cos_naming {
         pub async fn resolve_async(
             &self,
             n: &[NameComponent],
-        ) -> Result<Option<::rustorb_core::ObjectRef>, naming_context::ResolveError> {
+        ) -> Result<::std::option::Option<::rustorb_core::ObjectRef>, naming_context::ResolveError>
+        {
             let request = self.0.request_async("resolve").args(|out| {
                 <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
                 Ok(())
@@ -3461,7 +3480,7 @@ pub mod cos_naming {
         #[allow(clippy::type_complexity)]
         pub fn new_context(
             &self,
-        ) -> Result<Option<NamingContext>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<NamingContext>, ::rustorb_core::SystemException> {
             let request = self.0.request("new_context");
             let reply = request
                 .invoke()
@@ -3475,7 +3494,7 @@ pub mod cos_naming {
         #[allow(clippy::type_complexity)]
         pub async fn new_context_async(
             &self,
-        ) -> Result<Option<NamingContext>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<NamingContext>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("new_context");
             let reply = request
                 .invoke()
@@ -3491,7 +3510,8 @@ pub mod cos_naming {
         pub fn bind_new_context(
             &self,
             n: &[NameComponent],
-        ) -> Result<Option<NamingContext>, naming_context::BindNewContextError> {
+        ) -> Result<::std::option::Option<NamingContext>, naming_context::BindNewContextError>
+        {
             let request = self.0.request("bind_new_context").args(|out| {
                 <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
                 Ok(())
@@ -3509,7 +3529,8 @@ pub mod cos_naming {
         pub async fn bind_new_context_async(
             &self,
             n: &[NameComponent],
-        ) -> Result<Option<NamingContext>, naming_context::BindNewContextError> {
+        ) -> Result<::std::option::Option<NamingContext>, naming_context::BindNewContextError>
+        {
             let request = self.0.request_async("bind_new_context").args(|out| {
                 <alias::Name as ::rustorb_core::idl::IdlType>::write(n, out)?;
                 Ok(())
@@ -3549,8 +3570,10 @@ pub mod cos_naming {
         pub fn list(
             &self,
             how_many: u32,
-        ) -> Result<(BindingList, Option<BindingIterator>), ::rustorb_core::SystemException>
-        {
+        ) -> Result<
+            (BindingList, ::std::option::Option<BindingIterator>),
+            ::rustorb_core::SystemException,
+        > {
             let request = self.0.request("list").args(|out| {
                 <::rustorb_core::idl::ULong as ::rustorb_core::idl::IdlType>::write(
                     &how_many, out,
@@ -3571,8 +3594,10 @@ pub mod cos_naming {
         pub async fn list_async(
             &self,
             how_many: u32,
-        ) -> Result<(BindingList, Option<BindingIterator>), ::rustorb_core::SystemException>
-        {
+        ) -> Result<
+            (BindingList, ::std::option::Option<BindingIterator>),
+            ::rustorb_core::SystemException,
+        > {
             let request = self.0.request_async("list").args(|out| {
                 <::rustorb_core::idl::ULong as ::rustorb_core::idl::IdlType>::write(
                     &how_many, out,
@@ -3647,7 +3672,10 @@ pub mod cos_naming {
         fn resolve_str(
             &self,
             n: &str,
-        ) -> Result<Option<::rustorb_core::ObjectRef>, naming_context_ext::ResolveStrError>;
+        ) -> Result<
+            ::std::option::Option<::rustorb_core::ObjectRef>,
+            naming_context_ext::ResolveStrError,
+        >;
     }
 
     /// The skeleton of `NamingContextExt`: makes a `NamingContextExtServant` a servant.

@@ -379,13 +379,13 @@ pub mod rust_mapping {
     pub type Count2 = Count;
 
     /// IDL typedef `RustMapping::ShortString`.
-    pub type ShortString = String;
+    pub type ShortString = ::std::string::String;
 
     /// IDL typedef `RustMapping::BoundedSeq`.
-    pub type BoundedSeq = Vec<i32>;
+    pub type BoundedSeq = ::std::vec::Vec<i32>;
 
     /// IDL typedef `RustMapping::NestedSeq`.
-    pub type NestedSeq = Vec<Vec<String>>;
+    pub type NestedSeq = ::std::vec::Vec<::std::vec::Vec<::std::string::String>>;
 
     /// IDL typedef `RustMapping::Grid`.
     pub type Grid = [[i16; 2]; 2];
@@ -394,10 +394,10 @@ pub mod rust_mapping {
     pub type FruitAlias = Fruit;
 
     /// IDL typedef `RustMapping::Octets`.
-    pub type Octets = Vec<u8>;
+    pub type Octets = ::std::vec::Vec<u8>;
 
     /// IDL typedef `RustMapping::WideNames`.
-    pub type WideNames = Vec<String>;
+    pub type WideNames = ::std::vec::Vec<::std::string::String>;
 
     /// IDL struct `RustMapping::Pair`.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -482,7 +482,7 @@ pub mod rust_mapping {
     }
 
     /// IDL typedef `RustMapping::PairSeq`.
-    pub type PairSeq = Vec<Pair>;
+    pub type PairSeq = ::std::vec::Vec<Pair>;
 
     /// IDL constant `RustMapping::C_QUAD`.
     pub const C_QUAD: ::rustorb_core::LongDouble = ::rustorb_core::LongDouble::from_f64(0.5);
@@ -491,7 +491,7 @@ pub mod rust_mapping {
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
     pub struct Quads {
         pub one: ::rustorb_core::LongDouble,
-        pub many: Vec<::rustorb_core::LongDouble>,
+        pub many: ::std::vec::Vec<::rustorb_core::LongDouble>,
         pub pair: [::rustorb_core::LongDouble; 2],
     }
 
@@ -549,8 +549,8 @@ pub mod rust_mapping {
     /// IDL struct `RustMapping::Tree`.
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
     pub struct Tree {
-        pub label: String,
-        pub children: Vec<Tree>,
+        pub label: ::std::string::String,
+        pub children: ::std::vec::Vec<Tree>,
     }
 
     impl Tree {
@@ -615,7 +615,7 @@ pub mod rust_mapping {
         /// Member `leaf`.
         Leaf(i32),
         /// Member `branch`.
-        Branch(Vec<Node>),
+        Branch(::std::vec::Vec<Node>),
         /// No member: a discriminator no label has.
         Default(i16),
     }
@@ -718,7 +718,7 @@ pub mod rust_mapping {
         /// Member `yes`.
         Yes(i32),
         /// Member `no`.
-        No(String),
+        No(::std::string::String),
     }
 
     impl ByBool {
@@ -786,7 +786,7 @@ pub mod rust_mapping {
         /// Member `a`.
         A(i32),
         /// Member `bc`, with its discriminator.
-        Bc(char, String),
+        Bc(char, ::std::string::String),
         /// No member: a discriminator no label has.
         Default(char),
     }
@@ -864,7 +864,7 @@ pub mod rust_mapping {
         /// Member `apple_count`.
         AppleCount(i32),
         /// Member `cherry_name`.
-        CherryName(String),
+        CherryName(::std::string::String),
         /// The `default` member, with its discriminator.
         Other(Fruit, bool),
     }
@@ -1182,21 +1182,21 @@ pub mod rust_mapping {
     #[derive(Debug, Clone, PartialEq, Default)]
     pub struct Holder {
         pub numbers: [i32; 3],
-        pub pairs: Vec<Pair>,
+        pub pairs: ::std::vec::Vec<Pair>,
         pub cells: Grid,
         pub tag: ShortString,
         pub bounded: BoundedSeq,
         pub extra: ::rustorb_core::Any,
-        pub target: Option<::rustorb_core::ObjectRef>,
+        pub target: ::std::option::Option<::rustorb_core::ObjectRef>,
         pub price: Money,
-        pub wide: String,
+        pub wide: ::std::string::String,
         pub letter: char,
         pub ascii: char,
         pub data: Octets,
         pub names: WideNames,
         pub r#type: i32,
         pub self_: bool,
-        pub camel_case_name: String,
+        pub camel_case_name: ::std::string::String,
     }
 
     impl Holder {
@@ -1485,7 +1485,7 @@ pub mod rust_mapping {
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
     pub struct Failure {
         pub code: i32,
-        pub message: String,
+        pub message: ::std::string::String,
         pub kind: Fruit,
     }
 
@@ -1625,12 +1625,12 @@ pub mod rust_mapping {
         pub const BASE_CONST: i32 = 7;
 
         /// IDL typedef `RustMapping::Base::LaterSeq`.
-        pub type LaterSeq = Vec<Option<super::Later>>;
+        pub type LaterSeq = ::std::vec::Vec<::std::option::Option<super::Later>>;
 
         /// IDL exception `RustMapping::Base::BaseError`.
         #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
         pub struct BaseError {
-            pub why: String,
+            pub why: ::std::string::String,
         }
 
         impl BaseError {
@@ -1957,7 +1957,7 @@ pub mod rust_mapping {
 
         /// `_get_label`.
         #[allow(clippy::type_complexity)]
-        pub fn label(&self) -> Result<String, ::rustorb_core::SystemException> {
+        pub fn label(&self) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request("_get_label");
             let reply = request
                 .invoke()
@@ -1970,7 +1970,9 @@ pub mod rust_mapping {
 
         /// `_get_label`, on the async API: like [`label`](Self::label).
         #[allow(clippy::type_complexity)]
-        pub async fn label_async(&self) -> Result<String, ::rustorb_core::SystemException> {
+        pub async fn label_async(
+            &self,
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request_async("_get_label");
             let reply = request
                 .invoke()
@@ -2073,7 +2075,7 @@ pub mod rust_mapping {
 
         /// `_get_label`.
         #[allow(clippy::type_complexity)]
-        fn label(&self) -> Result<String, ::rustorb_core::SystemException>;
+        fn label(&self) -> Result<::std::string::String, ::rustorb_core::SystemException>;
 
         /// `_set_label`.
         #[allow(clippy::type_complexity)]
@@ -2393,7 +2395,9 @@ pub mod rust_mapping {
 
         /// `as_base`.
         #[allow(clippy::type_complexity)]
-        pub fn as_base(&self) -> Result<Option<Base>, ::rustorb_core::SystemException> {
+        pub fn as_base(
+            &self,
+        ) -> Result<::std::option::Option<Base>, ::rustorb_core::SystemException> {
             let request = self.0.request("as_base");
             let reply = request
                 .invoke()
@@ -2405,7 +2409,9 @@ pub mod rust_mapping {
 
         /// `as_base`, on the async API: like [`as_base`](Self::as_base).
         #[allow(clippy::type_complexity)]
-        pub async fn as_base_async(&self) -> Result<Option<Base>, ::rustorb_core::SystemException> {
+        pub async fn as_base_async(
+            &self,
+        ) -> Result<::std::option::Option<Base>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("as_base");
             let reply = request
                 .invoke()
@@ -2449,7 +2455,7 @@ pub mod rust_mapping {
             &self,
             r#match: &str,
             pair: &mut Pair,
-        ) -> Result<String, ::rustorb_core::SystemException> {
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request("getValue").args(|out| {
                 <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(r#match, out)?;
                 <Pair as ::rustorb_core::idl::IdlType>::write(&*pair, out)?;
@@ -2471,7 +2477,7 @@ pub mod rust_mapping {
             &self,
             r#match: &str,
             pair: &mut Pair,
-        ) -> Result<String, ::rustorb_core::SystemException> {
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request_async("getValue").args(|out| {
                 <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(r#match, out)?;
                 <Pair as ::rustorb_core::idl::IdlType>::write(&*pair, out)?;
@@ -2584,7 +2590,7 @@ pub mod rust_mapping {
 
         /// `_get_label`.
         #[allow(clippy::type_complexity)]
-        pub fn label(&self) -> Result<String, ::rustorb_core::SystemException> {
+        pub fn label(&self) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request("_get_label");
             let reply = request
                 .invoke()
@@ -2597,7 +2603,9 @@ pub mod rust_mapping {
 
         /// `_get_label`, on the async API: like [`label`](Self::label).
         #[allow(clippy::type_complexity)]
-        pub async fn label_async(&self) -> Result<String, ::rustorb_core::SystemException> {
+        pub async fn label_async(
+            &self,
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request_async("_get_label");
             let reply = request
                 .invoke()
@@ -2704,7 +2712,7 @@ pub mod rust_mapping {
 
         /// `as_base`.
         #[allow(clippy::type_complexity)]
-        fn as_base(&self) -> Result<Option<Base>, ::rustorb_core::SystemException>;
+        fn as_base(&self) -> Result<::std::option::Option<Base>, ::rustorb_core::SystemException>;
 
         /// `laters`.
         #[allow(clippy::type_complexity)]
@@ -2716,7 +2724,7 @@ pub mod rust_mapping {
             &self,
             r#match: &str,
             pair: &mut Pair,
-        ) -> Result<String, ::rustorb_core::SystemException>;
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException>;
 
         /// `take`.
         #[allow(clippy::too_many_arguments)]
@@ -3234,7 +3242,9 @@ pub mod rust_mapping {
 
         /// `as_base`.
         #[allow(clippy::type_complexity)]
-        pub fn as_base(&self) -> Result<Option<Base>, ::rustorb_core::SystemException> {
+        pub fn as_base(
+            &self,
+        ) -> Result<::std::option::Option<Base>, ::rustorb_core::SystemException> {
             let request = self.0.request("as_base");
             let reply = request
                 .invoke()
@@ -3246,7 +3256,9 @@ pub mod rust_mapping {
 
         /// `as_base`, on the async API: like [`as_base`](Self::as_base).
         #[allow(clippy::type_complexity)]
-        pub async fn as_base_async(&self) -> Result<Option<Base>, ::rustorb_core::SystemException> {
+        pub async fn as_base_async(
+            &self,
+        ) -> Result<::std::option::Option<Base>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("as_base");
             let reply = request
                 .invoke()
@@ -3290,7 +3302,7 @@ pub mod rust_mapping {
             &self,
             r#match: &str,
             pair: &mut Pair,
-        ) -> Result<String, ::rustorb_core::SystemException> {
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request("getValue").args(|out| {
                 <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(r#match, out)?;
                 <Pair as ::rustorb_core::idl::IdlType>::write(&*pair, out)?;
@@ -3312,7 +3324,7 @@ pub mod rust_mapping {
             &self,
             r#match: &str,
             pair: &mut Pair,
-        ) -> Result<String, ::rustorb_core::SystemException> {
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request_async("getValue").args(|out| {
                 <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(r#match, out)?;
                 <Pair as ::rustorb_core::idl::IdlType>::write(&*pair, out)?;
@@ -3446,7 +3458,7 @@ pub mod rust_mapping {
 
         /// `_get_label`.
         #[allow(clippy::type_complexity)]
-        pub fn label(&self) -> Result<String, ::rustorb_core::SystemException> {
+        pub fn label(&self) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request("_get_label");
             let reply = request
                 .invoke()
@@ -3459,7 +3471,9 @@ pub mod rust_mapping {
 
         /// `_get_label`, on the async API: like [`label`](Self::label).
         #[allow(clippy::type_complexity)]
-        pub async fn label_async(&self) -> Result<String, ::rustorb_core::SystemException> {
+        pub async fn label_async(
+            &self,
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request_async("_get_label");
             let reply = request
                 .invoke()
@@ -3781,7 +3795,9 @@ pub mod rust_mapping {
 
         /// `next`.
         #[allow(clippy::type_complexity)]
-        pub fn next(&self) -> Result<Option<Later>, ::rustorb_core::SystemException> {
+        pub fn next(
+            &self,
+        ) -> Result<::std::option::Option<Later>, ::rustorb_core::SystemException> {
             let request = self.0.request("next");
             let reply = request
                 .invoke()
@@ -3793,7 +3809,9 @@ pub mod rust_mapping {
 
         /// `next`, on the async API: like [`next`](Self::next).
         #[allow(clippy::type_complexity)]
-        pub async fn next_async(&self) -> Result<Option<Later>, ::rustorb_core::SystemException> {
+        pub async fn next_async(
+            &self,
+        ) -> Result<::std::option::Option<Later>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("next");
             let reply = request
                 .invoke()
@@ -3840,7 +3858,7 @@ pub mod rust_mapping {
     pub trait LaterServant: Send + Sync {
         /// `next`.
         #[allow(clippy::type_complexity)]
-        fn next(&self) -> Result<Option<Later>, ::rustorb_core::SystemException>;
+        fn next(&self) -> Result<::std::option::Option<Later>, ::rustorb_core::SystemException>;
     }
 
     /// The skeleton of `Later`: makes a `LaterServant` a servant.
@@ -3909,18 +3927,18 @@ pub mod rust_mapping {
     }
 
     /// IDL typedef `RustMapping::BaseAlias`.
-    pub type BaseAlias = Option<Base>;
+    pub type BaseAlias = ::std::option::Option<Base>;
 
     /// IDL typedef `RustMapping::ByBoolAlias`.
     pub type ByBoolAlias = ByBool;
 
     /// IDL typedef `RustMapping::BaseSeq`.
-    pub type BaseSeq = Vec<Option<Base>>;
+    pub type BaseSeq = ::std::vec::Vec<::std::option::Option<Base>>;
 
     /// The state of the IDL valuetype `RustMapping::Shape`.
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
     pub struct ShapeState {
-        pub name: String,
+        pub name: ::std::string::String,
         /// A private member.
         pub secret: i32,
     }
@@ -4266,7 +4284,7 @@ pub mod rust_mapping {
     #[derive(Debug, Clone, Default)]
     pub struct LinkState {
         pub id: i32,
-        pub next: Option<Link>,
+        pub next: ::std::option::Option<Link>,
     }
 
     impl ::rustorb_core::idl::ValueState for LinkState {
@@ -4582,7 +4600,7 @@ pub mod rust_mapping {
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
     pub struct TaggedState {
         pub tag: i32,
-        pub text: String,
+        pub text: ::std::string::String,
     }
 
     impl ::rustorb_core::idl::ValueState for TaggedState {
@@ -5109,9 +5127,9 @@ pub mod rust_mapping {
     /// IDL struct `RustMapping::Drawing`.
     #[derive(Debug, Clone, Default)]
     pub struct Drawing {
-        pub main: Option<Shape>,
-        pub others: Vec<Option<Shape>>,
-        pub count: Option<LongBox>,
+        pub main: ::std::option::Option<Shape>,
+        pub others: ::std::vec::Vec<::std::option::Option<Shape>>,
+        pub count: ::std::option::Option<LongBox>,
     }
 
     impl Drawing {
@@ -5244,7 +5262,7 @@ pub mod rust_mapping {
         pub fn echo_shape(
             &self,
             s: Option<&Shape>,
-        ) -> Result<Option<Shape>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Shape>, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_shape").args(|out| {
                 Shape::_write(s, out)?;
                 Ok(())
@@ -5262,7 +5280,7 @@ pub mod rust_mapping {
         pub async fn echo_shape_async(
             &self,
             s: Option<&Shape>,
-        ) -> Result<Option<Shape>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Shape>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_shape").args(|out| {
                 Shape::_write(s, out)?;
                 Ok(())
@@ -5318,7 +5336,7 @@ pub mod rust_mapping {
         pub fn echo_box(
             &self,
             b: Option<&LongBox>,
-        ) -> Result<Option<LongBox>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<LongBox>, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_box").args(|out| {
                 LongBox::_write(b, out)?;
                 Ok(())
@@ -5336,7 +5354,7 @@ pub mod rust_mapping {
         pub async fn echo_box_async(
             &self,
             b: Option<&LongBox>,
-        ) -> Result<Option<LongBox>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<LongBox>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_box").args(|out| {
                 LongBox::_write(b, out)?;
                 Ok(())
@@ -5355,7 +5373,7 @@ pub mod rust_mapping {
         pub fn echo_tagged(
             &self,
             t: Option<&Tagged>,
-        ) -> Result<Option<Tagged>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Tagged>, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_tagged").args(|out| {
                 Tagged::_write(t, out)?;
                 Ok(())
@@ -5373,7 +5391,7 @@ pub mod rust_mapping {
         pub async fn echo_tagged_async(
             &self,
             t: Option<&Tagged>,
-        ) -> Result<Option<Tagged>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Tagged>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_tagged").args(|out| {
                 Tagged::_write(t, out)?;
                 Ok(())
@@ -5392,7 +5410,7 @@ pub mod rust_mapping {
         pub fn echo_gauge(
             &self,
             g: Option<&Gauge>,
-        ) -> Result<Option<Gauge>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Gauge>, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_gauge").args(|out| {
                 Gauge::_write(g, out)?;
                 Ok(())
@@ -5410,7 +5428,7 @@ pub mod rust_mapping {
         pub async fn echo_gauge_async(
             &self,
             g: Option<&Gauge>,
-        ) -> Result<Option<Gauge>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Gauge>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_gauge").args(|out| {
                 Gauge::_write(g, out)?;
                 Ok(())
@@ -5502,7 +5520,7 @@ pub mod rust_mapping {
         fn echo_shape(
             &self,
             s: Option<&Shape>,
-        ) -> Result<Option<Shape>, ::rustorb_core::SystemException>;
+        ) -> Result<::std::option::Option<Shape>, ::rustorb_core::SystemException>;
 
         /// `echo_drawing`.
         #[allow(clippy::type_complexity)]
@@ -5513,21 +5531,21 @@ pub mod rust_mapping {
         fn echo_box(
             &self,
             b: Option<&LongBox>,
-        ) -> Result<Option<LongBox>, ::rustorb_core::SystemException>;
+        ) -> Result<::std::option::Option<LongBox>, ::rustorb_core::SystemException>;
 
         /// `echo_tagged`.
         #[allow(clippy::type_complexity)]
         fn echo_tagged(
             &self,
             t: Option<&Tagged>,
-        ) -> Result<Option<Tagged>, ::rustorb_core::SystemException>;
+        ) -> Result<::std::option::Option<Tagged>, ::rustorb_core::SystemException>;
 
         /// `echo_gauge`.
         #[allow(clippy::type_complexity)]
         fn echo_gauge(
             &self,
             g: Option<&Gauge>,
-        ) -> Result<Option<Gauge>, ::rustorb_core::SystemException>;
+        ) -> Result<::std::option::Option<Gauge>, ::rustorb_core::SystemException>;
 
         /// `read_meter`.
         #[allow(clippy::type_complexity)]
@@ -5710,7 +5728,7 @@ pub mod rust_mapping {
 
         /// `label_of`.
         #[allow(clippy::type_complexity)]
-        pub fn label_of(&self) -> Result<String, ::rustorb_core::SystemException> {
+        pub fn label_of(&self) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let obj = match self {
                 Labeled::Object(obj) => obj,
                 Labeled::Value(v) => return v.ops().label_of(),
@@ -5727,7 +5745,9 @@ pub mod rust_mapping {
 
         /// `label_of`, on the async API: like [`label_of`](Self::label_of).
         #[allow(clippy::type_complexity)]
-        pub async fn label_of_async(&self) -> Result<String, ::rustorb_core::SystemException> {
+        pub async fn label_of_async(
+            &self,
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let obj = match self {
                 Labeled::Object(obj) => obj,
                 Labeled::Value(v) => return v.ops().label_of(),
@@ -5783,12 +5803,12 @@ pub mod rust_mapping {
     pub trait LabeledServant: Send + Sync {
         /// `label_of`.
         #[allow(clippy::type_complexity)]
-        fn label_of(&self) -> Result<String, ::rustorb_core::SystemException>;
+        fn label_of(&self) -> Result<::std::string::String, ::rustorb_core::SystemException>;
     }
 
     impl<T: ?Sized + LabeledServant> LabeledServant for ::rustorb_core::idl::Upcast<T> {
         #[allow(clippy::type_complexity)]
-        fn label_of(&self) -> Result<String, ::rustorb_core::SystemException> {
+        fn label_of(&self) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             self.0.label_of()
         }
     }
@@ -6032,7 +6052,10 @@ pub mod rust_mapping {
 
         /// `retitle`.
         #[allow(clippy::type_complexity)]
-        pub fn retitle(&self, title: &mut String) -> Result<(), titled::RetitleError> {
+        pub fn retitle(
+            &self,
+            title: &mut ::std::string::String,
+        ) -> Result<(), titled::RetitleError> {
             let obj = match self {
                 Titled::Object(obj) => obj,
                 Titled::Value(v) => return v.ops().retitle(title),
@@ -6052,7 +6075,10 @@ pub mod rust_mapping {
 
         /// `retitle`, on the async API: like [`retitle`](Self::retitle).
         #[allow(clippy::type_complexity)]
-        pub async fn retitle_async(&self, title: &mut String) -> Result<(), titled::RetitleError> {
+        pub async fn retitle_async(
+            &self,
+            title: &mut ::std::string::String,
+        ) -> Result<(), titled::RetitleError> {
             let obj = match self {
                 Titled::Object(obj) => obj,
                 Titled::Value(v) => return v.ops().retitle(title),
@@ -6073,7 +6099,7 @@ pub mod rust_mapping {
 
         /// `label_of`.
         #[allow(clippy::type_complexity)]
-        pub fn label_of(&self) -> Result<String, ::rustorb_core::SystemException> {
+        pub fn label_of(&self) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let obj = match self {
                 Titled::Object(obj) => obj,
                 Titled::Value(v) => return v.ops().label_of(),
@@ -6090,7 +6116,9 @@ pub mod rust_mapping {
 
         /// `label_of`, on the async API: like [`label_of`](Self::label_of).
         #[allow(clippy::type_complexity)]
-        pub async fn label_of_async(&self) -> Result<String, ::rustorb_core::SystemException> {
+        pub async fn label_of_async(
+            &self,
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let obj = match self {
                 Titled::Object(obj) => obj,
                 Titled::Value(v) => return v.ops().label_of(),
@@ -6154,7 +6182,7 @@ pub mod rust_mapping {
 
         /// `retitle`.
         #[allow(clippy::type_complexity)]
-        fn retitle(&self, title: &mut String) -> Result<(), titled::RetitleError>;
+        fn retitle(&self, title: &mut ::std::string::String) -> Result<(), titled::RetitleError>;
     }
 
     impl<T: ?Sized + TitledServant> TitledServant for ::rustorb_core::idl::Upcast<T> {
@@ -6169,7 +6197,7 @@ pub mod rust_mapping {
         }
 
         #[allow(clippy::type_complexity)]
-        fn retitle(&self, title: &mut String) -> Result<(), titled::RetitleError> {
+        fn retitle(&self, title: &mut ::std::string::String) -> Result<(), titled::RetitleError> {
             self.0.retitle(title)
         }
     }
@@ -6320,7 +6348,10 @@ pub mod rust_mapping {
 
         /// `retitle`.
         #[allow(clippy::type_complexity)]
-        pub fn retitle(&self, title: &mut String) -> Result<(), titled::RetitleError> {
+        pub fn retitle(
+            &self,
+            title: &mut ::std::string::String,
+        ) -> Result<(), titled::RetitleError> {
             let request = self.0.request("retitle").args(|out| {
                 <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(&*title, out)?;
                 Ok(())
@@ -6336,7 +6367,10 @@ pub mod rust_mapping {
 
         /// `retitle`, on the async API: like [`retitle`](Self::retitle).
         #[allow(clippy::type_complexity)]
-        pub async fn retitle_async(&self, title: &mut String) -> Result<(), titled::RetitleError> {
+        pub async fn retitle_async(
+            &self,
+            title: &mut ::std::string::String,
+        ) -> Result<(), titled::RetitleError> {
             let request = self.0.request_async("retitle").args(|out| {
                 <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(&*title, out)?;
                 Ok(())
@@ -6353,7 +6387,7 @@ pub mod rust_mapping {
 
         /// `label_of`.
         #[allow(clippy::type_complexity)]
-        pub fn label_of(&self) -> Result<String, ::rustorb_core::SystemException> {
+        pub fn label_of(&self) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request("label_of");
             let reply = request
                 .invoke()
@@ -6366,7 +6400,9 @@ pub mod rust_mapping {
 
         /// `label_of`, on the async API: like [`label_of`](Self::label_of).
         #[allow(clippy::type_complexity)]
-        pub async fn label_of_async(&self) -> Result<String, ::rustorb_core::SystemException> {
+        pub async fn label_of_async(
+            &self,
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request_async("label_of");
             let reply = request
                 .invoke()
@@ -6527,7 +6563,7 @@ pub mod rust_mapping {
     /// The state of the IDL valuetype `RustMapping::Note`.
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
     pub struct NoteState {
-        pub text: String,
+        pub text: ::std::string::String,
         pub level: i32,
     }
 
@@ -6690,11 +6726,14 @@ pub mod rust_mapping {
 
         /// `retitle`.
         #[allow(clippy::type_complexity)]
-        fn retitle(&mut self, title: &mut String) -> Result<(), titled::RetitleError>;
+        fn retitle(
+            &mut self,
+            title: &mut ::std::string::String,
+        ) -> Result<(), titled::RetitleError>;
 
         /// `label_of`.
         #[allow(clippy::type_complexity)]
-        fn label_of(&mut self) -> Result<String, ::rustorb_core::SystemException>;
+        fn label_of(&mut self) -> Result<::std::string::String, ::rustorb_core::SystemException>;
     }
 
     impl TitledServant for Note {
@@ -6710,7 +6749,7 @@ pub mod rust_mapping {
         }
 
         #[allow(clippy::type_complexity)]
-        fn retitle(&self, title: &mut String) -> Result<(), titled::RetitleError> {
+        fn retitle(&self, title: &mut ::std::string::String) -> Result<(), titled::RetitleError> {
             self.0
                 .with_mut(|s: &mut NoteState| NoteOperations::retitle(s, title))
         }
@@ -6718,7 +6757,7 @@ pub mod rust_mapping {
 
     impl LabeledServant for Note {
         #[allow(clippy::type_complexity)]
-        fn label_of(&self) -> Result<String, ::rustorb_core::SystemException> {
+        fn label_of(&self) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             self.0
                 .with_mut(|s: &mut NoteState| NoteOperations::label_of(s))
         }
@@ -6747,8 +6786,8 @@ pub mod rust_mapping {
     /// IDL struct `RustMapping::TitledPair`.
     #[derive(Debug, Clone, Default)]
     pub struct TitledPair {
-        pub first: Option<Titled>,
-        pub second: Option<Labeled>,
+        pub first: ::std::option::Option<Titled>,
+        pub second: ::std::option::Option<Labeled>,
     }
 
     impl TitledPair {
@@ -6868,7 +6907,7 @@ pub mod rust_mapping {
         pub fn echo_titled(
             &self,
             t: Option<&Titled>,
-        ) -> Result<Option<Titled>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Titled>, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_titled").args(|out| {
                 Titled::_write(t, out)?;
                 Ok(())
@@ -6886,7 +6925,7 @@ pub mod rust_mapping {
         pub async fn echo_titled_async(
             &self,
             t: Option<&Titled>,
-        ) -> Result<Option<Titled>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Titled>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_titled").args(|out| {
                 Titled::_write(t, out)?;
                 Ok(())
@@ -6942,7 +6981,7 @@ pub mod rust_mapping {
         pub fn label(
             &self,
             l: Option<&Labeled>,
-        ) -> Result<String, ::rustorb_core::SystemException> {
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request("label").args(|out| {
                 Labeled::_write(l, out)?;
                 Ok(())
@@ -6961,7 +7000,7 @@ pub mod rust_mapping {
         pub async fn label_async(
             &self,
             l: Option<&Labeled>,
-        ) -> Result<String, ::rustorb_core::SystemException> {
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request_async("label").args(|out| {
                 Labeled::_write(l, out)?;
                 Ok(())
@@ -6981,7 +7020,7 @@ pub mod rust_mapping {
         pub fn make_book(
             &self,
             title: &str,
-        ) -> Result<Option<Book>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Book>, ::rustorb_core::SystemException> {
             let request = self.0.request("make_book").args(|out| {
                 <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(title, out)?;
                 Ok(())
@@ -6999,7 +7038,7 @@ pub mod rust_mapping {
         pub async fn make_book_async(
             &self,
             title: &str,
-        ) -> Result<Option<Book>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Book>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("make_book").args(|out| {
                 <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(title, out)?;
                 Ok(())
@@ -7052,7 +7091,7 @@ pub mod rust_mapping {
         fn echo_titled(
             &self,
             t: Option<&Titled>,
-        ) -> Result<Option<Titled>, ::rustorb_core::SystemException>;
+        ) -> Result<::std::option::Option<Titled>, ::rustorb_core::SystemException>;
 
         /// `echo_titled_pair`.
         #[allow(clippy::type_complexity)]
@@ -7063,11 +7102,17 @@ pub mod rust_mapping {
 
         /// `label`.
         #[allow(clippy::type_complexity)]
-        fn label(&self, l: Option<&Labeled>) -> Result<String, ::rustorb_core::SystemException>;
+        fn label(
+            &self,
+            l: Option<&Labeled>,
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException>;
 
         /// `make_book`.
         #[allow(clippy::type_complexity)]
-        fn make_book(&self, title: &str) -> Result<Option<Book>, ::rustorb_core::SystemException>;
+        fn make_book(
+            &self,
+            title: &str,
+        ) -> Result<::std::option::Option<Book>, ::rustorb_core::SystemException>;
     }
 
     /// The skeleton of `Shelf`: makes a `ShelfServant` a servant.
@@ -8057,7 +8102,7 @@ pub mod rust_mapping {
     }
 
     /// IDL typedef `RustMapping::PricedSeq`.
-    pub type PricedSeq = Vec<Option<Priced>>;
+    pub type PricedSeq = ::std::vec::Vec<::std::option::Option<Priced>>;
 
     /// A reference to an object of the IDL interface `RustMapping::Shop`.
     ///
@@ -8112,7 +8157,7 @@ pub mod rust_mapping {
         pub fn echo_priced(
             &self,
             p: Option<&Priced>,
-        ) -> Result<Option<Priced>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Priced>, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_priced").args(|out| {
                 Priced::_write(p, out)?;
                 Ok(())
@@ -8130,7 +8175,7 @@ pub mod rust_mapping {
         pub async fn echo_priced_async(
             &self,
             p: Option<&Priced>,
-        ) -> Result<Option<Priced>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Priced>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_priced").args(|out| {
                 Priced::_write(p, out)?;
                 Ok(())
@@ -8146,7 +8191,10 @@ pub mod rust_mapping {
 
         /// `total`.
         #[allow(clippy::type_complexity)]
-        pub fn total(&self, ps: &[Option<Priced>]) -> Result<f64, ::rustorb_core::SystemException> {
+        pub fn total(
+            &self,
+            ps: &[::std::option::Option<Priced>],
+        ) -> Result<f64, ::rustorb_core::SystemException> {
             let request = self.0.request("total").args(|out| {
                 <alias::PricedSeq as ::rustorb_core::idl::IdlType>::write(ps, out)?;
                 Ok(())
@@ -8164,7 +8212,7 @@ pub mod rust_mapping {
         #[allow(clippy::type_complexity)]
         pub async fn total_async(
             &self,
-            ps: &[Option<Priced>],
+            ps: &[::std::option::Option<Priced>],
         ) -> Result<f64, ::rustorb_core::SystemException> {
             let request = self.0.request_async("total").args(|out| {
                 <alias::PricedSeq as ::rustorb_core::idl::IdlType>::write(ps, out)?;
@@ -8219,11 +8267,14 @@ pub mod rust_mapping {
         fn echo_priced(
             &self,
             p: Option<&Priced>,
-        ) -> Result<Option<Priced>, ::rustorb_core::SystemException>;
+        ) -> Result<::std::option::Option<Priced>, ::rustorb_core::SystemException>;
 
         /// `total`.
         #[allow(clippy::type_complexity)]
-        fn total(&self, ps: &[Option<Priced>]) -> Result<f64, ::rustorb_core::SystemException>;
+        fn total(
+            &self,
+            ps: &[::std::option::Option<Priced>],
+        ) -> Result<f64, ::rustorb_core::SystemException>;
     }
 
     /// The skeleton of `Shop`: makes a `ShopServant` a servant.
@@ -8482,7 +8533,7 @@ pub mod rust_mapping {
 
             /// `_get_label`.
             #[allow(clippy::type_complexity)]
-            pub fn label(&self) -> Result<String, ::rustorb_core::SystemException> {
+            pub fn label(&self) -> Result<::std::string::String, ::rustorb_core::SystemException> {
                 let request = self.0.request("_get_label");
                 let reply = request
                     .invoke()
@@ -8496,7 +8547,9 @@ pub mod rust_mapping {
 
             /// `_get_label`, on the async API: like [`label`](Self::label).
             #[allow(clippy::type_complexity)]
-            pub async fn label_async(&self) -> Result<String, ::rustorb_core::SystemException> {
+            pub async fn label_async(
+                &self,
+            ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
                 let request = self.0.request_async("_get_label");
                 let reply = request
                     .invoke()

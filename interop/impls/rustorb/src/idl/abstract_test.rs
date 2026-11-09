@@ -74,7 +74,7 @@ pub mod abstract_test {
 
         /// `name`.
         #[allow(clippy::type_complexity)]
-        pub fn name(&self) -> Result<String, ::rustorb_core::SystemException> {
+        pub fn name(&self) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let obj = match self {
                 Named::Object(obj) => obj,
                 Named::Value(v) => return v.ops().name(),
@@ -91,7 +91,9 @@ pub mod abstract_test {
 
         /// `name`, on the async API: like [`name`](Self::name).
         #[allow(clippy::type_complexity)]
-        pub async fn name_async(&self) -> Result<String, ::rustorb_core::SystemException> {
+        pub async fn name_async(
+            &self,
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let obj = match self {
                 Named::Object(obj) => obj,
                 Named::Value(v) => return v.ops().name(),
@@ -147,12 +149,12 @@ pub mod abstract_test {
     pub trait NamedServant: Send + Sync {
         /// `name`.
         #[allow(clippy::type_complexity)]
-        fn name(&self) -> Result<String, ::rustorb_core::SystemException>;
+        fn name(&self) -> Result<::std::string::String, ::rustorb_core::SystemException>;
     }
 
     impl<T: ?Sized + NamedServant> NamedServant for ::rustorb_core::idl::Upcast<T> {
         #[allow(clippy::type_complexity)]
-        fn name(&self) -> Result<String, ::rustorb_core::SystemException> {
+        fn name(&self) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             self.0.name()
         }
     }
@@ -240,7 +242,7 @@ pub mod abstract_test {
 
         /// `name`.
         #[allow(clippy::type_complexity)]
-        pub fn name(&self) -> Result<String, ::rustorb_core::SystemException> {
+        pub fn name(&self) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request("name");
             let reply = request
                 .invoke()
@@ -253,7 +255,9 @@ pub mod abstract_test {
 
         /// `name`, on the async API: like [`name`](Self::name).
         #[allow(clippy::type_complexity)]
-        pub async fn name_async(&self) -> Result<String, ::rustorb_core::SystemException> {
+        pub async fn name_async(
+            &self,
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request_async("name");
             let reply = request
                 .invoke()
@@ -385,7 +389,7 @@ pub mod abstract_test {
     /// The state of the IDL valuetype `AbstractTest::Card`.
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
     pub struct CardState {
-        pub title: String,
+        pub title: ::std::string::String,
     }
 
     impl ::rustorb_core::idl::ValueState for CardState {
@@ -552,12 +556,12 @@ pub mod abstract_test {
     pub trait CardOperations {
         /// `name`.
         #[allow(clippy::type_complexity)]
-        fn name(&mut self) -> Result<String, ::rustorb_core::SystemException>;
+        fn name(&mut self) -> Result<::std::string::String, ::rustorb_core::SystemException>;
     }
 
     impl NamedServant for Card {
         #[allow(clippy::type_complexity)]
-        fn name(&self) -> Result<String, ::rustorb_core::SystemException> {
+        fn name(&self) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             self.0.with_mut(|s: &mut CardState| CardOperations::name(s))
         }
     }
@@ -575,8 +579,8 @@ pub mod abstract_test {
     /// IDL struct `AbstractTest::NamedPair`.
     #[derive(Debug, Clone, Default)]
     pub struct NamedPair {
-        pub first: Option<Named>,
-        pub second: Option<Named>,
+        pub first: ::std::option::Option<Named>,
+        pub second: ::std::option::Option<Named>,
     }
 
     impl NamedPair {
@@ -644,7 +648,7 @@ pub mod abstract_test {
     }
 
     /// IDL typedef `AbstractTest::NamedSeq`.
-    pub type NamedSeq = Vec<Option<Named>>;
+    pub type NamedSeq = ::std::vec::Vec<::std::option::Option<Named>>;
 
     /// A reference to an object of the IDL interface `AbstractTest::AbstractEcho`.
     ///
@@ -701,7 +705,7 @@ pub mod abstract_test {
         pub fn echo_named(
             &self,
             n: Option<&Named>,
-        ) -> Result<Option<Named>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Named>, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_named").args(|out| {
                 Named::_write(n, out)?;
                 Ok(())
@@ -719,7 +723,7 @@ pub mod abstract_test {
         pub async fn echo_named_async(
             &self,
             n: Option<&Named>,
-        ) -> Result<Option<Named>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Named>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_named").args(|out| {
                 Named::_write(n, out)?;
                 Ok(())
@@ -738,7 +742,7 @@ pub mod abstract_test {
         pub fn name_of(
             &self,
             n: Option<&Named>,
-        ) -> Result<String, ::rustorb_core::SystemException> {
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request("name_of").args(|out| {
                 Named::_write(n, out)?;
                 Ok(())
@@ -757,7 +761,7 @@ pub mod abstract_test {
         pub async fn name_of_async(
             &self,
             n: Option<&Named>,
-        ) -> Result<String, ::rustorb_core::SystemException> {
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException> {
             let request = self.0.request_async("name_of").args(|out| {
                 Named::_write(n, out)?;
                 Ok(())
@@ -852,7 +856,7 @@ pub mod abstract_test {
         #[allow(clippy::type_complexity)]
         pub fn echo_seq(
             &self,
-            s: &[Option<Named>],
+            s: &[::std::option::Option<Named>],
         ) -> Result<NamedSeq, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_seq").args(|out| {
                 <alias::NamedSeq as ::rustorb_core::idl::IdlType>::write(s, out)?;
@@ -870,7 +874,7 @@ pub mod abstract_test {
         #[allow(clippy::type_complexity)]
         pub async fn echo_seq_async(
             &self,
-            s: &[Option<Named>],
+            s: &[::std::option::Option<Named>],
         ) -> Result<NamedSeq, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_seq").args(|out| {
                 <alias::NamedSeq as ::rustorb_core::idl::IdlType>::write(s, out)?;
@@ -890,7 +894,7 @@ pub mod abstract_test {
         pub fn make_person(
             &self,
             name: &str,
-        ) -> Result<Option<Person>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Person>, ::rustorb_core::SystemException> {
             let request = self.0.request("make_person").args(|out| {
                 <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(name, out)?;
                 Ok(())
@@ -908,7 +912,7 @@ pub mod abstract_test {
         pub async fn make_person_async(
             &self,
             name: &str,
-        ) -> Result<Option<Person>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Person>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("make_person").args(|out| {
                 <::rustorb_core::idl::String as ::rustorb_core::idl::IdlType>::write(name, out)?;
                 Ok(())
@@ -1014,11 +1018,14 @@ pub mod abstract_test {
         fn echo_named(
             &self,
             n: Option<&Named>,
-        ) -> Result<Option<Named>, ::rustorb_core::SystemException>;
+        ) -> Result<::std::option::Option<Named>, ::rustorb_core::SystemException>;
 
         /// `name_of`.
         #[allow(clippy::type_complexity)]
-        fn name_of(&self, n: Option<&Named>) -> Result<String, ::rustorb_core::SystemException>;
+        fn name_of(
+            &self,
+            n: Option<&Named>,
+        ) -> Result<::std::string::String, ::rustorb_core::SystemException>;
 
         /// `is_object`.
         #[allow(clippy::type_complexity)]
@@ -1032,7 +1039,7 @@ pub mod abstract_test {
         #[allow(clippy::type_complexity)]
         fn echo_seq(
             &self,
-            s: &[Option<Named>],
+            s: &[::std::option::Option<Named>],
         ) -> Result<NamedSeq, ::rustorb_core::SystemException>;
 
         /// `make_person`.
@@ -1040,7 +1047,7 @@ pub mod abstract_test {
         fn make_person(
             &self,
             name: &str,
-        ) -> Result<Option<Person>, ::rustorb_core::SystemException>;
+        ) -> Result<::std::option::Option<Person>, ::rustorb_core::SystemException>;
 
         /// `echo_any`.
         #[allow(clippy::type_complexity)]

@@ -106,8 +106,8 @@ pub mod dds_corba {
     pub struct Sample {
         pub id: i32,
         pub kind: Kind,
-        pub label: String,
-        pub values: Vec<f64>,
+        pub label: ::std::string::String,
+        pub values: ::std::vec::Vec<f64>,
     }
 
     impl Sample {

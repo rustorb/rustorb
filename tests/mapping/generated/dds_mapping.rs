@@ -74,7 +74,7 @@ pub mod dds_mapping {
     /// IDL struct `DdsMapping::KeyHash2`.
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
     pub struct KeyHash2 {
-        pub label: String,
+        pub label: ::std::string::String,
         pub id: i64,
         pub x: i32,
         pub y: i32,
@@ -224,7 +224,7 @@ pub mod dds_mapping {
     /// IDL struct `DdsMapping::KeyHash3`.
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
     pub struct KeyHash3 {
-        pub label: String,
+        pub label: ::std::string::String,
         pub m_nested: KeyHash3Nested,
         pub x: i32,
         pub y: i32,
@@ -316,7 +316,7 @@ pub mod dds_mapping {
     /// IDL struct `DdsMapping::AutoidHash`.
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
     pub struct AutoidHash {
-        pub color: String,
+        pub color: ::std::string::String,
         pub size: i32,
     }
 
@@ -623,7 +623,7 @@ pub mod dds_mapping {
     /// IDL struct `DdsMapping::Shape`.
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
     pub struct Shape {
-        pub color: String,
+        pub color: ::std::string::String,
         pub x: i32,
         pub y: i32,
         pub shapesize: i32,
@@ -726,21 +726,21 @@ pub mod dds_mapping {
         pub d: f64,
         pub c: char,
         pub wc: char,
-        pub str: String,
-        pub bstr: String,
-        pub wstr: String,
-        pub bwstr: String,
-        pub longs: Vec<i32>,
-        pub octets: Vec<u8>,
-        pub strings: Vec<String>,
-        pub points: Vec<Point>,
+        pub str: ::std::string::String,
+        pub bstr: ::std::string::String,
+        pub wstr: ::std::string::String,
+        pub bwstr: ::std::string::String,
+        pub longs: ::std::vec::Vec<i32>,
+        pub octets: ::std::vec::Vec<u8>,
+        pub strings: ::std::vec::Vec<::std::string::String>,
+        pub points: ::std::vec::Vec<Point>,
         pub matrix: [[i32; 3]; 2],
         pub corners: [Point; 2],
         pub color: Color,
         pub flags: Flags,
-        pub maybe: Option<i32>,
-        pub maybe_point: Option<Point>,
-        pub boxed: Box<Point>,
+        pub maybe: ::std::option::Option<i32>,
+        pub maybe_point: ::std::option::Option<Point>,
+        pub boxed: ::std::boxed::Box<Point>,
     }
 
     impl Everything {
@@ -1088,8 +1088,8 @@ pub mod dds_mapping {
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
     pub struct Evolving {
         pub a: i32,
-        pub b: Option<String>,
-        pub c: Vec<Point>,
+        pub b: ::std::option::Option<::std::string::String>,
+        pub c: ::std::vec::Vec<Point>,
         pub far: i16,
     }
 
@@ -1191,8 +1191,8 @@ pub mod dds_mapping {
     #[derive(Debug, Clone, PartialEq, Default)]
     pub struct EvolvingV2 {
         pub a: i32,
-        pub b: Option<String>,
-        pub c: Vec<Point>,
+        pub b: ::std::option::Option<::std::string::String>,
+        pub c: ::std::vec::Vec<Point>,
         pub far: i16,
         pub added: f64,
     }
@@ -1301,7 +1301,7 @@ pub mod dds_mapping {
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
     pub struct EvolvingV0 {
         pub a: i32,
-        pub c: Vec<Point>,
+        pub c: ::std::vec::Vec<Point>,
     }
 
     impl EvolvingV0 {
@@ -1515,7 +1515,7 @@ pub mod dds_mapping {
     /// IDL struct `DdsMapping::OptionalFinal`.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
     pub struct OptionalFinal {
-        pub a: Option<i32>,
+        pub a: ::std::option::Option<i32>,
         pub b: i32,
     }
 
@@ -1585,7 +1585,7 @@ pub mod dds_mapping {
         /// Member `number`.
         Number(i32),
         /// Member `text`, with its discriminator.
-        Text(i32, String),
+        Text(i32, ::std::string::String),
         /// The `default` member, with its discriminator.
         Point(i32, Point),
     }
@@ -1957,7 +1957,7 @@ pub mod dds_mapping {
     }
 
     /// IDL typedef `DdsMapping::Longs`.
-    pub type Longs = Vec<i32>;
+    pub type Longs = ::std::vec::Vec<i32>;
 
     /// IDL struct `DdsMapping::Aliased`.
     #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]

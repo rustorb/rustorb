@@ -6,14 +6,14 @@ const _: () = ::rustorb_core::idl::GENERATED_CODE_VERSION_1;
 
 pub mod custom_test {
     /// IDL typedef `CustomTest::LongSeq`.
-    pub type LongSeq = Vec<i32>;
+    pub type LongSeq = ::std::vec::Vec<i32>;
 
     /// The state of the IDL valuetype `CustomTest::Blob`.
     #[derive(Debug, Clone, Default)]
     pub struct BlobState {
         pub n: i32,
-        pub label: String,
-        pub pt: Option<crate::idl::value_test::Point>,
+        pub label: ::std::string::String,
+        pub pt: ::std::option::Option<crate::idl::value_test::Point>,
         pub values: LongSeq,
     }
 
@@ -167,8 +167,8 @@ pub mod custom_test {
     /// IDL struct `CustomTest::BlobPair`.
     #[derive(Debug, Clone, Default)]
     pub struct BlobPair {
-        pub data: Option<Blob>,
-        pub pt: Option<crate::idl::value_test::Point>,
+        pub data: ::std::option::Option<Blob>,
+        pub pt: ::std::option::Option<crate::idl::value_test::Point>,
     }
 
     impl BlobPair {
@@ -220,7 +220,7 @@ pub mod custom_test {
     }
 
     /// IDL typedef `CustomTest::BlobSeq`.
-    pub type BlobSeq = Vec<Option<Blob>>;
+    pub type BlobSeq = ::std::vec::Vec<::std::option::Option<Blob>>;
 
     /// A reference to an object of the IDL interface `CustomTest::CustomEcho`.
     ///
@@ -277,7 +277,7 @@ pub mod custom_test {
         pub fn echo_blob(
             &self,
             b: Option<&Blob>,
-        ) -> Result<Option<Blob>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Blob>, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_blob").args(|out| {
                 Blob::_write(b, out)?;
                 Ok(())
@@ -295,7 +295,7 @@ pub mod custom_test {
         pub async fn echo_blob_async(
             &self,
             b: Option<&Blob>,
-        ) -> Result<Option<Blob>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Blob>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_blob").args(|out| {
                 Blob::_write(b, out)?;
                 Ok(())
@@ -350,7 +350,7 @@ pub mod custom_test {
         #[allow(clippy::type_complexity)]
         pub fn echo_blobs(
             &self,
-            s: &[Option<Blob>],
+            s: &[::std::option::Option<Blob>],
         ) -> Result<BlobSeq, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_blobs").args(|out| {
                 <alias::BlobSeq as ::rustorb_core::idl::IdlType>::write(s, out)?;
@@ -368,7 +368,7 @@ pub mod custom_test {
         #[allow(clippy::type_complexity)]
         pub async fn echo_blobs_async(
             &self,
-            s: &[Option<Blob>],
+            s: &[::std::option::Option<Blob>],
         ) -> Result<BlobSeq, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_blobs").args(|out| {
                 <alias::BlobSeq as ::rustorb_core::idl::IdlType>::write(s, out)?;
@@ -438,7 +438,7 @@ pub mod custom_test {
         fn echo_blob(
             &self,
             b: Option<&Blob>,
-        ) -> Result<Option<Blob>, ::rustorb_core::SystemException>;
+        ) -> Result<::std::option::Option<Blob>, ::rustorb_core::SystemException>;
 
         /// `echo_blob_pair`.
         #[allow(clippy::type_complexity)]
@@ -449,7 +449,7 @@ pub mod custom_test {
         #[allow(clippy::type_complexity)]
         fn echo_blobs(
             &self,
-            s: &[Option<Blob>],
+            s: &[::std::option::Option<Blob>],
         ) -> Result<BlobSeq, ::rustorb_core::SystemException>;
 
         /// `shutdown`.

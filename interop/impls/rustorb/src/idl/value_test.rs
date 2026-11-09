@@ -187,7 +187,7 @@ pub mod value_test {
         pub base: PointState,
         pub z: i32,
         /// A private member.
-        pub label: String,
+        pub label: ::std::string::String,
     }
 
     impl ::rustorb_core::idl::ValueState for Point3State {
@@ -357,7 +357,7 @@ pub mod value_test {
     #[derive(Debug, Clone, Default)]
     pub struct NodeState {
         pub id: i32,
-        pub next: Option<Node>,
+        pub next: ::std::option::Option<Node>,
     }
 
     impl ::rustorb_core::idl::ValueState for NodeState {
@@ -530,8 +530,8 @@ pub mod value_test {
     /// IDL struct `ValueTest::Pair`.
     #[derive(Debug, Clone, Default)]
     pub struct Pair {
-        pub first: Option<Point>,
-        pub second: Option<Point>,
+        pub first: ::std::option::Option<Point>,
+        pub second: ::std::option::Option<Point>,
     }
 
     impl Pair {
@@ -599,14 +599,14 @@ pub mod value_test {
     }
 
     /// IDL typedef `ValueTest::PointSeq`.
-    pub type PointSeq = Vec<Option<Point>>;
+    pub type PointSeq = ::std::vec::Vec<::std::option::Option<Point>>;
 
     /// The state of the IDL valuetype `ValueTest::Shape`.
     #[derive(Debug, Clone, Default)]
     pub struct ShapeState {
-        pub name: String,
+        pub name: ::std::string::String,
         pub points: PointSeq,
-        pub center: Option<Point>,
+        pub center: ::std::option::Option<Point>,
         pub area: f64,
     }
 
@@ -835,13 +835,13 @@ pub mod value_test {
 
     /// IDL value box `ValueTest::StringBox`.
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-    pub struct StringBox(::std::sync::Arc<String>);
+    pub struct StringBox(::std::sync::Arc<::std::string::String>);
 
     impl StringBox {
         pub const REPOSITORY_ID: &'static str = "IDL:ValueTest/StringBox:1.0";
 
         /// A new box holding `v`.
-        pub fn new(v: String) -> StringBox {
+        pub fn new(v: ::std::string::String) -> StringBox {
             StringBox(::std::sync::Arc::new(v))
         }
 
@@ -864,9 +864,9 @@ pub mod value_test {
     }
 
     impl ::std::ops::Deref for StringBox {
-        type Target = String;
+        type Target = ::std::string::String;
 
-        fn deref(&self) -> &String {
+        fn deref(&self) -> &::std::string::String {
             &self.0
         }
     }
@@ -1575,7 +1575,7 @@ pub mod value_test {
         pub fn echo_point(
             &self,
             p: Option<&Point>,
-        ) -> Result<Option<Point>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Point>, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_point").args(|out| {
                 Point::_write(p, out)?;
                 Ok(())
@@ -1593,7 +1593,7 @@ pub mod value_test {
         pub async fn echo_point_async(
             &self,
             p: Option<&Point>,
-        ) -> Result<Option<Point>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Point>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_point").args(|out| {
                 Point::_write(p, out)?;
                 Ok(())
@@ -1646,7 +1646,7 @@ pub mod value_test {
         pub fn echo_node(
             &self,
             n: Option<&Node>,
-        ) -> Result<Option<Node>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Node>, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_node").args(|out| {
                 Node::_write(n, out)?;
                 Ok(())
@@ -1664,7 +1664,7 @@ pub mod value_test {
         pub async fn echo_node_async(
             &self,
             n: Option<&Node>,
-        ) -> Result<Option<Node>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Node>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_node").args(|out| {
                 Node::_write(n, out)?;
                 Ok(())
@@ -1683,7 +1683,7 @@ pub mod value_test {
         pub fn echo_shape(
             &self,
             s: Option<&Shape>,
-        ) -> Result<Option<Shape>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Shape>, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_shape").args(|out| {
                 Shape::_write(s, out)?;
                 Ok(())
@@ -1701,7 +1701,7 @@ pub mod value_test {
         pub async fn echo_shape_async(
             &self,
             s: Option<&Shape>,
-        ) -> Result<Option<Shape>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Shape>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_shape").args(|out| {
                 Shape::_write(s, out)?;
                 Ok(())
@@ -1719,7 +1719,7 @@ pub mod value_test {
         #[allow(clippy::type_complexity)]
         pub fn echo_points(
             &self,
-            s: &[Option<Point>],
+            s: &[::std::option::Option<Point>],
         ) -> Result<PointSeq, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_points").args(|out| {
                 <alias::PointSeq as ::rustorb_core::idl::IdlType>::write(s, out)?;
@@ -1737,7 +1737,7 @@ pub mod value_test {
         #[allow(clippy::type_complexity)]
         pub async fn echo_points_async(
             &self,
-            s: &[Option<Point>],
+            s: &[::std::option::Option<Point>],
         ) -> Result<PointSeq, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_points").args(|out| {
                 <alias::PointSeq as ::rustorb_core::idl::IdlType>::write(s, out)?;
@@ -1839,7 +1839,7 @@ pub mod value_test {
         pub fn echo_long_box(
             &self,
             b: Option<&LongBox>,
-        ) -> Result<Option<LongBox>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<LongBox>, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_long_box").args(|out| {
                 LongBox::_write(b, out)?;
                 Ok(())
@@ -1857,7 +1857,7 @@ pub mod value_test {
         pub async fn echo_long_box_async(
             &self,
             b: Option<&LongBox>,
-        ) -> Result<Option<LongBox>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<LongBox>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_long_box").args(|out| {
                 LongBox::_write(b, out)?;
                 Ok(())
@@ -1876,7 +1876,7 @@ pub mod value_test {
         pub fn echo_string_box(
             &self,
             b: Option<&StringBox>,
-        ) -> Result<Option<StringBox>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<StringBox>, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_string_box").args(|out| {
                 StringBox::_write(b, out)?;
                 Ok(())
@@ -1894,7 +1894,7 @@ pub mod value_test {
         pub async fn echo_string_box_async(
             &self,
             b: Option<&StringBox>,
-        ) -> Result<Option<StringBox>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<StringBox>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_string_box").args(|out| {
                 StringBox::_write(b, out)?;
                 Ok(())
@@ -1913,7 +1913,7 @@ pub mod value_test {
         pub fn echo_pair_box(
             &self,
             b: Option<&PairBox>,
-        ) -> Result<Option<PairBox>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<PairBox>, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_pair_box").args(|out| {
                 PairBox::_write(b, out)?;
                 Ok(())
@@ -1931,7 +1931,7 @@ pub mod value_test {
         pub async fn echo_pair_box_async(
             &self,
             b: Option<&PairBox>,
-        ) -> Result<Option<PairBox>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<PairBox>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_pair_box").args(|out| {
                 PairBox::_write(b, out)?;
                 Ok(())
@@ -1987,7 +1987,7 @@ pub mod value_test {
         pub fn echo_tally(
             &self,
             t: Option<&Tally>,
-        ) -> Result<Option<Tally>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Tally>, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_tally").args(|out| {
                 Tally::_write(t, out)?;
                 Ok(())
@@ -2005,7 +2005,7 @@ pub mod value_test {
         pub async fn echo_tally_async(
             &self,
             t: Option<&Tally>,
-        ) -> Result<Option<Tally>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Tally>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_tally").args(|out| {
                 Tally::_write(t, out)?;
                 Ok(())
@@ -2102,7 +2102,7 @@ pub mod value_test {
         pub fn make_account(
             &self,
             balance: i32,
-        ) -> Result<Option<Account>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Account>, ::rustorb_core::SystemException> {
             let request = self.0.request("make_account").args(|out| {
                 <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&balance, out)?;
                 Ok(())
@@ -2120,7 +2120,7 @@ pub mod value_test {
         pub async fn make_account_async(
             &self,
             balance: i32,
-        ) -> Result<Option<Account>, ::rustorb_core::SystemException> {
+        ) -> Result<::std::option::Option<Account>, ::rustorb_core::SystemException> {
             let request = self.0.request_async("make_account").args(|out| {
                 <::rustorb_core::idl::Long as ::rustorb_core::idl::IdlType>::write(&balance, out)?;
                 Ok(())
@@ -2189,7 +2189,7 @@ pub mod value_test {
         fn echo_point(
             &self,
             p: Option<&Point>,
-        ) -> Result<Option<Point>, ::rustorb_core::SystemException>;
+        ) -> Result<::std::option::Option<Point>, ::rustorb_core::SystemException>;
 
         /// `echo_pair`.
         #[allow(clippy::type_complexity)]
@@ -2200,20 +2200,20 @@ pub mod value_test {
         fn echo_node(
             &self,
             n: Option<&Node>,
-        ) -> Result<Option<Node>, ::rustorb_core::SystemException>;
+        ) -> Result<::std::option::Option<Node>, ::rustorb_core::SystemException>;
 
         /// `echo_shape`.
         #[allow(clippy::type_complexity)]
         fn echo_shape(
             &self,
             s: Option<&Shape>,
-        ) -> Result<Option<Shape>, ::rustorb_core::SystemException>;
+        ) -> Result<::std::option::Option<Shape>, ::rustorb_core::SystemException>;
 
         /// `echo_points`.
         #[allow(clippy::type_complexity)]
         fn echo_points(
             &self,
-            s: &[Option<Point>],
+            s: &[::std::option::Option<Point>],
         ) -> Result<PointSeq, ::rustorb_core::SystemException>;
 
         /// `same`.
@@ -2233,21 +2233,21 @@ pub mod value_test {
         fn echo_long_box(
             &self,
             b: Option<&LongBox>,
-        ) -> Result<Option<LongBox>, ::rustorb_core::SystemException>;
+        ) -> Result<::std::option::Option<LongBox>, ::rustorb_core::SystemException>;
 
         /// `echo_string_box`.
         #[allow(clippy::type_complexity)]
         fn echo_string_box(
             &self,
             b: Option<&StringBox>,
-        ) -> Result<Option<StringBox>, ::rustorb_core::SystemException>;
+        ) -> Result<::std::option::Option<StringBox>, ::rustorb_core::SystemException>;
 
         /// `echo_pair_box`.
         #[allow(clippy::type_complexity)]
         fn echo_pair_box(
             &self,
             b: Option<&PairBox>,
-        ) -> Result<Option<PairBox>, ::rustorb_core::SystemException>;
+        ) -> Result<::std::option::Option<PairBox>, ::rustorb_core::SystemException>;
 
         /// `echo_any`.
         #[allow(clippy::type_complexity)]
@@ -2261,7 +2261,7 @@ pub mod value_test {
         fn echo_tally(
             &self,
             t: Option<&Tally>,
-        ) -> Result<Option<Tally>, ::rustorb_core::SystemException>;
+        ) -> Result<::std::option::Option<Tally>, ::rustorb_core::SystemException>;
 
         /// `call_count`.
         #[allow(clippy::type_complexity)]
@@ -2279,7 +2279,7 @@ pub mod value_test {
         fn make_account(
             &self,
             balance: i32,
-        ) -> Result<Option<Account>, ::rustorb_core::SystemException>;
+        ) -> Result<::std::option::Option<Account>, ::rustorb_core::SystemException>;
 
         /// `shutdown`.
         #[allow(clippy::type_complexity)]
