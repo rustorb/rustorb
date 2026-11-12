@@ -11,11 +11,12 @@ omniORBpy 向けに書いたアプリケーションを、書き換えずに rus
 | `python/omniorb-compat/omniORB/__init__.py` | `omniORB` パッケージ。`CORBA`・`PortableServer` は rustorb のモジュールそのもの。`cdrMarshal` / `cdrUnmarshal`、`findType`、マイナーコードの定数 |
 | `python/omniorb-compat/omniORB/any.py` | `to_any` / `from_any` |
 | `python/omniorb-compat/omniORB/tcInternal.py` | `findType` の型記述子の種類番号（`tv_*`） |
+| `python/omniorb-compat/omniORB/URI.py` | `stringToName` / `nameToString` / `addrAndNameToURI`（#152） |
 | `python/omniorb-compat/CORBA.py` など | omniORBpy がトップレベルに置く `CORBA`・`PortableServer`・`PortableServer__POA`（rustorb のモジュールを返す） |
 | `python/omniorb-compat/CosNaming*` | `CosNaming` のスタブ（`rustorb-idl -bpython` の生成物を置いたもの。`generate-stubs.sh` で作り直す） |
 | `crates/rustorb-python/src/orb.rs` | `Orb.cdr_marshal` / `cdr_unmarshal`、`register_object_key` |
 | `python/rustorb/CORBA.py`、`PortableServer.py` | `omniINSPOA`、文字列の ObjectId、`CORBA.Object._nil` |
-| `python/tests/test_omniorb_compat.py` | 単体テスト（期待値は omniORBpy 4.3 で同じ呼び出しを実測した値） |
+| `python/tests/test_omniorb_compat.py`、`test_omniorb_uri.py` | 単体テスト（期待値は omniORBpy 4.3 で同じ呼び出しを実測した値） |
 | `interop/run-openrtm.sh`、`interop/openrtm/` | OpenRTM-aist-Python の例を両方の ORB で動かし、OpenRTM-aist（C++）の例ともつなぐ相互接続テストと、rtshell のテスト |
 
 ライセンスは rustorb 本体と同じ MIT OR Apache-2.0。本物の omniORBpy と同じ名前（`omniORB`、`CORBA`、`CosNaming`）を持つので、rustorb 本体とは別のパッケージにして、使うときだけ入れる。
@@ -58,7 +59,7 @@ rtshell（[OpenRTM/rtshell](https://github.com/OpenRTM/rtshell) の d35459c）�
 | `from rtctree.rtc import RTC` | rtctree のスタブ（omniidl の `-Wbpackage=rtctree.rtc` の生成物） | `rustorb-idl -Wbpackage` を追加 |
 
 `sslTP` / `httpTP` は SSL・HTTP の設定があるときだけ読むので入れていない。
-入れなかったもの：`omniORB.URI`（`examples/AutoTest` だけ）、`sslTP` / `httpTP`（SSL・HTTP トランスポートの拡張）、`TIMEOUT` の例外ハンドラ登録（OpenRTM-aist-Python は使わない）。`setClientCallTimeout` などのタイムアウト関数は #38 で入れた（[timeouts.md](timeouts.md)）。
+`omniORB.URI`（OpenRTM-aist-Python では `examples/AutoTest` だけが使う）は最初は入れず、#152 で入れた（下記）。入れなかったもの：`sslTP` / `httpTP`（SSL・HTTP トランスポートの拡張）、`TIMEOUT` の例外ハンドラ登録（OpenRTM-aist-Python は使わない）。`setClientCallTimeout` などのタイムアウト関数は #38 で入れた（[timeouts.md](timeouts.md)）。
 
 ## 実装
 
@@ -112,6 +113,28 @@ rustorb では `resolve_initial_references("omniINSPOA")` で同じ性質の POA
 - **`UNKNOWN_UserException`**：CORBA の標準のマイナーコード（`OMG_VMCID | 1`）で、omniORB も rustorb も同じ値を上げる
 - **`-ORBendPointPublish all(addr)`**：omniORB の「ホストのすべてのアドレスを公開する」指定。rustorb はもともとホスト名を公開するので、既定の公開と同じに扱う
 
+### omniORB.URI
+
+ネーミングサービスを呼ばずに CosNaming の名前を文字列にする関数（#152）。`from omniORB import URI` で使う（omniORBpy と同じく、`import omniORB` だけでは読み込まない）。
+
+- `stringToName(s)`：文字列化した名前を `CosNaming.NameComponent` のリストにする。`/` で区切り、`.` で id と kind を分け、`\` は次の `/`・`.`・`\` をエスケープする。`.` だけの成分は id も kind も空
+- `nameToString(name)`：その逆。リストでもタプルでもよい
+- `addrAndNameToURI(addr, sname)`：`corbaname:<addr>#<エスケープした名前>` を作る。名前が空なら `corbaname:<addr>`
+
+規則は INS（`NamingContextExt` の `to_name` / `to_url`）と同じだが、omniORBpy 4.3.4 をブラックボックスで動かすと細部が違ったので、コアの変換（`rustorb_core::name`、`rustorb_naming::to_url`）は使わず、実測に合わせて Python で書いた。
+
+| 入力 | omniORBpy の `URI`（＝互換シム） | rustorb のネーミング（`to_name` / `to_url`） |
+| --- | --- | --- |
+| 最後の成分が `.` で終わる（`a.`、`x/a.`） | id が `a`、kind が空 | `InvalidName` |
+| 途中の成分が `.` で終わる（`a./b`） | `InvalidName` | `InvalidName` |
+| `/`・`.`・`\` 以外のエスケープ（`\x`） | `InvalidName` | エスケープした文字そのもの |
+| アドレスの検査 | 空なら `InvalidAddress`、ほかは調べない（`host:2809` も `uiop:/tmp/x` もそのまま） | `corbaloc` として読めないもの、`iiop`・`rir` 以外は `InvalidAddress` |
+| URI でエスケープしない文字 | 英数字と `-_.~/` | 英数字と `;/:?@&=+$,-_.!~*'()` |
+
+どちらも `%XX` は UTF-8 のバイトを大文字の16進で書く。不正な名前は `CosNaming.NamingContext.InvalidName`、空のアドレスは `CosNaming.NamingContextExt.InvalidAddress`。引数の Python の型が違う（str でない、`NameComponent` のリストでない）ときは `CORBA.BAD_PARAM`（マイナー 0）にした。omniORBpy 4.3.4 はここで `NameError` を上げるので、そこだけ合わせていない。
+
+テスト（`python/tests/test_omniorb_uri.py`）は omniORBpy 4.3.4 でもそのまま通る（型の違うケースを除く）ことを確かめた。
+
 ## 相互接続
 
 `interop/run-openrtm.sh` が OpenRTM-aist-Python・rtshell・rtctree（固定のコミット）を取得し、次の2つを omniORB のイメージで動かす。イメージには OpenRTM-aist（C++、[OpenRTM/OpenRTM-aist](https://github.com/OpenRTM/OpenRTM-aist) の 7e08ae0）の例を omniORB 4.3 でビルドして入れてある。
@@ -154,4 +177,4 @@ OMNIORBPY_DIR=... OPENRTM_CXX_EXAMPLES=... interop/run-openrtm.sh --local
 
 ## 残り
 
-- `omniORB.URI`、`setClientThreadCallDeadline` など、使うアプリケーションが出てきたものの追加
+- `setClientThreadCallDeadline` など、使うアプリケーションが出てきたものの追加
