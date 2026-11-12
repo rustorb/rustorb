@@ -487,8 +487,10 @@ rorb_orb* rorb_default_orb(void);
 
 /* A policy crosses the ABI as its type and a value: the enumerator of a
    POA policy (types 16 to 22), the relative_expiry of a
-   Messaging::RelativeRoundtripTimeoutPolicy (type 32, units of 100 ns). */
+   Messaging::RelativeRoundtripTimeoutPolicy (type 32, units of 100 ns),
+   the synchronization of a Messaging::SyncScopePolicy (type 24, 0 to 3). */
 #define RORB_RELATIVE_RT_TIMEOUT_POLICY_TYPE 32
+#define RORB_SYNC_SCOPE_POLICY_TYPE 24
 /* CORBA::SetOverrideType */
 #define RORB_SET_OVERRIDE 0
 #define RORB_ADD_OVERRIDE 1

@@ -2,16 +2,21 @@
 //! the Messaging specification: `Object::set_policy_overrides`, the ORB's
 //! `PolicyManager` and the thread's `PolicyCurrent`.
 //!
-//! The one client side policy rustorb has is
+//! The client side policies rustorb has are
 //! `Messaging::RelativeRoundtripTimeoutPolicy`, the standard form of the
 //! call timeouts: overriding it on an object reference, on the calling
 //! thread or on the ORB sets the same timeout as
 //! [`ObjectRef::set_call_timeout`], [`set_thread_call_timeout`] and
-//! [`Orb::set_call_timeout`] (see `docs/orb-operations.md`).
+//! [`Orb::set_call_timeout`] (see `docs/orb-operations.md`); and
+//! `Messaging::SyncScopePolicy`, how far a oneway request goes before the
+//! call returns (`docs/sync-scope.md`).
 
+use std::cell::Cell;
 use std::fmt;
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::Duration;
 
+use crate::pi::sync_scope::{SYNC_WITH_TARGET, SYNC_WITH_TRANSPORT};
 use crate::poa::{
     Bidirectional, IdAssignment, IdUniqueness, ImplicitActivation, Lifespan, Policy,
     RequestProcessing, ServantRetention, ThreadPolicy,
@@ -41,6 +46,8 @@ pub const IMPLICIT_ACTIVATION_POLICY_ID: PolicyType = 20;
 pub const SERVANT_RETENTION_POLICY_ID: PolicyType = 21;
 /// `PortableServer::REQUEST_PROCESSING_POLICY_ID`.
 pub const REQUEST_PROCESSING_POLICY_ID: PolicyType = 22;
+/// `Messaging::SYNC_SCOPE_POLICY_TYPE`.
+pub const SYNC_SCOPE_POLICY_TYPE: PolicyType = 24;
 /// `Messaging::RELATIVE_RT_TIMEOUT_POLICY_TYPE`.
 pub const RELATIVE_RT_TIMEOUT_POLICY_TYPE: PolicyType = 32;
 /// `BiDirPolicy::BIDIRECTIONAL_POLICY_TYPE`.
@@ -56,6 +63,11 @@ pub enum PolicyValue {
     /// `Messaging::RelativeRoundtripTimeoutPolicy`: how long a call may
     /// take, as a `TimeBase::TimeT` (units of 100 nanoseconds).
     RelativeRoundtripTimeout(u64),
+    /// `Messaging::SyncScopePolicy`: how far a oneway request goes before
+    /// the call returns, one of the `Messaging::SyncScope` values of
+    /// [`pi::sync_scope`](crate::pi::sync_scope) (`SYNC_NONE` to
+    /// `SYNC_WITH_TARGET`).
+    SyncScope(i16),
 }
 
 impl PolicyValue {
@@ -73,11 +85,13 @@ impl PolicyValue {
                 Policy::Bidirectional(_) => BIDIRECTIONAL_POLICY_TYPE,
             },
             PolicyValue::RelativeRoundtripTimeout(_) => RELATIVE_RT_TIMEOUT_POLICY_TYPE,
+            PolicyValue::SyncScope(_) => SYNC_SCOPE_POLICY_TYPE,
         }
     }
 
     /// The value as a number: the enumerator of a POA policy, the
-    /// `relative_expiry` of a timeout. The bindings pass policies as this
+    /// `relative_expiry` of a timeout, the `synchronization` of a
+    /// `SyncScopePolicy`. The bindings pass policies as this
     /// pair; [`from_raw`](PolicyValue::from_raw) is the inverse.
     pub fn raw_value(&self) -> u64 {
         match *self {
@@ -92,6 +106,7 @@ impl PolicyValue {
                 Policy::Bidirectional(v) => v as u32,
             }),
             PolicyValue::RelativeRoundtripTimeout(t) => t,
+            PolicyValue::SyncScope(v) => v as u64,
         }
     }
 
@@ -101,6 +116,10 @@ impl PolicyValue {
     pub fn from_raw(policy_type: PolicyType, value: u64) -> Option<PolicyValue> {
         if policy_type == RELATIVE_RT_TIMEOUT_POLICY_TYPE {
             return Some(PolicyValue::RelativeRoundtripTimeout(value));
+        }
+        if policy_type == SYNC_SCOPE_POLICY_TYPE {
+            return (value <= SYNC_WITH_TARGET as u64)
+                .then_some(PolicyValue::SyncScope(value as i16));
         }
         let v = u32::try_from(value).ok()?;
         let p = match policy_type {
@@ -155,7 +174,15 @@ impl PolicyValue {
     pub fn relative_expiry(&self) -> Option<Duration> {
         match *self {
             PolicyValue::RelativeRoundtripTimeout(t) => Some(time_t_to_duration(t)),
-            PolicyValue::Poa(_) => None,
+            _ => None,
+        }
+    }
+
+    /// The `synchronization` of a `SyncScopePolicy`.
+    pub fn synchronization(&self) -> Option<i16> {
+        match *self {
+            PolicyValue::SyncScope(v) => Some(v),
+            _ => None,
         }
     }
 
@@ -174,6 +201,7 @@ impl PolicyValue {
                 "IDL:omg.org/PortableServer/RequestProcessingPolicy:2.3"
             }
             BIDIRECTIONAL_POLICY_TYPE => "IDL:omg.org/BiDirPolicy/BidirectionalPolicy:1.0",
+            SYNC_SCOPE_POLICY_TYPE => "IDL:omg.org/Messaging/SyncScopePolicy:1.0",
             _ => "IDL:omg.org/Messaging/RelativeRoundtripTimeoutPolicy:1.0",
         }
     }
@@ -250,6 +278,23 @@ pub fn create_policy(policy_type: PolicyType, value: &Any) -> Result<PolicyValue
                 });
             }
         }
+    } else if policy_type == SYNC_SCOPE_POLICY_TYPE {
+        // Messaging::SyncScope, an alias of short.
+        match (tc.kind(), value.value()) {
+            (TCKind::Short, Value::Short(v)) => match u64::try_from(*v) {
+                Ok(v) => v,
+                Err(_) => {
+                    return Err(PolicyError {
+                        reason: PolicyError::BAD_POLICY_VALUE,
+                    });
+                }
+            },
+            _ => {
+                return Err(PolicyError {
+                    reason: PolicyError::BAD_POLICY_TYPE,
+                });
+            }
+        }
     } else if policy_type == BIDIRECTIONAL_POLICY_TYPE {
         // BiDirPolicy::BidirectionalPolicyValue, an alias of unsigned
         // short.
@@ -295,25 +340,35 @@ fn no_permission() -> SystemException {
     SystemException::new(SystemExceptionKind::NO_PERMISSION, 0, CompletionStatus::No)
 }
 
-/// The timeout the overrides `policies` set on top of `current` (the
-/// timeout of the scope; `None` when it has none).
+/// The client policies one scope (a reference, a thread or the ORB)
+/// overrides: the timeout as a `TimeBase::TimeT`, and the
+/// `Messaging::SyncScope`.
+#[derive(Debug, Clone, Copy, Default)]
+struct Scope {
+    timeout: Option<u64>,
+    sync_scope: Option<i16>,
+}
+
+/// The policies the overrides `policies` set on top of `current` (those of
+/// the scope).
 fn apply_overrides(
-    current: Option<u64>,
+    current: Scope,
     policies: &[PolicyValue],
     set_add: SetOverrideType,
-) -> Result<Option<u64>, SystemException> {
+) -> Result<Scope, SystemException> {
     check_duplicates(policies)?;
-    let mut timeout = match set_add {
-        SetOverrideType::Set => None,
+    let mut scope = match set_add {
+        SetOverrideType::Set => Scope::default(),
         SetOverrideType::Add => current,
     };
     for p in policies {
         match p {
-            PolicyValue::RelativeRoundtripTimeout(t) => timeout = Some(*t),
+            PolicyValue::RelativeRoundtripTimeout(t) => scope.timeout = Some(*t),
+            PolicyValue::SyncScope(v) => scope.sync_scope = Some(*v),
             PolicyValue::Poa(_) => return Err(no_permission()),
         }
     }
-    Ok(timeout)
+    Ok(scope)
 }
 
 /// `BAD_PARAM` when two policies of `policies` have the same type.
@@ -341,15 +396,20 @@ fn bidirectional(p: &PolicyValue) -> Option<Bidirectional> {
     }
 }
 
-/// The overrides of the types `types` (every type when empty) at a scope
-/// whose timeout is `timeout`.
-fn overrides(timeout: Option<u64>, types: &[PolicyType]) -> Vec<PolicyValue> {
-    let wanted = types.is_empty() || types.contains(&RELATIVE_RT_TIMEOUT_POLICY_TYPE);
-    timeout
-        .filter(|_| wanted)
-        .map(PolicyValue::RelativeRoundtripTimeout)
-        .into_iter()
-        .collect()
+/// The overrides of the types `types` (every type when empty) of a scope.
+fn overrides(scope: Scope, types: &[PolicyType]) -> Vec<PolicyValue> {
+    let wanted = |t: PolicyType| types.is_empty() || types.contains(&t);
+    let mut out = Vec::new();
+    if let Some(t) = scope
+        .timeout
+        .filter(|_| wanted(RELATIVE_RT_TIMEOUT_POLICY_TYPE))
+    {
+        out.push(PolicyValue::RelativeRoundtripTimeout(t));
+    }
+    if let Some(v) = scope.sync_scope.filter(|_| wanted(SYNC_SCOPE_POLICY_TYPE)) {
+        out.push(PolicyValue::SyncScope(v));
+    }
+    out
 }
 
 /// A stored timeout (`Some(None)` is "no limit") as a `relative_expiry`,
@@ -358,33 +418,73 @@ fn as_time_t(timeout: Option<Option<Duration>>) -> Option<u64> {
     timeout.flatten().map(duration_to_time_t)
 }
 
+/// A `Messaging::SyncScope` that is not set, in an atomic.
+const SYNC_SCOPE_UNSET: i32 = -1;
+
+/// A sync scope override stored in an atomic.
+pub(crate) fn new_sync_scope_cell(v: Option<i16>) -> AtomicI32 {
+    AtomicI32::new(v.map_or(SYNC_SCOPE_UNSET, i32::from))
+}
+
+/// The sync scope override of `cell`.
+pub(crate) fn load_sync_scope(cell: &AtomicI32) -> Option<i16> {
+    i16::try_from(cell.load(Ordering::Relaxed))
+        .ok()
+        .filter(|v| *v >= 0)
+}
+
+/// Sets the sync scope override of `cell`.
+pub(crate) fn store_sync_scope(cell: &AtomicI32, v: Option<i16>) {
+    cell.store(v.map_or(SYNC_SCOPE_UNSET, i32::from), Ordering::Relaxed);
+}
+
+thread_local! {
+    static THREAD_SYNC_SCOPE: Cell<Option<i16>> = const { Cell::new(None) };
+}
+
+/// The `SyncScopePolicy` override of the calling thread.
+pub(crate) fn thread_sync_scope() -> Option<i16> {
+    THREAD_SYNC_SCOPE.with(Cell::get)
+}
+
+/// The scope of the calling thread.
+fn thread_scope() -> Scope {
+    Scope {
+        timeout: as_time_t(thread_call_timeout()),
+        sync_scope: thread_sync_scope(),
+    }
+}
+
 /// `PolicyCurrent::set_policy_overrides`: the overrides of the calling
 /// thread, for every ORB. A `RelativeRoundtripTimeoutPolicy` sets the
 /// thread's call timeout ([`set_thread_call_timeout`]); without one (after
-/// `SET_OVERRIDE`) the thread has none. `NO_PERMISSION` for a POA policy.
+/// `SET_OVERRIDE`) the thread has none. A `SyncScopePolicy` sets how far
+/// the thread's oneway requests go. `NO_PERMISSION` for a POA policy.
 pub fn set_thread_policy_overrides(
     policies: &[PolicyValue],
     set_add: SetOverrideType,
 ) -> Result<(), SystemException> {
-    let t = apply_overrides(as_time_t(thread_call_timeout()), policies, set_add)?;
-    set_thread_call_timeout(t.map(|t| Some(time_t_to_duration(t))));
+    let scope = apply_overrides(thread_scope(), policies, set_add)?;
+    set_thread_call_timeout(scope.timeout.map(|t| Some(time_t_to_duration(t))));
+    THREAD_SYNC_SCOPE.with(|c| c.set(scope.sync_scope));
     Ok(())
 }
 
 /// `PolicyCurrent::get_policy_overrides`: the overrides of the calling
 /// thread of the types `types`, or all of them when `types` is empty.
 pub fn thread_policy_overrides(types: &[PolicyType]) -> Vec<PolicyValue> {
-    overrides(as_time_t(thread_call_timeout()), types)
+    overrides(thread_scope(), types)
 }
 
 impl Orb {
-    /// `CORBA::ORB::create_policy`: a POA policy from its enumerator, or a
+    /// `CORBA::ORB::create_policy`: a POA policy from its enumerator, a
     /// `RelativeRoundtripTimeoutPolicy` from a `TimeBase::TimeT` (an
-    /// `unsigned long long`, in units of 100 nanoseconds).
+    /// `unsigned long long`, in units of 100 nanoseconds), or a
+    /// `SyncScopePolicy` from a `Messaging::SyncScope` (a `short`).
     ///
     /// `PolicyError` with `BAD_POLICY` for a type rustorb does not know,
     /// `BAD_POLICY_TYPE` when the any does not hold the policy's type, and
-    /// `BAD_POLICY_VALUE` for an enumerator out of range.
+    /// `BAD_POLICY_VALUE` for an enumerator or a sync scope out of range.
     pub fn create_policy(
         &self,
         policy_type: PolicyType,
@@ -393,10 +493,20 @@ impl Orb {
         create_policy(policy_type, value)
     }
 
+    /// The client policies the ORB overrides.
+    fn scope(&self) -> Scope {
+        Scope {
+            timeout: self.call_timeout().map(duration_to_time_t),
+            sync_scope: load_sync_scope(&self.inner.sync_scope),
+        }
+    }
+
     /// `PolicyManager::set_policy_overrides` of the ORB (the initial
     /// reference `ORBPolicyManager`): a `RelativeRoundtripTimeoutPolicy`
     /// sets [`call_timeout`](Orb::call_timeout); without one (after
-    /// `SET_OVERRIDE`) calls have no limit. A `BidirectionalPolicy` of
+    /// `SET_OVERRIDE`) calls have no limit. A `SyncScopePolicy` sets how
+    /// far oneway requests go; without one, they return once written
+    /// (`SYNC_WITH_TRANSPORT`). A `BidirectionalPolicy` of
     /// `BOTH` makes the ORB offer and accept bidirectional GIOP, like
     /// `-ORBofferBiDirectionalGIOP 1 -ORBacceptBiDirectionalGIOP 1`, for
     /// the connections opened or accepted from then on
@@ -412,9 +522,9 @@ impl Orb {
             .filter(|p| bidirectional(p).is_none())
             .copied()
             .collect();
-        let current = self.call_timeout().map(duration_to_time_t);
-        let t = apply_overrides(current, &others, set_add)?;
-        self.set_call_timeout(t.map(time_t_to_duration));
+        let scope = apply_overrides(self.scope(), &others, set_add)?;
+        self.set_call_timeout(scope.timeout.map(time_t_to_duration));
+        store_sync_scope(&self.inner.sync_scope, scope.sync_scope);
         let bidir = policies.iter().find_map(bidirectional);
         let mut stored = self.inner.bidir_override.lock().unwrap();
         match (bidir, set_add) {
@@ -427,7 +537,7 @@ impl Orb {
 
     /// `PolicyManager::get_policy_overrides` of the ORB.
     pub fn policy_overrides(&self, types: &[PolicyType]) -> Vec<PolicyValue> {
-        let mut out = overrides(self.call_timeout().map(duration_to_time_t), types);
+        let mut out = overrides(self.scope(), types);
         if types.is_empty() || types.contains(&BIDIRECTIONAL_POLICY_TYPE) {
             if let Some(v) = *self.inner.bidir_override.lock().unwrap() {
                 out.push(PolicyValue::Poa(Policy::Bidirectional(v)));
@@ -438,19 +548,29 @@ impl Orb {
 }
 
 impl ObjectRef {
+    /// The client policies the reference overrides.
+    fn scope(&self) -> Scope {
+        Scope {
+            timeout: as_time_t(self.call_timeout()),
+            sync_scope: self.sync_scope_override(),
+        }
+    }
+
     /// `CORBA::Object::set_policy_overrides`: a new reference to the same
-    /// object with these overrides, whose call timeout is its own (this
-    /// reference is unchanged). A `RelativeRoundtripTimeoutPolicy` sets
-    /// the new reference's [`call_timeout`](ObjectRef::set_call_timeout).
-    /// `NO_PERMISSION` for a POA policy.
+    /// object with these overrides, whose call timeout and sync scope are
+    /// its own (this reference is unchanged). A
+    /// `RelativeRoundtripTimeoutPolicy` sets the new reference's
+    /// [`call_timeout`](ObjectRef::set_call_timeout); a `SyncScopePolicy`
+    /// how far its oneway requests go. `NO_PERMISSION` for a POA policy.
     pub fn set_policy_overrides(
         &self,
         policies: &[PolicyValue],
         set_add: SetOverrideType,
     ) -> Result<ObjectRef, SystemException> {
-        let t = apply_overrides(as_time_t(self.call_timeout()), policies, set_add)?;
+        let scope = apply_overrides(self.scope(), policies, set_add)?;
         let obj = self.with_own_settings();
-        obj.set_call_timeout(t.map(|t| Some(time_t_to_duration(t))));
+        obj.set_call_timeout(scope.timeout.map(|t| Some(time_t_to_duration(t))));
+        obj.set_sync_scope_override(scope.sync_scope);
         Ok(obj)
     }
 
@@ -458,21 +578,38 @@ impl ObjectRef {
     /// reference of the types `types`, or all of them when `types` is
     /// empty.
     pub fn policy_overrides(&self, types: &[PolicyType]) -> Vec<PolicyValue> {
-        overrides(as_time_t(self.call_timeout()), types)
+        overrides(self.scope(), types)
     }
 
     /// `CORBA::Object::get_client_policy`, and `get_policy` (rustorb reads
     /// no policies from IORs): the policy of type `policy_type` that
     /// applies to calls from this thread, from the reference's overrides,
     /// else the thread's, else the ORB's. `None` when no scope has one,
-    /// which for the timeout means calls have no limit.
+    /// which for the timeout means calls have no limit, and for the sync
+    /// scope that oneway requests return once written
+    /// (`SYNC_WITH_TRANSPORT`).
     pub fn client_policy(&self, policy_type: PolicyType) -> Option<PolicyValue> {
-        if policy_type != RELATIVE_RT_TIMEOUT_POLICY_TYPE {
-            return None;
+        match policy_type {
+            RELATIVE_RT_TIMEOUT_POLICY_TYPE => self
+                .call_timeout()
+                .or_else(thread_call_timeout)
+                .unwrap_or_else(|| self.orb().call_timeout())
+                .map(|t| PolicyValue::RelativeRoundtripTimeout(duration_to_time_t(t))),
+            SYNC_SCOPE_POLICY_TYPE => self
+                .sync_scope_override()
+                .or_else(thread_sync_scope)
+                .or_else(|| load_sync_scope(&self.orb().inner.sync_scope))
+                .map(PolicyValue::SyncScope),
+            _ => None,
         }
-        self.call_timeout()
-            .or_else(thread_call_timeout)
-            .unwrap_or_else(|| self.orb().call_timeout())
-            .map(|t| PolicyValue::RelativeRoundtripTimeout(duration_to_time_t(t)))
+    }
+
+    /// The `Messaging::SyncScope` of a oneway request on this reference
+    /// from the calling thread: [`client_policy`](ObjectRef::client_policy),
+    /// else `SYNC_WITH_TRANSPORT`.
+    pub(crate) fn effective_sync_scope(&self) -> i16 {
+        self.client_policy(SYNC_SCOPE_POLICY_TYPE)
+            .and_then(|p| p.synchronization())
+            .unwrap_or(SYNC_WITH_TRANSPORT)
     }
 }

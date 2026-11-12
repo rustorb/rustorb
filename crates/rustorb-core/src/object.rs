@@ -1,6 +1,6 @@
 use std::fmt;
 use std::future::Future;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -13,7 +13,10 @@ use rustorb_giop::{
 };
 
 use crate::connection::{Closed, Connection, SendError};
-use crate::pi::{self, ClientEnding, ClientRequest, ClientRequestInfo, DiiParams, Interceptors};
+use crate::pi::{
+    self, ClientEnding, ClientRequest, ClientRequestInfo, DiiParams, Interceptors, sync_scope,
+};
+use crate::policy;
 use crate::server::Server;
 use crate::stream::{InStream, OutStream, marshal};
 use crate::trace;
@@ -38,6 +41,8 @@ pub struct ObjectRef {
     forward: Arc<Mutex<Option<Arc<Ior>>>>,
     /// [`ObjectRef::set_call_timeout`], shared by clones.
     call_timeout: Arc<AtomicU64>,
+    /// The `SyncScopePolicy` override, shared by clones.
+    sync_scope: Arc<AtomicI32>,
 }
 
 impl fmt::Debug for ObjectRef {
@@ -84,16 +89,28 @@ impl ObjectRef {
             ior: Arc::new(ior),
             forward: Arc::new(Mutex::new(None)),
             call_timeout: Arc::new(AtomicU64::new(timeout::UNSET)),
+            sync_scope: Arc::new(policy::new_sync_scope_cell(None)),
         }
     }
 
     /// A reference to the same object (sharing its forward) whose call
-    /// timeout is its own, starting from this one's.
+    /// timeout and sync scope are its own, starting from this one's.
     pub(crate) fn with_own_settings(&self) -> ObjectRef {
         ObjectRef {
             call_timeout: Arc::new(AtomicU64::new(self.call_timeout.load(Ordering::Relaxed))),
+            sync_scope: Arc::new(policy::new_sync_scope_cell(self.sync_scope_override())),
             ..self.clone()
         }
+    }
+
+    /// The `SyncScopePolicy` override of the reference.
+    pub(crate) fn sync_scope_override(&self) -> Option<i16> {
+        policy::load_sync_scope(&self.sync_scope)
+    }
+
+    /// Sets the `SyncScopePolicy` override of the reference and its clones.
+    pub(crate) fn set_sync_scope_override(&self, v: Option<i16>) {
+        policy::store_sync_scope(&self.sync_scope, v);
     }
 
     pub(crate) fn ior_arc(&self) -> Arc<Ior> {
@@ -346,6 +363,7 @@ impl<'a> Request<'a> {
             operation: &self.operation,
             args: self.args.as_deref(),
             response: true,
+            sync: sync_scope::SYNC_WITH_TARGET,
             dii: self.dii.as_ref(),
         };
         let slots = request_slots(self.obj);
@@ -355,13 +373,19 @@ impl<'a> Request<'a> {
         }
     }
 
-    /// Sends the request as a oneway call: returns once the message is
-    /// written, with no reply.
+    /// Sends the request as a oneway call, with no reply. When the call
+    /// returns depends on the `Messaging::SyncScopePolicy` of the
+    /// reference, the thread or the ORB (`docs/sync-scope.md`): by default
+    /// (`SYNC_WITH_TRANSPORT`) once the message is written; with
+    /// `SYNC_NONE` before; with `SYNC_WITH_SERVER` or `SYNC_WITH_TARGET`
+    /// once the server answers, which may raise the system exceptions of
+    /// a two-way call.
     pub fn send_oneway(self) -> Result<(), SystemException> {
         let kind = Kind::Request {
             operation: &self.operation,
             args: self.args.as_deref(),
             response: false,
+            sync: self.obj.effective_sync_scope(),
             dii: self.dii.as_ref(),
         };
         let slots = request_slots(self.obj);
@@ -443,6 +467,7 @@ impl<'a> AsyncRequest<'a> {
                 operation: &self.operation,
                 args: self.args.as_deref(),
                 response: true,
+                sync: sync_scope::SYNC_WITH_TARGET,
                 dii: self.dii.as_ref(),
             };
             match invoke_async(self.obj, &kind, timeout, slots).await? {
@@ -452,10 +477,12 @@ impl<'a> AsyncRequest<'a> {
         })
     }
 
-    /// Sends the request as a oneway call; the future resolves once the
-    /// message is written.
+    /// Sends the request as a oneway call; the future resolves when
+    /// [`Request::send_oneway`] would return. The sync scope is taken when
+    /// this is called, like the timeout.
     pub fn send_oneway(mut self) -> impl Future<Output = Result<(), SystemException>> + Send + 'a {
         let timeout = self.timeout.unwrap_or_else(|| self.obj.effective_timeout());
+        let sync = self.obj.effective_sync_scope();
         let slots = self.slots.take().unwrap_or_else(|| request_slots(self.obj));
         let orb = self.obj.orb.clone();
         orb.in_runtime(async move {
@@ -463,6 +490,7 @@ impl<'a> AsyncRequest<'a> {
                 operation: &self.operation,
                 args: self.args.as_deref(),
                 response: false,
+                sync,
                 dii: self.dii.as_ref(),
             };
             match invoke_async(self.obj, &kind, timeout, slots).await {
@@ -631,7 +659,11 @@ enum Kind<'k, A: ?Sized = ArgsFn<'k>> {
     Request {
         operation: &'k str,
         args: Option<&'k A>,
+        /// A two-way request.
         response: bool,
+        /// The `Messaging::SyncScope` of a oneway request
+        /// (`SYNC_WITH_TARGET` for a two-way one).
+        sync: i16,
         dii: Option<&'k DiiParams>,
     },
     Locate,
@@ -910,6 +942,7 @@ impl ClientPi {
         let Kind::Request {
             operation,
             response,
+            sync,
             dii,
             ..
         } = *kind
@@ -921,6 +954,7 @@ impl ClientPi {
             ClientRequest {
                 operation,
                 response_expected: response,
+                sync_scope: sync,
                 target: obj,
                 effective: Arc::clone(ior),
                 profile_index: Some(ep.profile_index),
@@ -1055,6 +1089,7 @@ fn invoke<A: WriteArgs + ?Sized>(
                 },
             ))?,
         };
+        attempt = without_reply(kind, attempt);
         if let (Some(pi), Some(info)) = (&pi, &info) {
             attempt = pi.finish(orb, info, attempt, reply_contexts);
         }
@@ -1165,6 +1200,7 @@ async fn invoke_async<A: WriteArgs + ?Sized>(
                 .await
             }
         };
+        attempt = without_reply(kind, attempt);
         if let (Some(pi), Some(info)) = (&pi, &info) {
             attempt = pi.finish(orb, info, attempt, reply_contexts);
         }
@@ -1303,18 +1339,24 @@ async fn attempt_on<A: WriteArgs + ?Sized>(
         });
 
     let request_id = conn.next_request_id();
-    let response = match kind {
-        Kind::Request { response, .. } => *response,
-        Kind::Locate => true,
-    };
+    let flags = flags_of(kind);
+    // A reply comes to a two-way request, and to a oneway one sent with
+    // SYNC_WITH_SERVER or SYNC_WITH_TARGET.
+    let response = flags & 0x01 != 0;
+    // SYNC_NONE: the call returns before the request is written.
+    let detached = matches!(
+        kind,
+        Kind::Request {
+            response: false,
+            sync: sync_scope::SYNC_NONE,
+            ..
+        }
+    );
     let msg = match kind {
         Kind::Request {
-            operation,
-            args,
-            response,
-            ..
+            operation, args, ..
         } => {
-            let header = request_header(request_id, *response, target, operation, context);
+            let header = request_header(request_id, flags, target, operation, context);
             match encode_request(version, order, &header, *args, code_sets) {
                 Ok(msg) if msg.len() > options.max_message_size => {
                     trace::warning!(
@@ -1355,7 +1397,7 @@ async fn attempt_on<A: WriteArgs + ?Sized>(
     trace::debug!(
         "{} (id {request_id}{}) to {}:{}, GIOP {}.{}",
         KindName(kind),
-        if response { "" } else { ", oneway" },
+        OnewayNote(kind),
         ep.host,
         ep.port,
         version.major,
@@ -1378,6 +1420,24 @@ async fn attempt_on<A: WriteArgs + ?Sized>(
     } else {
         None
     };
+    if detached {
+        // The request goes out on the ORB's runtime after the call has
+        // returned; a failure is only traced.
+        let (orb, conn) = (orb.clone(), Arc::clone(conn));
+        orb.inner.handle.clone().spawn(async move {
+            match conn.send(&msg, deadline).await {
+                Ok(()) if offer => conn.offered(),
+                Ok(()) => {}
+                Err(e) => {
+                    trace::debug!("oneway request (id {request_id}, SYNC_NONE) not sent: {e:?}");
+                    if matches!(e, SendError::Failed) || !conn.is_usable() {
+                        orb.discard(&conn);
+                    }
+                }
+            }
+        });
+        return Ok(Attempt::Done(Ok(Outcome::Reply(None))));
+    }
     match conn.send(&msg, deadline).await {
         Ok(()) if offer => conn.offered(),
         Ok(()) => {}
@@ -1502,20 +1562,70 @@ fn target_address(
     }
 }
 
+/// The `response_flags` of a request: `SYNC_WITH_TARGET` for a two-way
+/// request; for a oneway one, the flags of its sync scope (the
+/// `RequestHeader` of GIOP 1.2). GIOP 1.0 and 1.1 send `response_expected`
+/// for the low bit.
+fn flags_of<A: ?Sized>(kind: &Kind<'_, A>) -> u8 {
+    match *kind {
+        Kind::Request { response: true, .. } | Kind::Locate => response_flags::SYNC_WITH_TARGET,
+        Kind::Request { sync, .. } => match sync {
+            sync_scope::SYNC_WITH_TARGET => response_flags::SYNC_WITH_TARGET,
+            sync_scope::SYNC_WITH_SERVER => response_flags::SYNC_WITH_SERVER,
+            _ => response_flags::NONE,
+        },
+    }
+}
+
+/// `, oneway` and its sync scope in trace lines, for a oneway request.
+struct OnewayNote<'a, 'k, A: ?Sized>(&'a Kind<'k, A>);
+
+impl<A: ?Sized> fmt::Display for OnewayNote<'_, '_, A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self.0 {
+            Kind::Request {
+                response: false,
+                sync,
+                ..
+            } => {
+                let name = match sync {
+                    sync_scope::SYNC_NONE => "SYNC_NONE",
+                    sync_scope::SYNC_WITH_SERVER => "SYNC_WITH_SERVER",
+                    sync_scope::SYNC_WITH_TARGET => "SYNC_WITH_TARGET",
+                    _ => "SYNC_WITH_TRANSPORT",
+                };
+                write!(f, ", oneway {name}")
+            }
+            _ => Ok(()),
+        }
+    }
+}
+
+/// A oneway request answered by the server (`SYNC_WITH_SERVER`,
+/// `SYNC_WITH_TARGET`) ends as one without a reply: the reply has no body,
+/// and the interceptors see `receive_other` as for any oneway request.
+fn without_reply<A: ?Sized>(kind: &Kind<'_, A>, attempt: Attempt) -> Attempt {
+    match (kind, attempt) {
+        (
+            Kind::Request {
+                response: false, ..
+            },
+            Attempt::Done(Ok(Outcome::Reply(Some(_)))),
+        ) => Attempt::Done(Ok(Outcome::Reply(None))),
+        (_, attempt) => attempt,
+    }
+}
+
 fn request_header(
     request_id: u32,
-    response: bool,
+    flags: u8,
     target: TargetAddress,
     operation: &str,
     service_context: Vec<rustorb_giop::ServiceContext>,
 ) -> RequestHeader {
     RequestHeader {
         request_id,
-        response_flags: if response {
-            response_flags::SYNC_WITH_TARGET
-        } else {
-            response_flags::NONE
-        },
+        response_flags: flags,
         target,
         operation: operation.to_owned(),
         service_context,
@@ -1588,20 +1698,18 @@ fn local_call<A: WriteArgs + ?Sized>(
         _ => (CodeSets::DEFAULT, Vec::new()),
     };
     context.extend_from_slice(contexts);
-    let (operation, args, response) = match kind {
+    let flags = flags_of(kind);
+    let (operation, args) = match kind {
         Kind::Locate => return Ok(LocalCall::Locate(target)),
         Kind::Request {
-            operation,
-            args,
-            response,
-            ..
-        } => (*operation, *args, *response),
+            operation, args, ..
+        } => (*operation, *args),
     };
     trace::debug!(
         "request {operation:?}{} to this ORB's own object (colocated)",
-        if response { "" } else { ", oneway" }
+        OnewayNote(kind)
     );
-    let header = request_header(0, response, target, operation, context);
+    let header = request_header(0, flags, target, operation, context);
     let msg = match encode_request(version, order, &header, args, code_sets) {
         Ok(msg) => msg.into_vec(),
         Err(e) => return Err(Attempt::Done(Err(e))),

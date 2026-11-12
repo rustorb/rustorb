@@ -10,7 +10,7 @@ issue #39。標準の `CORBA::ORB` と `CORBA::Object` の操作のうち、ま�
 | `object_to_string` / `string_to_object` / `resolve_initial_references` / `run` / `work_pending` / `perform_work` / `shutdown` / `destroy` / `create_*_tc` / 値ファクトリ | 全言語 | － |
 | `list_initial_services` | 全言語（`-ORBInitRef` の名前と `RootPOA`・`POACurrent`） | 登録した名前、`ORBPolicyManager`、`PolicyCurrent` を加えた |
 | `register_initial_reference` | なし | 全言語 |
-| `create_policy` | なし | 全言語。POA の7つのポリシーと `Messaging::RelativeRoundtripTimeoutPolicy` |
+| `create_policy` | なし | 全言語。POA の7つのポリシーと `Messaging::RelativeRoundtripTimeoutPolicy`（後に `Messaging::SyncScopePolicy` も。[sync-scope.md](sync-scope.md)） |
 | `get_service_information` | なし | 全言語。提供するサービスがないので常に false |
 | `Object::get_policy` / `get_client_policy` / `set_policy_overrides` / `get_policy_overrides` / `validate_connection` | なし | 全言語 |
 | `PolicyManager`（`ORBPolicyManager`）/ `PolicyCurrent` | なし | 全言語 |

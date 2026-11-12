@@ -22,7 +22,7 @@ Nov 1, 2026
 | `-brust` の abstract interface・local interface・抽象 valuetype・`context` 句 | 対応済み（[rust-mapping.md](rust-mapping.md)）。`context` 句は、コアに `CORBA::Context` がないので生成器のエラーのままにすると決めた | Rust の利用者がローカルオブジェクトを IDL で書けない（解消） | [#104](https://github.com/rustorb/rustorb/issues/104) |
 | ログ・トレースの出力（`-ORBtraceLevel` 相当） | コアにログの仕組みがない | 相互接続や設定の問題を利用者が調べにくい | [#105](https://github.com/rustorb/rustorb/issues/105) |
 | Messaging AMI（IDL の `sendc_` と `ReplyHandler`、ポーリング） | コールバック型（`sendc_`・`AMI_<I>Handler`・`ExceptionHolder`）を C++・Java・Python で実装済み（`rustorb-idl -Wbami`）。omniORB C++・omniORBpy・JacORB のサーバーとの相互接続も確認済み（[#140](https://github.com/rustorb/rustorb/issues/140)）。ポーリング型（`sendp_`）と Rust の生成コードは入れないと決めた（Rust は async API（[async-api.md](async-api.md)）と DII の deferred） | C++・Java・Python に非同期呼び出しの標準 API がなかった（解消） | [#135](https://github.com/rustorb/rustorb/issues/135)、設計：[ami.md](ami.md) |
-| Messaging のその他のポリシー（SyncScope、Rebind、RequestPriority など） | タイムアウト（RelativeRoundtripTimeout）だけ | oneway の `SYNC_WITH_*` は内部で持っているので、ポリシーとして公開するのは小さい | |
+| Messaging のその他のポリシー（SyncScope、Rebind、RequestPriority など） | タイムアウト（RelativeRoundtripTimeout）と `SyncScope`（実装済み。コア・Python・C ABI / C++・Java。[sync-scope.md](sync-scope.md)）。Rebind・RequestPriority などはなし | oneway の送り方を利用者が選べなかった（`SyncScope` で解消） | [#153](https://github.com/rustorb/rustorb/issues/153) |
 | C++・Java の DII / DSI | コアと Python だけ（[dii-dsi.md](dii-dsi.md)、需要待ちと決定済み） | ブリッジ・ゲートウェイ・汎用ツール向け | |
 | `POAManagerFactory`（CORBA 3） | なし（POA ごとに暗黙の POAManager） | 複数の POA で POAManager を作成・共有する API | |
 

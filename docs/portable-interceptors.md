@@ -192,9 +192,9 @@ rustorb で中身が決まるもの：
 | `exceptions` | DII の例外リスト。他は `NO_RESOURCES` |
 | `contexts`・`operation_context` | `NO_RESOURCES`（rustorb は `context` 句を扱わない） |
 | `received_exception` / `sending_exception` | システム例外は Any に入れて返す。ユーザー例外は TypeCode が分かるとき（DII の例外リスト、DSI の `set_exception`）だけ。分からないときは仕様どおり `UNKNOWN` を入れた Any。リポジトリ ID は `received_exception_id`、サーバー側は rustorb 独自の `sending_exception_id` で取れる |
-| `sync_scope` | `SYNC_WITH_TARGET`（応答あり）か `SYNC_NONE`（oneway） |
+| `sync_scope` | クライアントは二方向なら `SYNC_WITH_TARGET`、oneway なら `SyncScopePolicy` で決まった値。サーバーは `response_flags` から読んだ値（`0x00` は `SYNC_NONE`）。[sync-scope.md](sync-scope.md) |
 | `target`・`effective_target`・`effective_profile`・`get_effective_component(s)` | 今の `Walk` の参照と、試しているアドレスのプロファイル |
-| `get_request_policy` | クライアントの実効ポリシー（今ある `RelativeRoundtripTimeout`） |
+| `get_request_policy` | クライアントの実効ポリシー（`RelativeRoundtripTimeout` と `SyncScope`） |
 | `object_id`・`adapter_id`・`adapter_name`・`orb_id`・`server_id` | オブジェクトキーから。`adapter_id` はオブジェクトキーの POA の部分、`adapter_name` は RootPOA からの名前の列、`server_id` は `-ORBServerId`（新しく受け付ける。既定は `""`） |
 | `target_most_derived_interface`・`target_is_a` | `receive_request` から。サーバントの `repository_id` と `is_a` |
 | `get_server_policy` | POA のポリシー |

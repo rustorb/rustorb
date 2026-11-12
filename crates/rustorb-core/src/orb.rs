@@ -635,6 +635,8 @@ pub(crate) struct OrbInner {
     pi: Mutex<Option<Arc<crate::pi::Interceptors>>>,
     /// The `BidirectionalPolicy` set with [`Orb::set_policy_overrides`].
     pub(crate) bidir_override: Mutex<Option<crate::Bidirectional>>,
+    /// The `SyncScopePolicy` override of the ORB's `PolicyManager`.
+    pub(crate) sync_scope: std::sync::atomic::AtomicI32,
     /// The threads that run the callbacks of
     /// [`CallbackRequest`](crate::CallbackRequest)s, started with the
     /// first; `Err` once the ORB is destroyed.
@@ -811,6 +813,7 @@ impl Orb {
                 pi_on: AtomicBool::new(false),
                 pi: Mutex::new(None),
                 bidir_override: Mutex::new(None),
+                sync_scope: crate::policy::new_sync_scope_cell(None),
                 replies: Mutex::new(Ok(None)),
             }),
         };

@@ -8,3 +8,9 @@ wchar LE stream, length 2, BE: 'あ' (length 2, no BOM)
 wchar LE stream, length 2, LE: '䈰' (length 2, no BOM)
 wchar LE stream, length 4, BOM LE: 'あ' (length 2, no BOM)
 wchar BE stream, length 4, BOM BE: 'あ' (length 2, no BOM)
+oneway post, response_flags 0x00: no reply
+oneway post, response_flags 0x01: NO_EXCEPTION, 0 body bytes
+oneway post, response_flags 0x03: NO_EXCEPTION, 0 body bytes
+oneway post to a missing object, response_flags 0x00: no reply
+oneway post to a missing object, response_flags 0x01: IDL:omg.org/CORBA/OBJECT_NOT_EXIST:1.0 minor 0x4f4d0001
+oneway post to a missing object, response_flags 0x03: IDL:omg.org/CORBA/OBJECT_NOT_EXIST:1.0 minor 0x4f4d0001

@@ -13,6 +13,21 @@ break the API).
   `stringToName`, `nameToString` and `addrAndNameToURI`, with omniORBpy
   4.3.4's rules, measured by running it (they differ in details from the
   naming service's `to_name` / `to_url`).
+- `Messaging::SyncScopePolicy` (docs/sync-scope.md, #153) in the core, Python,
+  the C ABI / C++ and Java: `create_policy` with a `Messaging::SyncScope`,
+  overridden on a reference, the thread or the ORB like the timeout. A oneway
+  call returns before the request is written (`SYNC_NONE`), once it is
+  written (`SYNC_WITH_TRANSPORT`, the default and the old behaviour), or once
+  the server answers before (`SYNC_WITH_SERVER`) or after
+  (`SYNC_WITH_TARGET`) the servant runs; the last two raise the system
+  exceptions of a two-way call. The interceptors' `sync_scope` and
+  `get_request_policy` give it.
+
+### Changed
+
+- A rustorb server answers a oneway request with `response_flags` 0x01
+  (`SYNC_WITH_SERVER`) before calling the servant, as GIOP 1.2 says, instead
+  of after it.
 
 ## [0.4.0] - 2026-11-09
 

@@ -774,6 +774,7 @@ pub struct ClientRequestInfo<'a> {
     request_id: u32,
     operation: &'a str,
     response_expected: bool,
+    sync_scope: i16,
     target: &'a ObjectRef,
     effective_target: ObjectRef,
     effective_profile: TaggedProfile,
@@ -802,6 +803,8 @@ impl fmt::Debug for ClientRequestInfo<'_> {
 pub(crate) struct ClientRequest<'a> {
     pub(crate) operation: &'a str,
     pub(crate) response_expected: bool,
+    /// The `Messaging::SyncScope` of a oneway request.
+    pub(crate) sync_scope: i16,
     pub(crate) target: &'a ObjectRef,
     pub(crate) effective: Arc<Ior>,
     pub(crate) profile_index: Option<usize>,
@@ -830,6 +833,7 @@ impl<'a> ClientRequestInfo<'a> {
             request_id: pi.next_request_id.fetch_add(1, Ordering::Relaxed),
             operation: r.operation,
             response_expected: r.response_expected,
+            sync_scope: r.sync_scope,
             target: r.target,
             effective_target,
             effective_profile,
@@ -952,12 +956,14 @@ impl<'a> ClientRequestInfo<'a> {
         self.response_expected
     }
 
-    /// `sync_scope`.
+    /// `sync_scope`: the `Messaging::SyncScope` the request is sent with,
+    /// from the `SyncScopePolicy` in effect for a oneway request, and
+    /// `SYNC_WITH_TARGET` for a two-way one.
     pub fn sync_scope(&self) -> i16 {
         if self.response_expected {
             sync_scope::SYNC_WITH_TARGET
         } else {
-            sync_scope::SYNC_NONE
+            self.sync_scope
         }
     }
 
@@ -1075,16 +1081,17 @@ impl<'a> ClientRequestInfo<'a> {
         &self,
         policy_type: PolicyType,
     ) -> Result<Option<PolicyValue>, SystemException> {
-        if policy_type != crate::policy::RELATIVE_RT_TIMEOUT_POLICY_TYPE {
-            return Err(SystemException::new(
+        match policy_type {
+            crate::policy::RELATIVE_RT_TIMEOUT_POLICY_TYPE => Ok(self.timeout.map(|t| {
+                PolicyValue::RelativeRoundtripTimeout(crate::timeout::duration_to_time_t(t))
+            })),
+            crate::policy::SYNC_SCOPE_POLICY_TYPE => Ok(self.target.client_policy(policy_type)),
+            _ => Err(SystemException::new(
                 SystemExceptionKind::INV_POLICY,
                 minor::INVALID_POLICY_TYPE,
                 CompletionStatus::No,
-            ));
+            )),
         }
-        Ok(self
-            .timeout
-            .map(|t| PolicyValue::RelativeRoundtripTimeout(crate::timeout::duration_to_time_t(t))))
     }
 
     /// `add_request_service_context`: in `send_request`.
@@ -1309,6 +1316,7 @@ pub struct ServerRequestInfo<'a> {
     request_id: u32,
     operation: &'a str,
     response_expected: bool,
+    sync_scope: i16,
     orb: &'a Orb,
     target: Option<&'a ServerTarget>,
     servant: RefCell<Option<Arc<dyn Servant>>>,
@@ -1361,6 +1369,8 @@ pub(crate) struct ServerRequest<'a> {
     pub(crate) request_id: u32,
     pub(crate) operation: &'a str,
     pub(crate) response_expected: bool,
+    /// The `Messaging::SyncScope` the request's `response_flags` say.
+    pub(crate) sync_scope: i16,
     pub(crate) orb: &'a Orb,
     pub(crate) target: Option<&'a ServerTarget>,
     pub(crate) contexts: &'a [ServiceContext],
@@ -1373,6 +1383,7 @@ impl<'a> ServerRequestInfo<'a> {
             request_id: r.request_id,
             operation: r.operation,
             response_expected: r.response_expected,
+            sync_scope: r.sync_scope,
             orb: r.orb,
             target: r.target,
             servant: RefCell::new(None),
@@ -1473,13 +1484,12 @@ impl<'a> ServerRequestInfo<'a> {
         self.response_expected
     }
 
-    /// `sync_scope`.
+    /// `sync_scope`: what the request's `response_flags` say, which
+    /// cannot tell `SYNC_NONE` from `SYNC_WITH_TRANSPORT` (`SYNC_NONE`
+    /// for both) nor a oneway `SYNC_WITH_TARGET` request from a two-way
+    /// one.
     pub fn sync_scope(&self) -> i16 {
-        if self.response_expected {
-            sync_scope::SYNC_WITH_TARGET
-        } else {
-            sync_scope::SYNC_NONE
-        }
+        self.sync_scope
     }
 
     /// `reply_status`: in the `send_*` points.

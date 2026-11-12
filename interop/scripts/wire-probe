@@ -6,7 +6,10 @@ answers, to observe how an ORB reads wire forms its own clients never send.
 
 Each line is `<case>: <result>`, where the result is the echoed value as
 the server sent it back (decoded by its BOM, or big endian without one) or
-the system exception it raised. The requests follow the CORBA 3.x GIOP
+the system exception it raised. The oneway cases send `post` with each
+`response_flags` of a oneway request (in the GIOP 1.2 RequestHeader:
+0x00 for SYNC_NONE and SYNC_WITH_TRANSPORT, 0x01 for SYNC_WITH_SERVER,
+0x03 for SYNC_WITH_TARGET) and print whether a reply comes. The requests follow the CORBA 3.x GIOP
 specification only; run-wire-probe.sh compares the output with
 expected/wire-probe-<server>.txt.
 """
@@ -16,6 +19,8 @@ import socket
 import struct
 
 OBJECT_KEY = b"\xffInteropTest\x00Echo"
+# An object id the server's POA does not have.
+MISSING_KEY = b"\xffInteropTest\x00Nope"
 # CONV_FRAME::CodeSetContext: ISO 8859-1 for char, UTF-16 for wchar.
 CODE_SET_CONTEXT = (1, b"\x01\x00\x00\x00" + struct.pack("<II", 0x00010001, 0x00010109))
 
@@ -42,12 +47,12 @@ class Writer:
         self.octets(s.encode("latin-1") + b"\0")
 
 
-def request(little, request_id, operation, body):
+def request(little, request_id, operation, body, flags=0x03, key=OBJECT_KEY):
     w = Writer(little)
     w.ulong(request_id)
-    w.buf += b"\x03\0\0\0"  # response_flags SYNC_WITH_TARGET, reserved
+    w.buf += bytes([flags]) + b"\0\0\0"  # response_flags, reserved
     w.buf += struct.pack(w.fmt + "H", 0) + b"\0\0"  # KeyAddr
-    w.octets(OBJECT_KEY)
+    w.octets(key)
     w.string(operation)
     w.ulong(1)
     w.ulong(CODE_SET_CONTEXT[0])
@@ -104,6 +109,8 @@ def reply_result(msg, kind):
         return "%s minor 0x%08x" % (repid, minor)
     if status != 0:
         return "reply status %d" % status
+    if kind == "void":
+        return "NO_EXCEPTION, %d body bytes" % (len(msg) - pos)
     if kind == "wstring":
         n = struct.unpack_from(fmt + "I", msg, pos)[0]
         text, form = utf16(msg[pos + 4:pos + 4 + n])
@@ -145,6 +152,40 @@ CASES = [
 ]
 
 
+ONEWAY_CASES = [
+    # name, response_flags, object key
+    ("oneway post, response_flags 0x00", 0x00, OBJECT_KEY),
+    ("oneway post, response_flags 0x01", 0x01, OBJECT_KEY),
+    ("oneway post, response_flags 0x03", 0x03, OBJECT_KEY),
+    ("oneway post to a missing object, response_flags 0x00", 0x00, MISSING_KEY),
+    ("oneway post to a missing object, response_flags 0x01", 0x01, MISSING_KEY),
+    ("oneway post to a missing object, response_flags 0x03", 0x03, MISSING_KEY),
+]
+
+
+def oneway_cases(args):
+    for i, (name, flags, key) in enumerate(ONEWAY_CASES):
+        with socket.create_connection((args.host, args.port), timeout=10) as sock:
+            msg = request(True, 100 + i, "post", lambda w: _string(w, "probe"), flags, key)
+            sock.sendall(msg)
+            if not flags & 0x01:
+                # No reply is expected: one second of silence says so.
+                sock.settimeout(1)
+            try:
+                result = reply_result(recv_message(sock), "void")
+            except socket.timeout:
+                result = "no reply"
+            except (ConnectionError, OSError) as e:
+                result = "no reply (%s)" % type(e).__name__
+        print("%s: %s" % (name, result))
+
+
+def _string(w, s):
+    """The body of a request whose only argument is the string `s`."""
+    data = s.encode("latin-1") + b"\0"
+    return struct.pack(w.fmt + "I", len(data)) + data
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -166,6 +207,7 @@ def main():
             except (ConnectionError, OSError) as e:
                 result = "no reply (%s)" % type(e).__name__
         print("%s: %s" % (name, result))
+    oneway_cases(args)
 
 
 if __name__ == "__main__":

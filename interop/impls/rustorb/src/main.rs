@@ -28,8 +28,8 @@ use idl::interop_test::{
     Callback, CallbackPoa, CallbackServant, Color, Echo, MAGIC, Point, Record, Shade, Value, echo,
 };
 use rustorb_core::{
-    CompletionStatus, Exception, IdAssignment, Lifespan, Orb, Policy, SystemException,
-    SystemExceptionKind,
+    CompletionStatus, Exception, IdAssignment, Lifespan, Orb, Policy, PolicyValue, SetOverrideType,
+    SystemException, SystemExceptionKind,
 };
 use rustorb_naming::{NamingContext, NamingError, to_name};
 
@@ -407,6 +407,32 @@ fn run_cases(r: &mut Runner, e: &Echo, cb: &Callback) {
         let mut want: Vec<String> = sent.iter().map(|s| (*s).to_owned()).collect();
         want.sort();
         check(got == want, || format!("got {got:?}"))
+    });
+
+    // Messaging::SyncScopePolicy (docs/sync-scope.md): the server answers a
+    // oneway request sent with SYNC_WITH_SERVER before the upcall, and one
+    // sent with SYNC_WITH_TARGET after it.
+    r.case("oneway post with SyncScope", || {
+        use rustorb_core::pi::sync_scope::{SYNC_WITH_SERVER, SYNC_WITH_TARGET};
+        e.posted().map_err(s)?;
+        for (v, m) in [(SYNC_WITH_SERVER, "server"), (SYNC_WITH_TARGET, "target")] {
+            let obj = e
+                .object()
+                .set_policy_overrides(&[PolicyValue::SyncScope(v)], SetOverrideType::Set)
+                .map_err(s)?;
+            Echo::unchecked_narrow(obj).post(m).map_err(s)?;
+        }
+        let mut got = e.posted().map_err(s)?;
+        check(got.iter().any(|m| m == "target"), || {
+            format!("SYNC_WITH_TARGET returned before the upcall: got {got:?}")
+        })?;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while got.len() < 2 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+            got.extend(e.posted().map_err(s)?);
+        }
+        got.sort();
+        check(got == ["server", "target"], || format!("got {got:?}"))
     });
 }
 
