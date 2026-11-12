@@ -12,6 +12,7 @@ docs/omniorb-compat.md):
 - :func:`cdrMarshal` / :func:`cdrUnmarshal`: a value as CDR bytes
 - :mod:`omniORB.any`: ``to_any`` / ``from_any``
 - :func:`findType` and :mod:`omniORB.tcInternal`: type descriptors
+- :mod:`omniORB.URI`: stringified CosNaming names and ``corbaname:`` URIs
 - the ``omniINSPOA`` initial reference (in rustorb itself)
 - :func:`setClientCallTimeout`, :func:`setClientThreadCallTimeout`,
   :func:`setClientConnectTimeout`: client timeouts

@@ -7,6 +7,13 @@ break the API).
 
 ## [Unreleased]
 
+### Added
+
+- `omniORB.URI` in rustorb-omniorb-compat (docs/omniorb-compat.md, #152):
+  `stringToName`, `nameToString` and `addrAndNameToURI`, with omniORBpy
+  4.3.4's rules, measured by running it (they differ in details from the
+  naming service's `to_name` / `to_url`).
+
 ## [0.4.0] - 2026-11-09
 
 The C ABI version is 3 (callback AMI added `rorb_object_sendc`,

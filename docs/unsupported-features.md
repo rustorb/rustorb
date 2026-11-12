@@ -37,7 +37,7 @@ Nov 1, 2026
 | DynAny の抽象インターフェース（`insert_abstract` / `get_abstract`） | `NO_IMPLEMENT`（[dynany.md](dynany.md)） | |
 | ネイティブのコードセットの設定（char / wchar） | ネゴシエーションはあるが、ネイティブのコードセットは固定 | |
 | 他のトランスポート：DIOP（UDP）、MIOP（マルチキャスト）、ZIOP（圧縮）、Unix ドメインソケット | TCP と TLS だけ。Unix ソケットは omniORB 独自（`giop:unix`） | |
-| omniORBpy 互換の追加：`omniORB.URI`、`setClientThreadCallDeadline`、`installTimeoutExceptionHandler`、`sslTP` | 使うアプリケーションが出たら（[omniorb-compat.md](omniorb-compat.md)、[timeouts.md](timeouts.md)） | |
+| omniORBpy 互換の追加：`setClientThreadCallDeadline`、`installTimeoutExceptionHandler`、`sslTP` | 使うアプリケーションが出たら（[omniorb-compat.md](omniorb-compat.md)、[timeouts.md](timeouts.md)） | |
 
 ## 対象外のまま（計画で決定済み）
 
