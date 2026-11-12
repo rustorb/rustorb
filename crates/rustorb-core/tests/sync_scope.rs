@@ -333,11 +333,28 @@ fn sync_none_returns_before_the_request_is_written() {
             .send_oneway();
         (result, started.elapsed())
     };
-    let (result, _) = send(SYNC_WITH_TRANSPORT);
-    assert!(result.unwrap_err().is(SystemExceptionKind::TIMEOUT));
-    let (result, took) = send(SYNC_NONE);
-    result.unwrap();
-    assert!(took < Duration::from_millis(300), "took {took:?}");
+    // SYNC_WITH_TRANSPORT waits for the write: once the buffers are full
+    // (how much they take depends on the system: Windows takes more than
+    // one request), the call times out.
+    let mut sent = 0;
+    loop {
+        sent += 1;
+        let (result, _) = send(SYNC_WITH_TRANSPORT);
+        match result {
+            Ok(()) if sent < 16 => continue,
+            Ok(()) => panic!("{sent} requests of 32 MB written to a peer that does not read"),
+            Err(e) => {
+                assert!(e.is(SystemExceptionKind::TIMEOUT), "{e}");
+                break;
+            }
+        }
+    }
+    // SYNC_NONE does not wait for it.
+    for _ in 0..sent {
+        let (result, took) = send(SYNC_NONE);
+        result.unwrap();
+        assert!(took < Duration::from_millis(300), "took {took:?}");
+    }
     orb.destroy().unwrap();
 }
 
