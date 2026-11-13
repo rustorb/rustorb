@@ -865,8 +865,9 @@ class Object : public virtual AbstractBase {
   virtual bool _is_equivalent(const object_reference<Object>& other);
   virtual uint32_t _hash(uint32_t maximum);
   virtual object_reference<ORB> _get_orb();
-  // Policies of the reference (rustorb's client side policy is
-  // Messaging::RelativeRoundtripTimeoutPolicy). get_policy and
+  // Policies of the reference (rustorb's client side policies are
+  // Messaging::RelativeRoundtripTimeoutPolicy and
+  // Messaging::SyncScopePolicy). get_policy and
   // get_client_policy give the policy of the reference, else the calling
   // thread's, else the ORB's, or nil; set_policy_overrides returns a new
   // reference. Local objects raise NO_IMPLEMENT.
@@ -1437,11 +1438,12 @@ class ORB : public LocalObject {
   void register_initial_reference(const std::string& identifier,
                                   const object_reference<Object>& obj);
   // A POA policy from its enumerator, a BiDirPolicy::BidirectionalPolicy
-  // from an unsigned short (BidirectionalPolicyValue), or a
+  // from an unsigned short (BidirectionalPolicyValue), a
   // Messaging::RelativeRoundtripTimeoutPolicy from a TimeBase::TimeT
-  // (uint64_t, in 100 ns). PolicyError: BAD_POLICY for a type rustorb does
-  // not know, BAD_POLICY_TYPE for an any of the wrong type,
-  // BAD_POLICY_VALUE for an enumerator out of range.
+  // (uint64_t, in 100 ns), or a Messaging::SyncScopePolicy from a
+  // Messaging::SyncScope (a short). PolicyError: BAD_POLICY for a type
+  // rustorb does not know, BAD_POLICY_TYPE for an any of the wrong type,
+  // BAD_POLICY_VALUE for an enumerator or a sync scope out of range.
   object_reference<Policy> create_policy(PolicyType type, const Any& val);
   // rustorb offers no services (such as security): always false.
   bool get_service_information(ServiceType service_type, ServiceInformation& service_information) {
@@ -2261,6 +2263,19 @@ using TimeT = uint64_t;
 namespace Messaging {
 
 constexpr CORBA::PolicyType RELATIVE_RT_TIMEOUT_POLICY_TYPE = 32;
+constexpr CORBA::PolicyType SYNC_SCOPE_POLICY_TYPE = 24;
+
+// How far a oneway request goes before the call returns
+// (docs/sync-scope.md).
+using SyncScope = int16_t;
+// Before the request is written.
+constexpr SyncScope SYNC_NONE = 0;
+// Once it is written: the default.
+constexpr SyncScope SYNC_WITH_TRANSPORT = 1;
+// Once the server has the request and its target, before the servant runs.
+constexpr SyncScope SYNC_WITH_SERVER = 2;
+// Once the servant has run.
+constexpr SyncScope SYNC_WITH_TARGET = 3;
 
 // How long a call may take: ORB::create_policy with a TimeBase::TimeT,
 // then Object::_set_policy_overrides, the ORB's PolicyManager or the
@@ -2279,6 +2294,25 @@ class RelativeRoundtripTimeoutPolicy : public virtual CORBA::Policy {
 
  private:
   TimeBase::TimeT relative_expiry_;
+};
+
+// ORB::create_policy with a SyncScope in an any, then
+// Object::_set_policy_overrides, the ORB's PolicyManager or the
+// PolicyCurrent. With SYNC_WITH_SERVER and SYNC_WITH_TARGET a oneway call
+// waits for the server's answer, and raises the system exceptions of a
+// two-way call (OBJECT_NOT_EXIST, say).
+class SyncScopePolicy : public virtual CORBA::Policy {
+ public:
+  explicit SyncScopePolicy(SyncScope synchronization) : synchronization_(synchronization) {}
+  SyncScope synchronization() const { return synchronization_; }
+  CORBA::PolicyType policy_type() const override { return SYNC_SCOPE_POLICY_TYPE; }
+  CORBA::object_reference<CORBA::Policy> copy() override {
+    return CORBA::object_reference<CORBA::Policy>(
+        std::make_shared<SyncScopePolicy>(synchronization_));
+  }
+
+ private:
+  SyncScope synchronization_;
 };
 
 }  // namespace Messaging
@@ -2343,6 +2377,9 @@ inline CORBA::object_reference<CORBA::Policy> make_policy(uint32_t type, uint64_
     case Messaging::RELATIVE_RT_TIMEOUT_POLICY_TYPE:
       p = std::make_shared<Messaging::RelativeRoundtripTimeoutPolicy>(value);
       break;
+    case Messaging::SYNC_SCOPE_POLICY_TYPE:
+      p = std::make_shared<Messaging::SyncScopePolicy>(static_cast<Messaging::SyncScope>(v));
+      break;
     default: return nullptr;
   }
   return CORBA::object_reference<CORBA::Policy>(std::move(p));
@@ -2375,6 +2412,8 @@ struct RawPolicies {
 #undef RUSTORB_RAW_POLICY
       if (auto q = std::dynamic_pointer_cast<Messaging::RelativeRoundtripTimeoutPolicy>(sp)) {
         value = q->relative_expiry();
+      } else if (auto q = std::dynamic_pointer_cast<Messaging::SyncScopePolicy>(sp)) {
+        value = static_cast<uint64_t>(static_cast<uint16_t>(q->synchronization()));
       } else {
         throw CORBA::NO_PERMISSION(0, CORBA::CompletionStatus::COMPLETED_NO);
       }

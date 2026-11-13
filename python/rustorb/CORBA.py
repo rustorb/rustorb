@@ -1250,6 +1250,10 @@ def _make_policy(type, value):
         from . import Messaging
 
         return Messaging.RelativeRoundtripTimeoutPolicy(value)
+    if type == 24:
+        from . import Messaging
+
+        return Messaging.SyncScopePolicy(value)
     if type == 37:
         from . import BiDirPolicy
 
@@ -1484,12 +1488,14 @@ class ORB(object):
         return False, ServiceInformation([], [])
 
     def create_policy(self, type, val):
-        """A POA policy from its enumerator, or a
+        """A POA policy from its enumerator, a
         ``Messaging.RelativeRoundtripTimeoutPolicy`` from a
-        ``TimeBase::TimeT`` (unsigned long long, in units of 100 ns), in
-        the any ``val``. PolicyError: BAD_POLICY for a type rustorb does not
-        know, BAD_POLICY_TYPE for an any of the wrong type,
-        BAD_POLICY_VALUE for an enumerator out of range."""
+        ``TimeBase::TimeT`` (unsigned long long, in units of 100 ns), or a
+        ``Messaging.SyncScopePolicy`` from a ``Messaging::SyncScope``
+        (short), in the any ``val``. PolicyError: BAD_POLICY for a type
+        rustorb does not know, BAD_POLICY_TYPE for an any of the wrong
+        type, BAD_POLICY_VALUE for an enumerator or a sync scope out of
+        range."""
         if not isinstance(val, Any):
             raise BAD_PARAM(0, COMPLETED_NO)
         value, reason = self._native.create_policy(type, val)

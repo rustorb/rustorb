@@ -1,5 +1,5 @@
-// The seven POA policies, BiDirPolicy::BidirectionalPolicy and
-// Messaging::RelativeRoundtripTimeoutPolicy, and
+// The seven POA policies, BiDirPolicy::BidirectionalPolicy,
+// Messaging::RelativeRoundtripTimeoutPolicy and Messaging::SyncScopePolicy, and
 // their form for the core: a type and a value (rorb_each_policy).
 //
 // Licensed under MIT OR Apache-2.0, like the rest of the rustorb core.
@@ -13,6 +13,8 @@ import org.omg.CORBA.NO_PERMISSION;
 import org.omg.CORBA.Policy;
 import org.omg.Messaging.RELATIVE_RT_TIMEOUT_POLICY_TYPE;
 import org.omg.Messaging.RelativeRoundtripTimeoutPolicy;
+import org.omg.Messaging.SYNC_SCOPE_POLICY_TYPE;
+import org.omg.Messaging.SyncScopePolicy;
 import org.omg.PortableServer.*;
 
 final class Policies {
@@ -40,6 +42,8 @@ final class Policies {
                 return new Bidirectional((short) v);
             case RELATIVE_RT_TIMEOUT_POLICY_TYPE.value:
                 return new RelativeRoundtripTimeout(value);
+            case SYNC_SCOPE_POLICY_TYPE.value:
+                return new SyncScope((short) v);
             default:
                 throw new org.omg.CORBA.INTERNAL("policy type " + type, 0,
                         CompletionStatus.COMPLETED_NO);
@@ -78,6 +82,9 @@ final class Policies {
                 } else if (p instanceof RelativeRoundtripTimeout) {
                     types[i] = RELATIVE_RT_TIMEOUT_POLICY_TYPE.value;
                     values[i] = ((RelativeRoundtripTimeout) p).relative_expiry();
+                } else if (p instanceof SyncScope) {
+                    types[i] = SYNC_SCOPE_POLICY_TYPE.value;
+                    values[i] = ((SyncScope) p).synchronization();
                 } else if (p == null) {
                     throw new org.omg.CORBA.BAD_PARAM();
                 } else {
@@ -108,6 +115,32 @@ final class Policies {
         @Override
         public Policy copy() {
             return new RelativeRoundtripTimeout(relativeExpiry);
+        }
+
+        @Override
+        public void destroy() {}
+    }
+
+    static final class SyncScope extends org.omg.CORBA.LocalObject implements SyncScopePolicy {
+        private final short synchronization;
+
+        SyncScope(short synchronization) {
+            this.synchronization = synchronization;
+        }
+
+        @Override
+        public short synchronization() {
+            return synchronization;
+        }
+
+        @Override
+        public int policy_type() {
+            return SYNC_SCOPE_POLICY_TYPE.value;
+        }
+
+        @Override
+        public Policy copy() {
+            return new SyncScope(synchronization);
         }
 
         @Override

@@ -1,7 +1,8 @@
 // The ORB operations of #39 in the C++ binding: ORB::id, create_policy,
 // register_initial_reference, get_service_information, the policy
 // overrides of references, of the ORB (ORBPolicyManager) and of the thread
-// (PolicyCurrent), and Object::_validate_connection.
+// (PolicyCurrent), and Object::_validate_connection; and
+// Messaging::SyncScopePolicy (#153).
 
 #include <iostream>
 #include <string>
@@ -204,6 +205,72 @@ static void validate_connection(const CORBA::object_reference<CORBA::ORB>& orb) 
   }
 }
 
+// A oneway call of `op` on `obj` through the C ABI: the status.
+static rorb_status oneway(const ObjectRef& obj, rorb_exception* exc) {
+  rorb_invocation inv{};
+  inv.operation = "op";
+  inv.operation_len = 2;
+  inv.oneway = 1;
+  inv.timeout_us = -1;
+  rorb_exception_clear(exc);
+  return rorb_object_invoke(obj->_rorb_handle(), &inv, exc);
+}
+
+static int16_t synchronization(const PolicyRef& p) {
+  auto s = rustorb::detail::narrow<Messaging::SyncScopePolicy>(p);
+  return s ? s->synchronization() : -1;
+}
+
+static void sync_scope(const CORBA::object_reference<CORBA::ORB>& orb) {
+  using namespace Messaging;
+  CORBA::Any a;
+  a <<= static_cast<int16_t>(SYNC_WITH_SERVER);
+  PolicyRef p = orb->create_policy(SYNC_SCOPE_POLICY_TYPE, a);
+  CHECK(p->policy_type() == 24);
+  CHECK(synchronization(p) == SYNC_WITH_SERVER);
+  CHECK(policy_error(orb, SYNC_SCOPE_POLICY_TYPE, static_cast<int16_t>(4)) == 3);
+  CHECK(policy_error(orb, SYNC_SCOPE_POLICY_TYPE, static_cast<int32_t>(1)) == 2);
+
+  auto root = IDL::traits<PortableServer::POA>::narrow(orb->resolve_initial_references("RootPOA"));
+  root->the_POAManager()->activate();
+  ObjectRef missing = root->create_reference("IDL:test/Nothing:1.0");
+  CHECK(!missing->_get_client_policy(SYNC_SCOPE_POLICY_TYPE));
+  auto with = [&](SyncScope v) {
+    return missing->_set_policy_overrides({CORBA::make_reference<SyncScopePolicy>(v)},
+                                          CORBA::SetOverrideType::SET_OVERRIDE);
+  };
+  ObjectRef server = with(SYNC_WITH_SERVER);
+  CHECK(synchronization(server->_get_client_policy(SYNC_SCOPE_POLICY_TYPE)) == SYNC_WITH_SERVER);
+  auto list = server->_get_policy_overrides({SYNC_SCOPE_POLICY_TYPE});
+  CHECK(list.size() == 1 && synchronization(list[0]) == SYNC_WITH_SERVER);
+
+  // The server's answer to SYNC_WITH_SERVER and SYNC_WITH_TARGET can be
+  // an exception; without one nothing comes back.
+  rorb_exception exc{};
+  CHECK(oneway(server, &exc) == RORB_SYSTEM_EXCEPTION);
+  CHECK(std::string(exc.repository_id) == "IDL:omg.org/CORBA/OBJECT_NOT_EXIST:1.0");
+  CHECK(oneway(with(SYNC_WITH_TARGET), &exc) == RORB_SYSTEM_EXCEPTION);
+  CHECK(oneway(with(SYNC_WITH_TRANSPORT), &exc) == RORB_OK);
+  CHECK(oneway(missing, &exc) == RORB_OK);
+
+  // The thread's override, and the ORB's.
+  auto manager = rustorb::detail::narrow<CORBA::PolicyManager>(
+      orb->resolve_initial_references("ORBPolicyManager"));
+  auto current = rustorb::detail::narrow<CORBA::PolicyCurrent>(
+      orb->resolve_initial_references("PolicyCurrent"));
+  manager->set_policy_overrides({CORBA::make_reference<SyncScopePolicy>(SYNC_WITH_TARGET)},
+                                CORBA::SetOverrideType::ADD_OVERRIDE);
+  CHECK(oneway(missing, &exc) == RORB_SYSTEM_EXCEPTION);
+  current->set_policy_overrides({CORBA::make_reference<SyncScopePolicy>(SYNC_NONE)},
+                                CORBA::SetOverrideType::ADD_OVERRIDE);
+  CHECK(synchronization(missing->_get_client_policy(SYNC_SCOPE_POLICY_TYPE)) == SYNC_NONE);
+  CHECK(oneway(missing, &exc) == RORB_OK);
+  rorb_exception_clear(&exc);
+  current->set_policy_overrides({}, CORBA::SetOverrideType::SET_OVERRIDE);
+  manager->set_policy_overrides({}, CORBA::SetOverrideType::SET_OVERRIDE);
+  CHECK(!missing->_get_client_policy(SYNC_SCOPE_POLICY_TYPE));
+}
+
 int main() {
   char a0[] = "test_orb_ops", a1[] = "-ORBInitRef", a2[] = "Foo=corbaloc::127.0.0.1:1/Foo",
        a3[] = "-ORBendPoint", a4[] = "giop:tcp:127.0.0.1:";
@@ -215,6 +282,7 @@ int main() {
     initial_references(orb);
     overrides(orb);
     validate_connection(orb);
+    sync_scope(orb);
   } catch (const CORBA::Exception& e) {
     std::cout << "FAIL: exception " << e._name() << std::endl;
     ++failures;

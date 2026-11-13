@@ -733,7 +733,7 @@ impl Server {
             version,
             self.order,
             header.request_id,
-            header.response_expected(),
+            header.response_flags,
         );
         let Some(key) = into_target_key(header.target) else {
             reply.system(&no_such_object());
@@ -983,6 +983,7 @@ impl Server {
                     request_id: reply.request_id,
                     operation: &operation,
                     response_expected: reply.response,
+                    sync_scope: reply.sync_scope,
                     orb: &orb,
                     target: None,
                     contexts: &contexts,
@@ -1014,7 +1015,7 @@ impl Server {
             operation,
             body,
             code_sets,
-            reply,
+            mut reply,
             _ticket,
             ..
         } = request;
@@ -1043,6 +1044,7 @@ impl Server {
                 return;
             }
         };
+        reply.ack();
         let mut input = InStream {
             dec: body.decoder(),
             code_sets,
@@ -1097,7 +1099,7 @@ impl Server {
             body,
             code_sets,
             contexts,
-            reply,
+            mut reply,
             _ticket,
             ..
         } = request;
@@ -1117,6 +1119,7 @@ impl Server {
                 request_id: reply.request_id,
                 operation: &operation,
                 response_expected: reply.response,
+                sync_scope: reply.sync_scope,
                 orb: &orb,
                 target: Some(&target),
                 contexts: &contexts,
@@ -1141,6 +1144,7 @@ impl Server {
             }
         };
         info.set_servant(&resolved.servant);
+        reply.ack();
         // The servant sees the request's slots as its thread's.
         let _slots = info.enter_thread_scope(pi);
         if let Err(end) = pi::receive_request(pi, &info) {
@@ -1316,7 +1320,13 @@ impl Server {
         };
         let response = header.response_expected();
         let (tx, rx) = std_mpsc::channel();
-        let reply = ReplyTo::local(tx, version, self.order, header.request_id, response);
+        let reply = ReplyTo::local(
+            tx,
+            version,
+            self.order,
+            header.request_id,
+            header.response_flags,
+        );
         let request = Incoming {
             operation: header.operation,
             body,
@@ -2057,6 +2067,11 @@ struct ReplyTo {
     order: ByteOrder,
     request_id: u32,
     response: bool,
+    /// A oneway request sent with `SYNC_WITH_SERVER`: answered with an
+    /// empty reply before the servant runs ([`ReplyTo::ack`]).
+    ack_first: bool,
+    /// The `Messaging::SyncScope` the `response_flags` say.
+    sync_scope: i16,
 }
 
 enum Sink {
@@ -2072,14 +2087,40 @@ impl ReplyTo {
         version: Version,
         order: ByteOrder,
         request_id: u32,
-        response: bool,
+        flags: u8,
     ) -> ReplyTo {
-        ReplyTo {
-            sink: Some(Sink::Conn(Arc::clone(conn))),
+        ReplyTo::with_sink(
+            Sink::Conn(Arc::clone(conn)),
             version,
             order,
             request_id,
-            response,
+            flags,
+        )
+    }
+
+    fn with_sink(
+        sink: Sink,
+        version: Version,
+        order: ByteOrder,
+        request_id: u32,
+        flags: u8,
+    ) -> ReplyTo {
+        // GIOP 1.2 RequestHeader: 0x00 for SYNC_NONE and SYNC_WITH_TRANSPORT,
+        // 0x01 for SYNC_WITH_SERVER, 0x03 for SYNC_WITH_TARGET (and a
+        // two-way request). GIOP 1.0 and 1.1 have only the low bit.
+        let sync_scope = match flags & 0x03 {
+            0x00 => pi::sync_scope::SYNC_NONE,
+            0x01 => pi::sync_scope::SYNC_WITH_SERVER,
+            _ => pi::sync_scope::SYNC_WITH_TARGET,
+        };
+        ReplyTo {
+            sink: Some(sink),
+            version,
+            order,
+            request_id,
+            response: flags & 0x01 != 0,
+            ack_first: flags & 0x03 == 0x01,
+            sync_scope,
         }
     }
 
@@ -2088,14 +2129,40 @@ impl ReplyTo {
         version: Version,
         order: ByteOrder,
         request_id: u32,
-        response: bool,
+        flags: u8,
     ) -> ReplyTo {
-        ReplyTo {
-            sink: Some(Sink::Local(tx)),
-            version,
-            order,
-            request_id,
-            response,
+        ReplyTo::with_sink(Sink::Local(tx), version, order, request_id, flags)
+    }
+
+    /// `SYNC_WITH_SERVER`: the server has the request and its target, so
+    /// the client gets an empty `NO_EXCEPTION` reply now, before the
+    /// servant runs; what the servant does is not sent.
+    fn ack(&mut self) {
+        if !self.ack_first || !self.response {
+            return;
+        }
+        self.response = false;
+        let msg =
+            match ServerReply::new(self.version, self.order, self.request_id, CodeSets::DEFAULT)
+                .and_then(ServerReply::finish)
+            {
+                Ok(msg) => msg,
+                Err(_) => return,
+            };
+        trace::debug!(
+            "request id {}: SYNC_WITH_SERVER, answered before the upcall",
+            self.request_id
+        );
+        match &self.sink {
+            Some(Sink::Conn(conn)) => {
+                if !conn.is_cancelled(self.request_id) {
+                    conn.send(msg);
+                }
+            }
+            Some(Sink::Local(tx)) => {
+                let _ = tx.send(msg.into_vec());
+            }
+            None => {}
         }
     }
 

@@ -73,9 +73,10 @@ public abstract class ORB {
 
     /**
      * A POA policy from its enumerator, a BiDirPolicy::BidirectionalPolicy
-     * from an unsigned short (BidirectionalPolicyValueHelper), or a
+     * from an unsigned short (BidirectionalPolicyValueHelper), a
      * Messaging::RelativeRoundtripTimeoutPolicy from an unsigned long long
-     * (TimeBase::TimeT, in units of 100 ns), in the any val.
+     * (TimeBase::TimeT, in units of 100 ns), or a Messaging::SyncScopePolicy
+     * from a short (Messaging::SyncScopeHelper), in the any val.
      */
     public Policy create_policy(int type, Any val) throws PolicyError {
         throw new NO_IMPLEMENT();

@@ -1,12 +1,16 @@
 """The Messaging module of the IDL to Python mapping, as far as rustorb
 has it: ``RelativeRoundtripTimeoutPolicy``, the standard form of the
-client call timeouts (see ``rustorb.timeouts``), and ``ReplyHandler`` and
-``ExceptionHolder`` of callback AMI (rustorb's docs/ami.md).
+client call timeouts (see ``rustorb.timeouts``), ``SyncScopePolicy``, how
+far a oneway request goes before the call returns (rustorb's
+docs/sync-scope.md), and ``ReplyHandler`` and ``ExceptionHolder`` of
+callback AMI (rustorb's docs/ami.md).
 
-Make the policy with ``orb.create_policy(RELATIVE_RT_TIMEOUT_POLICY_TYPE,
-CORBA.Any(TimeBase._tc_TimeT, t))``, ``t`` in units of 100 ns, and apply
-it with ``obj._set_policy_overrides``, the ORB's ``ORBPolicyManager`` or
-the thread's ``PolicyCurrent``.
+Make the policies with ``orb.create_policy(RELATIVE_RT_TIMEOUT_POLICY_TYPE,
+CORBA.Any(TimeBase._tc_TimeT, t))``, ``t`` in units of 100 ns, and
+``orb.create_policy(SYNC_SCOPE_POLICY_TYPE, CORBA.Any(Messaging._tc_SyncScope,
+Messaging.SYNC_WITH_SERVER))``, and apply them with
+``obj._set_policy_overrides``, the ORB's ``ORBPolicyManager`` or the
+thread's ``PolicyCurrent``.
 
 Callback AMI: code generated with ``rustorb-idl -bpython -Wbami`` has an
 ``AMI_<I>Handler`` interface for each interface ``I``, deriving from
@@ -25,6 +29,20 @@ from . import CORBA
 from . import _rt
 
 RELATIVE_RT_TIMEOUT_POLICY_TYPE = 32
+SYNC_SCOPE_POLICY_TYPE = 24
+
+#: ``Messaging::SyncScope``: a short.
+_tc_SyncScope = CORBA.TypeCode(
+    CORBA.tk_alias, "IDL:omg.org/Messaging/SyncScope:1.0", "SyncScope", content=CORBA.TC_short
+)
+#: The return of a oneway call: before the request is written.
+SYNC_NONE = 0
+#: Once the request is written (the default).
+SYNC_WITH_TRANSPORT = 1
+#: Once the server has the request and its target, before the servant runs.
+SYNC_WITH_SERVER = 2
+#: Once the servant has run.
+SYNC_WITH_TARGET = 3
 
 
 class RelativeRoundtripTimeoutPolicy(CORBA.Policy):
@@ -38,6 +56,22 @@ class RelativeRoundtripTimeoutPolicy(CORBA.Policy):
         return self.value
 
     relative_expiry = property(_get_relative_expiry)
+
+
+class SyncScopePolicy(CORBA.Policy):
+    """How far a oneway request goes before the call returns:
+    ``synchronization``, one of ``SYNC_NONE``, ``SYNC_WITH_TRANSPORT``
+    (the default), ``SYNC_WITH_SERVER`` and ``SYNC_WITH_TARGET``. With the
+    last two the call waits for the server's answer, and raises the system
+    exceptions of a two-way call (``OBJECT_NOT_EXIST``, say)."""
+
+    _NP_RepositoryId = "IDL:omg.org/Messaging/SyncScopePolicy:1.0"
+    policy_type = SYNC_SCOPE_POLICY_TYPE
+
+    def _get_synchronization(self):
+        return self.value
+
+    synchronization = property(_get_synchronization)
 
 
 # ---------------------------------------------------------------------------
