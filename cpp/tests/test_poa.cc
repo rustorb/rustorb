@@ -1,6 +1,6 @@
 // Servant managers (ServantActivator, ServantLocator), adapter activators
 // and default servants of the C++ binding, called over GIOP from a second
-// ORB in the same process.
+// ORB in the same process, and the POAManagerFactory.
 
 #include <algorithm>
 #include <chrono>
@@ -306,6 +306,65 @@ static void check_adapter_activator(const IDL::traits<CORBA::ORB>::ref_type& cli
   CHECK(events.take().empty());
 }
 
+// PortableServer::POAManagerFactory (#154): identities, create_POAManager,
+// list, find, sharing a manager, and its end with the last of its POAs.
+static void check_manager_factory(const POARef& root) {
+  using PortableServer::POAManager;
+  using PortableServer::POAManagerFactory;
+  auto factory = root->the_POAManagerFactory();
+  auto ids = [&] {
+    std::vector<std::string> v;
+    for (const auto& m : factory->list()) v.push_back(m->get_id());
+    return v;
+  };
+  auto has = [&](const std::string& id) {
+    auto v = ids();
+    return std::find(v.begin(), v.end(), id) != v.end();
+  };
+  CHECK(root->the_POAManager()->get_id() == "RootPOAManager");
+  CHECK(has("RootPOAManager"));
+
+  auto a = root->create_POA("pmf-a", nullptr, {});
+  std::string ida = a->the_POAManager()->get_id();
+  CHECK(!ida.empty() && ida != "RootPOAManager");
+  CHECK(has(ida));
+  CHECK(factory->find(ida) != nullptr);
+
+  auto x = factory->create_POAManager("pmf-x", {});
+  CHECK(x->get_id() == "pmf-x");
+  CHECK(x->get_state() == POAManager::State::HOLDING);
+  CHECK(factory->find("pmf-x")->get_id() == "pmf-x");
+  CHECK(factory->find("pmf-nope") == nullptr);
+  CHECK(raises<POAManagerFactory::ManagerAlreadyExists>(
+      [&] { factory->create_POAManager("pmf-x", {}); }));
+  CHECK(raises<POAManagerFactory::ManagerAlreadyExists>(
+      [&] { factory->create_POAManager(ida, {}); }));
+  try {
+    factory->create_POAManager(
+        "pmf-p", {root->create_lifespan_policy(PortableServer::LifespanPolicyValue::PERSISTENT)});
+    CHECK(false);
+  } catch (const CORBA::PolicyError& e) {
+    CHECK(e.reason() == CORBA::UNSUPPORTED_POLICY);
+  }
+  CHECK(factory->find("pmf-p") == nullptr);
+
+  // Shared: one state for all its POAs.
+  auto p1 = root->create_POA("pmf-1", x, {});
+  auto p2 = p1->create_POA("pmf-2", x, {});
+  x->activate();
+  CHECK(p1->the_POAManager()->get_state() == POAManager::State::ACTIVE);
+  p2->the_POAManager()->discard_requests(false);
+  CHECK(p1->the_POAManager()->get_state() == POAManager::State::DISCARDING);
+
+  // It ends with the last of its POAs.
+  p1->destroy(false, true);
+  CHECK(factory->find("pmf-x") == nullptr);
+  CHECK(raises<CORBA::OBJECT_NOT_EXIST>([&] { root->create_POA("pmf-3", x, {}); }));
+  CHECK(factory->create_POAManager("pmf-x", {}) != nullptr);
+  a->destroy(false, true);
+  CHECK(!has(ida));
+}
+
 int main() {
   std::weak_ptr<Activator> activator;
   std::weak_ptr<LazyActivator> adapter_activator;
@@ -330,6 +389,7 @@ int main() {
     check_adapter_activator(client_orb, server_orb, root, adapter_activator);
     // The same through colocated calls.
     check_locator(server_orb, server_orb, root->find_POA("lazy1", false), target);
+    check_manager_factory(root);
 
     server_orb->shutdown(true);
     server.join();

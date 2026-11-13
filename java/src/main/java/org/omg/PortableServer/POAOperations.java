@@ -47,6 +47,8 @@ public interface POAOperations {
 
     POAManager the_POAManager();
 
+    POAManagerFactory the_POAManagerFactory();
+
     AdapterActivator the_activator();
 
     void the_activator(AdapterActivator newThe_activator);

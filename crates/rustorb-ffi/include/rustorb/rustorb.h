@@ -100,6 +100,7 @@ typedef int32_t rorb_status;
 #define RORB_CODEC_INVALID_TYPE_FOR_ENCODING 24 /* IOP::Codec::InvalidTypeForEncoding */
 #define RORB_CODEC_FORMAT_MISMATCH 25 /* IOP::Codec::FormatMismatch */
 #define RORB_CODEC_TYPE_MISMATCH 26   /* IOP::Codec::TypeMismatch */
+#define RORB_MANAGER_ALREADY_EXISTS 27 /* POAManagerFactory::ManagerAlreadyExists */
 
 typedef struct rorb_exception {
   /* RORB_SYSTEM_EXCEPTION: the repository id, such as
@@ -1003,6 +1004,30 @@ rorb_status rorb_poa_manager_discard_requests(rorb_poa_manager* manager,
                                               int32_t wait_for_completion, rorb_exception* exc);
 rorb_status rorb_poa_manager_deactivate(rorb_poa_manager* manager, int32_t etherealize,
                                         int32_t wait_for_completion, rorb_exception* exc);
+/* POAManager::get_id. Valid while manager lives. */
+const char* rorb_poa_manager_get_id(rorb_poa_manager* manager, size_t* len);
+/* 1 if both handles are the same manager, else 0. */
+int32_t rorb_poa_manager_equal(rorb_poa_manager* a, rorb_poa_manager* b);
+
+/* PortableServer::POAManagerFactory (CORBA 3), reached through any POA of
+   the ORB (POA::the_POAManagerFactory). A manager exists until the last of
+   its POAs is destroyed; create_poa with a manager that no longer exists
+   raises OBJECT_NOT_EXIST. */
+/* create_POAManager: a new manager in the holding state.
+   RORB_MANAGER_ALREADY_EXISTS if one with the id exists; RORB_POLICY_ERROR
+   for any policy (UNSUPPORTED_POLICY 1 for a policy rustorb knows,
+   BAD_POLICY 0 otherwise): none applies to POA managers. The policies are
+   type and value pairs, as for rorb_orb_set_policy_overrides. */
+rorb_status rorb_poa_create_poa_manager(rorb_poa* poa, const char* id, size_t id_len,
+                                        const uint32_t* types, const uint64_t* values,
+                                        size_t count, rorb_poa_manager** manager,
+                                        rorb_exception* exc);
+/* list: each manager that exists in the ORB, in the order of creation. */
+void rorb_poa_list_poa_managers(rorb_poa* poa, void* context,
+                                void (*each)(void* context, rorb_poa_manager* manager));
+/* find: *manager is NULL if no manager has the id. */
+rorb_status rorb_poa_find_poa_manager(rorb_poa* poa, const char* id, size_t id_len,
+                                      rorb_poa_manager** manager, rorb_exception* exc);
 
 /* --- Portable Interceptors and IOP::Codec ----------------------------------- */
 

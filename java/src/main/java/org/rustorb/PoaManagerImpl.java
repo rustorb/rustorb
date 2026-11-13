@@ -106,6 +106,24 @@ final class PoaManagerImpl extends org.omg.CORBA.LocalObject implements POAManag
 
     @Override
     public String get_id() {
-        throw new org.omg.CORBA.NO_IMPLEMENT();
+        try {
+            return Native.pmGetId(handle());
+        } finally {
+            Reference.reachabilityFence(this);
+        }
+    }
+
+    @Override
+    public boolean _is_equivalent(org.omg.CORBA.Object that) {
+        if (!(that instanceof PoaManagerImpl)) {
+            return false;
+        }
+        PoaManagerImpl other = (PoaManagerImpl) that;
+        try {
+            return Native.pmEqual(handle(), other.handle());
+        } finally {
+            Reference.reachabilityFence(this);
+            Reference.reachabilityFence(other);
+        }
     }
 }

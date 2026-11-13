@@ -185,6 +185,15 @@ final class PoaImpl extends org.omg.CORBA.LocalObject implements POA {
     }
 
     @Override
+    public POAManagerFactory the_POAManagerFactory() {
+        try {
+            return new PoaManagerFactoryImpl(Native.poaClone(handle()));
+        } finally {
+            Reference.reachabilityFence(this);
+        }
+    }
+
+    @Override
     public AdapterActivator the_activator() {
         try {
             return (AdapterActivator) Native.poaTheActivator(handle());

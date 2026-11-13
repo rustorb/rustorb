@@ -47,7 +47,7 @@ use crate::orb::OrbInner;
 use crate::pi::{self, Interceptors, ServerEnding, ServerException, ServerRequestInfo};
 use crate::poa::{
     BOOT_ID_LEN, CurrentGuard, Dispatch, Disposition, Etherealization, ManagerInner, ParsedKey,
-    PoaInner, PoaManager, SerialEntry, UpcallGuard, etherealize_all, is_main_thread,
+    PoaError, PoaInner, PoaManager, SerialEntry, UpcallGuard, etherealize_all, is_main_thread,
     no_such_object, parse_key,
 };
 use crate::pool::{Job, Pool};
@@ -60,6 +60,19 @@ use crate::{
     Bidirectional, CodeSets, CompletionStatus, EndpointAddr, Lifespan, Orb, Poa, Servant,
     ServantManagerError, SystemException, SystemExceptionKind, ThreadPolicy,
 };
+
+/// The identity of the RootPOA's manager (CORBA 3.1, 15.3.2.7).
+const ROOT_MANAGER_ID: &str = "RootPOAManager";
+
+/// The start of the identities of the managers `create_POA` makes.
+const IMPLICIT_MANAGER_PREFIX: &str = "POAManager";
+
+/// The POA managers that exist in the ORB.
+#[derive(Default)]
+struct Factory {
+    managers: Vec<PoaManager>,
+    next_implicit: u64,
+}
 
 /// The server side of an ORB, started with the RootPOA.
 pub(crate) struct Server {
@@ -91,6 +104,8 @@ pub(crate) struct Server {
     simple_keys: Mutex<HashMap<Vec<u8>, Vec<u8>>>,
     pool: Mutex<Option<Pool>>,
     managers: Mutex<Vec<Weak<ManagerInner>>>,
+    /// The POA managers that exist, for the `POAManagerFactory`.
+    factory: Mutex<Factory>,
     connections: Mutex<HashMap<u64, Arc<ServerConn>>>,
     next_connection: AtomicU64,
     listeners: Mutex<Vec<JoinHandle<()>>>,
@@ -273,6 +288,7 @@ impl Server {
                 options.server_thread_idle_timeout,
             ))),
             managers: Mutex::new(Vec::new()),
+            factory: Mutex::default(),
             connections: Mutex::new(HashMap::new()),
             next_connection: AtomicU64::new(0),
             listeners: Mutex::new(Vec::new()),
@@ -280,10 +296,13 @@ impl Server {
             in_flight: Mutex::new(0),
             in_flight_done: Condvar::new(),
         });
-        let manager = PoaManager::new(&server);
-        let _ = server
-            .root
-            .set(PoaInner::new_root(manager, server.boot_id, root_components));
+        let manager = server
+            .create_manager(ROOT_MANAGER_ID)
+            .expect("the first POA manager");
+        let _ = server.root.set(
+            PoaInner::new_root(manager, server.boot_id, root_components)
+                .expect("a new POA manager takes POAs"),
+        );
 
         let handle = orb.inner.handle.clone();
         let _entered = handle.enter();
@@ -336,6 +355,55 @@ impl Server {
     /// Host and port of each TLS endpoint, as published in IORs.
     pub(crate) fn published_tls(&self) -> &[(String, u16)] {
         &self.published_tls
+    }
+
+    /// `create_POAManager`: a new manager with the identity `id`.
+    pub(crate) fn create_manager(self: &Arc<Self>, id: &str) -> Result<PoaManager, PoaError> {
+        let mut factory = self.factory.lock().unwrap();
+        if factory.managers.iter().any(|m| m.inner.id() == id) {
+            return Err(PoaError::ManagerAlreadyExists);
+        }
+        let manager = PoaManager::new(self, id.to_owned());
+        factory.managers.push(manager.clone());
+        trace::info!("created POA manager {id:?}");
+        Ok(manager)
+    }
+
+    /// The manager `create_POA` makes when given none, with an identity
+    /// not in use.
+    pub(crate) fn create_implicit_manager(self: &Arc<Self>) -> PoaManager {
+        let mut factory = self.factory.lock().unwrap();
+        let id = loop {
+            factory.next_implicit += 1;
+            let id = format!("{IMPLICIT_MANAGER_PREFIX}{}", factory.next_implicit);
+            if !factory.managers.iter().any(|m| m.inner.id() == id) {
+                break id;
+            }
+        };
+        let manager = PoaManager::new(self, id);
+        factory.managers.push(manager.clone());
+        manager
+    }
+
+    pub(crate) fn list_managers(&self) -> Vec<PoaManager> {
+        self.factory.lock().unwrap().managers.clone()
+    }
+
+    pub(crate) fn find_manager(&self, id: &str) -> Option<PoaManager> {
+        let factory = self.factory.lock().unwrap();
+        factory
+            .managers
+            .iter()
+            .find(|m| m.inner.id() == id)
+            .cloned()
+    }
+
+    /// A manager was destroyed with the last of its POAs.
+    pub(crate) fn factory_remove(&self, manager: &ManagerInner) {
+        let mut factory = self.factory.lock().unwrap();
+        factory
+            .managers
+            .retain(|m| !std::ptr::eq(Arc::as_ptr(&m.inner), manager));
     }
 
     pub(crate) fn register_manager(&self, manager: &Arc<ManagerInner>) {

@@ -95,6 +95,7 @@ pub mod local {
     pub const CODEC_INVALID_TYPE_FOR_ENCODING: u32 = 24;
     pub const CODEC_FORMAT_MISMATCH: u32 = 25;
     pub const CODEC_TYPE_MISMATCH: u32 = 26;
+    pub const MANAGER_ALREADY_EXISTS: u32 = 27;
 }
 
 /// `rorb_exception`.
@@ -230,6 +231,10 @@ pub(crate) unsafe fn set_poa_error(exc: *mut Exception, e: &PoaError) -> Status 
         PoaError::WrongPolicy => local::WRONG_POLICY,
         PoaError::WrongAdapter => local::WRONG_ADAPTER,
         PoaError::AdapterInactive => local::ADAPTER_INACTIVE,
+        PoaError::ManagerAlreadyExists => local::MANAGER_ALREADY_EXISTS,
+        PoaError::Policy(e) => {
+            return unsafe { set_local(exc, local::POLICY_ERROR, e.reason as u16 as u32) };
+        }
         PoaError::NoServant => local::NO_SERVANT,
         PoaError::NoContext => local::NO_CONTEXT,
         PoaError::System(e) => return unsafe { set_system(exc, e) },

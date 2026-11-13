@@ -101,6 +101,8 @@ final class Bridge {
                 return new org.omg.IOP.CodecPackage.FormatMismatch();
             case 26:
                 return new org.omg.IOP.CodecPackage.TypeMismatch();
+            case 27:
+                return new org.omg.PortableServer.POAManagerFactoryPackage.ManagerAlreadyExists();
             default:
                 return new org.omg.CORBA.INTERNAL("local exception " + code, 0,
                         CompletionStatus.COMPLETED_MAYBE);

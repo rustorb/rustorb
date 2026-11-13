@@ -49,6 +49,7 @@ namespace PortableServer {
 class ServantBase;
 class POA;
 class POAManager;
+class POAManagerFactory;
 class Current;
 }  // namespace PortableServer
 
@@ -1702,11 +1703,38 @@ class POAManager : public CORBA::LocalObject {
   void discard_requests(bool wait_for_completion);
   void deactivate(bool etherealize_objects, bool wait_for_completion);
   State get_state();
+  std::string get_id();
 
   rorb_poa_manager* _rorb_handle() const noexcept { return handle_; }
 
  private:
   rorb_poa_manager* handle_;
+};
+
+// PortableServer::POAManagerFactory (CORBA 3), from
+// POA::the_POAManagerFactory().
+class POAManagerFactory : public CORBA::LocalObject {
+ public:
+  POAManagerFactory(rustorb::detail::adopt_t, rorb_poa* poa) noexcept : poa_(poa) {}
+  ~POAManagerFactory() override { rorb_poa_release(poa_); }
+
+  using POAManagerSeq = std::vector<CORBA::object_reference<POAManager>>;
+
+  class ManagerAlreadyExists : public CORBA::UserException {
+   public:
+    RUSTORB_LOCAL_EXCEPTION_BODY(
+        ManagerAlreadyExists,
+        "IDL:omg.org/PortableServer/POAManagerFactory/ManagerAlreadyExists:2.3")
+  };
+
+  CORBA::object_reference<POAManager> create_POAManager(const std::string& id,
+                                                        const CORBA::PolicyList& policies);
+  POAManagerSeq list();
+  // Nil if no manager has the id.
+  CORBA::object_reference<POAManager> find(const std::string& id);
+
+ private:
+  rorb_poa* poa_;
 };
 
 class POA : public CORBA::LocalObject {
@@ -1746,6 +1774,7 @@ class POA : public CORBA::LocalObject {
   CORBA::object_reference<POA> the_parent();
   POAList the_children();
   CORBA::object_reference<POAManager> the_POAManager();
+  CORBA::object_reference<POAManagerFactory> the_POAManagerFactory();
 
   CORBA::object_reference<POA> create_POA(const std::string& adapter_name,
                                           const CORBA::object_reference<POAManager>& manager,
@@ -1942,6 +1971,8 @@ inline void check(rorb_status status, rorb_exception& exc) {
         case RORB_WRONG_POLICY: throw POA::WrongPolicy();
         case RORB_WRONG_ADAPTER: throw POA::WrongAdapter();
         case RORB_ADAPTER_INACTIVE: throw PortableServer::POAManager::AdapterInactive();
+        case RORB_MANAGER_ALREADY_EXISTS:
+          throw PortableServer::POAManagerFactory::ManagerAlreadyExists();
         case RORB_NO_SERVANT: throw POA::NoServant();
         case RORB_NO_CONTEXT: throw PortableServer::Current::NoContext();
         case RORB_INVALID_NAME: throw CORBA::ORB::InvalidName();
@@ -3097,6 +3128,65 @@ inline void POAManager::deactivate(bool etherealize_objects, bool wait_for_compl
 
 inline POAManager::State POAManager::get_state() {
   return static_cast<State>(rorb_poa_manager_get_state(handle_));
+}
+
+inline std::string POAManager::get_id() {
+  size_t len = 0;
+  const char* p = rorb_poa_manager_get_id(handle_, &len);
+  return std::string(p, len);
+}
+
+namespace detail {
+inline CORBA::object_reference<POAManager> manager(rorb_poa_manager* m) {
+  if (!m) return nullptr;
+  return CORBA::object_reference<POAManager>(
+      std::make_shared<POAManager>(rustorb::detail::adopt, m));
+}
+}  // namespace detail
+
+inline CORBA::object_reference<POAManager> POAManagerFactory::create_POAManager(
+    const std::string& id, const CORBA::PolicyList& policies) {
+  std::vector<uint32_t> types;
+  std::vector<uint64_t> values;
+  if (!policies.empty()) {
+    for (const auto& p : policies) {
+      if (!p) throw CORBA::BAD_PARAM(0, CORBA::CompletionStatus::COMPLETED_NO);
+    }
+    try {
+      rustorb::detail::RawPolicies raw(policies);
+      types = std::move(raw.types);
+      values = std::move(raw.values);
+    } catch (const CORBA::NO_PERMISSION&) {
+      // A policy rustorb does not know.
+      throw CORBA::PolicyError(CORBA::BAD_POLICY);
+    }
+  }
+  rorb_poa_manager* m = nullptr;
+  rustorb::detail::Exc exc;
+  rustorb::detail::check(rorb_poa_create_poa_manager(poa_, id.data(), id.size(), types.data(),
+                                                     values.data(), types.size(), &m, &exc),
+                         exc);
+  return detail::manager(m);
+}
+
+inline POAManagerFactory::POAManagerSeq POAManagerFactory::list() {
+  POAManagerSeq seq;
+  rorb_poa_list_poa_managers(poa_, &seq, [](void* ctx, rorb_poa_manager* m) {
+    static_cast<POAManagerSeq*>(ctx)->push_back(detail::manager(m));
+  });
+  return seq;
+}
+
+inline CORBA::object_reference<POAManager> POAManagerFactory::find(const std::string& id) {
+  rorb_poa_manager* m = nullptr;
+  rustorb::detail::Exc exc;
+  rustorb::detail::check(rorb_poa_find_poa_manager(poa_, id.data(), id.size(), &m, &exc), exc);
+  return detail::manager(m);
+}
+
+inline CORBA::object_reference<POAManagerFactory> POA::the_POAManagerFactory() {
+  return CORBA::object_reference<POAManagerFactory>(
+      std::make_shared<POAManagerFactory>(rustorb::detail::adopt, rorb_poa_clone(handle_)));
 }
 
 inline std::string POA::the_name() {

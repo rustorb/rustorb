@@ -91,8 +91,8 @@ pub use object::{AsyncRequest, CallbackRequest, ObjectRef, Reply, Request};
 pub use orb::{ClientAuth, EndpointAddr, Orb, OrbOptions, ResolveError, TlsOptions};
 pub use poa::{
     Bidirectional, IdAssignment, IdUniqueness, ImplicitActivation, Lifespan, ObjectId, Poa,
-    PoaCurrent, PoaError, PoaManager, PoaManagerState, Policies, Policy, RequestProcessing,
-    ServantRetention, ThreadPolicy,
+    PoaCurrent, PoaError, PoaManager, PoaManagerFactory, PoaManagerState, Policies, Policy,
+    RequestProcessing, ServantRetention, ThreadPolicy,
 };
 pub use policy::{PolicyError, PolicyType, PolicyValue, SetOverrideType};
 pub use rustorb_cdr as cdr;
