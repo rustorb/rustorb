@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use rustorb_core::{
     Bidirectional, CompletionStatus, IdAssignment, IdUniqueness, ImplicitActivation, Lifespan,
-    ObjectRef, Poa, PoaCurrent, PoaError, PoaManager, PoaManagerState, Policy, RequestProcessing,
-    Servant, ServantRetention, SystemExceptionKind, ThreadPolicy,
+    ObjectRef, Poa, PoaCurrent, PoaError, PoaManager, PoaManagerState, Policy, PolicyError,
+    PolicyValue, RequestProcessing, Servant, ServantRetention, SystemExceptionKind, ThreadPolicy,
 };
 
 use crate::servant::{FfiServant, caller_object, servant_arg};
@@ -579,5 +579,90 @@ pub unsafe extern "C" fn rorb_poa_manager_deactivate(
         exc,
         || unsafe { &*manager }.deactivate(etherealize != 0, wait_for_completion != 0),
         |()| {},
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_poa_manager_get_id(
+    manager: *mut PoaManager,
+    len: *mut usize,
+) -> *const c_char {
+    let id = unsafe { &*manager }.get_id();
+    unsafe { *len = id.len() };
+    id.as_ptr() as *const c_char
+}
+
+/// 1 if both handles are the same manager, else 0.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_poa_manager_equal(a: *mut PoaManager, b: *mut PoaManager) -> i32 {
+    i32::from(unsafe { &*a } == unsafe { &*b })
+}
+
+// --- POAManagerFactory ------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_poa_create_poa_manager(
+    poa: *mut Poa,
+    id: *const c_char,
+    id_len: usize,
+    types: *const u32,
+    values: *const u64,
+    count: usize,
+    manager: *mut *mut PoaManager,
+    exc: *mut Exception,
+) -> Status {
+    poa_call(
+        exc,
+        || {
+            let id = unsafe { str_arg(id, id_len) }?;
+            let policies = if count == 0 {
+                Vec::new()
+            } else {
+                let types = unsafe { std::slice::from_raw_parts(types, count) };
+                let values = unsafe { std::slice::from_raw_parts(values, count) };
+                types
+                    .iter()
+                    .zip(values)
+                    .map(|(&t, &v)| {
+                        PolicyValue::from_raw(t, v).ok_or(PoaError::Policy(PolicyError {
+                            reason: PolicyError::BAD_POLICY,
+                        }))
+                    })
+                    .collect::<Result<_, _>>()?
+            };
+            unsafe { &*poa }
+                .the_poa_manager_factory()
+                .create_poa_manager(id, &policies)
+        },
+        |m| unsafe { *manager = into_handle(m) },
+    )
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_poa_list_poa_managers(
+    poa: *mut Poa,
+    context: *mut c_void,
+    each: extern "C" fn(*mut c_void, *mut PoaManager),
+) {
+    for m in unsafe { &*poa }.the_poa_manager_factory().list() {
+        each(context, into_handle(m));
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_poa_find_poa_manager(
+    poa: *mut Poa,
+    id: *const c_char,
+    id_len: usize,
+    manager: *mut *mut PoaManager,
+    exc: *mut Exception,
+) -> Status {
+    poa_call(
+        exc,
+        || {
+            let id = unsafe { str_arg(id, id_len) }?;
+            Ok(unsafe { &*poa }.the_poa_manager_factory().find(id))
+        },
+        |m| unsafe { *manager = m.map_or(std::ptr::null_mut(), into_handle) },
     )
 }

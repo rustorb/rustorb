@@ -216,6 +216,9 @@ class POAManager(CORBA.LocalObject):
     def get_state(self):
         return POAManager.State._item(self._native.get_state())
 
+    def get_id(self):
+        return self._native.get_id()
+
     def __eq__(self, other):
         return isinstance(other, POAManager) and self._native == other._native
 
@@ -224,6 +227,42 @@ class POAManager(CORBA.LocalObject):
 
     def __hash__(self):
         return 0
+
+
+# ---------------------------------------------------------------------------
+# POAManagerFactory
+
+
+class POAManagerFactory(CORBA.LocalObject):
+    """``PortableServer::POAManagerFactory`` (CORBA 3), from
+    ``poa.the_POAManagerFactory``."""
+
+    _NP_RepositoryId = _ID % "POAManagerFactory"
+
+    ManagerAlreadyExists = _exception("POAManagerFactory", "ManagerAlreadyExists")
+
+    def __init__(self, native_poa):
+        CORBA.LocalObject.__init__(self)
+        self._poa = native_poa
+
+    def create_POAManager(self, id, policies):
+        if not isinstance(id, str):
+            raise CORBA.BAD_PARAM(0, CORBA.COMPLETED_NO)
+        values = []
+        for p in policies:
+            if not isinstance(p, CORBA.Policy):
+                raise CORBA.BAD_PARAM(0, CORBA.COMPLETED_NO)
+            values.append(p._rorb_raw())
+        return POAManager(self._poa.create_poa_manager(id, values))
+
+    def list(self):
+        return [POAManager(m) for m in self._poa.list_poa_managers()]
+
+    def find(self, id):
+        if not isinstance(id, str):
+            raise CORBA.BAD_PARAM(0, CORBA.COMPLETED_NO)
+        m = self._poa.find_poa_manager(id)
+        return None if m is None else POAManager(m)
 
 
 # ---------------------------------------------------------------------------
@@ -290,6 +329,9 @@ class POA(CORBA.LocalObject):
     def _get_the_POAManager(self):
         return POAManager(self._native.the_poa_manager())
 
+    def _get_the_POAManagerFactory(self):
+        return POAManagerFactory(self._native)
+
     def _get_the_activator(self):
         return self._native.get_the_activator()
 
@@ -300,6 +342,7 @@ class POA(CORBA.LocalObject):
     the_parent = property(_get_the_parent)
     the_children = property(_get_the_children)
     the_POAManager = property(_get_the_POAManager)
+    the_POAManagerFactory = property(_get_the_POAManagerFactory)
     the_activator = property(_get_the_activator, _set_the_activator)
 
     # -- POA creation and destruction --

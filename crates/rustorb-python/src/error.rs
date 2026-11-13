@@ -127,7 +127,8 @@ pub(crate) fn marshal_err(py: Python<'_>, err: PyErr) -> PyErr {
 }
 
 /// The Python exception for a POA error: the user exceptions of
-/// `PortableServer.POA`, `POAManager` and `Current`.
+/// `PortableServer.POA`, `POAManager`, `POAManagerFactory` and `Current`,
+/// and `CORBA.PolicyError`.
 pub(crate) fn poa_err(py: Python<'_>, e: PoaError) -> PyErr {
     let make = || -> PyResult<PyErr> {
         let ps = portable_server(py)?;
@@ -144,6 +145,11 @@ pub(crate) fn poa_err(py: Python<'_>, e: PoaError) -> PyErr {
             PoaError::WrongAdapter => ("POA", "WrongAdapter"),
             PoaError::NoServant => ("POA", "NoServant"),
             PoaError::AdapterInactive => ("POAManager", "AdapterInactive"),
+            PoaError::ManagerAlreadyExists => ("POAManagerFactory", "ManagerAlreadyExists"),
+            PoaError::Policy(p) => {
+                let class = corba(py)?.getattr("PolicyError")?;
+                return Ok(PyErr::from_value(class.call1((p.reason,))?));
+            }
             PoaError::NoContext => ("Current", "NoContext"),
         };
         let class = ps.getattr(owner)?.getattr(name)?;

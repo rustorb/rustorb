@@ -638,6 +638,49 @@ impl Poa {
         }
     }
 
+    /// `POAManagerFactory::create_POAManager`. `policies` are
+    /// `(policy_type, value)` pairs (see `PolicyValue::raw_value`).
+    fn create_poa_manager(
+        &self,
+        py: Python<'_>,
+        id: &str,
+        policies: Vec<(u32, u64)>,
+    ) -> PyResult<PoaManager> {
+        let bad = || {
+            rustorb_core::PoaError::Policy(rustorb_core::PolicyError {
+                reason: rustorb_core::PolicyError::BAD_POLICY,
+            })
+        };
+        let list = policies
+            .into_iter()
+            .map(|(t, v)| rustorb_core::PolicyValue::from_raw(t, v).ok_or_else(bad))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| poa_err(py, e))?;
+        self.poa
+            .the_poa_manager_factory()
+            .create_poa_manager(id, &list)
+            .map(|manager| PoaManager { manager })
+            .map_err(|e| poa_err(py, e))
+    }
+
+    /// `POAManagerFactory::list`.
+    fn list_poa_managers(&self) -> Vec<PoaManager> {
+        self.poa
+            .the_poa_manager_factory()
+            .list()
+            .into_iter()
+            .map(|manager| PoaManager { manager })
+            .collect()
+    }
+
+    /// `POAManagerFactory::find`.
+    fn find_poa_manager(&self, id: &str) -> Option<PoaManager> {
+        self.poa
+            .the_poa_manager_factory()
+            .find(id)
+            .map(|manager| PoaManager { manager })
+    }
+
     /// `create_POA`. `policies` are `(policy_type, value)` pairs; one that
     /// rustorb does not know raises `InvalidPolicy` with its index.
     fn create_poa(
@@ -859,6 +902,10 @@ impl PoaManager {
                 .deactivate(etherealize_objects, wait_for_completion)
         })
         .map_err(|e| poa_err(py, e))
+    }
+
+    fn get_id(&self) -> &str {
+        self.manager.get_id()
     }
 
     /// The state, as the position in `POAManager::State` (HOLDING, ACTIVE,

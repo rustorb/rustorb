@@ -479,6 +479,8 @@ final class Ffi {
             FunctionDescriptor.of(JAVA_LONG, JAVA_LONG));
     static final MethodHandle rorb_poa_create_poa = fn("rorb_poa_create_poa",
             FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG));
+    static final MethodHandle rorb_poa_create_poa_manager = fn("rorb_poa_create_poa_manager",
+            FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG));
     static final MethodHandle rorb_poa_create_reference = fn("rorb_poa_create_reference",
             FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG));
     static final MethodHandle rorb_poa_create_reference_with_id = fn("rorb_poa_create_reference_with_id",
@@ -489,6 +491,8 @@ final class Ffi {
             FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_INT, JAVA_INT, JAVA_LONG));
     static final MethodHandle rorb_poa_find_poa = fn("rorb_poa_find_poa",
             FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_INT, JAVA_LONG, JAVA_LONG));
+    static final MethodHandle rorb_poa_find_poa_manager = fn("rorb_poa_find_poa_manager",
+            FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG));
     static final MethodHandle rorb_poa_get_servant = fn("rorb_poa_get_servant",
             FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_LONG));
     static final MethodHandle rorb_poa_get_servant_manager = fn("rorb_poa_get_servant_manager",
@@ -497,6 +501,8 @@ final class Ffi {
             FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG));
     static final MethodHandle rorb_poa_id_to_servant = fn("rorb_poa_id_to_servant",
             FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG));
+    static final MethodHandle rorb_poa_list_poa_managers = fn("rorb_poa_list_poa_managers",
+            FunctionDescriptor.ofVoid(JAVA_LONG, JAVA_LONG, JAVA_LONG));
     static final MethodHandle rorb_poa_manager_activate = fn("rorb_poa_manager_activate",
             FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG));
     static final MethodHandle rorb_poa_manager_clone = fn("rorb_poa_manager_clone",
@@ -505,6 +511,10 @@ final class Ffi {
             FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_INT, JAVA_INT, JAVA_LONG));
     static final MethodHandle rorb_poa_manager_discard_requests = fn("rorb_poa_manager_discard_requests",
             FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_INT, JAVA_LONG));
+    static final MethodHandle rorb_poa_manager_equal = fn("rorb_poa_manager_equal",
+            FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG));
+    static final MethodHandle rorb_poa_manager_get_id = fn("rorb_poa_manager_get_id",
+            FunctionDescriptor.of(JAVA_LONG, JAVA_LONG, JAVA_LONG));
     static final MethodHandle rorb_poa_manager_get_state = fn("rorb_poa_manager_get_state",
             FunctionDescriptor.of(JAVA_INT, JAVA_LONG));
     static final MethodHandle rorb_poa_manager_hold_requests = fn("rorb_poa_manager_hold_requests",

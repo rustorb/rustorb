@@ -22,6 +22,22 @@ break the API).
   (`SYNC_WITH_TARGET`) the servant runs; the last two raise the system
   exceptions of a two-way call. The interceptors' `sync_scope` and
   `get_request_policy` give it.
+- `PortableServer::POAManagerFactory` (CORBA 3; docs/poa-design.md, #154) in
+  the core, Python, the C ABI / C++ and Java: `POA::the_POAManagerFactory`,
+  `create_POAManager`, `list`, `find` and `POAManager::get_id`. Every POA
+  manager has an identity unique in the ORB (`RootPOAManager` for the
+  RootPOA's, `POAManager<n>` for those `create_POA` makes); a manager ends
+  with the last of its POAs, and `create_POA` with such a manager raises
+  `OBJECT_NOT_EXIST`. Any policy given to `create_POAManager` raises
+  `PolicyError`. The C ABI adds `rorb_poa_create_poa_manager`,
+  `rorb_poa_list_poa_managers`, `rorb_poa_find_poa_manager`,
+  `rorb_poa_manager_get_id`, `rorb_poa_manager_equal` and the local exception
+  `RORB_MANAGER_ALREADY_EXISTS` (27). Rust's `PoaError` gets
+  `ManagerAlreadyExists` and `Policy`.
+
+### Fixed
+
+- Java: `POA.the_children()` no longer leaks a native POA handle per child.
 
 ### Changed
 

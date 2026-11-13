@@ -162,6 +162,20 @@ pub trait Servant: Send + Sync {
 - holding の間に届いた要求は POAManager ごとのキューに保持し、active に戻ったら通常の経路に流す。キューに上限を設け、溢れたら `TRANSIENT`（仕様どおり）
 - holding 中の LocateRequest は保留せず `OBJECT_HERE` を返す（omniORB と同じ）
 
+### POAManagerFactory（CORBA 3、#154）
+
+根拠は CORBA 3.x の仕様（POAManagerFactory と `POAManager::get_id`）だけ。omniORB 4.3.4 は C++ にも omniORBpy にも `the_POAManagerFactory` がない（C++ はコンパイルが通らず、omniORBpy は属性がない）ので、比べる相手がない。
+
+- `POA::the_POAManagerFactory` はどの POA からでも ORB に1つのファクトリを返す。Rust は `Poa::the_poa_manager_factory()`、`PoaManagerFactory::create_poa_manager(id, policies)`・`list()`・`find(id)`、`PoaManager::get_id()`
+- id は ORB の中で一意。`create_POAManager` で同じ id がすでにあれば `ManagerAlreadyExists`。空文字列も1つの id として扱う（仕様に「空の id も正しい」とある）
+- RootPOA の manager の id は仕様どおり `RootPOAManager`。`create_POA` に manager を渡さずに暗黙に作られた manager は `POAManager<n>`（n は ORB ごとの通し番号）で、利用者が先にその id を使っていれば次の番号に進む
+- 新しい manager は holding で始まる
+- policies：rustorb が知っているポリシーはどれも POAManager には当てはまらないので、1つでも渡せば `CORBA::PolicyError`。理由は rustorb が知っているポリシー（POA・BiDir・Messaging）なら `UNSUPPORTED_POLICY`、知らないもの（C ABI・Python・C++・Java の外のポリシー）なら `BAD_POLICY`
+- `list` は存在する manager（明示・暗黙の両方）を作った順に返す。`find` は見つからなければ nil（Rust は `None`）
+- 寿命：仕様どおり、manager は最後の POA が destroy されたときに消える。ファクトリの一覧から外れ、その id はまた使える。deactivate しても消えない。`create_POAManager` で作ってまだ POA を持たない manager は、ORB が destroy されるまで残る
+- 消えた manager を `create_POA` に渡すと `OBJECT_NOT_EXIST`（destroy された POA と同じ扱い）。ハンドル自体は残るので、`get_id`・`get_state` などはそのまま呼べる
+- 実装：Server が manager の一覧（強参照）を持ち、manager はまだ destroy されていない POA の数を数える。POA の destroy（子から順）で数を減らし、0 になったら一覧から外す。ロックの順は manager の POA 一覧 → ファクトリの一覧だけ
+
 ### Servant manager と AdapterActivator
 
 - ServantActivator の `incarnate` は ObjectId ごとに1回に絞る。同じIDへの要求が同時に来たら、2件目以降は1件目の `incarnate` の完了を待つ

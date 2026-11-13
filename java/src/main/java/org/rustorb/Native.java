@@ -1588,7 +1588,7 @@ final class Native {
         List<Long> children = new ArrayList<>();
         long ctx = CONTEXTS.add(children);
         try {
-            Ffi.rorb_poa_children.invokeExact(poa, ctx, Upcalls.PUSH_POA);
+            Ffi.rorb_poa_children.invokeExact(poa, ctx, Upcalls.PUSH_HANDLE);
         } catch (Throwable t) {
             throw Library.rethrow(t);
         } finally {
@@ -1912,6 +1912,66 @@ final class Native {
             throws org.omg.CORBA.UserException {
         run((s, exc) -> (int) Ffi.rorb_poa_manager_deactivate.invokeExact(manager,
                 etherealize ? 1 : 0, wait ? 1 : 0, exc));
+    }
+
+    static String pmGetId(long manager) {
+        Scratch s = Scratch.get();
+        long mark = s.mark();
+        try {
+            long len = s.word();
+            long p = (long) Ffi.rorb_poa_manager_get_id.invokeExact(manager, len);
+            return cstring(p, len);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        } finally {
+            s.reset(mark);
+        }
+    }
+
+    static boolean pmEqual(long a, long b) {
+        try {
+            return (int) Ffi.rorb_poa_manager_equal.invokeExact(a, b) != 0;
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    // --- POAManagerFactory --------------------------------------------------------------
+
+    static long pmfCreate(long poa, String id, int[] types, long[] values)
+            throws org.omg.CORBA.UserException {
+        int n = count(types, values);
+        return word((s, out, exc) -> {
+            long p = str(s, id);
+            long len = s.lastLength;
+            return (int) Ffi.rorb_poa_create_poa_manager.invokeExact(poa, p, len,
+                    s.ints(types, n), s.longs(values, n), (long) n, out, exc);
+        });
+    }
+
+    static long[] pmfList(long poa) {
+        List<Long> managers = new ArrayList<>();
+        long ctx = CONTEXTS.add(managers);
+        try {
+            Ffi.rorb_poa_list_poa_managers.invokeExact(poa, ctx, Upcalls.PUSH_HANDLE);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        } finally {
+            CONTEXTS.remove(ctx);
+        }
+        long[] a = new long[managers.size()];
+        for (int i = 0; i < a.length; i++) {
+            a[i] = managers.get(i);
+        }
+        return a;
+    }
+
+    static long pmfFind(long poa, String id) throws org.omg.CORBA.UserException {
+        return word((s, out, exc) -> {
+            long p = str(s, id);
+            return (int) Ffi.rorb_poa_find_poa_manager.invokeExact(poa, p, s.lastLength, out,
+                    exc);
+        });
     }
 
     // --- TypeCodes ---------------------------------------------------------------
@@ -3155,7 +3215,6 @@ final class Native {
                 fd(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG));
         static final long SENDC_DONE = stub("sendcDone", fd(null, JAVA_LONG, JAVA_INT, JAVA_LONG));
         static final long PUSH_NAME = stub("pushName", fd(null, JAVA_LONG, JAVA_LONG, JAVA_LONG));
-        static final long PUSH_POA = stub("pushPoa", fd(null, JAVA_LONG, JAVA_LONG));
         static final long PUSH_POLICY = stub("pushPolicy", fd(null, JAVA_LONG, JAVA_INT, JAVA_LONG));
         static final long RELEASE_LOCAL = stub("releaseLocal", fd(null, JAVA_LONG));
         static final long COPY_LOCAL = stub("copyLocal", fd(null, JAVA_LONG, JAVA_LONG));
@@ -3258,15 +3317,6 @@ final class Native {
         private static void pushName(long ctx, long name, long len) {
             try {
                 ((List<String>) CONTEXTS.get(ctx)).add(Library.utf8(name, len));
-            } catch (Throwable t) {
-                // dropped
-            }
-        }
-
-        @SuppressWarnings("unchecked")
-        private static void pushPoa(long ctx, long child) {
-            try {
-                ((List<Long>) CONTEXTS.get(ctx)).add(poaClone(child));
             } catch (Throwable t) {
                 // dropped
             }

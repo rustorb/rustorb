@@ -27,8 +27,9 @@ use crate::servant::{Cookie, ServantLocator};
 use crate::server::Server;
 use crate::trace;
 use crate::{
-    AdapterActivator, CompletionStatus, ObjectRef, Orb, Servant, ServantActivator, ServantManager,
-    ServantManagerError, SystemException, SystemExceptionKind, minor,
+    AdapterActivator, CompletionStatus, ObjectRef, Orb, PolicyError, PolicyValue, Servant,
+    ServantActivator, ServantManager, ServantManagerError, SystemException, SystemExceptionKind,
+    minor,
 };
 
 /// `PortableServer::ObjectId`.
@@ -274,6 +275,10 @@ pub enum PoaError {
     WrongAdapter,
     /// `POAManager::AdapterInactive`.
     AdapterInactive,
+    /// `POAManagerFactory::ManagerAlreadyExists`.
+    ManagerAlreadyExists,
+    /// `CORBA::PolicyError`, from `POAManagerFactory::create_POAManager`.
+    Policy(PolicyError),
     /// `POA::NoServant`: no default servant was set.
     NoServant,
     /// `Current::NoContext`: the thread is not running a request.
@@ -303,6 +308,10 @@ impl fmt::Display for PoaError {
             PoaError::WrongPolicy => f.write_str("PortableServer::POA::WrongPolicy"),
             PoaError::WrongAdapter => f.write_str("PortableServer::POA::WrongAdapter"),
             PoaError::AdapterInactive => f.write_str("PortableServer::POAManager::AdapterInactive"),
+            PoaError::ManagerAlreadyExists => {
+                f.write_str("PortableServer::POAManagerFactory::ManagerAlreadyExists")
+            }
+            PoaError::Policy(e) => e.fmt(f),
             PoaError::NoServant => f.write_str("PortableServer::POA::NoServant"),
             PoaError::NoContext => f.write_str("PortableServer::Current::NoContext"),
             PoaError::System(e) => e.fmt(f),
@@ -529,11 +538,24 @@ pub struct PoaManager {
 }
 
 pub(crate) struct ManagerInner {
+    /// `get_id`: unique among the managers that exist in the ORB.
+    id: String,
     state: Mutex<ManagerState>,
     activity: Arc<Activity>,
     server: Weak<Server>,
-    /// The POAs the manager manages, for `deactivate(etherealize)`.
-    poas: Mutex<Vec<Weak<PoaInner>>>,
+    /// The POAs the manager manages.
+    poas: Mutex<ManagedPoas>,
+}
+
+#[derive(Default)]
+struct ManagedPoas {
+    /// For `deactivate(etherealize)`.
+    list: Vec<Weak<PoaInner>>,
+    /// The POAs not yet destroyed.
+    live: usize,
+    /// The last of its POAs was destroyed: the manager is gone from the
+    /// `POAManagerFactory` and cannot take new POAs.
+    destroyed: bool,
 }
 
 struct ManagerState {
@@ -544,6 +566,7 @@ struct ManagerState {
 impl fmt::Debug for PoaManager {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PoaManager")
+            .field("id", &self.inner.id)
             .field("state", &self.state())
             .finish_non_exhaustive()
     }
@@ -558,18 +581,29 @@ impl PartialEq for PoaManager {
 impl Eq for PoaManager {}
 
 impl PoaManager {
-    pub(crate) fn new(server: &Arc<Server>) -> PoaManager {
+    /// A new manager in the holding state, not yet registered with the
+    /// factory.
+    pub(crate) fn new(server: &Arc<Server>, id: String) -> PoaManager {
         let inner = Arc::new(ManagerInner {
+            id,
             state: Mutex::new(ManagerState {
                 state: PoaManagerState::Holding,
                 held: VecDeque::new(),
             }),
             activity: Arc::default(),
             server: Arc::downgrade(server),
-            poas: Mutex::new(Vec::new()),
+            poas: Mutex::default(),
         });
         server.register_manager(&inner);
         PoaManager { inner }
+    }
+
+    /// `get_id`: the identity given to
+    /// [`create_poa_manager`](PoaManagerFactory::create_poa_manager), or
+    /// the one the ORB chose for a manager made by `create_POA`
+    /// (`"RootPOAManager"` for the RootPOA's).
+    pub fn get_id(&self) -> &str {
+        &self.inner.id
     }
 
     /// The current state.
@@ -631,6 +665,7 @@ impl PoaManager {
                 .poas
                 .lock()
                 .unwrap()
+                .list
                 .iter()
                 .filter_map(Weak::upgrade)
                 .collect();
@@ -666,6 +701,71 @@ impl PoaManager {
             dispatch(Disposition::Reject(e.clone()));
         }
         Ok(())
+    }
+}
+
+// --- POA manager factory -----------------------------------------------------
+
+/// `PortableServer::POAManagerFactory` (CORBA 3): creates POA managers
+/// with an identity, to share among POAs, and finds those that exist in
+/// the ORB. Got from any POA with
+/// [`the_poa_manager_factory`](Poa::the_poa_manager_factory).
+///
+/// A manager exists from its creation (explicit, or implicit in
+/// `create_POA`) until the last of its POAs is destroyed. One created
+/// here that never had a POA exists until the ORB is destroyed.
+#[derive(Clone)]
+pub struct PoaManagerFactory {
+    orb: Orb,
+}
+
+impl fmt::Debug for PoaManagerFactory {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PoaManagerFactory").finish_non_exhaustive()
+    }
+}
+
+impl PoaManagerFactory {
+    fn server(&self) -> Result<Arc<Server>, PoaError> {
+        self.orb
+            .server()
+            .ok_or_else(|| sys(SystemExceptionKind::OBJECT_NOT_EXIST, 0).into())
+    }
+
+    /// `create_POAManager`: a new manager, in the holding state, with the
+    /// identity `id` (the empty string is a valid identity). Fails with
+    /// `ManagerAlreadyExists` if a manager with that identity exists in
+    /// the ORB, and with `PolicyError` (`UNSUPPORTED_POLICY`) for any
+    /// policy: none of the policies rustorb knows applies to POA managers.
+    pub fn create_poa_manager(
+        &self,
+        id: &str,
+        policies: &[PolicyValue],
+    ) -> Result<PoaManager, PoaError> {
+        if !policies.is_empty() {
+            return Err(PoaError::Policy(PolicyError {
+                reason: PolicyError::UNSUPPORTED_POLICY,
+            }));
+        }
+        self.server()?.create_manager(id)
+    }
+
+    /// `list`: every manager that exists in the ORB, whether created here
+    /// or by `create_POA`, in the order they were created.
+    pub fn list(&self) -> Vec<PoaManager> {
+        self.server().map(|s| s.list_managers()).unwrap_or_default()
+    }
+
+    /// `find`: the manager with the identity `id`, or `None` (a nil
+    /// reference).
+    pub fn find(&self, id: &str) -> Option<PoaManager> {
+        self.server().ok()?.find_manager(id)
+    }
+}
+
+impl ManagerInner {
+    pub(crate) fn id(&self) -> &str {
+        &self.id
     }
 }
 
@@ -709,10 +809,34 @@ impl ManagerInner {
         &self.activity
     }
 
-    fn add_poa(&self, poa: &Arc<PoaInner>) {
+    /// Takes a new POA; fails with `OBJECT_NOT_EXIST` once the manager
+    /// was destroyed with the last of its POAs.
+    fn add_poa(&self, poa: &Arc<PoaInner>) -> Result<(), PoaError> {
         let mut poas = self.poas.lock().unwrap();
-        poas.retain(|p| p.strong_count() > 0);
-        poas.push(Arc::downgrade(poa));
+        if poas.destroyed {
+            return Err(sys(SystemExceptionKind::OBJECT_NOT_EXIST, 0).into());
+        }
+        poas.list.retain(|p| p.strong_count() > 0);
+        poas.list.push(Arc::downgrade(poa));
+        poas.live += 1;
+        Ok(())
+    }
+
+    /// One of its POAs was destroyed. With the last one, the manager is
+    /// destroyed too: it leaves the factory, and its identity may be used
+    /// again.
+    fn poa_destroyed(&self) {
+        let mut poas = self.poas.lock().unwrap();
+        poas.live = poas.live.saturating_sub(1);
+        if poas.live > 0 || poas.destroyed {
+            return;
+        }
+        poas.destroyed = true;
+        trace::info!("POA manager {:?} destroyed", self.id);
+        // Still under the lock, so that no POA joins it meanwhile.
+        if let Some(server) = self.server.upgrade() {
+            server.factory_remove(self);
+        }
     }
 
     /// Stops the manager at ORB shutdown: held requests are dropped
@@ -1005,7 +1129,7 @@ impl PoaInner {
         key_prefix: Vec<u8>,
         boot_id: [u8; BOOT_ID_LEN],
         components: Vec<TaggedComponent>,
-    ) -> Arc<PoaInner> {
+    ) -> Result<Arc<PoaInner>, PoaError> {
         let poa = Arc::new(PoaInner {
             components,
             name,
@@ -1020,15 +1144,15 @@ impl PoaInner {
             changed: Condvar::new(),
             serial: Mutex::default(),
         });
-        poa.manager.inner.add_poa(&poa);
-        poa
+        poa.manager.inner.add_poa(&poa)?;
+        Ok(poa)
     }
 
     pub(crate) fn new_root(
         manager: PoaManager,
         boot_id: [u8; BOOT_ID_LEN],
         components: Vec<TaggedComponent>,
-    ) -> Arc<PoaInner> {
+    ) -> Result<Arc<PoaInner>, PoaError> {
         let mut key_prefix = vec![TRANSIENT_END];
         key_prefix.extend_from_slice(&boot_id);
         PoaInner::new(
@@ -1049,7 +1173,7 @@ impl PoaInner {
         manager: PoaManager,
         policies: Policies,
         components: Vec<TaggedComponent>,
-    ) -> Arc<PoaInner> {
+    ) -> Result<Arc<PoaInner>, PoaError> {
         let mut path = parent.path.clone();
         path.push(name.to_owned());
         let mut key_prefix = vec![PATH_START];
@@ -1293,6 +1417,7 @@ impl PoaInner {
         for child in children.into_values() {
             all.extend(child.destroy_tree(etherealize));
         }
+        self.manager.inner.poa_destroyed();
         all.extend(self.etherealizations(drained, etherealize));
         all
     }
@@ -1533,15 +1658,25 @@ impl Poa {
         self.inner.manager.clone()
     }
 
+    /// `the_POAManagerFactory`: the ORB's factory of POA managers, the
+    /// same from every POA.
+    pub fn the_poa_manager_factory(&self) -> PoaManagerFactory {
+        PoaManagerFactory {
+            orb: self.orb.clone(),
+        }
+    }
+
     /// The policies of the POA.
     pub fn policies(&self) -> Policies {
         self.inner.policies
     }
 
     /// `create_POA`: a child POA named `name`, managed by `manager` or, if
-    /// `None`, by a new manager. Policies not in `policies` take their
-    /// default values (not those of this POA). Inconsistent policies fail
-    /// with `InvalidPolicy`, and a name containing NUL with `BAD_PARAM`.
+    /// `None`, by a new manager with an identity the ORB chooses. Policies
+    /// not in `policies` take their default values (not those of this
+    /// POA). Inconsistent policies fail with `InvalidPolicy`, a name
+    /// containing NUL with `BAD_PARAM`, and a manager destroyed with the
+    /// last of its POAs with `OBJECT_NOT_EXIST`.
     pub fn create_poa(
         &self,
         name: &str,
@@ -1567,7 +1702,7 @@ impl Poa {
         }
         let manager = match manager {
             Some(m) => m.clone(),
-            None => PoaManager::new(&server),
+            None => server.create_implicit_manager(),
         };
         if policies.lifespan == Lifespan::Persistent && !server.has_fixed_port() {
             trace::warning!(
@@ -1575,7 +1710,7 @@ impl Poa {
                  its references will not survive a restart"
             );
         }
-        let child = PoaInner::new_child(&self.inner, name, manager, policies, components);
+        let child = PoaInner::new_child(&self.inner, name, manager, policies, components)?;
         trace::info!("created POA {name:?} under {:?}", self.inner.name);
         st.children.insert(name.to_owned(), Arc::clone(&child));
         Ok(self.handle(child))
