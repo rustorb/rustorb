@@ -301,4 +301,14 @@ public final class OrbImpl extends org.omg.CORBA_2_3.ORB {
         }
     }
 
+
+    @Override
+    public boolean poll_next_response() {
+        return Dii.pollNext(this);
+    }
+
+    @Override
+    public org.omg.CORBA.Request get_next_response() {
+        return Dii.getNext(this);
+    }
 }

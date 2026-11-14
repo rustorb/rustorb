@@ -10,6 +10,7 @@ import org.omg.CORBA.SystemException;
 import org.omg.CORBA.UNKNOWN;
 import org.omg.CORBA.portable.InvokeHandler;
 import org.omg.PortableServer.AdapterActivator;
+import org.omg.PortableServer.DynamicImplementation;
 import org.omg.PortableServer.ForwardRequest;
 import org.omg.PortableServer.Servant;
 import org.omg.PortableServer.ServantActivator;
@@ -194,6 +195,9 @@ final class Bridge {
         NativeInputStream input = new NativeInputStream(in, orb, null);
         ResponseHandlerImpl handler = new ResponseHandlerImpl(reply, orb);
         try {
+            if (servant instanceof DynamicImplementation) {
+                return dispatchDynamic((DynamicImplementation) servant, op, in, reply);
+            }
             if (!(servant instanceof InvokeHandler)) {
                 throw new org.omg.CORBA.BAD_OPERATION(op, 0, CompletionStatus.COMPLETED_NO);
             }
@@ -216,6 +220,37 @@ final class Bridge {
         } finally {
             input.invalidate();
             handler.invalidate();
+        }
+    }
+
+    /** A request to a DSI servant: invoke, then the reply of its
+     * ServerRequest. A system exception (of invoke, or of the reply, an out
+     * value not set say) is the reply instead. */
+    private static int dispatchDynamic(DynamicImplementation servant, String op, long in,
+            long reply) {
+        ServerRequestImpl request = new ServerRequestImpl(Native.serverRequestNew(in, op), op);
+        try {
+            try {
+                servant.invoke(request);
+            } catch (Throwable t) {
+                if (!(t instanceof org.omg.CORBA.UnknownUserException)) {
+                    throw t;
+                }
+                request.set_exception(((org.omg.CORBA.UnknownUserException) t).except);
+            }
+            request.reply(reply);
+            return OK;
+        } catch (SystemException e) {
+            int completed = e.completed == null ? CompletionStatus._COMPLETED_MAYBE
+                    : e.completed.value();
+            Native.replySystemException(reply, SystemExceptions.id(e), e.minor, completed);
+            return SYSTEM_EXCEPTION;
+        } catch (Throwable t) {
+            Native.replySystemException(reply, "IDL:omg.org/CORBA/UNKNOWN:1.0", 0,
+                    CompletionStatus._COMPLETED_MAYBE);
+            return SYSTEM_EXCEPTION;
+        } finally {
+            request.release();
         }
     }
 

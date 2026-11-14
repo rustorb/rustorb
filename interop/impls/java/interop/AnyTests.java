@@ -277,6 +277,9 @@ public final class AnyTests {
     /** The servant of the servers. */
     public static final class AnyEchoImpl extends AnyEchoPOA {
         private final ORB orb;
+        /** The reference of this object: _this(), or that of the DSI
+         * servant that calls this one (DiiAdapters). */
+        java.util.function.Supplier<AnyEcho> self = this::_this;
 
         public AnyEchoImpl(ORB orb) {
             this.orb = orb;
@@ -284,24 +287,24 @@ public final class AnyTests {
 
         public Any echo(Any a) { return a; }
 
-        public Any make(String name) { return AnyTests.make(orb, name, _this()); }
+        public Any make(String name) { return AnyTests.make(orb, name, self.get()); }
 
-        public boolean check(String name, Any a) { return same(orb, name, a, _this()); }
+        public boolean check(String name, Any a) { return same(orb, name, a, self.get()); }
 
         public void out_inout(String name, AnyHolder b, AnyHolder c) {
-            if (!same(orb, name, c.value, _this())) {
+            if (!same(orb, name, c.value, self.get())) {
                 throw new BAD_PARAM(0, CompletionStatus.COMPLETED_NO);
             }
-            b.value = AnyTests.make(orb, name, _this());
-            c.value = AnyTests.make(orb, "long", _this());
+            b.value = AnyTests.make(orb, name, self.get());
+            c.value = AnyTests.make(orb, "long", self.get());
         }
 
         public TypeCode echo_tc(TypeCode tc) { return tc; }
 
-        public TypeCode make_tc(String name) { return AnyTests.make(orb, name, _this()).type(); }
+        public TypeCode make_tc(String name) { return AnyTests.make(orb, name, self.get()).type(); }
 
         public boolean check_tc(String name, TypeCode tc) {
-            return AnyTests.make(orb, name, _this()).type().equal(tc);
+            return AnyTests.make(orb, name, self.get()).type().equal(tc);
         }
 
         public NameValue[] echo_nvlist(NameValue[] l) { return l; }

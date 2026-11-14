@@ -1,0 +1,4 @@
+#!/bin/sh
+# The rustorb Java client (impls/rustorbjava) with every call of the basic,
+# any and value suites made through the DII (impls/java/interop/DiiAdapters.java).
+RUSTORB_DII=1 exec "$(dirname "$0")/../rustorbjava/client" "$@"

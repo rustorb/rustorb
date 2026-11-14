@@ -1,0 +1,4 @@
+#!/bin/sh
+# The rustorb Java server (impls/rustorbjava) with the servants of the basic,
+# any and value suites run through the DSI (impls/java/interop/DiiAdapters.java).
+RUSTORB_DII=1 exec "$(dirname "$0")/../rustorbjava/server" "$@"

@@ -1,6 +1,6 @@
 # DII と DSI
 
-[#44](https://github.com/rustorb/rustorb/issues/44)。生成コードなしで要求を組み立てて送る DII（Dynamic Invocation Interface）と、生成コードなしで要求を受ける DSI（Dynamic Skeleton Interface）を、Rust のコア（`rustorb-core`）と Python のバインディングに加えた。C ABI（`rustorb-ffi`）と C++ は [#155](https://github.com/rustorb/rustorb/issues/155) で加えた。Java は [#156](https://github.com/rustorb/rustorb/issues/156)。
+[#44](https://github.com/rustorb/rustorb/issues/44)。生成コードなしで要求を組み立てて送る DII（Dynamic Invocation Interface）と、生成コードなしで要求を受ける DSI（Dynamic Skeleton Interface）を、Rust のコア（`rustorb-core`）と Python のバインディングに加えた。C ABI（`rustorb-ffi`）と C++ は [#155](https://github.com/rustorb/rustorb/issues/155)、Java は [#156](https://github.com/rustorb/rustorb/issues/156) で加えた。
 
 値はすべて Any で受け渡す。valuetype の共有とキャッシュの扱いは静的なスタブ・スケルトンと同じ。
 
@@ -91,6 +91,28 @@ IDL to C++11 マッピングの DII / DSI。
 - コンテキスト（`ctx`・`ctxlist`・`Request::ctx()`・`ServerRequest::ctx()`）と `get_default_context` は `NO_IMPLEMENT`
 - 制限：C++ の Any は valuetype を写して持つ。別々の Any に入れた同じ valuetype は2つになり、DII / DSI の引数どうしでは共有が保たれない（静的なスタブ・スケルトンでは保たれる）。value の `same[shared]` が既知の失敗
 
+## Java（`org.omg.CORBA`・`org.omg.PortableServer`）
+
+[#156](https://github.com/rustorb/rustorb/issues/156)。IDL to Java マッピングの DII / DSI を、C ABI の `rorb_request_*` と `rorb_server_request_*` の上に FFM で載せた。クラスとメソッドは標準の javadoc のとおりで、ランタイム（`java/`）が持つ。
+
+- `obj._request(op)` と `obj._create_request(ctx, op, arg_list, result)`・`(ctx, op, arg_list, result, exclist, ctxlist)`、`orb.create_list` / `create_named_value` / `create_exception_list` / `create_context_list` / `create_environment`
+- `org.omg.CORBA.Request`：`add_in_arg` / `add_named_in_arg` / `add_inout_arg` / `add_out_arg` などが `Any` を返す。`out` には型だけを入れる（`any.type(tc)`）。`set_return_type`、`exceptions().add(tc)`、`invoke`・`send_oneway`・`send_deferred`・`poll_response`・`get_response`、`return_value()`、`arguments()`（`NVList`）、`env()`、`target()`・`operation()`・`result()`・`contexts()`
+- `NVList`（`add`・`add_item`・`add_value`・`item`・`remove`・`count`、範囲外は `org.omg.CORBA.Bounds`）、`NamedValue`、`ExceptionList`、`ContextList`、`Environment`、`ARG_IN`・`ARG_OUT`・`ARG_INOUT`、`UnknownUserException`、`WrongTransaction`
+- `orb.send_multiple_requests_oneway` / `_deferred`、`poll_next_response`、`get_next_response`
+- `org.omg.PortableServer.DynamicImplementation` を継承して `invoke(ServerRequest)` と `_all_interfaces(poa, oid)` を書く。`ServerRequest` は `operation()`・`arguments(nvlist)`・`set_result`・`set_exception`（古い名前の `op_name`・`params`・`result`・`except` も）
+
+決めたこと：
+
+- 呼び出しの例外は投げずに `env()` に入れる（javadoc の「例外の情報は Request の Environment に入る」。JacORB 3.9 も、動かして確かめたところシステム例外を投げずに `env()` に入れる）。ユーザー例外は `UnknownUserException`（`except` が例外リストの TypeCode で読んだ本体の Any）。リストにないユーザー例外は `UNKNOWN`（minor `0x4f4d0001`、completed yes）。呼び出しの順の誤り（送っていない要求の `poll_response` / `get_response`、応答を待っている要求の `send_deferred`）の `BAD_INV_ORDER` は投げる
+- `Request` は送るたびに、そのときの引数・戻り値の型・例外リストから C ABI の要求を作る。同じ `Request` を何度も送れる。`arguments()` の Any は送った後に応答の値に置き換わる（同じ `Any` のオブジェクトのまま）
+- `get_next_response` は ORB ごとの deferred の要求を1ミリ秒ごとに見て回る。何もないときは `BAD_INV_ORDER`
+- `ServerRequest.arguments` は `NVList` の Any の TypeCode をパラメーターの型にし、読んだ値を同じ Any に入れる。`invoke` から戻るときに `out` と `inout` の Any の値を応答に書く。値を入れていない `out` は `BAD_PARAM` の応答になる
+- DSI のサーバントの `invoke` が投げた `SystemException` はそのまま応答になる（完了状態も例外のもの）。その他の例外は `UNKNOWN`（minor 0、COMPLETED_MAYBE）
+- POA に登録するときのリポジトリ ID は `_all_interfaces(null, null)` の最初のもの（静的なサーバントと同じ）
+- ローカルなオブジェクト（`LocalObject`）の `_request` / `_create_request` は `NO_IMPLEMENT`（minor 4）
+- コンテキスト（`ctx` が null でない、または空でない `ctxlist` の `_create_request`、`Request.ctx()`、`ServerRequest.ctx()`）と `get_default_context`、`create_operation_list` は `NO_IMPLEMENT`
+- 制限：Java の Any は値をコアの側に写して持つ（[java-binding.md](java-binding.md)）。C++ と同じく、別々の Any に入れた同じ valuetype は2つになり、DII / DSI の引数どうしでは共有が保たれない。value の `same[shared]` が既知の失敗（[#164](https://github.com/rustorb/rustorb/issues/164)）
+
 ## テスト
 
 - `crates/rustorb-core/tests/dii.rs`：DSI のサーバントと静的なサーバントを、DII（同期・async・deferred・oneway）で TCP 越しと同一 ORB 内で呼ぶ。`ServerRequest` の呼び出し順の検査
@@ -98,3 +120,5 @@ IDL to C++11 マッピングの DII / DSI。
 - 相互接続：`interop/impls/rustorbpy-dii` は `rustorbpy` のクライアントとサーバーを、スタブの呼び出しを DII に、サーバントを DSI に差し替えて動かす（`dii_adapters.py`）。basic・any・value・abstract で、omniORB C++・omniORBpy・rustorb（Rust・Python）との組が両方向で `rustorbpy` と同じ結果になる（失敗は `long double` と omniORBpy の wchar の既知のものだけ）。CI では basic（GIOP 1.2 / 1.1）・any・value を回す。valuetype の共有はこの value の組で確かめる
 - `cpp/tests/test_dii.cc`：basic・any・value の相互接続の項目を、C++ の DII → DSI、DII → 静的なサーバント、静的なスタブ → DSI の3通りで回す。API の項目：アクセサー、`_create_request`、システム例外、deferred と `get_next_response`、`send_multiple_requests_*`、`NVList` と `Bounds`、ローカルなオブジェクト、`ServerRequest` の呼び出し順、SyncScope に従う oneway、インターセプターの `arguments`・`result`・`exceptions`
 - 相互接続：`interop/impls/rustorbcpp-dii` は `rustorbcpp` のクライアントとサーバーを、スタブの呼び出しを DII に、サーバントを DSI に差し替えて動かす（`dii_adapters.h`、環境変数 `RUSTORB_DII=1`）。basic（GIOP 1.2 / 1.1）・any・value で、omniORB C++・omniORBpy・`rustorbpy-dii` との組が両方向で `rustorbcpp` と同じ結果になる（失敗は `long double`、omniORBpy の wchar、上の `same[shared]` の既知のものだけ）。CI でも回す
+- `java/src/test/java/org/rustorb/test/DiiTest.java`：basic・any・value の相互接続の項目（`interop/impls/java/interop/DiiAdapters.java`）を、Java の DII → DSI、DII → 静的なサーバント、静的なスタブ → DSI の3通りで回す。API の項目：アクセサーと同じ要求の再送、`_create_request` と例外リスト、システム例外とリストにないユーザー例外、NVList などの `Bounds`、deferred と `get_next_response`、`send_multiple_requests_*`、`ServerRequest` の呼び出し順、値のない `out`、ローカルなオブジェクト、同一 ORB 内。`DiiPiTest.java`：インターセプターの `arguments`・`result`・`exceptions`
+- 相互接続：`interop/impls/rustorbjava-dii` は `rustorbjava` のクライアントとサーバーを、スタブの呼び出しを DII に、サーバントを DSI に差し替えて動かす（`interop/impls/java/interop/DiiAdapters.java`、環境変数 `RUSTORB_DII=1`）。basic（GIOP 1.2 / 1.1）・any・value で、omniORB C++・omniORBpy・JacORB・rustorb の各実装との組が両方向で `rustorbjava` と同じ結果になる（失敗は既知のものと、上の `same[shared]` だけ）。CI でも回す

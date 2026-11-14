@@ -163,8 +163,10 @@ suite=any rustorb* omniorb-cpp dyn_check[longdouble] omniORB sends long double i
 suite=any rustorb* omniorb-cpp dyn_make[longdouble] omniORB sends long double in the x87 format
 suite=any rustorb* omniorb-cpp make[longdouble] omniORB sends long double in the x87 format
 
-# C++ anys hold copies of their valuetypes (docs/dii-dsi.md): the same
+# C++ and Java anys hold copies of their valuetypes (docs/dii-dsi.md): the same
 # instance in two anys is two instances, so the DII sends same()'s two
 # arguments unshared and a DSI servant gets two instances.
 suite=value rustorbcpp-dii * same[shared] C++ anys copy their valuetypes
 suite=value * rustorbcpp-dii same[shared] C++ anys copy their valuetypes
+suite=value rustorbjava-dii * same[shared] Java anys copy their valuetypes
+suite=value * rustorbjava-dii same[shared] Java anys copy their valuetypes
