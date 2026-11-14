@@ -1,0 +1,4 @@
+#!/bin/sh
+# The rustorb C++ client (impls/rustorbcpp) with every call of the basic,
+# any and value suites made through the DII (impls/rustorbcpp/dii_adapters.h).
+RUSTORB_DII=1 exec "$(dirname "$0")/../rustorbcpp/bin/client" "$@"

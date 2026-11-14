@@ -24,7 +24,7 @@ omniORBを置き換えられる、コアを純Rustで実装したCORBA ORBを作
 
 M0〜M6 の後に見直し（[#52](https://github.com/rustorb/rustorb/issues/52)）、次の2つを対象に加えた。残りは引き続き対象外で、需要が出たら issue にする。
 
-- DII / DSI：コアと Python から（[#44](https://github.com/rustorb/rustorb/issues/44)）。C++ と Java は需要が出たら
+- DII / DSI：コアと Python から（[#44](https://github.com/rustorb/rustorb/issues/44)）。C ABI と C++ は [#155](https://github.com/rustorb/rustorb/issues/155)、Java は [#156](https://github.com/rustorb/rustorb/issues/156)
 - SSLIOP（TLS）：[#78](https://github.com/rustorb/rustorb/issues/78)
 
 ## 準拠する仕様
@@ -296,7 +296,7 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
   - 生成器：標準マッピングのクラス群（Helper・Holder・Operations・Stub・POA・POATie、`<Name>Package`、予約語の `_`）と、モジュールの外の定義のための `-Wbpackage`
   - 相互接続：`interop/impls/java` のクライアント・サーバーを、`rustorbjava`（rustorb-idl のスタブ）と `jacorb`（JacORB 3.9 のリリース jar と IDL コンパイラ）で共有する。`rustorbjava` は basic（omniNames・rustorb-names、GIOP 1.2 / 1.1）と any（GIOP 1.2 / 1.1）ですべての相手と通る。JacORB との失敗は JacORB の生成コードと GIOP 1.1 の Fragment の扱いによるもので、`known-failures.txt` に載せた。JacORB はソースを読まず、生成されたクラスを呼んだ結果だけを使った
   - Java のテスト（`java/`、Maven と JUnit）：CxxMapping.idl の往復（2つの ORB の間と同一 ORB 内）、相互接続の78ケースと any の178ケース。CI は Linux（Java 11 / 21）・macOS・Windows
-  - 残り：DII / DSI（コアと Python は #44 で済ませた。Java は需要が出たら。valuetype は下記、portable stub とストリームは下記）
+  - 残り：DII / DSI（コアと Python は #44、C++ は #155 で済ませた。Java は #156。valuetype は下記、portable stub とストリームは下記）
 - [x] C++ と Java の servant manager（`ServantActivator`・`ServantLocator`）と `AdapterActivator`（[cpp-binding.md](cpp-binding.md#poa-の範囲)、[java-binding.md](java-binding.md#poa-の範囲)）
   - C ABI：`rorb_poa_set_servant_activator` / `_locator`・`rorb_poa_get_servant_manager`・`rorb_poa_set_the_activator` / `rorb_poa_the_activator` と関数表。`incarnate` / `preinvoke` の `ForwardRequest` とシステム例外は `rorb_manager_error_*` で伝える
   - C++ は `PortableServer::ServantActivator` などのローカルインターフェースと `ForwardRequest`、Java は `org.omg.PortableServer` の同名のインターフェースと `CookieHolder`（C ABI 経由）
@@ -341,7 +341,7 @@ Naming Serviceは、保存先をトレイトで抽象化し、既定の実装は
 - [x] DII / DSI（[dii-dsi.md](dii-dsi.md)、[#44](https://github.com/rustorb/rustorb/issues/44)）
   - コア：`ObjectRef::create_request` → `DiiRequest`（同期・async・oneway・deferred）、`DynamicImplementation` と `DynamicServant`、`ServerRequest`
   - Python：標準マッピングの `Request`・`NVList`・`ServerRequest`・`PortableServer.DynamicImplementation`、`orb.send_multiple_requests_*` / `get_next_response`
-  - 相互接続：スタブを DII に、サーバントを DSI に差し替えた `rustorbpy-dii` を basic・any・value で回す。C++ と Java は需要が出たら
+  - 相互接続：スタブを DII に、サーバントを DSI に差し替えた `rustorbpy-dii` を basic・any・value で回す。C++ は `rustorbcpp-dii`（#155）、Java は #156
 - [x] SSLIOP（IIOP over TLS）（[ssliop.md](ssliop.md)、[#78](https://github.com/rustorb/rustorb/issues/78)）
   - コア：rustls の TLS 層（今までの読み書きの作りのまま）、`giop:ssl:HOST:PORT` の待ち受け、IOR の `TAG_SSL_SEC_TRANS`、`-ORBssl*` の設定（CA・証明書・鍵・クライアント認証・ホスト名の検査）。CSIv2 は対象外のまま
   - バインディング：Python・C++・Java は ORB の引数（Java はプロパティも）で設定する

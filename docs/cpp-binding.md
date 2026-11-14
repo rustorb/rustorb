@@ -152,7 +152,7 @@ auto orb = CORBA::ORB_init(argc, argv, "my-orb");  // ORBInitInfo::orb_id() は 
 - 各点が受け取る情報のオブジェクト（`ClientRequestInfo` など）は、その点の間だけ使える。点の後に使うと `BAD_INV_ORDER`（minor 14）、`ORB_init` の後の `ORBInitInfo` は `OBJECT_NOT_EXIST`（minor 10）
 - 点からは `PortableInterceptor::ForwardRequest` と `CORBA::SystemException` を投げられる。そのほかのユーザー例外は `UNKNOWN`、C++ の例外は `what()` を標準エラーに出して `UNKNOWN`
 - `orb->resolve_initial_references("PICurrent")` は `PortableInterceptor::Current`、`"CodecFactory"` は `IOP::CodecFactory`（`IDL::traits<T>::narrow` で取る）
-- 構造体（`IOP::ServiceContext`、`TaggedComponent`、`Encoding`、`Dynamic::Parameter`）はマッピングどおりアクセサーを持つ。静的なスタブの要求では `arguments` などは `NO_RESOURCES`（C++ には DII / DSI がない）
+- 構造体（`IOP::ServiceContext`、`TaggedComponent`、`Encoding`、`Dynamic::Parameter`）はマッピングどおりアクセサーを持つ。静的なスタブの要求では `arguments` などは `NO_RESOURCES`（DII / DSI の要求では使える。[dii-dsi.md](dii-dsi.md)）
 - C ABI は `rustorb.h` の「Portable Interceptors and IOP::Codec」の節（関数表、`rorb_orb_init_pi`、`rorb_cri_*` などのアクセサー）
 
 ## AMI

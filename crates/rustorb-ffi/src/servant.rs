@@ -139,6 +139,13 @@ pub struct ReplyFfi {
     system: Option<SystemException>,
 }
 
+impl ReplyFfi {
+    /// The core's reply.
+    pub(crate) fn server_reply(&self) -> *mut ServerReply {
+        self.out.server_reply()
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rorb_servant_get(
     this: *mut c_void,

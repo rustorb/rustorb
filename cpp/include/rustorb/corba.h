@@ -829,6 +829,15 @@ namespace CORBA {
 
 using PolicyType = uint32_t;
 using PolicyTypeSeq = std::vector<PolicyType>;
+// The DII and the DSI (<rustorb/dii.h>).
+using Flags = uint32_t;
+class Request;
+class NVList;
+class NamedValue;
+class ExceptionList;
+class Context;
+class ContextList;
+class ServerRequest;
 using PolicyList = std::vector<object_reference<Policy>>;
 enum class SetOverrideType : uint32_t { SET_OVERRIDE, ADD_OVERRIDE };
 
@@ -882,6 +891,22 @@ class Object : public virtual AbstractBase {
   virtual bool _validate_connection(PolicyList& inconsistent_policies);
   // The repository id in the IOR (may be empty).
   std::string _rorb_type_id() const;
+
+  // The DII (<rustorb/dii.h>, docs/dii-dsi.md): a request for operation
+  // on this object, without arguments and with a void result. Local
+  // objects raise NO_IMPLEMENT; contexts are not supported (a ctx that is
+  // not nil is NO_IMPLEMENT).
+  object_reference<Request> _request(const std::string& operation);
+  void _create_request(const object_reference<Context>& ctx, const std::string& operation,
+                       const object_reference<NVList>& arg_list,
+                       const object_reference<NamedValue>& result,
+                       object_reference<Request>& request, Flags req_flags);
+  void _create_request(const object_reference<Context>& ctx, const std::string& operation,
+                       const object_reference<NVList>& arg_list,
+                       const object_reference<NamedValue>& result,
+                       const object_reference<ExceptionList>& exclist,
+                       const object_reference<ContextList>& ctxlist,
+                       object_reference<Request>& request, Flags req_flags);
 
   // The handle of a stub; nullptr for a local object.
   rorb_object* _rorb_handle() const noexcept { return handle_; }
@@ -1502,11 +1527,30 @@ class ORB : public LocalObject {
     return rustorb::detail::lookup_value_factory(id);
   }
 
+  // The DII (<rustorb/dii.h>). create_list makes an empty list (count is
+  // a hint); get_default_context and create_operation_list (which needs an
+  // interface repository) are not supported. get_next_response and
+  // poll_next_response see the requests of send_multiple_requests_deferred
+  // of this ORB object.
+  object_reference<NVList> create_list(int32_t count);
+  object_reference<NamedValue> create_named_value();
+  object_reference<ExceptionList> create_exception_list();
+  object_reference<Context> get_default_context() {
+    throw NO_IMPLEMENT(0, CompletionStatus::COMPLETED_NO);
+  }
+  void send_multiple_requests_oneway(const std::vector<object_reference<Request>>& req);
+  void send_multiple_requests_deferred(const std::vector<object_reference<Request>>& req);
+  bool poll_next_response();
+  void get_next_response(object_reference<Request>& req);
+
   rorb_orb* _rorb_handle() const noexcept { return handle_; }
 
  private:
   rorb_orb* handle_;
   std::string id_;
+  // The requests of send_multiple_requests_deferred not yet taken.
+  std::mutex deferred_mutex_;
+  std::vector<object_reference<Request>> deferred_;
 };
 
 // Initialises an ORB, removing the ORB options (-ORB...) from argv. The

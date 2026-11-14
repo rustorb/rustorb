@@ -362,7 +362,7 @@ inline std::vector<uint8_t> bytes(const uint8_t* data, size_t len) {
 
 // What ClientRequestInfo and ServerRequestInfo share. Arguments,
 // exceptions and the result are NO_RESOURCES (minor 1) but for requests
-// of the DII or the DSI (of other bindings); contexts and
+// of the DII or the DSI (<rustorb/dii.h> or other bindings); contexts and
 // operation_context always are.
 class RequestInfo : public virtual CORBA::LocalObject {
  public:

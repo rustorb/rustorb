@@ -25,12 +25,15 @@
 //! - [`value`]: valuetypes on the streams (sharing, chunks, truncation),
 //!   their TypeCodes and the registry of valuetypes the core reads.
 //! - [`pi`]: Portable Interceptors and `IOP::Codec`.
+//! - [`dii`]: the DII (`rorb_request`) and the DSI (`rorb_server_request`),
+//!   their values going in and out as anys.
 
 // Every function takes raw pointers from C; what they must point to is
 // documented once, in the header.
 #![allow(clippy::missing_safety_doc)]
 
 pub mod any;
+pub mod dii;
 pub mod dynany;
 pub mod manager;
 pub mod object;
