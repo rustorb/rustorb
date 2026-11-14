@@ -1,7 +1,9 @@
 // Java implementation of the InteropTest client (rustorbjava and jacorb).
 //
 // Resolves the Echo object from the naming service, runs every test case
-// against it and exits non-zero if any case fails.
+// against it and exits non-zero if any case fails. With RUSTORB_DII set
+// (the rustorbjava-dii implementation), the calls of the basic, any and
+// value suites go through the DII (DiiAdapters).
 
 package interop;
 
@@ -24,6 +26,9 @@ public final class Client {
         org.omg.CORBA.Object obj = Common.retry("the AnyEcho server",
                 () -> root.resolve(Common.toName(opt.name)), opt.timeout);
         AnyEcho echo = AnyEchoHelper.narrow(obj);
+        if (DiiAdapters.enabled()) {
+            echo = DiiAdapters.anyEcho(echo);
+        }
         Common.retry("the AnyEcho server", echo::_non_existent, opt.timeout);
 
         Cases.Runner r = new Cases.Runner();
@@ -42,6 +47,9 @@ public final class Client {
         org.omg.CORBA.Object obj = Common.retry("the ValueEcho server",
                 () -> root.resolve(Common.toName(opt.name)), opt.timeout);
         ValueEcho echo = ValueEchoHelper.narrow(obj);
+        if (DiiAdapters.enabled()) {
+            echo = DiiAdapters.valueEcho(echo);
+        }
         Common.retry("the ValueEcho server", echo::_non_existent, opt.timeout);
 
         Cases.Runner r = new Cases.Runner();
@@ -118,6 +126,9 @@ public final class Client {
             org.omg.CORBA.Object obj = Common.retry("the Echo server",
                     () -> root.resolve(Common.toName(opt.name)), opt.timeout);
             Echo echo = EchoHelper.narrow(obj);
+            if (DiiAdapters.enabled()) {
+                echo = DiiAdapters.echo(echo);
+            }
             Common.retry("the Echo server", echo::_non_existent, opt.timeout);
 
             Cases.Runner r = new Cases.Runner();

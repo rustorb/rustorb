@@ -11,9 +11,10 @@
 # rustorbjava (the Rust, the Python, the C++ and the Java client and server of
 # rustorb), which are built on the host. rustorbjava-portable (the Java client
 # and server on rustorb with JacORB's generated stubs), rustorbpy-dii (the
-# Python client and server through the DII and the DSI) and rustorbcpp-dii
-# (the C++ client and server through the DII and the DSI) run only when
-# named in a pair.
+# Python client and server through the DII and the DSI), rustorbcpp-dii
+# (the C++ client and server through the DII and the DSI) and
+# rustorbjava-dii (the Java client and server through the DII and the DSI)
+# run only when named in a pair.
 # --build    builds the omniORB image first
 # --capture  captures each client's traffic and splits it into GIOP messages
 # --fragment N  the rustorb clients and servers split GIOP 1.2 messages
@@ -174,10 +175,12 @@ done
 
 # The rustorb Java client and server, with stubs from rustorb-idl -bjava.
 for pair in "${pairs[@]}"; do
-  if [ "${pair%%:*}" = rustorbjava ] || [ "${pair##*:}" = rustorbjava ]; then
-    impls/rustorbjava/build.sh
-    break
-  fi
+  case " ${pair%%:*} ${pair##*:} " in
+    *" rustorbjava "*|*" rustorbjava-dii "*)
+      impls/rustorbjava/build.sh
+      break
+      ;;
+  esac
 done
 
 # The Java client and server on rustorb with the stubs of JacORB's IDL

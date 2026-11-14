@@ -84,6 +84,25 @@ public abstract class ObjectImpl implements org.omg.CORBA.Object {
         return _get_delegate().validate_connection(this, inconsistent_policies);
     }
 
+    @Override
+    public org.omg.CORBA.Request _request(String operation) {
+        return _get_delegate().request(this, operation);
+    }
+
+    @Override
+    public org.omg.CORBA.Request _create_request(org.omg.CORBA.Context ctx, String operation,
+            org.omg.CORBA.NVList arg_list, org.omg.CORBA.NamedValue result) {
+        return _get_delegate().create_request(this, ctx, operation, arg_list, result);
+    }
+
+    @Override
+    public org.omg.CORBA.Request _create_request(org.omg.CORBA.Context ctx, String operation,
+            org.omg.CORBA.NVList arg_list, org.omg.CORBA.NamedValue result,
+            org.omg.CORBA.ExceptionList exclist, org.omg.CORBA.ContextList ctxlist) {
+        return _get_delegate().create_request(this, ctx, operation, arg_list, result, exclist,
+                ctxlist);
+    }
+
     public org.omg.CORBA.ORB _orb() {
         return _get_delegate().orb(this);
     }

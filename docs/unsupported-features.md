@@ -23,7 +23,7 @@ Nov 1, 2026
 | ログ・トレースの出力（`-ORBtraceLevel` 相当） | コアにログの仕組みがない | 相互接続や設定の問題を利用者が調べにくい | [#105](https://github.com/rustorb/rustorb/issues/105) |
 | Messaging AMI（IDL の `sendc_` と `ReplyHandler`、ポーリング） | コールバック型（`sendc_`・`AMI_<I>Handler`・`ExceptionHolder`）を C++・Java・Python で実装済み（`rustorb-idl -Wbami`）。omniORB C++・omniORBpy・JacORB のサーバーとの相互接続も確認済み（[#140](https://github.com/rustorb/rustorb/issues/140)）。ポーリング型（`sendp_`）と Rust の生成コードは入れないと決めた（Rust は async API（[async-api.md](async-api.md)）と DII の deferred） | C++・Java・Python に非同期呼び出しの標準 API がなかった（解消） | [#135](https://github.com/rustorb/rustorb/issues/135)、設計：[ami.md](ami.md) |
 | Messaging のその他のポリシー（SyncScope、Rebind、RequestPriority など） | タイムアウト（RelativeRoundtripTimeout）と `SyncScope`（実装済み。コア・Python・C ABI / C++・Java。[sync-scope.md](sync-scope.md)）。Rebind・RequestPriority などはなし | oneway の送り方を利用者が選べなかった（`SyncScope` で解消） | [#153](https://github.com/rustorb/rustorb/issues/153) |
-| C++・Java の DII / DSI | コアと Python だけ（[dii-dsi.md](dii-dsi.md)、需要待ちと決定済み） | ブリッジ・ゲートウェイ・汎用ツール向け | |
+| C++・Java の DII / DSI | 実装済み（コア・Python・C ABI / C++・Java。[dii-dsi.md](dii-dsi.md)）。コンテキストは扱わない | ブリッジ・ゲートウェイ・汎用ツール向け（解消） | [#155](https://github.com/rustorb/rustorb/issues/155)、[#156](https://github.com/rustorb/rustorb/issues/156) |
 | `POAManagerFactory`（CORBA 3） | 実装済み（コア・Python・C ABI / C++・Java。[poa-design.md](poa-design.md) の「POAManagerFactory」）。`create_POAManager`・`list`・`find`・`POAManager::get_id` | 複数の POA で POAManager を id 付きで作成・共有する API（解消） | [#154](https://github.com/rustorb/rustorb/issues/154) |
 
 ## P3：仕様にはあるが需要が薄いもの

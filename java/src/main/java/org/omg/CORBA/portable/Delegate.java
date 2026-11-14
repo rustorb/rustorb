@@ -47,6 +47,23 @@ public abstract class Delegate {
         throw new org.omg.CORBA.NO_IMPLEMENT();
     }
 
+    public org.omg.CORBA.Request request(org.omg.CORBA.Object self, String operation) {
+        throw new org.omg.CORBA.NO_IMPLEMENT();
+    }
+
+    public org.omg.CORBA.Request create_request(org.omg.CORBA.Object self,
+            org.omg.CORBA.Context ctx, String operation, org.omg.CORBA.NVList arg_list,
+            org.omg.CORBA.NamedValue result) {
+        throw new org.omg.CORBA.NO_IMPLEMENT();
+    }
+
+    public org.omg.CORBA.Request create_request(org.omg.CORBA.Object self,
+            org.omg.CORBA.Context ctx, String operation, org.omg.CORBA.NVList arg_list,
+            org.omg.CORBA.NamedValue result, org.omg.CORBA.ExceptionList exclist,
+            org.omg.CORBA.ContextList ctxlist) {
+        throw new org.omg.CORBA.NO_IMPLEMENT();
+    }
+
     public org.omg.CORBA.ORB orb(org.omg.CORBA.Object self) {
         throw new org.omg.CORBA.NO_IMPLEMENT();
     }
