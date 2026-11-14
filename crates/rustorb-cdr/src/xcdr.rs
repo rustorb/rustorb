@@ -76,7 +76,7 @@ impl XcdrFormat {
 }
 
 /// The encapsulation identifier at the start of a payload: a format and a
-/// byte order (DDS-XTypes Table 39, DDSI-RTPS 2.5 Table 10.3).
+/// byte order (DDS-XTypes Table 60, Table 39; DDSI-RTPS 2.5 Table 10.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EncapsulationId {
     /// The format of the top-level object.
@@ -88,18 +88,20 @@ pub struct EncapsulationId {
 impl EncapsulationId {
     /// The two octets of the identifier.
     ///
-    /// The encoding version 2 values are those of DDS-XTypes Table 39 and
-    /// DDSI-RTPS 2.5 Table 10.3 (`0x10` to `0x15`). DDS-XTypes Table 60
-    /// lists other values (`0x06` to `0x0b`) for the same formats; they
-    /// are accepted by [`from_bytes`](EncapsulationId::from_bytes) but
-    /// never written.
+    /// The encoding version 2 values are those of DDS-XTypes Table 60,
+    /// the RTPS encapsulation identifiers (`0x06` to `0x0b`). DDS-XTypes
+    /// Table 39 and DDSI-RTPS 2.5 Table 10.3 list other values (`0x10` to
+    /// `0x15`) for the same formats; they are accepted by
+    /// [`from_bytes`](EncapsulationId::from_bytes) but never written, as
+    /// DDS implementations in use (Cyclone DDS 0.10 among them) drop
+    /// payloads that carry them.
     pub fn to_bytes(self) -> [u8; 2] {
         let base = match self.format {
             XcdrFormat::PlainCdr => 0x00,
             XcdrFormat::PlCdr => 0x02,
-            XcdrFormat::PlainCdr2 => 0x10,
-            XcdrFormat::PlCdr2 => 0x12,
-            XcdrFormat::DelimitedCdr2 => 0x14,
+            XcdrFormat::PlainCdr2 => 0x06,
+            XcdrFormat::DelimitedCdr2 => 0x08,
+            XcdrFormat::PlCdr2 => 0x0a,
         };
         [0x00, base | self.order.flag()]
     }
@@ -113,9 +115,9 @@ impl EncapsulationId {
         let format = match id & !1 {
             0x00 => XcdrFormat::PlainCdr,
             0x02 => XcdrFormat::PlCdr,
-            0x10 | 0x06 => XcdrFormat::PlainCdr2,
-            0x12 | 0x0a => XcdrFormat::PlCdr2,
-            0x14 | 0x08 => XcdrFormat::DelimitedCdr2,
+            0x06 | 0x10 => XcdrFormat::PlainCdr2,
+            0x08 | 0x14 => XcdrFormat::DelimitedCdr2,
+            0x0a | 0x12 => XcdrFormat::PlCdr2,
             _ => return Err(Error::InvalidXcdr("unknown encapsulation identifier")),
         };
         // In every identifier the low bit is the byte order.

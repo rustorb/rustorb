@@ -71,7 +71,8 @@ fn payload_alignment_starts_after_header() {
     }
 }
 
-/// DDS-XTypes Table 39 and DDSI-RTPS 2.5 Table 10.3.
+/// DDS-XTypes Table 60 (the RTPS encapsulation identifiers), written and
+/// read.
 #[test]
 fn encapsulation_identifiers() {
     let cases = [
@@ -79,32 +80,32 @@ fn encapsulation_identifiers() {
         (XcdrFormat::PlainCdr, LE, [0x00, 0x01]),
         (XcdrFormat::PlCdr, BE, [0x00, 0x02]),
         (XcdrFormat::PlCdr, LE, [0x00, 0x03]),
-        (XcdrFormat::PlainCdr2, BE, [0x00, 0x10]),
-        (XcdrFormat::PlainCdr2, LE, [0x00, 0x11]),
-        (XcdrFormat::PlCdr2, BE, [0x00, 0x12]),
-        (XcdrFormat::PlCdr2, LE, [0x00, 0x13]),
-        (XcdrFormat::DelimitedCdr2, BE, [0x00, 0x14]),
-        (XcdrFormat::DelimitedCdr2, LE, [0x00, 0x15]),
+        (XcdrFormat::PlainCdr2, BE, [0x00, 0x06]),
+        (XcdrFormat::PlainCdr2, LE, [0x00, 0x07]),
+        (XcdrFormat::DelimitedCdr2, BE, [0x00, 0x08]),
+        (XcdrFormat::DelimitedCdr2, LE, [0x00, 0x09]),
+        (XcdrFormat::PlCdr2, BE, [0x00, 0x0a]),
+        (XcdrFormat::PlCdr2, LE, [0x00, 0x0b]),
     ];
     for (format, order, bytes) in cases {
         let id = EncapsulationId { format, order };
         assert_eq!(id.to_bytes(), bytes, "{id:?}");
         assert_eq!(EncapsulationId::from_bytes(bytes).unwrap(), id);
     }
-    // DDS-XTypes Table 60 gives other values for the version 2 formats.
-    let table60 = [
-        ([0x00, 0x06], XcdrFormat::PlainCdr2, BE),
-        ([0x00, 0x07], XcdrFormat::PlainCdr2, LE),
-        ([0x00, 0x08], XcdrFormat::DelimitedCdr2, BE),
-        ([0x00, 0x09], XcdrFormat::DelimitedCdr2, LE),
-        ([0x00, 0x0a], XcdrFormat::PlCdr2, BE),
-        ([0x00, 0x0b], XcdrFormat::PlCdr2, LE),
+    // DDS-XTypes Table 39 and DDSI-RTPS 2.5 Table 10.3 give other values
+    // for the version 2 formats: read, never written.
+    let table39 = [
+        ([0x00, 0x10], XcdrFormat::PlainCdr2, BE),
+        ([0x00, 0x11], XcdrFormat::PlainCdr2, LE),
+        ([0x00, 0x12], XcdrFormat::PlCdr2, BE),
+        ([0x00, 0x13], XcdrFormat::PlCdr2, LE),
+        ([0x00, 0x14], XcdrFormat::DelimitedCdr2, BE),
+        ([0x00, 0x15], XcdrFormat::DelimitedCdr2, LE),
     ];
-    for (bytes, format, order) in table60 {
-        assert_eq!(
-            EncapsulationId::from_bytes(bytes).unwrap(),
-            EncapsulationId { format, order }
-        );
+    for (bytes, format, order) in table39 {
+        let id = EncapsulationId { format, order };
+        assert_eq!(EncapsulationId::from_bytes(bytes).unwrap(), id);
+        assert_ne!(id.to_bytes(), bytes);
     }
     // XML and unknown identifiers.
     for bytes in [[0x00, 0x04], [0x01, 0x00], [0x00, 0x20]] {
@@ -210,7 +211,7 @@ fn dheader() {
     enc.end_dheader(mark).unwrap();
     enc.write_octet(0xEE);
     let bytes = enc.finish_xcdr_payload();
-    assert_eq!(&bytes[..8], [0x00, 0x15, 0x00, 0x03, 20, 0, 0, 0]);
+    assert_eq!(&bytes[..8], [0x00, 0x09, 0x00, 0x03, 20, 0, 0, 0]);
 
     // An older reader knows the first two members only.
     let (mut dec, _) = Decoder::xcdr_payload(&bytes).unwrap();
@@ -262,7 +263,7 @@ fn emheader() {
     let bytes = enc.finish_xcdr_payload();
     #[rustfmt::skip]
     let expected = [
-        0x00, 0x12, 0x00, 0x01,
+        0x00, 0x0a, 0x00, 0x01,
         0x00, 0x00, 0x00, 51, // DHEADER
         0x00, 0x00, 0x00, 0x01, 0xAA, 0x00, 0x00, 0x00, // LC 0, id 1
         0x90, 0x00, 0x00, 0x02, 0xBB, 0xBB, 0x00, 0x00, // M_FLAG, LC 1, id 2
@@ -522,7 +523,7 @@ fn optional_members() {
     assert_eq!(
         enc.finish_xcdr_payload(),
         [
-            0x00, 0x10, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x05
+            0x00, 0x06, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x05
         ]
     );
 }
