@@ -377,7 +377,8 @@ class DiiTest {
                 Collections.addAll(all, echo.posted());
                 Thread.sleep(1);
             }
-            assertEquals(List.of("m0", "m1", "m2"), all);
+            // The servant threads may run the oneway requests in any order.
+            assertEquals(Set.of("m0", "m1", "m2"), new HashSet<>(all));
         }
     }
 
