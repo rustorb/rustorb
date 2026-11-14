@@ -22,6 +22,7 @@ and [The rustorb C++ client and server](#the-rustorb-c-client-and-server).
 | `impls/rustorbjava-portable/` | the same Java client and server on the rustorb Java runtime with the stubs, skeletons and Helpers of JacORB's IDL compiler (taken from the image, `build.sh`): portable stubs on rustorb; run only when named in a pair |
 | `impls/rustorbpy-dii/` | the `impls/rustorbpy/` client with every call made through the DII and its server with every servant behind the DSI (`impls/rustorbpy/dii_adapters.py`, [#44](https://github.com/rustorb/rustorb/issues/44)); run only when named in a pair |
 | `impls/rustorbcpp-dii/` | the `impls/rustorbcpp/` client with the calls of the basic, any and value suites made through the DII and its server with their servants behind the DSI (`impls/rustorbcpp/dii_adapters.h`, [#155](https://github.com/rustorb/rustorb/issues/155)); run only when named in a pair |
+| `impls/rustorbjava-dii/` | the `impls/rustorbjava/` client with the calls of the basic, any and value suites made through the DII and its server with their servants behind the DSI (`impls/java/interop/DiiAdapters.java`, [#156](https://github.com/rustorb/rustorb/issues/156)); run only when named in a pair |
 | `docker/omniorb/Dockerfile` | omniORB 4.3.4 and omniORBpy 4.3.4 built from source, JacORB 3.9 from its release jars, with the implementations above |
 | `compose.yaml` | naming service, server and client containers |
 | `run-matrix.sh` | runs every client / server combination, with omniNames or (`--naming rustorb`) the rustorb naming service; `--suite any` runs the Any / TypeCode suite (`idl/AnyTest.idl`, `idl/AnyTestHidden.idl`, `anytest.*` in each implementation) instead of the Echo one, `--suite value` the valuetype suite (`idl/ValueTest.idl`, `valuetest.*`, `ValueTests.java`; every implementation, see [`docs/valuetype.md`](../docs/valuetype.md)), `--suite custom` the custom valuetype suite (`idl/CustomTest.idl`, `customtest.*`, `CustomTests.java`; the rustorb implementations and `jacorb`, as omniORB has no custom valuetypes) and `--suite abstract` the abstract interface suite (`idl/AbstractTest.idl`, `abstracttest.*`, `AbstractTests.java`; every implementation) |
@@ -315,6 +316,26 @@ three `echo_any` cases of its pairs are in `known-failures.txt`. `java/`
 the custom suite, whose cases but the null and empty ones are in
 `known-failures.txt` for its pairs. The Java client prints the stack trace
 of an unexpected exception when `INTEROP_TRACE` is set.
+
+`impls/rustorbjava-dii/` (`rustorbjava-dii`) runs the `rustorbjava` client
+and server with `RUSTORB_DII` set: the client then tests the Echo, AnyEcho
+and ValueEcho objects through subclasses of their stubs whose operations
+build an `org.omg.CORBA.Request` (the DII), and the server activates those
+servants behind a `PortableServer.DynamicImplementation` that reads the
+arguments with `org.omg.CORBA.ServerRequest` and calls the static servant
+(the DSI); both are in `impls/java/interop/DiiAdapters.java`, which uses
+only the standard API. The callback objects of the client and the calls the
+servants make stay static. `same[shared]` of the value suite is a known
+failure, as for `rustorbcpp-dii`: a Java any holds a copy of its valuetype.
+`java/` (`DiiTest`) runs the same adapters in one process.
+
+```sh
+p=rustorbjava-dii; pairs="$p:$p"
+for x in omniorbpy omniorb-cpp jacorb rustorb rustorbpy rustorbcpp rustorbjava; do
+  pairs="$pairs $p:$x $x:$p"
+done
+IDL_PARSER_DIR=path/to/idl_parser interop/run-matrix.sh $pairs
+```
 
 ## The rustorb naming service
 

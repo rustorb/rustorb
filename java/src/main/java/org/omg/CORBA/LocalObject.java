@@ -68,6 +68,23 @@ public class LocalObject implements Object {
         throw new NO_IMPLEMENT(4, CompletionStatus.COMPLETED_NO);
     }
 
+    @Override
+    public Request _request(String operation) {
+        throw new NO_IMPLEMENT(4, CompletionStatus.COMPLETED_NO);
+    }
+
+    @Override
+    public Request _create_request(Context ctx, String operation, NVList arg_list,
+            NamedValue result) {
+        throw new NO_IMPLEMENT(4, CompletionStatus.COMPLETED_NO);
+    }
+
+    @Override
+    public Request _create_request(Context ctx, String operation, NVList arg_list,
+            NamedValue result, ExceptionList exclist, ContextList ctxlist) {
+        throw new NO_IMPLEMENT(4, CompletionStatus.COMPLETED_NO);
+    }
+
     public ORB _orb() {
         throw new NO_IMPLEMENT(4, CompletionStatus.COMPLETED_NO);
     }

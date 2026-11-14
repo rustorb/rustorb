@@ -1,5 +1,7 @@
 // Java implementation of the InteropTest::Echo server (rustorbjava and
-// jacorb).
+// jacorb). With RUSTORB_DII set (the rustorbjava-dii implementation), the
+// servants of the basic, any and value suites run behind the DSI
+// (DiiAdapters).
 
 package interop;
 
@@ -22,7 +24,7 @@ public final class Server {
             ValueTests.registerFactories(orb);
             POA poa = Common.persistentPoa(orb, "ValueTest");
             byte[] valueOid = "ValueEcho".getBytes(StandardCharsets.US_ASCII);
-            poa.activate_object_with_id(valueOid, new ValueTests.ValueEchoImpl(orb));
+            poa.activate_object_with_id(valueOid, DiiAdapters.servant(orb, new ValueTests.ValueEchoImpl(orb)));
             Common.bindName(Common.rootContext(orb, opt.timeout), opt.name,
                     poa.id_to_reference(valueOid));
         } else if (opt.suite.equals("custom")) {
@@ -48,14 +50,14 @@ public final class Server {
             // to it for the client to shut the server down.
             POA poa = Common.persistentPoa(orb, "AnyTest");
             byte[] anyOid = "AnyEcho".getBytes(StandardCharsets.US_ASCII);
-            poa.activate_object_with_id(anyOid, new AnyTests.AnyEchoImpl(orb));
-            poa.activate_object_with_id(oid, new EchoImpl(orb));
+            poa.activate_object_with_id(anyOid, DiiAdapters.servant(orb, new AnyTests.AnyEchoImpl(orb)));
+            poa.activate_object_with_id(oid, DiiAdapters.servant(orb, new EchoImpl(orb)));
             NamingContext root = Common.rootContext(orb, opt.timeout);
             Common.bindName(root, opt.name, poa.id_to_reference(anyOid));
             Common.bindName(root, opt.name + "-Echo", poa.id_to_reference(oid));
         } else {
             POA poa = Common.persistentPoa(orb, "InteropTest");
-            poa.activate_object_with_id(oid, new EchoImpl(orb));
+            poa.activate_object_with_id(oid, DiiAdapters.servant(orb, new EchoImpl(orb)));
             Common.bindName(Common.rootContext(orb, opt.timeout), opt.name, poa.id_to_reference(oid));
         }
         System.out.println("server ready: " + opt.name);

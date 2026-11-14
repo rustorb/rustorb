@@ -59,6 +59,22 @@ final class AnyImpl extends Any {
         return handle.get();
     }
 
+    /** The handle, or 0 while the any has a TypeCode without a value. */
+    long handleIfValue() {
+        if (writer == null && pending != null) {
+            return 0;
+        }
+        return handle();
+    }
+
+    /** Takes h (a new handle), the value the DII or the DSI received for
+     * the any; nothing for 0. */
+    void assign(long h) {
+        if (h != 0) {
+            replace(h);
+        }
+    }
+
     /** Takes a new handle holding a value. */
     private void replace(long h) {
         handle.set(h);

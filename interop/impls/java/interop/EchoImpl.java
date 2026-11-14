@@ -28,6 +28,9 @@ public class EchoImpl extends EchoPOA {
     private int counter;
     private List<String> posted = new ArrayList<>();
     private Callback callback;
+    /** The reference of this object: _this(), or that of the DSI servant
+     * that calls this one (DiiAdapters). */
+    java.util.function.Supplier<Echo> self = this::_this;
 
     public EchoImpl(ORB orb) {
         this.orb = orb;
@@ -110,10 +113,10 @@ public class EchoImpl extends EchoPOA {
     }
 
     // --- object references ---
-    public Echo self_ref() { return _this(); }
+    public Echo self_ref() { return self.get(); }
 
     public Echo echo_ref(Echo other) {
-        return other == null ? _this() : other;
+        return other == null ? self.get() : other;
     }
 
     public boolean is_nil(Echo other) { return other == null; }

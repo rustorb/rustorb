@@ -1397,6 +1397,171 @@ final class Native {
     static final int PRIM_FLOAT = 7;
     static final int PRIM_DOUBLE = 8;
 
+    // --- the DII and the DSI (Dii, RequestImpl, ServerRequestImpl) -------------
+
+    /** Runs f; whether it ended with RORB_USER_EXCEPTION (else it threw or
+     * succeeded). */
+    private static boolean userException(Call0 f) {
+        Scratch s = Scratch.get();
+        long mark = s.mark();
+        try {
+            long exc = s.alloc(EXCEPTION);
+            int st = f.call(s, exc);
+            if (st == USER_EXCEPTION) {
+                return true;
+            }
+            check(st, exc);
+            return false;
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        } finally {
+            s.reset(mark);
+        }
+    }
+
+    static long requestNew(long obj, String op) {
+        return word((s, out, exc) -> {
+            long p = str(s, op);
+            return (int) Ffi.rorb_request_new.invokeExact(obj, p, s.lastLength, out, exc);
+        });
+    }
+
+    static void requestRelease(long request) {
+        try {
+            Ffi.rorb_request_release.invokeExact(request);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    static void requestAddArg(long request, String name, int flags, long any) {
+        run((s, exc) -> {
+            long p = str(s, name == null ? "" : name);
+            return (int) Ffi.rorb_request_add_arg.invokeExact(request, p, s.lastLength, flags, any,
+                    exc);
+        });
+    }
+
+    static void requestSetReturnType(long request, long tc) {
+        try {
+            Ffi.rorb_request_set_return_type.invokeExact(request, tc);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    static void requestAddException(long request, long tc) {
+        try {
+            Ffi.rorb_request_add_exception.invokeExact(request, tc);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    /** Whether the operation raised a user exception of the list. */
+    static boolean requestInvoke(long request) {
+        return userException((s, exc) -> (int) Ffi.rorb_request_invoke.invokeExact(request, exc));
+    }
+
+    static void requestSendOneway(long request) {
+        run((s, exc) -> (int) Ffi.rorb_request_send_oneway.invokeExact(request, exc));
+    }
+
+    static void requestSendDeferred(long request) {
+        run((s, exc) -> (int) Ffi.rorb_request_send_deferred.invokeExact(request, exc));
+    }
+
+    static boolean requestPollResponse(long request) {
+        return int32((s, out, exc) ->
+                (int) Ffi.rorb_request_poll_response.invokeExact(request, out, exc)) != 0;
+    }
+
+    /** Whether the operation raised a user exception of the list. */
+    static boolean requestGetResponse(long request) {
+        return userException((s, exc) ->
+                (int) Ffi.rorb_request_get_response.invokeExact(request, exc));
+    }
+
+    static long requestResult(long request) {
+        try {
+            return (long) Ffi.rorb_request_result.invokeExact(request);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    /** 0 past the end. */
+    static long requestArgument(long request, long index) {
+        try {
+            return (long) Ffi.rorb_request_argument.invokeExact(request, index);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    /** 0 when the last call raised no user exception. */
+    static long requestException(long request) {
+        try {
+            return (long) Ffi.rorb_request_exception.invokeExact(request);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    static long serverRequestNew(long in, String op) {
+        return word((s, out, exc) -> {
+            long p = str(s, op);
+            return (int) Ffi.rorb_server_request_new.invokeExact(in, p, s.lastLength, out, exc);
+        });
+    }
+
+    static void serverRequestRelease(long request) {
+        try {
+            Ffi.rorb_server_request_release.invokeExact(request);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    static void serverRequestAddParam(long request, String name, int flags, long tc) {
+        run((s, exc) -> {
+            long p = str(s, name == null ? "" : name);
+            return (int) Ffi.rorb_server_request_add_param.invokeExact(request, p, s.lastLength,
+                    flags, tc, exc);
+        });
+    }
+
+    static void serverRequestArguments(long request) {
+        run((s, exc) -> (int) Ffi.rorb_server_request_arguments.invokeExact(request, exc));
+    }
+
+    /** 0 for an out parameter not set, or past the end. */
+    static long serverRequestArgument(long request, long index) {
+        try {
+            return (long) Ffi.rorb_server_request_argument.invokeExact(request, index);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    static void serverRequestSetArgument(long request, long index, long any) {
+        run((s, exc) ->
+                (int) Ffi.rorb_server_request_set_argument.invokeExact(request, index, any, exc));
+    }
+
+    static void serverRequestSetResult(long request, long any) {
+        run((s, exc) -> (int) Ffi.rorb_server_request_set_result.invokeExact(request, any, exc));
+    }
+
+    static void serverRequestSetException(long request, long any) {
+        run((s, exc) ->
+                (int) Ffi.rorb_server_request_set_exception.invokeExact(request, any, exc));
+    }
+
+    static void serverRequestReply(long request, long reply) {
+        run((s, exc) -> (int) Ffi.rorb_server_request_reply.invokeExact(request, reply, exc));
+    }
+
     // --- servants ------------------------------------------------------------
 
     /**
@@ -2247,6 +2412,15 @@ final class Native {
     static long anyNew() {
         try {
             return (long) Ffi.rorb_any_new.invokeExact();
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    /** An any of type tc without a value (the type of a DII out argument). */
+    static long anyTyped(long tc) {
+        try {
+            return (long) Ffi.rorb_any_typed.invokeExact(tc);
         } catch (Throwable t) {
             throw Library.rethrow(t);
         }

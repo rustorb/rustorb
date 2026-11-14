@@ -33,6 +33,18 @@ break the API).
   gains `rustorbcpp-dii` (the C++ client and server through the DII and the
   DSI). Contexts stay `NO_IMPLEMENT`, and one valuetype in two C++ anys is
   not shared.
+- The DII and the DSI in Java (docs/dii-dsi.md, #156), on the C ABI's:
+  `org.omg.CORBA.Request`, `NVList`, `NamedValue`, `ExceptionList`,
+  `ContextList`, `Environment`, `UnknownUserException`, `ARG_IN` / `ARG_OUT` /
+  `ARG_INOUT`, `Object._request` / `_create_request`, `ORB.create_list`,
+  `send_multiple_requests_*`, `poll_next_response` / `get_next_response`,
+  `org.omg.PortableServer.DynamicImplementation` and
+  `org.omg.CORBA.ServerRequest`. The exception of a call is not thrown but
+  put in the request's `env()` (a user exception as an
+  `UnknownUserException`), as JacORB does. Interceptors get the arguments, result and exceptions of these
+  requests. The interop matrix gains `rustorbjava-dii` (the Java client and
+  server through the DII and the DSI). Contexts stay `NO_IMPLEMENT`, and one
+  valuetype in two Java anys is not shared.
 - `PortableServer::POAManagerFactory` (CORBA 3; docs/poa-design.md, #154) in
   the core, Python, the C ABI / C++ and Java: `POA::the_POAManagerFactory`,
   `create_POAManager`, `list`, `find` and `POAManager::get_id`. Every POA

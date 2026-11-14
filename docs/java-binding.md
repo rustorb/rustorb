@@ -117,6 +117,10 @@ servant manager と adapter activator は `org.omg.CORBA.LocalObject` を継承�
 
 `_this()` は、そのサーバントの要求の実行中ならその要求のオブジェクトを、そうでなければ `_default_POA()`（最初に初期化して破棄していない ORB の RootPOA）で暗黙に活性化した参照を返す。同じ ORB の中の呼び出しは、コアの同一 ORB 内呼び出しで呼び出し元のスレッドで実行する。
 
+## DII / DSI
+
+`Object._request` / `_create_request` の `org.omg.CORBA.Request` と、`org.omg.PortableServer.DynamicImplementation` の `ServerRequest`（[#156](https://github.com/rustorb/rustorb/issues/156)）。API と決めたことは [dii-dsi.md](dii-dsi.md) の「Java」。
+
 ## Portable Interceptors
 
 [portable-interceptors.md](portable-interceptors.md)。型は標準の Java マッピング（`org.omg.PortableInterceptor`・`org.omg.IOP`・`org.omg.Dynamic`）で、実装は `org.rustorb.Pi`。
@@ -132,7 +136,7 @@ ORB orb = ORB.init(args, props);
 - 各点が受け取る情報のオブジェクトはその点の間だけ使える（後で使うと `BAD_INV_ORDER` minor 14、`ORB.init` の後の `ORBInitInfo` は `OBJECT_NOT_EXIST` minor 10）
 - 点からは `ForwardRequest` と `SystemException` を投げられる。そのほかの例外は `UNKNOWN`
 - `resolve_initial_references("PICurrent")` は `org.omg.PortableInterceptor.Current`、`"CodecFactory"` は `org.omg.IOP.CodecFactory`
-- `ORBInitInfo.register_policy_factory` は `NO_IMPLEMENT`。静的なスタブの要求では `arguments` などは `NO_RESOURCES`（Java のランタイムには DII / DSI がない）
+- `ORBInitInfo.register_policy_factory` は `NO_IMPLEMENT`。`arguments`・`result`・`exceptions` は DII / DSI の要求で使える。静的なスタブの要求では `NO_RESOURCES`
 
 ## AMI
 
@@ -147,6 +151,7 @@ ORB orb = ORB.init(args, props);
   - `BiDirTest`：双方向 GIOP（[bidir-giop.md](bidir-giop.md)）。`org.omg.BiDirPolicy` の `create_policy`、`ORBPolicyManager`、クライアントの開いた接続でのコールバックと、`BOTH` でない POA の `NO_PERMISSION` を、同じプロセスの2つの ORB の間で確かめる
   - `DynAnyTest`：`org.omg.DynamicAny`（[dynany.md](dynany.md)）。生成コードの型の DynAny、valuetype の共有と循環、切り詰め。残りの操作は `interop/impls/rustorbjava/probe/interop/DynAnyProbe.java`（`run-dynany-probe.sh`）で確かめる
   - `PortableTest`：手書きの portable stub（`_request` / `_invoke` / `ApplicationException` / oneway）を2つの ORB の間と同一 ORB 内で、`_releaseReply` の後のストリーム、返事を作ってから操作を呼ぶスケルトンの例外の完了状態、`ORB.create_output_stream` の読み戻し、Any のストリーム操作と `insert_Value` / `extract_Value`
+  - `DiiTest`・`DiiPiTest`：DII と DSI（[dii-dsi.md](dii-dsi.md)）。相互接続の basic・any・value のケースを DII のクライアントと DSI のサーバントで回し、API と `ServerRequest` の呼び出し順、インターセプターから見える引数を確かめる
   - `PiTest`：Portable Interceptors。プロパティの初期化子、`DuplicateName`、`pre_init` の `BAD_INV_ORDER`、要求と返事のサービスコンテキスト、クライアントのスレッドから サーバントへのスロット、IOR のコンポーネント、両側の `ForwardRequest`、点が投げた例外、点の後の情報のオブジェクト、`Codec`
   - `ValuetypeTest`：valuetype の26ケース（`ValueTests.java`）、生成された既定のファクトリ、truncatable の切り捨て、ファクトリのない型の `MARSHAL`、`create_value_tc`
 - rustorb-idl の `python/tests/test_java_backend.py`：コマンドライン、生成物の形、対応しない構文のエラー、生成コードとランタイムの `javac -Werror` でのコンパイル
@@ -179,7 +184,3 @@ JacORB は、UTF-8 に決まった `char` のデータ（rustorb とはどちら
 - インターフェースの `Helper.insert` に nil を渡すと、TypeCode が `CORBA::Object` になる
 - valuetype の `Helper.type()` の TypeCode に、具象の基底と truncatable の修飾がない（`Point3` が `Point` の派生にならない）。また valuetype の `Helper.insert` は、渡した値のクラスの TypeCode を付ける（`PointHelper.insert` に `Point3` を渡すと `Point3`）。JacORB 自身も同じ（rustorb の上で動かして見つけ、JacORB のランタイムでも確かめた）
 - GIOP 1.1 の Fragment メッセージを受け付けない（`NO_IMPLEMENT`）。omniORB のクライアントは GIOP 1.1 でも大きな要求を分割するので、その組の大きな値の2ケースが失敗する。rustorb は送るメッセージを分割しない
-
-## 残り
-
-- DII / DSI（#44 でコアと Python に加えた。Java は需要が出たら）

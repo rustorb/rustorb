@@ -145,6 +145,33 @@ final class ObjectDelegateImpl extends Delegate {
         }
     }
 
+    // --- the DII -------------------------------------------------------------------
+
+    @Override
+    public org.omg.CORBA.Request request(org.omg.CORBA.Object self, String operation) {
+        return new RequestImpl(self, this, operation, null, null, null, null);
+    }
+
+    @Override
+    public org.omg.CORBA.Request create_request(org.omg.CORBA.Object self,
+            org.omg.CORBA.Context ctx, String operation, org.omg.CORBA.NVList arg_list,
+            org.omg.CORBA.NamedValue result) {
+        return create_request(self, ctx, operation, arg_list, result, null, null);
+    }
+
+    /** rustorb has no contexts: ctx must be null and ctxlist null or empty
+     * (else NO_IMPLEMENT). */
+    @Override
+    public org.omg.CORBA.Request create_request(org.omg.CORBA.Object self,
+            org.omg.CORBA.Context ctx, String operation, org.omg.CORBA.NVList arg_list,
+            org.omg.CORBA.NamedValue result, org.omg.CORBA.ExceptionList exclist,
+            org.omg.CORBA.ContextList ctxlist) {
+        if (ctx != null || (ctxlist != null && ctxlist.count() > 0)) {
+            throw new org.omg.CORBA.NO_IMPLEMENT("contexts", 0, CompletionStatus.COMPLETED_NO);
+        }
+        return new RequestImpl(self, this, operation, arg_list, result, exclist, ctxlist);
+    }
+
     // --- portable stubs ------------------------------------------------------
 
     /** The stream of ObjectImpl._request: the arguments, kept until

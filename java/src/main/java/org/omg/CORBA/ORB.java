@@ -202,4 +202,57 @@ public abstract class ORB {
     public TypeCode create_recursive_tc(String id) {
         return TypeCodes.recursive(id);
     }
+
+    // --- the DII ------------------------------------------------------------
+
+    public NVList create_list(int count) {
+        return org.rustorb.Dii.createList();
+    }
+
+    /** rustorb has no interface repository: NO_IMPLEMENT. */
+    public NVList create_operation_list(Object oper) {
+        throw new NO_IMPLEMENT();
+    }
+
+    public NamedValue create_named_value(String s, Any any, int flags) {
+        return org.rustorb.Dii.createNamedValue(s, any, flags);
+    }
+
+    public ExceptionList create_exception_list() {
+        return org.rustorb.Dii.createExceptionList();
+    }
+
+    public ContextList create_context_list() {
+        return org.rustorb.Dii.createContextList();
+    }
+
+    /** rustorb has no contexts: NO_IMPLEMENT. */
+    public Context get_default_context() {
+        throw new NO_IMPLEMENT();
+    }
+
+    public Environment create_environment() {
+        return org.rustorb.Dii.createEnvironment();
+    }
+
+    public void send_multiple_requests_oneway(Request[] req) {
+        org.rustorb.Dii.sendMultipleOneway(req);
+    }
+
+    public void send_multiple_requests_deferred(Request[] req) {
+        org.rustorb.Dii.sendMultipleDeferred(req);
+    }
+
+    /** Whether a reply of a request sent deferred through this ORB's
+     * objects has arrived. */
+    public boolean poll_next_response() {
+        throw new NO_IMPLEMENT();
+    }
+
+    /** Waits for a reply of a request sent deferred through this ORB's
+     * objects and returns that request, its reply taken (BAD_INV_ORDER
+     * when none is outstanding). */
+    public Request get_next_response() throws WrongTransaction {
+        throw new NO_IMPLEMENT();
+    }
 }

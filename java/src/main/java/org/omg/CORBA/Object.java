@@ -41,4 +41,18 @@ public interface Object {
 
     /** Binds the reference with a LocateRequest: true, or the failure. */
     boolean _validate_connection(PolicyListHolder inconsistent_policies);
+
+    /** A DII request for operation, without arguments and with a void
+     * result. */
+    Request _request(String operation);
+
+    /** A DII request with the arguments of arg_list and the result
+     * result (its any gives the return type). ctx must be null: rustorb
+     * has no contexts (NO_IMPLEMENT). */
+    Request _create_request(Context ctx, String operation, NVList arg_list, NamedValue result);
+
+    /** The same, with the user exceptions of exclist; ctxlist must be null
+     * or empty. */
+    Request _create_request(Context ctx, String operation, NVList arg_list, NamedValue result,
+            ExceptionList exclist, ContextList ctxlist);
 }
