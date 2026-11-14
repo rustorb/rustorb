@@ -49,6 +49,10 @@ break the API).
 ### Fixed
 
 - Java: `POA.the_children()` no longer leaks a native POA handle per child.
+- rustorb-cdr writes the XCDR2 encapsulation identifiers of DDS-XTypes
+  Table 60, the RTPS ones (`0x0006` to `0x000b`), instead of those of Table
+  39 and DDSI-RTPS 2.5 Table 10.3 (`0x0010` to `0x0015`), which Cyclone DDS
+  0.10 drops (rustorb/rustorb-dds#65). Both are still read.
 
 ### Changed
 

@@ -156,7 +156,7 @@ fn final_struct_is_plain_cdr() {
     // PLAIN_CDR2, big endian.
     assert_eq!(
         v.to_payload(Encoding::Xcdr2, ByteOrder::Big).unwrap(),
-        [0x00, 0x10, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2]
+        [0x00, 0x06, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2]
     );
 }
 
@@ -172,7 +172,7 @@ fn appendable_struct_has_a_dheader_in_xcdr2() {
     assert_eq!(Shape::EXTENSIBILITY, Extensibility::Appendable);
     #[rustfmt::skip]
     let expected = [
-        0x00, 0x15, 0x00, 0x00, // DELIMITED_CDR, little endian
+        0x00, 0x09, 0x00, 0x00, // DELIMITED_CDR, little endian
         24, 0, 0, 0, // DHEADER
         5, 0, 0, 0, b'B', b'L', b'U', b'E', 0, 0, 0, 0, // color and padding
         1, 0, 0, 0,
@@ -208,7 +208,7 @@ fn hashed_member_ids_in_emheaders() {
     };
     #[rustfmt::skip]
     let expected = [
-        0x00, 0x12, 0x00, 0x00, // PL_CDR2, big endian
+        0x00, 0x0a, 0x00, 0x00, // PL_CDR2, big endian
         0, 0, 0, 20, // DHEADER
         0x3f, 0xa5, 0xdd, 0x70, // EMHEADER: LC 3 (8 octets), color
         0, 0, 0, 4, b'r', b'e', b'd', 0,
@@ -275,13 +275,13 @@ fn optional_members_of_final_types() {
         absent
             .to_payload(Encoding::Xcdr2, ByteOrder::Little)
             .unwrap(),
-        [0x00, 0x11, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0]
+        [0x00, 0x07, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0]
     );
     assert_eq!(
         present
             .to_payload(Encoding::Xcdr2, ByteOrder::Little)
             .unwrap(),
-        [0x00, 0x11, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0, 5, 0, 0, 0]
+        [0x00, 0x07, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0, 5, 0, 0, 0]
     );
     round_trip(&absent);
     round_trip(&present);
@@ -291,7 +291,7 @@ fn optional_members_of_final_types() {
 fn unions() {
     #[rustfmt::skip]
     let expected = [
-        0x00, 0x15, 0x00, 0x00, // DELIMITED_CDR, little endian
+        0x00, 0x09, 0x00, 0x00, // DELIMITED_CDR, little endian
         8, 0, 0, 0, // DHEADER
         1, 0, 0, 0, // discriminator
         5, 0, 0, 0, // number
@@ -315,7 +315,7 @@ fn unions() {
         ByColor::Red(0.5)
             .to_payload(Encoding::Xcdr2, ByteOrder::Big)
             .unwrap(),
-        [0x00, 0x10, 0, 0, 0, 0, 0, 0, 0x3f, 0xe0, 0, 0, 0, 0, 0, 0]
+        [0x00, 0x06, 0, 0, 0, 0, 0, 0, 0x3f, 0xe0, 0, 0, 0, 0, 0, 0]
     );
     round_trip(&ByColor::Green(Point { x: 1, y: 2 }));
     round_trip(&ByColor::Default(Color::Blue));
