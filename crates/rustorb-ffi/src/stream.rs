@@ -325,6 +325,11 @@ impl<'a, 'b> In<'a, 'b> {
         (self as *mut Self).cast()
     }
 
+    /// The core's stream.
+    pub(crate) fn stream(&self) -> &InStream<'b> {
+        self.stream
+    }
+
     pub(crate) fn marshal(&self) -> SystemException {
         sys(SystemExceptionKind::MARSHAL, 0, self.completed)
     }

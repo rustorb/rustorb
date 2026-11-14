@@ -10,9 +10,10 @@
 # --suite any, jacorb, in the image) plus rustorb, rustorbpy, rustorbcpp and
 # rustorbjava (the Rust, the Python, the C++ and the Java client and server of
 # rustorb), which are built on the host. rustorbjava-portable (the Java client
-# and server on rustorb with JacORB's generated stubs) and rustorbpy-dii (the
-# Python client and server through the DII and the DSI) run only when named
-# in a pair.
+# and server on rustorb with JacORB's generated stubs), rustorbpy-dii (the
+# Python client and server through the DII and the DSI) and rustorbcpp-dii
+# (the C++ client and server through the DII and the DSI) run only when
+# named in a pair.
 # --build    builds the omniORB image first
 # --capture  captures each client's traffic and splits it into GIOP messages
 # --fragment N  the rustorb clients and servers split GIOP 1.2 messages
@@ -163,10 +164,12 @@ for pair in "${pairs[@]}"; do
 done
 # The rustorb C++ client and server, with stubs from rustorb-idl -bc++11.
 for pair in "${pairs[@]}"; do
-  if [ "${pair%%:*}" = rustorbcpp ] || [ "${pair##*:}" = rustorbcpp ]; then
-    impls/rustorbcpp/build.sh
-    break
-  fi
+  case " ${pair%%:*} ${pair##*:} " in
+    *" rustorbcpp "*|*" rustorbcpp-dii "*)
+      impls/rustorbcpp/build.sh
+      break
+      ;;
+  esac
 done
 
 # The rustorb Java client and server, with stubs from rustorb-idl -bjava.

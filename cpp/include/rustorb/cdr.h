@@ -1016,4 +1016,8 @@ class DataInputStream {
 // DynamicAny is part of the runtime (resolve_initial_references("DynAnyFactory")).
 #include <rustorb/dynany.h>
 
+// The DII and the DSI (CORBA::Request, CORBA::ServerRequest,
+// PortableServer::DynamicImplementation).
+#include <rustorb/dii.h>
+
 #endif

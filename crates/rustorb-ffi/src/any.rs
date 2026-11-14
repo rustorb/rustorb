@@ -550,6 +550,14 @@ pub extern "C" fn rorb_any_new() -> *mut Any {
     into_handle(Any::default())
 }
 
+/// An any of type `tc` without a value: the result and the `out`
+/// arguments of a DII request before the call. Marshalling it, or
+/// extracting its value, is `BAD_PARAM`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_any_typed(tc: *const TypeCode) -> *mut Any {
+    into_handle(Any::new(unsafe { &*tc }.clone(), rustorb_core::Value::Void))
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rorb_any_clone(any: *const Any) -> *mut Any {
     match unsafe { any.as_ref() } {

@@ -47,6 +47,7 @@ services:
       - ./impls/rustorbpy:/opt/interop/impls/rustorbpy:ro
       - ./impls/rustorbpy-dii:/opt/interop/impls/rustorbpy-dii:ro
       - ./impls/rustorbcpp:/opt/interop/impls/rustorbcpp:ro
+      - ./impls/rustorbcpp-dii:/opt/interop/impls/rustorbcpp-dii:ro
       - ./impls/rustorbjava:/opt/interop/impls/rustorbjava:ro
       - ./impls/rustorbjava-portable:/opt/interop/impls/rustorbjava-portable:ro
     command:
@@ -83,6 +84,7 @@ services:
       - ./impls/rustorbpy:/opt/interop/impls/rustorbpy:ro
       - ./impls/rustorbpy-dii:/opt/interop/impls/rustorbpy-dii:ro
       - ./impls/rustorbcpp:/opt/interop/impls/rustorbcpp:ro
+      - ./impls/rustorbcpp-dii:/opt/interop/impls/rustorbcpp-dii:ro
       - ./impls/rustorbjava:/opt/interop/impls/rustorbjava:ro
       - ./impls/rustorbjava-portable:/opt/interop/impls/rustorbjava-portable:ro
     command:

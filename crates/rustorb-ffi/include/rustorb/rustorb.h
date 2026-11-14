@@ -51,6 +51,8 @@ typedef struct rorb_in rorb_in;
 typedef struct rorb_server_reply rorb_server_reply;
 typedef struct rorb_typecode rorb_typecode;
 typedef struct rorb_any rorb_any;
+typedef struct rorb_request rorb_request;
+typedef struct rorb_server_request rorb_server_request;
 
 /* --- status and exceptions ------------------------------------------- */
 
@@ -270,6 +272,10 @@ rorb_typecode* rorb_tc_unaliased(const rorb_typecode* tc);
    empty one (tk_null). */
 rorb_any* rorb_any_new(void);
 rorb_any* rorb_any_clone(const rorb_any* any);
+/* An any of type tc without a value (the result and the out arguments of a
+   DII request before the call); marshalling it or taking its value out is
+   BAD_PARAM. */
+rorb_any* rorb_any_typed(const rorb_typecode* tc);
 void rorb_any_release(rorb_any* any);
 rorb_typecode* rorb_any_type(const rorb_any* any);
 /* Replaces the TypeCode with an equivalent one (an alias, say), else
@@ -835,6 +841,93 @@ rorb_out* rorb_server_reply_user_exception(rorb_server_reply* reply, const char*
                                            size_t len);
 void rorb_server_reply_system_exception(rorb_server_reply* reply, const char* id, size_t len,
                                         uint32_t minor, uint32_t completed);
+
+/* --- the DII and the DSI ------------------------------------------------------
+ *
+ * CORBA::Request and CORBA::ServerRequest (docs/dii-dsi.md). Values go
+ * in and out as anys. Contexts are not supported.
+ *
+ * An rorb_request is one call: arguments, return type and exception list
+ * are given, then it is sent with rorb_request_invoke, _send_oneway or
+ * _send_deferred (then _poll_response / _get_response). It may be used
+ * from any thread, one call at a time.
+ *
+ * A DSI servant is an ordinary servant (rorb_servant_get): its dispatch
+ * calls rorb_server_request_new before reading anything from in, lets the
+ * application read the arguments and set the result, and ends with
+ * rorb_server_request_reply (or replies with a system exception). */
+
+/* rorb_request_add_arg and rorb_server_request_add_param flags
+   (CORBA::ARG_IN, ARG_OUT, ARG_INOUT); other values are BAD_PARAM. */
+#define RORB_ARG_IN 1
+#define RORB_ARG_OUT 2
+#define RORB_ARG_INOUT 3
+
+/* A request for operation on target: no arguments, a void result. */
+rorb_status rorb_request_new(rorb_object* target, const char* op, size_t len,
+                             rorb_request** request, rorb_exception* exc);
+void rorb_request_release(rorb_request* request);
+/* Adds an argument: value is its value, or for RORB_ARG_OUT only its type. */
+rorb_status rorb_request_add_arg(rorb_request* request, const char* name, size_t len,
+                                 uint32_t flags, const rorb_any* value, rorb_exception* exc);
+void rorb_request_set_return_type(rorb_request* request, const rorb_typecode* tc);
+/* A user exception the operation may raise. */
+void rorb_request_add_exception(rorb_request* request, const rorb_typecode* tc);
+/* As rorb_invocation.timeout_us: negative for the policies', 0 for none. */
+void rorb_request_set_timeout(rorb_request* request, int64_t timeout_us);
+/* Sends the request and waits for the reply. RORB_USER_EXCEPTION: the
+   operation raised a user exception of the list, which
+   rorb_request_exception gives; one not in the list is UNKNOWN (minor
+   0x4f4d0001, COMPLETED_YES). */
+rorb_status rorb_request_invoke(rorb_request* request, rorb_exception* exc);
+/* Oneway, as the SyncScope policy of the target says. */
+rorb_status rorb_request_send_oneway(rorb_request* request, rorb_exception* exc);
+/* Sends without waiting; BAD_INV_ORDER while a response is outstanding. */
+rorb_status rorb_request_send_deferred(rorb_request* request, rorb_exception* exc);
+/* *ready: whether the deferred response has arrived (BAD_INV_ORDER when
+   nothing was sent deferred). */
+rorb_status rorb_request_poll_response(rorb_request* request, int32_t* ready,
+                                       rorb_exception* exc);
+/* Waits for the deferred response; the outcome is that of invoke. */
+rorb_status rorb_request_get_response(rorb_request* request, rorb_exception* exc);
+/* The return value (only its type before a call). */
+rorb_any* rorb_request_result(rorb_request* request);
+/* The value of argument index (that received for out and inout ones after
+   a call; an out one has only its type before); NULL past the end. */
+rorb_any* rorb_request_argument(rorb_request* request, size_t index);
+/* The user exception of the last call; NULL if there was none. */
+rorb_any* rorb_request_exception(rorb_request* request);
+
+/* The request of a dispatch, whose arguments are in in (nothing read
+   from it yet, else INTERNAL). */
+rorb_status rorb_server_request_new(rorb_in* in, const char* op, size_t len,
+                                    rorb_server_request** request, rorb_exception* exc);
+void rorb_server_request_release(rorb_server_request* request);
+/* Adds a parameter of type tc; then rorb_server_request_arguments reads
+   the in and inout ones (once, else BAD_INV_ORDER; arguments that do not
+   fit are MARSHAL). */
+rorb_status rorb_server_request_add_param(rorb_server_request* request, const char* name,
+                                          size_t len, uint32_t flags, const rorb_typecode* tc,
+                                          rorb_exception* exc);
+rorb_status rorb_server_request_arguments(rorb_server_request* request, rorb_exception* exc);
+/* The value of parameter index; NULL for an out one not set, or past the
+   end. */
+rorb_any* rorb_server_request_argument(rorb_server_request* request, size_t index);
+/* Sets an out or inout value, of a type equivalent to the parameter's
+   (else BAD_PARAM). */
+rorb_status rorb_server_request_set_argument(rorb_server_request* request, size_t index,
+                                             const rorb_any* value, rorb_exception* exc);
+/* BAD_INV_ORDER before the arguments are read. */
+rorb_status rorb_server_request_set_result(rorb_server_request* request, const rorb_any* value,
+                                           rorb_exception* exc);
+/* value: an any of a user exception (else BAD_PARAM). */
+rorb_status rorb_server_request_set_exception(rorb_server_request* request,
+                                              const rorb_any* value, rorb_exception* exc);
+/* Writes the reply of the dispatch reply belongs to (once). A value that
+   does not fit its type, an out argument not set say, is BAD_PARAM: the
+   dispatch then replies with that exception. */
+rorb_status rorb_server_request_reply(rorb_server_request* request, rorb_server_reply* reply,
+                                      rorb_exception* exc);
 
 /* --- POA ------------------------------------------------------------------- */
 

@@ -15,7 +15,7 @@ issue #39。標準の `CORBA::ORB` と `CORBA::Object` の操作のうち、ま�
 | `Object::get_policy` / `get_client_policy` / `set_policy_overrides` / `get_policy_overrides` / `validate_connection` | なし | 全言語 |
 | `PolicyManager`（`ORBPolicyManager`）/ `PolicyCurrent` | なし | 全言語 |
 
-入れなかったもの：DII の `create_list`・`create_operation_list`・`get_default_context`・`send_multiple_requests_*`・`poll_next_response`・`get_next_response`（#44）、`Object::get_domain_managers`（ドメインの仕組みがない）、`get_interface`（インターフェースリポジトリがない）。
+DII の `create_list`・`create_named_value`・`create_exception_list`・`send_multiple_requests_*`・`poll_next_response`・`get_next_response` は [dii-dsi.md](dii-dsi.md)（#44、C++ は #155）。入れなかったもの：`create_operation_list`（インターフェースリポジトリが要る）、`get_default_context`（`NO_IMPLEMENT`）、`Object::get_domain_managers`（ドメインの仕組みがない）、`get_interface`（インターフェースリポジトリがない）。
 
 ## API
 

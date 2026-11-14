@@ -1,0 +1,4 @@
+#!/bin/sh
+# The rustorb C++ server (impls/rustorbcpp) with the servants of the basic,
+# any and value suites run through the DSI (impls/rustorbcpp/dii_adapters.h).
+RUSTORB_DII=1 exec "$(dirname "$0")/../rustorbcpp/bin/server" "$@"

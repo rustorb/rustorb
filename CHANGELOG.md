@@ -22,6 +22,17 @@ break the API).
   (`SYNC_WITH_TARGET`) the servant runs; the last two raise the system
   exceptions of a two-way call. The interceptors' `sync_scope` and
   `get_request_policy` give it.
+- The DII and the DSI in the C ABI and C++ (docs/dii-dsi.md, #155):
+  `rorb_request_*` and `rorb_server_request_*`; in C++, `CORBA::Request`,
+  `NVList`, `NamedValue`, `ExceptionList`, `Object::_request` /
+  `_create_request`, `ORB::create_list`, `send_multiple_requests_*`,
+  `poll_next_response` / `get_next_response`,
+  `PortableServer::DynamicImplementation` and `CORBA::ServerRequest`, with
+  user exceptions as `CORBA::UnknownUserException`. Interceptors get the
+  arguments, result and exceptions of these requests. The interop matrix
+  gains `rustorbcpp-dii` (the C++ client and server through the DII and the
+  DSI). Contexts stay `NO_IMPLEMENT`, and one valuetype in two C++ anys is
+  not shared.
 - `PortableServer::POAManagerFactory` (CORBA 3; docs/poa-design.md, #154) in
   the core, Python, the C ABI / C++ and Java: `POA::the_POAManagerFactory`,
   `create_POAManager`, `list`, `find` and `POAManager::get_id`. Every POA
