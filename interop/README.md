@@ -63,6 +63,7 @@ interop/run-matrix.sh --suite value            # valuetype suite
 interop/run-matrix.sh --suite custom           # custom valuetype suite
 interop/run-matrix.sh --suite abstract         # abstract interface suite
 interop/run-matrix.sh --ssl                    # TLS endpoints (SSLIOP), omniORB and rustorb
+interop/run-matrix.sh --unix                   # giop:unix endpoints (Unix sockets), omniORB and rustorb
 interop/run-matrix.sh --fragment 1024          # rustorb sends GIOP 1.2 Fragments of 1024 bytes
 interop/run-wire-probe.sh
 interop/run-poa-probe.sh
@@ -78,7 +79,7 @@ interop/scripts/golden-compare --all interop/out interop/golden
 ```
 
 Logs and captures go to `interop/out/<client>-to-<server>/` (with
-`-giop1.1` appended for `--giop 1.1`, `-any` for `--suite any`, `-value` for `--suite value`, `-custom` for `--suite custom`, `-abstract` for `--suite abstract`, `-ssl` for `--ssl` and `-frag<N>` for `--fragment N`):
+`-giop1.1` appended for `--giop 1.1`, `-any` for `--suite any`, `-value` for `--suite value`, `-custom` for `--suite custom`, `-abstract` for `--suite abstract`, `-ssl` for `--ssl`, `-unix` for `--unix` and `-frag<N>` for `--fragment N`):
 `client.log`, `server.log`, `naming.log`, and with `--capture`,
 `capture/capture.pcap` and `capture/messages/` (one `.bin` file per GIOP
 message, header included, and a `messages.json` index).
@@ -144,6 +145,13 @@ certificates of `crates/rustorb-core/tests/tls`, whose names cover the
 containers), and certificates are required both ways, which is omniORB's
 default (rustorb: `-ORBsslVerifyClient required`). The JacORB
 implementation has no TLS set-up and is left out.
+
+With `INTEROP_UNIX=DIR` (`run-matrix.sh --unix`), the endpoint is
+`giop:unix:DIR/HOST-PORT.sock` only (omniORB's Unix domain sockets,
+docs/unix-transport.md). The server and the client share DIR (a Compose
+volume) and get the same host name (`orbhost`), since a client uses a socket
+only when the IOR names its own host; the naming service is still reached
+over TCP. JacORB has no `giop:unix` and is left out.
 
 Other arguments are ORB options. The server prints `server ready: PATH`
 once bound. The client prints `ok   <case>` or `FAIL <case>: <reason>` per

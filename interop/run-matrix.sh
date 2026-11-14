@@ -2,7 +2,7 @@
 # Runs the interop test matrix with Docker Compose.
 #
 #   ./run-matrix.sh [--build] [--capture] [--fragment N] [--giop VER] [--jobs N]
-#                   [--naming IMPL] [--out DIR] [--ssl] [--suite SUITE]
+#                   [--naming IMPL] [--out DIR] [--ssl] [--suite SUITE] [--unix]
 #                   [CLIENT:SERVER ...]
 #
 # Without pairs, every client in $CLIENT_IMPLS is paired with every server in
@@ -44,6 +44,12 @@
 #            abstract: the AbstractTest.idl cases (abstract interfaces,
 #            which the Rust client and server leave out), whose results go
 #            to <client>-to-<server>-abstract
+# --unix     the servers and the clients' callback objects listen on Unix
+#            sockets only (omniORB's giop:unix) in a volume both containers
+#            share, and both containers get the same host name, so that the
+#            sockets are on "the same host"; jacorb (no giop:unix) is left
+#            out unless named in a pair. The results go to
+#            <client>-to-<server>-unix
 #
 # Implementations live in impls/<name>/ and provide `server` and `client`
 # executables that accept the options in README.md. To use an implementation
@@ -61,6 +67,7 @@ naming=omninames
 suite=basic
 out="$PWD/out"
 ssl=0
+unix=0
 jobs="${INTEROP_JOBS:-1}"
 pairs=()
 
@@ -74,8 +81,9 @@ while [ $# -gt 0 ]; do
     --suite) suite="$2"; shift ;;
     --out) out="$(realpath -m "$2")"; shift ;;
     --ssl) ssl=1 ;;
+    --unix) unix=1 ;;
     --fragment) fragment="$2"; shift ;;
-    -h|--help) sed -n '2,45p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,51p' "$0"; exit 0 ;;
     *:*) pairs+=("$1") ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -97,8 +105,8 @@ if [ "$suite" = any ]; then
   IMPLS="${IMPLS:-omniorbpy omniorb-cpp}"
 elif [ "$suite" = custom ]; then
   IMPLS="${IMPLS:-jacorb}"
-elif [ $ssl -eq 1 ]; then
-  # The JacORB implementation has no TLS set-up.
+elif [ $ssl -eq 1 ] || [ $unix -eq 1 ]; then
+  # The JacORB implementation has no TLS set-up, and JacORB no giop:unix.
   IMPLS="${IMPLS:-omniorbpy omniorb-cpp}"
 else
   IMPLS="${IMPLS:-omniorbpy omniorb-cpp jacorb}"
@@ -108,6 +116,15 @@ if [ $ssl -eq 1 ]; then
   export INTEROP_SSL=/opt/interop/tls
 else
   export INTEROP_SSL=
+fi
+if [ $ssl -eq 1 ] && [ $unix -eq 1 ]; then
+  echo "--ssl and --unix do not go together" >&2
+  exit 2
+fi
+if [ $unix -eq 1 ]; then
+  export INTEROP_UNIX=/opt/interop/sockets SERVER_HOSTNAME=orbhost CLIENT_HOSTNAME=orbhost
+else
+  export INTEROP_UNIX= SERVER_HOSTNAME=server CLIENT_HOSTNAME=client
 fi
 rustorb_impls="rustorb rustorbpy rustorbcpp rustorbjava"
 CLIENT_IMPLS="${CLIENT_IMPLS:-$IMPLS $rustorb_impls}"
@@ -271,7 +288,7 @@ run_pair() {
   timeout 10 docker wait "$("${compose[@]}" ps -aq server)" >/dev/null 2>&1 || true
   "${compose[@]}" logs --no-color naming > "$dir/naming.log" 2>&1
   "${compose[@]}" logs --no-color server > "$dir/server.log" 2>&1
-  "${compose[@]}" down -t 2 >/dev/null 2>&1
+  "${compose[@]}" down -v -t 2 >/dev/null 2>&1
 
   read -r verdict detail < <(judge "$client" "$server" "$dir/client.log" "$status")
   local line="$verdict  $name${detail:+ ($detail)}"
@@ -287,6 +304,9 @@ pair_name() {
   fi
   if [ $ssl -eq 1 ]; then
     name+="-ssl"
+  fi
+  if [ $unix -eq 1 ]; then
+    name+="-unix"
   fi
   if [ "$naming" != omninames ]; then
     name+="-naming-$naming"

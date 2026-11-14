@@ -239,6 +239,38 @@ impl SslSecTrans {
     }
 }
 
+/// omniORB's `TAG_OMNIORB_UNIX_TRANS` component: a Unix domain socket the
+/// target listens on (`giop:unix`), usable from the host it names. The
+/// layout (two strings in an encapsulation) is as observed in omniORB 4.3
+/// IORs; see docs/unix-transport.md.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnixTrans {
+    /// Host name of the machine the socket is on.
+    pub host: String,
+    /// Path of the socket.
+    pub path: String,
+}
+
+impl UnixTrans {
+    /// Wraps the data in a [`component_tag::OMNIORB_UNIX_TRANS`] component.
+    pub fn to_component(&self, order: ByteOrder) -> Result<TaggedComponent> {
+        TaggedComponent::encapsulated(component_tag::OMNIORB_UNIX_TRANS, order, |enc| {
+            enc.write_string(&self.host)?;
+            enc.write_string(&self.path)?;
+            Ok(())
+        })
+    }
+
+    /// Reads the data from a component's data.
+    pub fn from_component(component: &TaggedComponent) -> Result<UnixTrans> {
+        let mut dec = component.decoder()?;
+        Ok(UnixTrans {
+            host: dec.read_string()?,
+            path: dec.read_string()?,
+        })
+    }
+}
+
 /// Builds a [`component_tag::ORB_TYPE`] component.
 pub fn orb_type_component(orb_type: u32, order: ByteOrder) -> Result<TaggedComponent> {
     TaggedComponent::encapsulated(component_tag::ORB_TYPE, order, |enc| {

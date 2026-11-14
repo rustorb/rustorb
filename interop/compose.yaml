@@ -18,6 +18,12 @@
 #   INTEROP_SSL                 /opt/interop/tls for TLS endpoints (with the
 #                               certificates of crates/rustorb-core/tests/tls),
 #                               empty for TCP
+#   INTEROP_UNIX                /opt/interop/sockets for giop:unix endpoints in
+#                               the volume the server and the client share,
+#                               empty for TCP
+#   SERVER_HOSTNAME / CLIENT_HOSTNAME
+#                               the containers' host names (the same one with
+#                               run-matrix.sh --unix)
 #
 # Use run-matrix.sh rather than calling docker compose directly.
 
@@ -35,12 +41,14 @@ services:
 
   server:
     image: ${SERVER_IMAGE:-rustorb-interop-omniorb:latest}
-    hostname: server
+    hostname: ${SERVER_HOSTNAME:-server}
     depends_on: [naming]
     environment:
       INTEROP_SSL: ${INTEROP_SSL:-}
+      INTEROP_UNIX: ${INTEROP_UNIX:-}
       INTEROP_FRAGMENT_SIZE: ${INTEROP_FRAGMENT_SIZE:-}
     volumes:
+      - sockets:/opt/interop/sockets
       - ../crates/rustorb-core/tests/tls:/opt/interop/tls:ro
       # The rustorb servers are built on the host (see run-matrix.sh).
       - ./impls/rustorb:/opt/interop/impls/rustorb:ro
@@ -66,7 +74,7 @@ services:
 
   client:
     image: ${CLIENT_IMAGE:-rustorb-interop-omniorb:latest}
-    hostname: client
+    hostname: ${CLIENT_HOSTNAME:-client}
     depends_on: [naming, server]
     # tcpdump needs these when CAPTURE_DIR is set.
     cap_add: [NET_RAW, NET_ADMIN]
@@ -75,10 +83,12 @@ services:
       # omniORB reads ORB<option> from the environment; empty means unset.
       ORBmaxGIOPVersion: ${CLIENT_MAX_GIOP:-}
       INTEROP_SSL: ${INTEROP_SSL:-}
+      INTEROP_UNIX: ${INTEROP_UNIX:-}
       INTEROP_FRAGMENT_SIZE: ${INTEROP_FRAGMENT_SIZE:-}
       CAPTURE_LABELS: --port-label 2809=naming --port-label 2810=server --port-label 2811=client
     volumes:
       - ${OUT_DIR:-./out}:/out
+      - sockets:/opt/interop/sockets
       - ../crates/rustorb-core/tests/tls:/opt/interop/tls:ro
       # The rustorb clients are built on the host (see run-matrix.sh).
       - ./impls/rustorb:/opt/interop/impls/rustorb:ro
@@ -103,3 +113,7 @@ services:
       - --shutdown-server
       - --suite
       - ${SUITE:-basic}
+
+volumes:
+  # giop:unix sockets (run-matrix.sh --unix), one volume per pair.
+  sockets:

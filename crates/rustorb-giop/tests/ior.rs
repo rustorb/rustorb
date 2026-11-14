@@ -574,3 +574,35 @@ fn omniorb_ssl_sec_trans() {
     let again = ssl.to_component(ByteOrder::Little).unwrap();
     assert_eq!(&again, component);
 }
+
+/// An IOR omniORBpy 4.3.4 printed for an object of an ORB with only
+/// `-ORBendPoint giop:unix:/sock/a.sock` (docs/unix-transport.md): port 0,
+/// and the socket in a `TAG_OMNIORB_UNIX_TRANS` component.
+const OMNIORB_UNIX_IOR: &str = "IOR:010000000e00000049444c3a50726f62653a312e30000000010000000000000095000000010102000d000000396564643535666239316438000000000e000000fe50eaf86a00000007000000000000000300000000000000080000000100000000545441010000001c000000010000000100010001000000010001050901010001000000090101000254544129000000010000000d000000396564643535666239316438000000000d0000002f736f636b2f612e736f636b00";
+
+#[test]
+fn omniorb_unix_trans_component() {
+    use rustorb_giop::UnixTrans;
+    let ior = Ior::from_ior_string(OMNIORB_UNIX_IOR).unwrap();
+    let profile = ior.iiop_profiles().next().unwrap().unwrap();
+    assert_eq!(profile.host, "9edd55fb91d8");
+    assert_eq!(profile.port, 0);
+    let component = profile
+        .components
+        .iter()
+        .find(|c| c.tag == component_tag::OMNIORB_UNIX_TRANS)
+        .unwrap();
+    let unix = UnixTrans::from_component(component).unwrap();
+    assert_eq!(
+        unix,
+        UnixTrans {
+            host: "9edd55fb91d8".into(),
+            path: "/sock/a.sock".into(),
+        }
+    );
+    // Written back the same, byte for byte.
+    assert_eq!(
+        unix.to_component(ByteOrder::Little).unwrap(),
+        component.clone()
+    );
+}

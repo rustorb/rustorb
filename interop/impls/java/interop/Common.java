@@ -133,7 +133,13 @@ public final class Common {
                 args.add("-ORBsslVerifyClient");
                 args.add("required");
             }
-            if (opt.port != 0) {
+            // INTEROP_UNIX=DIR (run-matrix.sh --unix): the endpoint is a
+            // Unix socket in DIR only (omniORB's giop:unix).
+            String unix = System.getenv("INTEROP_UNIX");
+            if (opt.port != 0 && unix != null && !unix.isEmpty()) {
+                args.add("-ORBendPoint");
+                args.add("giop:unix:" + unix + "/" + opt.host + "-" + opt.port + ".sock");
+            } else if (opt.port != 0) {
                 args.add("-ORBendPoint");
                 args.add((tls ? "giop:ssl:" : "giop:tcp:") + opt.host + ":" + opt.port);
             }

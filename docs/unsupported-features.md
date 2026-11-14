@@ -36,7 +36,7 @@ Nov 1, 2026
 | CSIv2（認証・権限の伝搬）、セキュリティサービスの API | 対象外（SSLIOP のみ）。SSLIOP も SNI・暗号化した鍵・CRL・OCSP、`corbaloc:ssliop:` は扱わない（[ssliop.md](ssliop.md)） | |
 | DynAny の抽象インターフェース（`insert_abstract` / `get_abstract`） | `NO_IMPLEMENT`（[dynany.md](dynany.md)） | |
 | ネイティブのコードセットの設定（char / wchar） | ネゴシエーションはあるが、ネイティブのコードセットは固定 | |
-| 他のトランスポート：DIOP（UDP）、MIOP（マルチキャスト）、ZIOP（圧縮）、Unix ドメインソケット | TCP と TLS だけ。Unix ソケットは omniORB 独自（`giop:unix`） | |
+| 他のトランスポート：DIOP（UDP）、MIOP（マルチキャスト）、ZIOP（圧縮） | TCP、TLS と、omniORB 独自の Unix ドメインソケット（`giop:unix`、Linux と macOS、[unix-transport.md](unix-transport.md)）だけ | |
 | omniORBpy 互換の追加：`setClientThreadCallDeadline`、`installTimeoutExceptionHandler`、`sslTP` | 使うアプリケーションが出たら（[omniorb-compat.md](omniorb-compat.md)、[timeouts.md](timeouts.md)） | |
 
 ## 対象外のまま（計画で決定済み）

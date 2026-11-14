@@ -73,11 +73,14 @@ pub mod policy;
 mod pool;
 mod servant;
 mod server;
+mod sock;
 mod stream;
 mod timeout;
 mod tls;
 pub mod trace;
 pub mod typecode;
+#[cfg(unix)]
+mod unix;
 mod value;
 mod wire;
 

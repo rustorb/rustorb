@@ -16,11 +16,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
 use rustorb_giop::{FragmentAssembler, Message, MessageHeader, Version};
-use socket2::SockRef;
-use tokio::io::Interest;
-use tokio::net::tcp::OwnedReadHalf;
 use tokio::sync::Notify;
 
+use crate::sock::ReadHalf;
 use crate::tls::Tls;
 use crate::trace;
 
@@ -294,7 +292,7 @@ pub(crate) enum Here {
 /// order is `holder`, then `side`.
 #[derive(Debug)]
 pub(crate) struct Inbound {
-    stream: OwnedReadHalf,
+    stream: ReadHalf,
     /// TLS on the stream: every read goes through it.
     tls: Option<Arc<Tls>>,
     holder: Mutex<Holder>,
@@ -310,12 +308,8 @@ pub(crate) struct Inbound {
 }
 
 impl Inbound {
-    pub(crate) fn new(
-        stream: OwnedReadHalf,
-        tls: Option<Arc<Tls>>,
-        max_message_size: usize,
-    ) -> Inbound {
-        let peer = stream.peer_addr().ok();
+    pub(crate) fn new(stream: ReadHalf, tls: Option<Arc<Tls>>, max_message_size: usize) -> Inbound {
+        let peer = stream.peer_addr();
         Inbound {
             stream,
             tls,
@@ -363,7 +357,7 @@ impl Inbound {
     /// Shuts the read direction down, which ends a thread's wait and the
     /// task's reading.
     pub(crate) fn shutdown(&self) {
-        let _ = SockRef::from(self.stream.as_ref()).shutdown(std::net::Shutdown::Read);
+        self.stream.shutdown_read();
     }
 
     // --- the reader task ---------------------------------------------------
@@ -373,13 +367,13 @@ impl Inbound {
     pub(crate) async fn next(&self) -> Result<(Version, Message), ReadError> {
         loop {
             if self.task_may_read() {
-                let stream = self.stream.as_ref();
+                let stream = &self.stream;
                 let direct = self.handed_back.swap(false, Ordering::AcqRel);
                 let mut raw = |buf: &mut [MaybeUninit<u8>]| {
                     if direct {
-                        SockRef::from(stream).recv(buf)
+                        stream.recv(buf)
                     } else {
-                        stream.try_io(Interest::READABLE, || SockRef::from(stream).recv(buf))
+                        stream.try_recv(buf)
                     }
                 };
                 let mut read = |buf: &mut [MaybeUninit<u8>]| self.read(&mut raw, buf);
@@ -403,11 +397,9 @@ impl Inbound {
             Holder::Busy => {
                 // The thread handles a request; read what arrived since,
                 // so that requests on one connection run side by side.
-                let stream = self.stream.as_ref();
+                let stream = &self.stream;
                 let mut side = self.side.lock().unwrap();
-                let mut raw = |buf: &mut [MaybeUninit<u8>]| {
-                    stream.try_io(Interest::READABLE, || SockRef::from(stream).recv(buf))
-                };
+                let mut raw = |buf: &mut [MaybeUninit<u8>]| stream.try_recv(buf);
                 let more = side.reader.drain(&mut |buf| self.read(&mut raw, buf));
                 if more {
                     *holder = Holder::Task { active: true };
@@ -418,9 +410,7 @@ impl Inbound {
             }
             Holder::Thread => {
                 // The thread reads what woke the task.
-                let _ = self.stream.as_ref().try_io(Interest::READABLE, || {
-                    Err::<(), _>(io::ErrorKind::WouldBlock.into())
-                });
+                self.stream.clear_readable();
                 false
             }
         }
@@ -470,8 +460,8 @@ impl Inbound {
     /// reading, waiting for it until `until` (for ever with `None`).
     pub(crate) fn read_here(&self, until: Option<Instant>) -> Here {
         let mut side = self.side();
-        let stream = self.stream.as_ref();
-        let mut raw = |buf: &mut [MaybeUninit<u8>]| SockRef::from(stream).recv(buf);
+        let stream = &self.stream;
+        let mut raw = |buf: &mut [MaybeUninit<u8>]| stream.recv(buf);
         let mut read = |buf: &mut [MaybeUninit<u8>]| self.read(&mut raw, buf);
         loop {
             match side.next(&mut read, true) {
@@ -513,9 +503,9 @@ impl Inbound {
     /// back); if more is buffered already, the task gets the reading now.
     pub(crate) fn busy(&self) -> bool {
         let mut holder = self.holder.lock().unwrap();
-        let stream = self.stream.as_ref();
+        let stream = &self.stream;
         let mut side = self.side.lock().unwrap();
-        let mut raw = |buf: &mut [MaybeUninit<u8>]| SockRef::from(stream).recv(buf);
+        let mut raw = |buf: &mut [MaybeUninit<u8>]| stream.recv(buf);
         let more = side.reader.drain(&mut |buf| self.read(&mut raw, buf));
         if more || side.held.is_some() {
             *holder = Holder::Task { active: false };
@@ -548,9 +538,9 @@ impl Inbound {
         let mut holder = self.holder.lock().unwrap();
         match *holder {
             Holder::Thread => {
-                let stream = self.stream.as_ref();
+                let stream = &self.stream;
                 let mut side = self.side.lock().unwrap();
-                let mut raw = |buf: &mut [MaybeUninit<u8>]| SockRef::from(stream).recv(buf);
+                let mut raw = |buf: &mut [MaybeUninit<u8>]| stream.recv(buf);
                 let more = side.reader.drain(&mut |buf| self.read(&mut raw, buf));
                 *holder = Holder::Task { active: false };
                 if more || side.held.is_some() {
@@ -569,8 +559,7 @@ impl Inbound {
 /// Waits until `stream` has something to read, or `until`. Returns
 /// whether it may have.
 #[cfg(unix)]
-fn wait_readable(stream: &tokio::net::TcpStream, until: Option<Instant>) -> bool {
-    use std::os::fd::AsRawFd;
+fn wait_readable(stream: &ReadHalf, until: Option<Instant>) -> bool {
     loop {
         let timeout = match until {
             None => -1,
@@ -584,7 +573,7 @@ fn wait_readable(stream: &tokio::net::TcpStream, until: Option<Instant>) -> bool
             }
         };
         let mut fd = libc::pollfd {
-            fd: stream.as_raw_fd(),
+            fd: stream.raw_fd(),
             events: libc::POLLIN,
             revents: 0,
         };
@@ -601,7 +590,7 @@ fn wait_readable(stream: &tokio::net::TcpStream, until: Option<Instant>) -> bool
 }
 
 #[cfg(not(unix))]
-fn wait_readable(_: &tokio::net::TcpStream, _: Option<Instant>) -> bool {
+fn wait_readable(_: &ReadHalf, _: Option<Instant>) -> bool {
     // A thread never claims the reading here.
     false
 }

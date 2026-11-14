@@ -72,7 +72,14 @@ inline Options parse_args(int argc, char** argv, std::vector<std::string>& orb_a
     omni::sslContext::key_file = key.c_str();
     omni::sslContext::key_file_password = "";
   }
-  if (opt.port) {
+  // INTEROP_UNIX=DIR (run-matrix.sh --unix): the endpoint is a Unix socket
+  // in DIR only (giop:unix).
+  const char* unix_dir = std::getenv("INTEROP_UNIX");
+  if (opt.port && unix_dir && *unix_dir) {
+    orb_args.push_back("-ORBendPoint");
+    orb_args.push_back(std::string("giop:unix:") + unix_dir + "/" + opt.host + "-" +
+                       std::to_string(opt.port) + ".sock");
+  } else if (opt.port) {
     orb_args.push_back("-ORBendPoint");
     orb_args.push_back(std::string(ssl && *ssl ? "giop:ssl:" : "giop:tcp:") + opt.host + ":" +
                        std::to_string(opt.port));

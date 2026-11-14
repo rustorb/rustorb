@@ -25,12 +25,12 @@ use std::time::{Duration, Instant};
 use rustorb_cdr::ByteOrder;
 use rustorb_giop::{Message, MessageEncoder, OutMessage, ServiceContext, Version};
 use tokio::io::AsyncWriteExt;
-use tokio::net::TcpSocket;
-use tokio::net::tcp::OwnedWriteHalf;
+use tokio::net::{TcpSocket, TcpStream};
 use tokio::sync::oneshot;
 
 use crate::idle::Stamp;
 use crate::server::{Outbox, Server, ServerConn};
+use crate::sock::{Stream, WriteHalf};
 use crate::tls::{self, Tls};
 use crate::trace;
 use crate::wire::{Here, Inbound, ReadError};
@@ -65,9 +65,21 @@ pub(crate) enum SendError {
     Closing,
 }
 
-/// What the ORB pools connections by: host, port, and whether the
-/// connection uses TLS.
-pub(crate) type EndpointKey = (String, u16, bool);
+/// What a connection runs over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum Transport {
+    /// Plain TCP (`giop:tcp`).
+    Tcp,
+    /// TLS over TCP (`giop:ssl`, SSLIOP).
+    Tls,
+    /// A Unix domain socket (omniORB's `giop:unix`); the host is the path
+    /// of the socket and the port 0.
+    Unix,
+}
+
+/// What the ORB pools connections by: host (or socket path), port, and
+/// the transport.
+pub(crate) type EndpointKey = (String, u16, Transport);
 
 /// The ORB's client connections, one per endpoint.
 pub(crate) type ConnectionPool = Mutex<HashMap<EndpointKey, Arc<Connection>>>;
@@ -84,7 +96,7 @@ struct Pending {
 /// Where a connection writes its requests.
 enum Writer {
     /// A stream of its own (a connection this ORB opened).
-    Stream(tokio::sync::Mutex<OwnedWriteHalf>),
+    Stream(tokio::sync::Mutex<WriteHalf>),
     /// The outbox of a server connection a client offered for
     /// bidirectional GIOP.
     Outbox(Arc<Outbox>),
@@ -140,61 +152,48 @@ pub(crate) struct Connection {
 }
 
 impl Connection {
-    /// Connects to `host:port`, with TLS when `tls` is given, and starts
-    /// the reader task on the current runtime. The socket buffers are set
-    /// before connecting, so that the window scale fits them.
+    /// Connects to `host:port`, with TLS when `tls` is given, or to the
+    /// Unix socket at the path `host` with `unix`, and starts the reader
+    /// task on the current runtime. The socket buffers are set before
+    /// connecting, so that the window scale fits them.
     pub(crate) async fn connect(
         host: &str,
         port: u16,
+        unix: bool,
         tls: Option<Arc<rustls::ClientConfig>>,
         options: &OrbOptions,
         pool: Weak<ConnectionPool>,
     ) -> io::Result<Arc<Connection>> {
         let max_message_size = options.max_message_size;
-        let mut last = io::Error::new(io::ErrorKind::NotFound, "no address");
-        let mut connected = None;
-        for addr in tokio::net::lookup_host((host, port)).await? {
-            let socket = if addr.is_ipv4() {
-                TcpSocket::new_v4()?
-            } else {
-                TcpSocket::new_v6()?
-            };
-            if let Some(size) = options.socket_send_buffer {
-                socket.set_send_buffer_size(u32::try_from(size).unwrap_or(u32::MAX))?;
-            }
-            if let Some(size) = options.socket_receive_buffer {
-                socket.set_recv_buffer_size(u32::try_from(size).unwrap_or(u32::MAX))?;
-            }
-            match socket.connect(addr).await {
-                Ok(stream) => {
-                    connected = Some(stream);
-                    break;
-                }
-                Err(e) => {
-                    trace::info!("could not connect to {addr} ({host}:{port}): {e}");
-                    last = e;
-                }
-            }
-        }
-        let stream = connected.ok_or(last)?;
-        stream.set_nodelay(true)?;
-        let session = match tls {
-            Some(config) => match tls::connect(&stream, config, host).await {
+        let stream = if unix {
+            connect_unix(host, options).await?
+        } else {
+            Stream::Tcp(connect_tcp(host, port, options).await?)
+        };
+        let session = match (tls, stream.tcp()) {
+            (Some(config), Some(tcp)) => match tls::connect(tcp, config, host).await {
                 Ok(session) => Some(session),
                 Err(e) => {
                     trace::info!("TLS handshake with {host}:{port} failed: {e}");
                     return Err(e);
                 }
             },
-            None => None,
+            _ => None,
         };
+        let transport = match (unix, session.is_some()) {
+            (true, _) => Transport::Unix,
+            (false, true) => Transport::Tls,
+            (false, false) => Transport::Tcp,
+        };
+        let endpoint = (host.to_owned(), port, transport);
         trace::info!(
-            "connected to {host}:{port}{}",
+            "connected to {}{}",
+            Peer(&endpoint),
             if session.is_some() { " with TLS" } else { "" }
         );
         let (reader, writer) = stream.into_split();
         let conn = Arc::new(Connection {
-            endpoint: (host.to_owned(), port, session.is_some()),
+            endpoint,
             inbound: Arc::new(Inbound::new(reader, session.clone(), max_message_size)),
             writer: Writer::Stream(tokio::sync::Mutex::new(writer)),
             tls: session,
@@ -574,7 +573,7 @@ impl Connection {
     async fn send_tls(
         &self,
         tls: &Tls,
-        writer: &OwnedWriteHalf,
+        writer: &WriteHalf,
         msg: &OutMessage,
         deadline: Option<Instant>,
     ) -> Result<(), SendError> {
@@ -697,13 +696,69 @@ impl Connection {
     }
 }
 
+/// Opens a TCP connection to `host:port`, trying each address in turn.
+async fn connect_tcp(host: &str, port: u16, options: &OrbOptions) -> io::Result<TcpStream> {
+    let mut last = io::Error::new(io::ErrorKind::NotFound, "no address");
+    for addr in tokio::net::lookup_host((host, port)).await? {
+        let socket = if addr.is_ipv4() {
+            TcpSocket::new_v4()?
+        } else {
+            TcpSocket::new_v6()?
+        };
+        if let Some(size) = options.socket_send_buffer {
+            socket.set_send_buffer_size(u32::try_from(size).unwrap_or(u32::MAX))?;
+        }
+        if let Some(size) = options.socket_receive_buffer {
+            socket.set_recv_buffer_size(u32::try_from(size).unwrap_or(u32::MAX))?;
+        }
+        match socket.connect(addr).await {
+            Ok(stream) => {
+                stream.set_nodelay(true)?;
+                return Ok(stream);
+            }
+            Err(e) => {
+                trace::info!("could not connect to {addr} ({host}:{port}): {e}");
+                last = e;
+            }
+        }
+    }
+    Err(last)
+}
+
+/// Opens a connection to the Unix socket at `path`.
+#[cfg(unix)]
+async fn connect_unix(path: &str, options: &OrbOptions) -> io::Result<Stream> {
+    let stream = match tokio::net::UnixStream::connect(path).await {
+        Ok(stream) => stream,
+        Err(e) => {
+            trace::info!("could not connect to unix:{path}: {e}");
+            return Err(e);
+        }
+    };
+    let socket = socket2::SockRef::from(&stream);
+    if let Some(size) = options.socket_send_buffer {
+        socket.set_send_buffer_size(size)?;
+    }
+    if let Some(size) = options.socket_receive_buffer {
+        socket.set_recv_buffer_size(size)?;
+    }
+    Ok(Stream::Unix(stream))
+}
+
+#[cfg(not(unix))]
+async fn connect_unix(_: &str, _: &OrbOptions) -> io::Result<Stream> {
+    Err(io::ErrorKind::Unsupported.into())
+}
+
 /// The server of a connection in trace lines.
-struct Peer<'a>(&'a EndpointKey);
+pub(crate) struct Peer<'a>(pub(crate) &'a EndpointKey);
 
 impl std::fmt::Display for Peer<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let (host, port, _) = self.0;
-        write!(f, "{host}:{port}")
+        match self.0 {
+            (path, _, Transport::Unix) => write!(f, "unix:{path}"),
+            (host, port, _) => write!(f, "{host}:{port}"),
+        }
     }
 }
 

@@ -31,17 +31,16 @@ use rustorb_giop::{
     AlternateIiopAddress, BiDirIiopServiceContext, Body, CodeSetComponent, CodeSetComponentInfo,
     CodeSetContext, IiopProfile, Ior, ListenPoint, LocateReplyHeader, LocateRequestHeader,
     LocateStatus, Message, MessageEncoder, OutMessage, RequestHeader, ServiceContext, SslSecTrans,
-    TaggedComponent, TargetAddress, Version, association_options, component_tag,
+    TaggedComponent, TargetAddress, UnixTrans, Version, association_options, component_tag,
 };
 use tokio::io::AsyncWriteExt;
-use tokio::net::tcp::OwnedWriteHalf;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 use tokio::runtime::Handle;
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinHandle;
 
 use crate::codeset::{CONVERSION_CHAR, NATIVE_CHAR, NATIVE_WCHAR};
-use crate::connection::{Closed, Connection, summary};
+use crate::connection::{Closed, Connection, Transport, summary};
 use crate::idle::{self, Stamp};
 use crate::orb::OrbInner;
 use crate::pi::{self, Interceptors, ServerEnding, ServerException, ServerRequestInfo};
@@ -52,6 +51,7 @@ use crate::poa::{
 };
 use crate::pool::{Job, Pool};
 use crate::servant::{OBJECT_ID, ServerReply, location_forward_reply, system_exception_reply};
+use crate::sock::{Stream, WriteHalf};
 use crate::stream::InStream;
 use crate::tls::{self, Tls};
 use crate::trace;
@@ -86,6 +86,13 @@ pub(crate) struct Server {
     /// The same for the TLS endpoints.
     published_tls: Vec<(String, u16)>,
     loopback_tls_ports: Vec<u16>,
+    /// The paths of the `giop:unix` endpoints, as published in IORs.
+    published_unix: Vec<String>,
+    /// The host name published with them.
+    unix_host: String,
+    /// The socket files of the `giop:unix` endpoints, removed at shutdown.
+    #[cfg(unix)]
+    unix_files: Mutex<Vec<crate::unix::SocketFile>>,
     /// Whether TLS clients must send a certificate.
     client_auth_required: bool,
     fixed_port: bool,
@@ -180,7 +187,10 @@ impl Server {
         root_components: Vec<TaggedComponent>,
     ) -> Result<Arc<Server>, SystemException> {
         let options = &orb.inner.options;
-        let endpoints = if options.endpoints.is_empty() && options.tls_endpoints.is_empty() {
+        let endpoints = if options.endpoints.is_empty()
+            && options.tls_endpoints.is_empty()
+            && options.unix_endpoints.is_empty()
+        {
             vec![EndpointAddr {
                 host: String::new(),
                 port: 0,
@@ -254,14 +264,52 @@ impl Server {
                     .map_or_else(|_| format!("{bind_host}:{}", ep.port), |a| a.to_string()),
                 if is_tls { " (TLS)" } else { "" }
             );
-            listeners.push((listener, is_tls));
+            listeners.push((Bound::Tcp(listener), is_tls));
             published.push((host, port));
+        }
+        #[cfg(not(unix))]
+        let published_unix = if options.unix_endpoints.is_empty() {
+            Vec::new()
+        } else {
+            // `giop:unix` is for Linux and macOS.
+            return Err(initialize());
+        };
+        #[cfg(unix)]
+        let mut published_unix = Vec::new();
+        #[cfg(unix)]
+        let mut unix_files = Vec::new();
+        #[cfg(unix)]
+        for spec in &options.unix_endpoints {
+            let path = crate::unix::socket_path(spec).map_err(|e| {
+                trace::info!("cannot make a giop:unix endpoint for {spec:?}: {e}");
+                initialize()
+            })?;
+            let text = path.to_str().ok_or_else(initialize)?.to_owned();
+            if published_unix.contains(&text) {
+                continue;
+            }
+            let (listener, file) = crate::unix::bind(&path).map_err(|e| {
+                trace::info!("cannot listen on giop:unix:{text}: {e}");
+                initialize()
+            })?;
+            listener.set_nonblocking(true).map_err(|_| initialize())?;
+            trace::info!("listening on giop:unix:{text}");
+            listeners.push((Bound::Unix(listener), false));
+            unix_files.push(file);
+            published_unix.push(text);
         }
         let server = Arc::new(Server {
             orb: Arc::downgrade(&orb.inner),
             boot_id: new_boot_id(),
             published,
             loopback_ports,
+            published_unix,
+            #[cfg(unix)]
+            unix_host: crate::unix::host().to_owned(),
+            #[cfg(not(unix))]
+            unix_host: String::new(),
+            #[cfg(unix)]
+            unix_files: Mutex::new(unix_files),
             published_tls,
             loopback_tls_ports,
             client_auth_required: options.tls.client_auth == crate::ClientAuth::Required,
@@ -310,7 +358,13 @@ impl Server {
         let limit = (options.max_server_connections > 0)
             .then(|| Arc::new(Semaphore::new(options.max_server_connections)));
         for (listener, is_tls) in listeners {
-            let listener = TcpListener::from_std(listener).map_err(|_| initialize())?;
+            let listener = match listener {
+                Bound::Tcp(l) => Listener::Tcp(TcpListener::from_std(l).map_err(|_| initialize())?),
+                #[cfg(unix)]
+                Bound::Unix(l) => {
+                    Listener::Unix(tokio::net::UnixListener::from_std(l).map_err(|_| initialize())?)
+                }
+            };
             let tls = tls_config.clone().filter(|_| is_tls);
             tasks.push(handle.spawn(accept_loop(
                 Arc::downgrade(&server),
@@ -355,6 +409,11 @@ impl Server {
     /// Host and port of each TLS endpoint, as published in IORs.
     pub(crate) fn published_tls(&self) -> &[(String, u16)] {
         &self.published_tls
+    }
+
+    /// The path of each `giop:unix` endpoint, as published in IORs.
+    pub(crate) fn published_unix(&self) -> &[String] {
+        &self.published_unix
     }
 
     /// `create_POAManager`: a new manager with the identity `id`.
@@ -420,8 +479,10 @@ impl Server {
     }
 
     /// An IOR for `key` with one IIOP 1.2 profile: the first endpoint, the
-    /// code sets, the first TLS endpoint (`TAG_SSL_SEC_TRANS`) and the
-    /// other endpoints as alternate addresses. With TLS endpoints only,
+    /// code sets, the first TLS endpoint (`TAG_SSL_SEC_TRANS`), the
+    /// `giop:unix` endpoints (`TAG_OMNIORB_UNIX_TRANS`) and the other
+    /// endpoints as alternate addresses. With `giop:unix` endpoints only,
+    /// the profile has the host name and port 0. With TLS endpoints only,
     /// the profile has the host of the first one and port 0. A TLS
     /// endpoint the first profile cannot carry (another host, or not the
     /// first) gets a profile of its own.
@@ -436,9 +497,11 @@ impl Server {
     ) -> Result<Ior, SystemException> {
         let marshal =
             |_| SystemException::new(SystemExceptionKind::MARSHAL, 0, CompletionStatus::No);
-        let (host, port) = match self.published.first() {
-            Some((host, port)) => (host.clone(), *port),
-            None => (self.published_tls[0].0.clone(), 0),
+        let (host, port) = match (self.published.first(), self.published_tls.first()) {
+            (Some((host, port)), _) => (host.clone(), *port),
+            (None, Some((host, _))) => (host.clone(), 0),
+            // `giop:unix` endpoints only, like omniORB.
+            (None, None) => (self.unix_host.clone(), 0),
         };
         let mut components = vec![code_set_info().to_component(self.order).map_err(marshal)?];
         let mut tls = self.published_tls.iter();
@@ -451,6 +514,13 @@ impl Server {
             }
         }
         rest_tls.extend(tls.map(|(h, p)| (h, *p)));
+        for path in &self.published_unix {
+            let unix = UnixTrans {
+                host: self.unix_host.clone(),
+                path: path.clone(),
+            };
+            components.push(unix.to_component(self.order).map_err(marshal)?);
+        }
         for (host, port) in self.published.iter().skip(1) {
             let alternate = AlternateIiopAddress {
                 host: host.clone(),
@@ -706,11 +776,12 @@ impl Server {
             return;
         }
         let tls = out.tls.is_some();
+        let transport = if tls { Transport::Tls } else { Transport::Tcp };
         let pool = Arc::downgrade(&orb.inner.connections);
         let client = conn.bidir.get_or_init(|| {
             let first = &listen_points[0];
             Connection::accepted(
-                (first.host.clone(), first.port, tls),
+                (first.host.clone(), first.port, transport),
                 Arc::clone(&conn.inbound),
                 Arc::clone(out),
                 pool,
@@ -723,8 +794,8 @@ impl Server {
         for lp in &listen_points {
             // A TLS connection also serves the plain address.
             let keys = [
-                (lp.host.clone(), lp.port, tls),
-                (lp.host.clone(), lp.port, false),
+                (lp.host.clone(), lp.port, transport),
+                (lp.host.clone(), lp.port, Transport::Tcp),
             ];
             for key in keys.into_iter().take(if tls { 2 } else { 1 }) {
                 match conns.get(&key) {
@@ -743,7 +814,11 @@ impl Server {
                              (bidirectional GIOP)",
                             lp.host,
                             lp.port,
-                            if key.2 { " (TLS)" } else { "" }
+                            if key.2 == Transport::Tls {
+                                " (TLS)"
+                            } else {
+                                ""
+                            }
                         );
                         conns.insert(key, Arc::clone(client));
                     }
@@ -1338,11 +1413,14 @@ impl Server {
 
     /// Whether `host:port` is an endpoint of this server (a TLS one if
     /// `tls`), so that a call to it can be made without the network.
-    pub(crate) fn is_local(&self, host: &str, port: u16, tls: bool) -> bool {
+    pub(crate) fn is_local(&self, host: &str, port: u16, transport: Transport) -> bool {
         if self.is_shutting_down() {
             return false;
         }
-        let (published, loopback_ports) = if tls {
+        if transport == Transport::Unix {
+            return self.published_unix.iter().any(|p| p == host);
+        }
+        let (published, loopback_ports) = if transport == Transport::Tls {
             (&self.published_tls, &self.loopback_tls_ports)
         } else {
             (&self.published, &self.loopback_ports)
@@ -1356,13 +1434,22 @@ impl Server {
     /// Whether `profile` names an endpoint of this server: its own address
     /// or its TLS endpoint.
     pub(crate) fn is_own_profile(&self, profile: &IiopProfile) -> bool {
-        self.is_local(&profile.host, profile.port, false)
+        self.is_local(&profile.host, profile.port, Transport::Tcp)
             || profile
                 .components
                 .iter()
                 .filter(|c| c.tag == component_tag::SSL_SEC_TRANS)
                 .filter_map(|c| SslSecTrans::from_component(c).ok())
-                .any(|ssl| self.is_local(&profile.host, ssl.port, true))
+                .any(|ssl| self.is_local(&profile.host, ssl.port, Transport::Tls))
+            || profile
+                .components
+                .iter()
+                .filter(|c| c.tag == component_tag::OMNIORB_UNIX_TRANS)
+                .filter_map(|c| UnixTrans::from_component(c).ok())
+                .any(|u| {
+                    u.host.eq_ignore_ascii_case(&self.unix_host)
+                        && self.is_local(&u.path, 0, Transport::Unix)
+                })
     }
 
     /// Runs a request of this ORB to one of its own objects, on the calling
@@ -1581,6 +1668,8 @@ impl Server {
         for task in self.listeners.lock().unwrap().drain(..) {
             task.abort();
         }
+        #[cfg(unix)]
+        self.unix_files.lock().unwrap().clear();
         let managers: Vec<_> = self
             .managers
             .lock()
@@ -1842,7 +1931,7 @@ pub(crate) struct Outbox {
 
 struct OutState {
     /// The stream; `None` while the writer task writes, and once closed.
-    stream: Option<OwnedWriteHalf>,
+    stream: Option<WriteHalf>,
     /// Messages for the writer task, each with how much of it was
     /// written already.
     queue: VecDeque<(OutMessage, usize)>,
@@ -1856,7 +1945,7 @@ struct OutState {
 }
 
 impl Outbox {
-    fn new(stream: OwnedWriteHalf, tls: Option<Arc<Tls>>, peer: Option<SocketAddr>) -> Outbox {
+    fn new(stream: WriteHalf, tls: Option<Arc<Tls>>, peer: Option<SocketAddr>) -> Outbox {
         Outbox {
             tls,
             peer,
@@ -2336,9 +2425,37 @@ impl Drop for ReplyTo {
 /// How long a client has for the TLS handshake.
 const HANDSHAKE_TIME: Duration = Duration::from_secs(30);
 
+/// A socket bound before the runtime takes it.
+enum Bound {
+    Tcp(std::net::TcpListener),
+    #[cfg(unix)]
+    Unix(std::os::unix::net::UnixListener),
+}
+
+/// A socket the server listens on.
+enum Listener {
+    Tcp(TcpListener),
+    #[cfg(unix)]
+    Unix(tokio::net::UnixListener),
+}
+
+impl Listener {
+    async fn accept(&self) -> io::Result<Stream> {
+        match self {
+            Listener::Tcp(l) => {
+                let (stream, _) = l.accept().await?;
+                let _ = stream.set_nodelay(true);
+                Ok(Stream::Tcp(stream))
+            }
+            #[cfg(unix)]
+            Listener::Unix(l) => Ok(Stream::Unix(l.accept().await?.0)),
+        }
+    }
+}
+
 async fn accept_loop(
     server: Weak<Server>,
-    listener: TcpListener,
+    listener: Listener,
     tls: Option<Arc<rustls::ServerConfig>>,
     limit: Option<Arc<Semaphore>>,
 ) {
@@ -2348,7 +2465,7 @@ async fn accept_loop(
             Some(limit) => Some(connection_permit(&server, limit).await),
             None => None,
         };
-        let Ok((stream, _)) = listener.accept().await else {
+        let Ok(stream) = listener.accept().await else {
             // Out of file descriptors and the like: try again shortly.
             tokio::time::sleep(Duration::from_millis(100)).await;
             continue;
@@ -2401,15 +2518,14 @@ async fn close_idle(server: Weak<Server>, timeout: Duration) {
 /// `-ORBmaxServerConnections`, given back when the client has closed.
 async fn serve(
     server: Arc<Server>,
-    stream: TcpStream,
+    stream: Stream,
     tls: Option<Arc<rustls::ServerConfig>>,
     _permit: Option<OwnedSemaphorePermit>,
 ) {
-    let _ = stream.set_nodelay(true);
-    let peer = PeerAddr(stream.peer_addr().ok());
-    let session = match tls {
-        Some(config) => {
-            match tokio::time::timeout(HANDSHAKE_TIME, tls::accept(&stream, config)).await {
+    let peer = PeerAddr(stream.peer_addr());
+    let session = match (tls, stream.tcp()) {
+        (Some(config), Some(tcp)) => {
+            match tokio::time::timeout(HANDSHAKE_TIME, tls::accept(tcp, config)).await {
                 Ok(Ok(session)) => Some(session),
                 // A failed handshake (a certificate refused, say), or none.
                 Ok(Err(e)) => {
@@ -2422,7 +2538,7 @@ async fn serve(
                 }
             }
         }
-        None => None,
+        _ => None,
     };
     trace::info!(
         "accepted a connection from {peer}{}",
@@ -2479,9 +2595,9 @@ async fn serve(
 /// outbox is closed (by `close`, or when the connection is dropped).
 async fn write_loop(out: Arc<Outbox>) {
     enum Step {
-        Write(OwnedWriteHalf, VecDeque<(OutMessage, usize)>),
+        Write(WriteHalf, VecDeque<(OutMessage, usize)>),
         Wait,
-        Shutdown(Option<OwnedWriteHalf>),
+        Shutdown(Option<WriteHalf>),
         End,
     }
     loop {
@@ -2558,7 +2674,7 @@ async fn write_loop(out: Arc<Outbox>) {
 }
 
 /// Writes the TLS records waiting, waiting for the socket as needed.
-async fn flush_tls(tls: &Tls, stream: &OwnedWriteHalf) -> io::Result<()> {
+async fn flush_tls(tls: &Tls, stream: &WriteHalf) -> io::Result<()> {
     while !tls.flush(|bytes| stream.try_write(bytes))? {
         stream.writable().await?;
     }
