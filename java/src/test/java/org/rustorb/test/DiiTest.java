@@ -121,24 +121,38 @@ class DiiTest {
     void value() throws Exception {
         for (boolean[] pair : PAIRS) {
             try (Orbs orbs = new Orbs()) {
-                ValueTests.registerFactories(orbs.server);
-                ValueTests.registerFactories(orbs.client);
-                ValueTests.ValueEchoImpl impl = new ValueTests.ValueEchoImpl(orbs.server);
-                ValueEcho echo = ValueEchoHelper.narrow(ref(orbs, pair[1]
-                        ? DiiAdapters.dsi(orbs.server, impl) : impl));
-                if (pair[0]) {
-                    echo = DiiAdapters.valueEcho(echo);
+                try {
+                    value(orbs, pair[0], pair[1]);
+                } finally {
+                    // The factories are those of the process: the other
+                    // tests expect the generated classes (as
+                    // ValuetypeTest.cases).
+                    org.omg.CORBA_2_3.ORB o = (org.omg.CORBA_2_3.ORB) orbs.client;
+                    for (String id : new String[] {ValueTest.PointHelper.id(),
+                            ValueTest.Point3Helper.id(), ValueTest.NodeHelper.id(),
+                            ValueTest.ShapeHelper.id()}) {
+                        o.unregister_value_factory(id);
+                    }
                 }
-                Cases.Runner r = new Cases.Runner();
-                ValueTests.run(r, orbs.client, echo);
-                r.summary();
-                // The anys of the arguments copy their valuetypes: two
-                // arguments that are one instance arrive as two (see
-                // docs/dii-dsi.md).
-                assertEquals(Collections.singletonList("same[shared]"), r.failed(),
-                        "dii " + pair[0] + " dsi " + pair[1]);
             }
         }
+    }
+
+    private static void value(Orbs orbs, boolean dii, boolean dsi) throws Exception {
+        ValueTests.registerFactories(orbs.server);
+        ValueTests.ValueEchoImpl impl = new ValueTests.ValueEchoImpl(orbs.server);
+        ValueEcho echo = ValueEchoHelper.narrow(ref(orbs, dsi ? DiiAdapters.dsi(orbs.server, impl)
+                : impl));
+        if (dii) {
+            echo = DiiAdapters.valueEcho(echo);
+        }
+        Cases.Runner r = new Cases.Runner();
+        ValueTests.run(r, orbs.client, echo);
+        r.summary();
+        // The anys of the arguments copy their valuetypes: two arguments
+        // that are one instance arrive as two (see docs/dii-dsi.md).
+        assertEquals(Collections.singletonList("same[shared]"), r.failed(),
+                "dii " + dii + " dsi " + dsi);
     }
 
     // --- the DII ---------------------------------------------------------------------------
