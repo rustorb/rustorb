@@ -35,6 +35,7 @@
 pub mod any;
 pub mod dii;
 pub mod dynany;
+mod host;
 pub mod manager;
 pub mod object;
 mod offload;

@@ -231,6 +231,7 @@ impl ServerReply {
             enc: self.msg.body(),
             code_sets: self.code_sets,
             orb: None,
+            values: None,
         }
     }
 

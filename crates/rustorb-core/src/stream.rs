@@ -21,6 +21,19 @@ pub struct OutStream<'a> {
     /// The ORB of the first object reference written, so that a standalone
     /// stream can be read back with it (`Any::insert`).
     pub(crate) orb: Option<Orb>,
+    /// What a binding asked to know of the valuetypes written
+    /// ([`OutStream::log_values`]).
+    pub(crate) values: Option<ValueLog>,
+}
+
+/// The valuetypes written to an [`OutStream`] that logs them.
+#[derive(Debug, Default)]
+pub(crate) struct ValueLog {
+    /// Whether every value is written chunked.
+    pub(crate) chunked: bool,
+    /// The instances written (not as indirections), in order: the n-th is
+    /// read back at slot n.
+    pub(crate) written: Vec<crate::ValueRef>,
 }
 
 impl<'a> OutStream<'a> {
@@ -32,6 +45,34 @@ impl<'a> OutStream<'a> {
             enc,
             code_sets: CodeSets::NATIVE,
             orb: None,
+            values: None,
+        }
+    }
+
+    /// Makes the stream keep the valuetype instances it writes, for
+    /// [`OutStream::written_values`], and write each value chunked (so
+    /// that a reader can skip one whole, nested values included). A
+    /// binding uses it to find the instance a value read back stands for.
+    pub fn log_values(&mut self) {
+        self.values = Some(ValueLog {
+            chunked: true,
+            written: Vec::new(),
+        });
+    }
+
+    /// The instances written since [`OutStream::log_values`] (not those
+    /// written as indirections), in order: the reader of the stream reads
+    /// the n-th at slot n.
+    pub fn written_values(&mut self) -> Vec<crate::ValueRef> {
+        self.values
+            .as_mut()
+            .map(|l| std::mem::take(&mut l.written))
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn note_value(&mut self, v: &crate::ValueRef) {
+        if let Some(log) = &mut self.values {
+            log.written.push(v.clone());
         }
     }
 
@@ -251,6 +292,22 @@ impl<'a> InStream<'a> {
             custom_items: None,
             body: None,
         }
+    }
+
+    /// Makes the value read at `slot` (the n-th value of the stream) be
+    /// read into `v`, replacing its state, if it has the type of `v`;
+    /// otherwise a new instance is made as usual. A binding uses it to
+    /// keep the instance a value it wrote already stands for.
+    pub fn preset_value(&mut self, slot: usize, v: crate::ValueRef) {
+        if self.values.len() <= slot {
+            self.values.resize(slot + 1, None);
+        }
+        self.values[slot] = Some(v);
+    }
+
+    /// The instance read at `slot`, if any.
+    pub fn value_at(&self, slot: usize) -> Option<&crate::ValueRef> {
+        self.values.get(slot).and_then(Option::as_ref)
     }
 
     /// The rest of the stream, owned, if it reads a message body and no

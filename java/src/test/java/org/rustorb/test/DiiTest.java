@@ -149,10 +149,8 @@ class DiiTest {
         Cases.Runner r = new Cases.Runner();
         ValueTests.run(r, orbs.client, echo);
         r.summary();
-        // The anys of the arguments copy their valuetypes: two arguments
-        // that are one instance arrive as two (see docs/dii-dsi.md).
-        assertEquals(Collections.singletonList("same[shared]"), r.failed(),
-                "dii " + dii + " dsi " + dsi);
+        // Two arguments that are one instance arrive as one (#164).
+        assertEquals(Collections.emptyList(), r.failed(), "dii " + dii + " dsi " + dsi);
     }
 
     // --- the DII ---------------------------------------------------------------------------

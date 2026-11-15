@@ -2,7 +2,7 @@
 
 [#44](https://github.com/rustorb/rustorb/issues/44)。生成コードなしで要求を組み立てて送る DII（Dynamic Invocation Interface）と、生成コードなしで要求を受ける DSI（Dynamic Skeleton Interface）を、Rust のコア（`rustorb-core`）と Python のバインディングに加えた。C ABI（`rustorb-ffi`）と C++ は [#155](https://github.com/rustorb/rustorb/issues/155)、Java は [#156](https://github.com/rustorb/rustorb/issues/156) で加えた。
 
-値はすべて Any で受け渡す。valuetype の共有とキャッシュの扱いは静的なスタブ・スケルトンと同じ。
+値はすべて Any で受け渡す。valuetype の共有とキャッシュの扱いは静的なスタブ・スケルトンと同じ（C++ と Java は Any が値を参照で持つことで保つ。[valuetype.md](valuetype.md#any-の中のインスタンス)、[#164](https://github.com/rustorb/rustorb/issues/164)）。
 
 ## コア（`rustorb_core::dii`）
 
@@ -89,7 +89,7 @@ IDL to C++11 マッピングの DII / DSI。
 - POA に登録するときのリポジトリ ID は `_primary_interface({}, nullptr)` から1回だけ取る
 - `get_next_response` は ORB ごとの deferred の要求を1ミリ秒ごとに見て回る。何もないときは `BAD_INV_ORDER`
 - コンテキスト（`ctx`・`ctxlist`・`Request::ctx()`・`ServerRequest::ctx()`）と `get_default_context` は `NO_IMPLEMENT`
-- 制限：C++ の Any は valuetype を写して持つ。別々の Any に入れた同じ valuetype は2つになり、DII / DSI の引数どうしでは共有が保たれない（静的なスタブ・スケルトンでは保たれる）。value の `same[shared]` が既知の失敗
+- valuetype：Any は値を参照で持つ（[valuetype.md](valuetype.md#any-の中のインスタンス)）。同じインスタンスを2つの引数の Any に入れると1つの値として送られ、DSI のサーバントが2つの引数から取り出すと同じインスタンスになる（[#164](https://github.com/rustorb/rustorb/issues/164)）
 
 ## Java（`org.omg.CORBA`・`org.omg.PortableServer`）
 
@@ -111,7 +111,7 @@ IDL to C++11 マッピングの DII / DSI。
 - POA に登録するときのリポジトリ ID は `_all_interfaces(null, null)` の最初のもの（静的なサーバントと同じ）
 - ローカルなオブジェクト（`LocalObject`）の `_request` / `_create_request` は `NO_IMPLEMENT`（minor 4）
 - コンテキスト（`ctx` が null でない、または空でない `ctxlist` の `_create_request`、`Request.ctx()`、`ServerRequest.ctx()`）と `get_default_context`、`create_operation_list` は `NO_IMPLEMENT`
-- 制限：Java の Any は値をコアの側に写して持つ（[java-binding.md](java-binding.md)）。C++ と同じく、別々の Any に入れた同じ valuetype は2つになり、DII / DSI の引数どうしでは共有が保たれない。value の `same[shared]` が既知の失敗（[#164](https://github.com/rustorb/rustorb/issues/164)）
+- valuetype：C++ と同じく、Any は値を参照で持ち、引数どうしの共有が保たれる（[#164](https://github.com/rustorb/rustorb/issues/164)）
 
 ## テスト
 
@@ -119,6 +119,6 @@ IDL to C++11 マッピングの DII / DSI。
 - `python/tests/test_dii.py`：Python の DII から静的なサーバントと DSI のサーバントを呼ぶ。戻り値・構造体・`inout` と `out`・ユーザー例外・システム例外・oneway・deferred と `get_next_response`・`ServerRequest` の呼び出し順・並行する要求
 - 相互接続：`interop/impls/rustorbpy-dii` は `rustorbpy` のクライアントとサーバーを、スタブの呼び出しを DII に、サーバントを DSI に差し替えて動かす（`dii_adapters.py`）。basic・any・value・abstract で、omniORB C++・omniORBpy・rustorb（Rust・Python）との組が両方向で `rustorbpy` と同じ結果になる（失敗は `long double` と omniORBpy の wchar の既知のものだけ）。CI では basic（GIOP 1.2 / 1.1）・any・value を回す。valuetype の共有はこの value の組で確かめる
 - `cpp/tests/test_dii.cc`：basic・any・value の相互接続の項目を、C++ の DII → DSI、DII → 静的なサーバント、静的なスタブ → DSI の3通りで回す。API の項目：アクセサー、`_create_request`、システム例外、deferred と `get_next_response`、`send_multiple_requests_*`、`NVList` と `Bounds`、ローカルなオブジェクト、`ServerRequest` の呼び出し順、SyncScope に従う oneway、インターセプターの `arguments`・`result`・`exceptions`
-- 相互接続：`interop/impls/rustorbcpp-dii` は `rustorbcpp` のクライアントとサーバーを、スタブの呼び出しを DII に、サーバントを DSI に差し替えて動かす（`dii_adapters.h`、環境変数 `RUSTORB_DII=1`）。basic（GIOP 1.2 / 1.1）・any・value で、omniORB C++・omniORBpy・`rustorbpy-dii` との組が両方向で `rustorbcpp` と同じ結果になる（失敗は `long double`、omniORBpy の wchar、上の `same[shared]` の既知のものだけ）。CI でも回す
+- 相互接続：`interop/impls/rustorbcpp-dii` は `rustorbcpp` のクライアントとサーバーを、スタブの呼び出しを DII に、サーバントを DSI に差し替えて動かす（`dii_adapters.h`、環境変数 `RUSTORB_DII=1`）。basic（GIOP 1.2 / 1.1）・any・value で、omniORB C++・omniORBpy・`rustorbpy-dii` との組が両方向で `rustorbcpp` と同じ結果になる（失敗は `long double` と omniORBpy の wchar の既知のものだけ）。CI でも回す
 - `java/src/test/java/org/rustorb/test/DiiTest.java`：basic・any・value の相互接続の項目（`interop/impls/java/interop/DiiAdapters.java`）を、Java の DII → DSI、DII → 静的なサーバント、静的なスタブ → DSI の3通りで回す。API の項目：アクセサーと同じ要求の再送、`_create_request` と例外リスト、システム例外とリストにないユーザー例外、NVList などの `Bounds`、deferred と `get_next_response`、`send_multiple_requests_*`、`ServerRequest` の呼び出し順、値のない `out`、ローカルなオブジェクト、同一 ORB 内。`DiiPiTest.java`：インターセプターの `arguments`・`result`・`exceptions`
-- 相互接続：`interop/impls/rustorbjava-dii` は `rustorbjava` のクライアントとサーバーを、スタブの呼び出しを DII に、サーバントを DSI に差し替えて動かす（`interop/impls/java/interop/DiiAdapters.java`、環境変数 `RUSTORB_DII=1`）。basic（GIOP 1.2 / 1.1）・any・value で、omniORB C++・omniORBpy・JacORB・rustorb の各実装との組が両方向で `rustorbjava` と同じ結果になる（失敗は既知のものと、上の `same[shared]` だけ）。CI でも回す
+- 相互接続：`interop/impls/rustorbjava-dii` は `rustorbjava` のクライアントとサーバーを、スタブの呼び出しを DII に、サーバントを DSI に差し替えて動かす（`interop/impls/java/interop/DiiAdapters.java`、環境変数 `RUSTORB_DII=1`）。basic（GIOP 1.2 / 1.1）・any・value で、omniORB C++・omniORBpy・JacORB・rustorb の各実装との組が両方向で `rustorbjava` と同じ結果になる（失敗は既知のものだけ）。CI でも回す

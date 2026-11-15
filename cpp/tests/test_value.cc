@@ -86,6 +86,39 @@ int main() {
       check(q && q != p && valuetest::is_point(q, 3, 4), "wrong copy");
     });
 
+    // An any holds its valuetype instance by reference (#164): one
+    // instance in several anys stays one, and extracting gives it back.
+    r.run("anys share values", [&]() {
+      auto p = valuetest::point(1, 2);
+      CORBA::Any a, b;
+      a <<= p;
+      b <<= p;
+      IDL::traits<Point>::ref_type got_a, got_b;
+      check((a >>= got_a) && got_a == p, "not the instance inserted");
+      check((b >>= got_b) && got_b == p, "not the instance inserted, in the second any");
+      // Inserting it again replaces the state the anys hold.
+      check(a == b, "the anys differ");
+      p->x(5);
+      CORBA::Any c;
+      c <<= p;
+      check(a == c && b == c, "the state was not replaced");
+      // A copy of an any holds the same instance.
+      CORBA::Any d(a);
+      IDL::traits<Point>::ref_type got_d;
+      check((d >>= got_d) && got_d == p, "not the instance, from a copy");
+      // An instance read back (here from a value inside a value) is given
+      // back on each extraction.
+      auto list = valuetest::chain(2);
+      CORBA::Any e;
+      e <<= list;
+      IDL::traits<Node>::ref_type n1, n2;
+      check((e >>= n1) && (e >>= n2) && n1 == n2 && n1 == list, "not the same chain");
+      CORBA::Any f;
+      f <<= list->next();
+      IDL::traits<Node>::ref_type tail;
+      check((f >>= tail) && tail == list->next(), "not the same tail");
+    });
+
     abstracttest::run_cases(r, abstract_echo, check);
     r.run("abstract narrow", [&]() {
       using namespace AbstractTest;

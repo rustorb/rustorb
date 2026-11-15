@@ -32,6 +32,9 @@ pub struct Out<'a, 'b> {
     /// (`rorb_any_insert` reads them back with their ORB).
     pub(crate) objects: Vec<ObjectRef>,
     standalone: bool,
+    /// For the stream of `rorb_any_insert`: the new values written, which
+    /// keep their caller's instances (see `host`).
+    pub(crate) written: Option<Vec<crate::host::Written>>,
 }
 
 /// What a `rorb_out*` points to; the lifetimes are those of the callback.
@@ -44,6 +47,7 @@ impl<'a, 'b> Out<'a, 'b> {
             error: None,
             objects: Vec::new(),
             standalone: false,
+            written: None,
         }
     }
 
@@ -61,6 +65,7 @@ impl<'a, 'b> Out<'a, 'b> {
             error: None,
             objects: Vec::new(),
             standalone: false,
+            written: None,
         }
     }
 
@@ -301,6 +306,9 @@ pub struct In<'a, 'b> {
     pub(crate) value_ids: Vec<String>,
     /// Whether the caller owns the stream (`rorb_in_release`).
     pub(crate) owned: bool,
+    /// For the stream of `rorb_any_extract`: the core instances written to
+    /// it, by slot, whose caller's instances are given back (see `host`).
+    pub(crate) bound: Option<Vec<rustorb_core::ValueRef>>,
 }
 
 /// What a `rorb_in*` points to; the lifetimes are those of the callback.
@@ -318,6 +326,7 @@ impl<'a, 'b> In<'a, 'b> {
             values: Vec::new(),
             value_ids: Vec::new(),
             owned: false,
+            bound: None,
         }
     }
 

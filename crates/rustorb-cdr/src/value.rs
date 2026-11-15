@@ -84,6 +84,12 @@ struct Frame {
 }
 
 impl Encoder {
+    /// The number of values written so far (not counting indirections):
+    /// the slot a reader gives the next new value.
+    pub fn value_count(&self) -> usize {
+        self.values.as_ref().map_or(0, |s| s.written.len())
+    }
+
     /// Writes a `null` value.
     pub fn write_null_value(&mut self) {
         self.write_u32(0);

@@ -774,6 +774,24 @@ int32_t rorb_out_begin_value(rorb_out* out, uint64_t key, size_t count, const ch
                              const size_t* id_lens, int32_t chunked);
 void rorb_out_end_value(rorb_out* out);
 
+/* Instances shared across anys. The stream of rorb_any_insert keeps the
+   caller's instances it writes: the any's core instance then stands for
+   the caller's instance (key), extracting the any gives that instance back
+   (below), and inserting the same instance again reuses the core instance,
+   its state replaced. One instance put in several anys thus stays one, as
+   in the arguments of a DII request. The core keeps the instance while one
+   of its anys does and then releases it, possibly on another thread. */
+
+/* 1 if the stream keeps the caller's instances (it is that of
+   rorb_any_insert), else 0. */
+int32_t rorb_out_keeps_hosts(rorb_out* out);
+/* Like rorb_out_begin_value; takes host, a reference to the instance,
+   which the stream releases with release(host) when it does not keep it
+   (release may be NULL). */
+int32_t rorb_out_begin_host_value(rorb_out* out, uint64_t key, void* host,
+                                  void (*release)(void* host), size_t count,
+                                  const char* const* ids, const size_t* id_lens, int32_t chunked);
+
 /* Results of rorb_in_read_value_header. */
 #define RORB_VALUE_NULL 0
 #define RORB_VALUE_INDIRECTION 1
@@ -784,7 +802,11 @@ void rorb_out_end_value(rorb_out* out);
    *id_count repository ids (most derived first; none leaves the type to
    the receiver). After RORB_VALUE_NEW the caller makes its instance, keeps
    it with rorb_in_set_value (before reading the state, for cycles), reads
-   the state it knows and calls rorb_in_end_value, which skips the rest. */
+   the state it knows and calls rorb_in_end_value, which skips the rest.
+   On the stream of rorb_any_extract, a value whose core instance stands
+   for an instance of the caller is RORB_VALUE_INDIRECTION: its slot then
+   holds the pointer the caller gave with rorb_in_set_host_value or
+   rorb_out_begin_host_value. */
 int32_t rorb_in_read_value_header(rorb_in* in, size_t* slot, size_t* id_count);
 /* Repository id index of the last header, valid until the next one. */
 const char* rorb_in_value_id(rorb_in* in, size_t index, size_t* len);
@@ -794,6 +816,14 @@ void rorb_in_end_value(rorb_in* in);
 void rorb_in_set_value(rorb_in* in, size_t slot, void* ptr, void (*release)(void* ptr));
 /* The pointer kept for slot, or NULL. */
 void* rorb_in_get_value(rorb_in* in, size_t slot);
+/* Like rorb_in_set_value, with the key the caller writes the instance
+   with. On the stream of rorb_any_extract, the any's core instance then
+   keeps ptr instead of the stream (see rorb_out_begin_host_value). */
+void rorb_in_set_host_value(rorb_in* in, size_t slot, uint64_t key, void* ptr,
+                            void (*release)(void* ptr));
+/* 1 if the stream gives the instances read to the core (it is that of
+   rorb_any_extract), else 0. */
+int32_t rorb_in_keeps_hosts(rorb_in* in);
 
 /* Makes the valuetype tc known to the core, so that values of it in anys
    are read as that type where a base type is expected. */

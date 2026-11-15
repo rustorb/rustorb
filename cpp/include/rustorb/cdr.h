@@ -394,7 +394,22 @@ struct codec<CORBA::object_reference<T>,
 };
 
 // Valuetypes and value boxes.
-inline void write_value(rorb_out* out, const CORBA::ValueBase* v) {
+//
+// The address of the whole instance names it (whichever base a pointer
+// to it is), on the wire and to the core: an any keeps the instances
+// inserted into it, so that one instance put in several anys stays one
+// and extracting gives it back (rorb_out_begin_host_value).
+using value_ref = CORBA::object_reference<CORBA::ValueBase>;
+
+inline uint64_t value_key(const CORBA::ValueBase* v) {
+  return static_cast<uint64_t>(reinterpret_cast<uintptr_t>(dynamic_cast<const void*>(v)));
+}
+
+inline void release_value_ref(void* p) { delete static_cast<value_ref*>(p); }
+
+// Writes v; ref, if not null, is a reference to it, which the stream of an
+// any insertion keeps.
+inline void write_value(rorb_out* out, const CORBA::ValueBase* v, const value_ref* ref) {
   if (!v) {
     rorb_out_write_null_value(out);
     return;
@@ -403,12 +418,25 @@ inline void write_value(rorb_out* out, const CORBA::ValueBase* v) {
   std::vector<size_t> lens;
   lens.reserve(ids.size());
   for (const char* id : ids) lens.push_back(std::strlen(id));
-  // The address of the whole instance names it, whichever base v is.
-  auto key = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(dynamic_cast<const void*>(v)));
-  if (rorb_out_begin_value(out, key, ids.size(), ids.data(), lens.data(), v->_rorb_chunked() ? 1 : 0)) {
+  uint64_t key = value_key(v);
+  int32_t chunked = v->_rorb_chunked() ? 1 : 0;
+  int32_t state;
+  if (ref && rorb_out_keeps_hosts(out)) {
+    state = rorb_out_begin_host_value(out, key, new value_ref(*ref), release_value_ref, ids.size(),
+                                      ids.data(), lens.data(), chunked);
+  } else {
+    state = rorb_out_begin_value(out, key, ids.size(), ids.data(), lens.data(), chunked);
+  }
+  if (state) {
     v->_rorb_write_state(out);
     rorb_out_end_value(out);
   }
+}
+
+inline void write_value(rorb_out* out, const CORBA::ValueBase* v) { write_value(out, v, nullptr); }
+
+inline void write_value(rorb_out* out, const value_ref& v) {
+  write_value(out, detail::get_pointer(v), &v);
 }
 
 // Reads a value whose declared type has the repository id expected:
@@ -446,8 +474,9 @@ inline CORBA::object_reference<CORBA::ValueBase> read_value(rorb_in* in, const c
     rorb_in_fail(in);
     return nullptr;
   }
-  // Kept before the state is read, for the indirections inside it.
-  rorb_in_set_value(in, slot, new Ref(v), [](void* p) { delete static_cast<Ref*>(p); });
+  // Kept before the state is read, for the indirections inside it (and,
+  // reading an any, by the any afterwards).
+  rorb_in_set_host_value(in, slot, value_key(detail::get_pointer(v)), new Ref(v), release_value_ref);
   v->_rorb_read_state(in);
   rorb_in_end_value(in);
   return v;
@@ -457,7 +486,7 @@ template <typename T>
 struct codec<CORBA::object_reference<T>,
              std::enable_if_t<std::is_base_of<CORBA::ValueBase, T>::value>> {
   static void write(rorb_out* out, const CORBA::object_reference<T>& v) {
-    write_value(out, detail::get_pointer(v));
+    write_value(out, value_ref(v));
   }
   static void read(rorb_in* in, CORBA::object_reference<T>& v) {
     v = nullptr;
@@ -483,7 +512,8 @@ struct codec<CORBA::object_reference<T>,
     T* p = detail::get_pointer(v);
     if (auto* value = dynamic_cast<const CORBA::ValueBase*>(p)) {
       rorb_out_write_boolean(out, 0);
-      write_value(out, value);
+      value_ref ref(std::dynamic_pointer_cast<CORBA::ValueBase>(v._rorb_shared()));
+      write_value(out, value, &ref);
       return;
     }
     rorb_out_write_boolean(out, 1);
@@ -934,7 +964,7 @@ class DataOutputStream {
   void write_wstring(const std::wstring& v) { write(v); }
   void write_Object(const object_reference<Object>& v) { write(v); }
   void write_Value(const object_reference<ValueBase>& v) {
-    ::rustorb::cdr::write_value(out_, ::rustorb::detail::get_pointer(v));
+    ::rustorb::cdr::write_value(out_, v);
   }
   void write_Abstract(const object_reference<AbstractBase>& v) { write(v); }
   void write_TypeCode(const object_reference<TypeCode>& v) { write(v); }

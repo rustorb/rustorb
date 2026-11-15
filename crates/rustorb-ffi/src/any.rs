@@ -14,6 +14,7 @@ use rustorb_core::{
     TypeCode, TypeCodeError,
 };
 
+use crate::host;
 use crate::stream::{In, Out, RorbIn, RorbOut};
 use crate::{
     CALLBACK_FAILED, Exception, OK, Status, bad_param, guard, into_handle, local, release_handle,
@@ -653,6 +654,7 @@ pub unsafe extern "C" fn rorb_any_insert(
         let tc = unsafe { &*tc };
         let mut enc = encoder();
         let mut orb = None;
+        let written;
         {
             let mut stream = OutStream::standalone(&mut enc);
             if let Some(id) = exception_id(tc) {
@@ -661,6 +663,7 @@ pub unsafe extern "C" fn rorb_any_insert(
                 }
             }
             let mut out = Out::standalone(&mut stream);
+            out.written = Some(Vec::new());
             if let Some(write) = write {
                 crate::stack::commit();
                 let status = unsafe { write(context, out.as_ptr()) };
@@ -674,6 +677,7 @@ pub unsafe extern "C" fn rorb_any_insert(
             if let Some(o) = out.objects.first() {
                 orb = Some(o.orb().clone());
             }
+            written = out.written.take().unwrap_or_default();
         }
         let orb = orb.or_else(default_orb);
         let bytes = enc.into_bytes();
@@ -681,8 +685,28 @@ pub unsafe extern "C" fn rorb_any_insert(
             Decoder::new(&bytes, ByteOrder::Big, Encoding::Giop1_2),
             orb.as_ref(),
         );
+        // An instance of the caller that a core instance stands for
+        // already is read into that one (see `host`).
+        for w in &written {
+            if let Some(v) = host::lookup(w.key) {
+                input.preset_value(w.slot, v);
+            }
+        }
         match input.read_value(tc) {
             Ok(v) => {
+                for w in written {
+                    let Some(r) = input.value_at(w.slot) else {
+                        continue;
+                    };
+                    if r.native().is_some() {
+                        // Reused, or made by a custom reader.
+                        continue;
+                    }
+                    if let Some(h) = w.host {
+                        let (ptr, release) = h.take();
+                        host::attach(r, w.key, ptr, release);
+                    }
+                }
                 unsafe { out.write(into_handle(Any::new(tc.clone(), v))) };
                 OK
             }
@@ -703,11 +727,14 @@ pub unsafe extern "C" fn rorb_any_extract(
     guard(exc, || {
         let any = unsafe { &*any };
         let mut enc = encoder();
+        let bound;
         {
             let mut stream = OutStream::standalone(&mut enc);
+            stream.log_values();
             if let Err(e) = stream.write_value(any.typecode(), any.value()) {
                 return unsafe { set_system(exc, &e) };
             }
+            bound = stream.written_values();
         }
         let orb = first_object(any.value())
             .map(|o| o.orb().clone())
@@ -723,6 +750,7 @@ pub unsafe extern "C" fn rorb_any_extract(
             }
         }
         let mut input = In::new(&mut stream, CompletionStatus::No);
+        input.bound = Some(bound);
         if let Some(read) = read {
             crate::stack::commit();
             let status = unsafe { read(context, input.as_ptr()) };
@@ -730,10 +758,21 @@ pub unsafe extern "C" fn rorb_any_extract(
                 return CALLBACK_FAILED;
             }
         }
-        match input.error.take() {
-            Some(e) => unsafe { set_system(exc, &e) },
-            None => OK,
+        if let Some(e) = input.error.take() {
+            return unsafe { set_system(exc, &e) };
         }
+        // The caller's instances read stand for the core instances from
+        // now on (see `host`).
+        let bound = input.bound.take().unwrap_or_default();
+        for (held, v) in input.values.iter_mut().zip(&bound) {
+            let Some(held) = held else { continue };
+            let Some(key) = held.key else { continue };
+            if v.native().is_none() {
+                let (ptr, release) = held.take();
+                host::attach(v, key, ptr, release);
+            }
+        }
+        OK
     })
 }
 

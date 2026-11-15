@@ -9,9 +9,12 @@
 
 use std::ffi::{c_char, c_void};
 
+use std::sync::Arc;
+
 use rustorb_cdr::ValueHeader;
 use rustorb_core::TypeCode;
 
+use crate::host::{Host, Owned, Written, host_of};
 use crate::str_arg;
 use crate::stream::{RorbIn, RorbOut};
 
@@ -28,6 +31,17 @@ pub type ReleaseFn = Option<unsafe extern "C" fn(*mut c_void)>;
 pub struct Held {
     ptr: *mut c_void,
     release: ReleaseFn,
+    /// The caller's key of the instance (`rorb_in_set_host_value`).
+    pub(crate) key: Option<u64>,
+    /// The core's reference, for an instance a core instance stands for.
+    _host: Option<Arc<Host>>,
+}
+
+impl Held {
+    /// The pointer and its release function, taken over from the stream.
+    pub(crate) fn take(&mut self) -> (*mut c_void, ReleaseFn) {
+        (self.ptr, self.release.take())
+    }
 }
 
 impl Drop for Held {
@@ -60,17 +74,63 @@ pub unsafe extern "C" fn rorb_out_begin_value(
     id_lens: *const usize,
     chunked: i32,
 ) -> i32 {
-    let out = unsafe { &mut *out };
+    unsafe { begin_value(&mut *out, key, None, count, ids, id_lens, chunked) }
+}
+
+/// Whether the stream keeps the caller's instances written
+/// (`rorb_out_begin_host_value`): 1 for the stream of `rorb_any_insert`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_out_keeps_hosts(out: *mut RorbOut) -> i32 {
+    i32::from(unsafe { &*out }.written.is_some())
+}
+
+/// Like `rorb_out_begin_value`, and takes `host`, a reference to the
+/// caller's instance (released with `release` when not kept): an any
+/// whose value is read back from the stream keeps it, so that extracting
+/// gives the same instance, and inserting the instance (the same key)
+/// again reuses the core's instance.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_out_begin_host_value(
+    out: *mut RorbOut,
+    key: u64,
+    host: *mut c_void,
+    release: ReleaseFn,
+    count: usize,
+    ids: *const *const c_char,
+    id_lens: *const usize,
+    chunked: i32,
+) -> i32 {
+    let host = Owned::new(host, release);
+    unsafe { begin_value(&mut *out, key, Some(host), count, ids, id_lens, chunked) }
+}
+
+unsafe fn begin_value(
+    out: &mut RorbOut,
+    key: u64,
+    host: Option<Owned>,
+    count: usize,
+    ids: *const *const c_char,
+    id_lens: *const usize,
+    chunked: i32,
+) -> i32 {
     let mut state = false;
+    let mut slot = 0;
     out.with(|s| {
         let mut list = Vec::with_capacity(count);
         for i in 0..count {
             list.push(unsafe { str_arg(*ids.add(i), *id_lens.add(i)) }?);
         }
+        slot = s.value_count();
         state = s.begin_value(key, &list, chunked != 0)?;
         Ok(())
     });
-    i32::from(state && out.error.is_none())
+    let state = state && out.error.is_none();
+    if state {
+        if let Some(written) = &mut out.written {
+            written.push(Written { slot, key, host });
+        }
+    }
+    i32::from(state)
 }
 
 #[unsafe(no_mangle)]
@@ -100,17 +160,53 @@ pub unsafe extern "C" fn rorb_in_read_value_header(
     match header {
         None | Some(ValueHeader::Null) => VALUE_NULL,
         Some(ValueHeader::Indirection(n)) => {
+            // To a value skipped inside one given back (below).
+            input.hold_host(n);
             unsafe { *slot = n };
             VALUE_INDIRECTION
         }
         Some(ValueHeader::Value { slot: n, ids, .. }) => {
-            unsafe {
-                *slot = n;
-                *id_count = ids.len();
+            unsafe { *slot = n };
+            if input.hold_host(n) {
+                // The caller's instance is given back: its state (always
+                // chunked in this stream) is skipped.
+                let e = input.marshal();
+                input.read(|s| s.end_value().map_err(|_| e));
+                return VALUE_INDIRECTION;
             }
+            unsafe { *id_count = ids.len() };
             input.value_ids = ids;
             VALUE_NEW
         }
+    }
+}
+
+impl RorbIn {
+    /// For the stream of `rorb_any_extract`: keeps for `slot` the
+    /// caller's instance the core instance written there stands for, if
+    /// it has one and none is kept yet; whether one is kept now.
+    fn hold_host(&mut self, slot: usize) -> bool {
+        if matches!(self.values.get(slot), Some(Some(_))) {
+            return false;
+        }
+        let Some(host) = self
+            .bound
+            .as_ref()
+            .and_then(|b| b.get(slot))
+            .and_then(host_of)
+        else {
+            return false;
+        };
+        if self.values.len() <= slot {
+            self.values.resize_with(slot + 1, || None);
+        }
+        self.values[slot] = Some(Held {
+            ptr: host.ptr,
+            release: None,
+            key: None,
+            _host: Some(host),
+        });
+        true
     }
 }
 
@@ -153,11 +249,47 @@ pub unsafe extern "C" fn rorb_in_set_value(
     ptr: *mut c_void,
     release: ReleaseFn,
 ) {
-    let input = unsafe { &mut *input };
+    unsafe { set_value(&mut *input, slot, None, ptr, release) }
+}
+
+/// Like `rorb_in_set_value`, with the caller's key of the instance (as it
+/// writes it with `rorb_out_begin_host_value`): the stream of
+/// `rorb_any_extract` then gives `ptr` to the any's core instance, which
+/// keeps it instead of the stream.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_in_set_host_value(
+    input: *mut RorbIn,
+    slot: usize,
+    key: u64,
+    ptr: *mut c_void,
+    release: ReleaseFn,
+) {
+    unsafe { set_value(&mut *input, slot, Some(key), ptr, release) }
+}
+
+/// Whether the stream gives the caller's instances it reads to the core
+/// (`rorb_in_set_host_value`): 1 for the stream of `rorb_any_extract`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rorb_in_keeps_hosts(input: *mut RorbIn) -> i32 {
+    i32::from(unsafe { &*input }.bound.is_some())
+}
+
+unsafe fn set_value(
+    input: &mut RorbIn,
+    slot: usize,
+    key: Option<u64>,
+    ptr: *mut c_void,
+    release: ReleaseFn,
+) {
     if input.values.len() <= slot {
         input.values.resize_with(slot + 1, || None);
     }
-    input.values[slot] = Some(Held { ptr, release });
+    input.values[slot] = Some(Held {
+        ptr,
+        release,
+        key,
+        _host: None,
+    });
 }
 
 /// The instance kept for `slot`, or NULL (an indirection to a value the
