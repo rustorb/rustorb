@@ -57,6 +57,18 @@ break the API).
   `rorb_poa_manager_get_id`, `rorb_poa_manager_equal` and the local exception
   `RORB_MANAGER_ALREADY_EXISTS` (27). Rust's `PoaError` gets
   `ManagerAlreadyExists` and `Policy`.
+- `giop:unix` endpoints, omniORB's Unix domain sockets (docs/unix-transport.md,
+  #157), on Linux and macOS: `-ORBendPoint giop:unix:PATH` (an empty PATH
+  makes a socket in `/tmp/omni-USER/`, a PATH ending in `/` one in that
+  directory), `OrbOptions::unix_endpoints` and `Orb::unix_endpoints`. The
+  sockets go into IORs as omniORB's `TAG_OMNIORB_UNIX_TRANS` components
+  (`rustorb_giop::UnixTrans`), and clients use one before TCP or TLS when it
+  names their own host, falling back to the other addresses when it cannot be
+  reached. Bidirectional GIOP works over them. Python, C++ and Java take the
+  same ORB argument. A socket file is removed when the ORB shuts down; a
+  stale socket at the path is replaced, but, unlike omniORB, a socket in use
+  or a file that is not a socket makes the endpoint fail. The interop matrix
+  gains `--unix`.
 
 ### Fixed
 

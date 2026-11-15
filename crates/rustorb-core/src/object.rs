@@ -9,10 +9,11 @@ use rustorb_giop::{
     AddressingDisposition, AlternateIiopAddress, Body, CancelRequestHeader, CodeSetComponentInfo,
     Ior, LocateRequestHeader, LocateStatus, Message, MessageEncoder, OutMessage, ReplyStatus,
     RequestHeader, ServiceContext, SslSecTrans, SystemExceptionBody, TAG_INTERNET_IOP,
-    TAG_MULTIPLE_COMPONENTS, TargetAddress, Version, component_tag, decode_message, response_flags,
+    TAG_MULTIPLE_COMPONENTS, TargetAddress, UnixTrans, Version, component_tag, decode_message,
+    response_flags,
 };
 
-use crate::connection::{Closed, Connection, SendError};
+use crate::connection::{Closed, Connection, SendError, Transport};
 use crate::pi::{
     self, ClientEnding, ClientRequest, ClientRequestInfo, DiiParams, Interceptors, sync_scope,
 };
@@ -692,17 +693,23 @@ struct Endpoint {
     version: Version,
     host: String,
     port: u16,
-    /// A TLS endpoint (from `TAG_SSL_SEC_TRANS`).
-    tls: bool,
+    /// TCP, TLS (from `TAG_SSL_SEC_TRANS`), or a Unix socket (from
+    /// `TAG_OMNIORB_UNIX_TRANS`; `host` is then the socket's path).
+    transport: Transport,
     object_key: Vec<u8>,
     code_sets: Option<CodeSetComponentInfo>,
 }
 
 /// Every IIOP address in `ior` this ORB can use, in order: for each
-/// profile, its TLS endpoint if it has one and the ORB can use TLS
+/// profile, its `giop:unix` sockets on this host (docs/unix-transport.md),
+/// then its TLS endpoint if it has one and the ORB can use TLS
 /// (docs/ssliop.md), else its own address and its alternate addresses.
 /// A port of 0 is no address.
 fn endpoints(ior: &Ior, can_tls: bool) -> Vec<Endpoint> {
+    #[cfg(unix)]
+    let local_host = Some(crate::unix::host());
+    #[cfg(not(unix))]
+    let local_host: Option<&str> = None;
     let shared: Vec<_> = ior
         .profiles
         .iter()
@@ -735,21 +742,33 @@ fn endpoints(ior: &Ior, can_tls: bool) -> Vec<Endpoint> {
             .find(|c| c.tag == component_tag::SSL_SEC_TRANS)
             .and_then(|c| SslSecTrans::from_component(c).ok());
         let mut addrs = Vec::new();
+        if let Some(local_host) = local_host {
+            // Only sockets on this host can be reached; the host name is
+            // compared like omniORB does (seen from outside).
+            addrs.extend(
+                components
+                    .iter()
+                    .filter(|c| c.tag == component_tag::OMNIORB_UNIX_TRANS)
+                    .filter_map(|c| UnixTrans::from_component(c).ok())
+                    .filter(|u| !u.path.is_empty() && u.host.eq_ignore_ascii_case(local_host))
+                    .map(|u| (u.path, 0, Transport::Unix)),
+            );
+        }
         if let (Some(ssl), true) = (ssl, can_tls) {
             // Not unprotected instead, should the TLS endpoint fail.
-            addrs.push((iiop.host.clone(), ssl.port, true));
+            addrs.push((iiop.host.clone(), ssl.port, Transport::Tls));
         } else {
-            addrs.push((iiop.host.clone(), iiop.port, false));
+            addrs.push((iiop.host.clone(), iiop.port, Transport::Tcp));
             addrs.extend(
                 components
                     .iter()
                     .filter(|c| c.tag == component_tag::ALTERNATE_IIOP_ADDRESS)
                     .filter_map(|c| AlternateIiopAddress::from_component(c).ok())
-                    .map(|a| (a.host, a.port, false)),
+                    .map(|a| (a.host, a.port, Transport::Tcp)),
             );
         }
-        for (host, port, tls) in addrs {
-            if port == 0 {
+        for (host, port, transport) in addrs {
+            if port == 0 && transport != Transport::Unix {
                 continue;
             }
             out.push(Endpoint {
@@ -757,7 +776,7 @@ fn endpoints(ior: &Ior, can_tls: bool) -> Vec<Endpoint> {
                 version: iiop.version,
                 host,
                 port,
-                tls,
+                transport,
                 object_key: iiop.object_key.clone(),
                 code_sets: code_sets.clone(),
             });
@@ -1064,7 +1083,7 @@ fn invoke<A: WriteArgs + ?Sized>(
             .map(|i| i.take_request_contexts())
             .unwrap_or_default();
         let mut reply_contexts = Vec::new();
-        let mut attempt = match orb.local_server(&ep.host, ep.port, ep.tls) {
+        let mut attempt = match orb.local_server(&ep.host, ep.port, ep.transport) {
             Some(server) => {
                 match local_call(orb, &ior, &ep, kind, deadline, disposition, &contexts) {
                     Ok(call) => {
@@ -1164,7 +1183,7 @@ async fn invoke_async<A: WriteArgs + ?Sized>(
             .map(|i| i.take_request_contexts())
             .unwrap_or_default();
         let mut reply_contexts = Vec::new();
-        let mut attempt = match orb.local_server(&ep.host, ep.port, ep.tls) {
+        let mut attempt = match orb.local_server(&ep.host, ep.port, ep.transport) {
             Some(server) => {
                 match local_call(orb, &ior, &ep, kind, deadline, disposition, &contexts) {
                     Ok(call) => {
@@ -1266,7 +1285,10 @@ async fn attempt<A: WriteArgs + ?Sized>(
     let deadline = x.deadline;
     let mut result = Attempt::NotSent(sys(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No));
     for _ in 0..CLOSED_ATTEMPTS {
-        let conn = match orb.connection(&ep.host, ep.port, ep.tls, deadline).await {
+        let conn = match orb
+            .connection(&ep.host, ep.port, ep.transport, deadline)
+            .await
+        {
             Ok(conn) => conn,
             // Out of time: the other addresses are not tried.
             Err(e) if e.is(SystemExceptionKind::TIMEOUT) => return Attempt::Done(Err(e.into())),

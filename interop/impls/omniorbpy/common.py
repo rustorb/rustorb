@@ -43,7 +43,12 @@ def orb_init(args, orb_args):
         sslTP.certificate_authority_file(os.path.join(ssl, "ca.pem"))
         sslTP.key_file(os.path.join(ssl, "server-bundle.pem"))
         sslTP.key_file_password("")
-    if args.port:
+    # INTEROP_UNIX=DIR (run-matrix.sh --unix): the endpoint is a Unix
+    # socket in DIR only (omniORB's giop:unix).
+    unix = os.environ.get("INTEROP_UNIX")
+    if args.port and unix:
+        argv += ["-ORBendPoint", "giop:unix:%s/%s-%d.sock" % (unix, args.host, args.port)]
+    elif args.port:
         endpoint = "giop:%s:%s:%d" % ("ssl" if ssl else "tcp", args.host or "", args.port)
         argv += ["-ORBendPoint", endpoint]
     return CORBA.ORB_init(argv, CORBA.ORB_ID)

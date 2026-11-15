@@ -11,7 +11,7 @@ use rustorb_cdr::ByteOrder;
 use rustorb_giop::{CorbaName, Corbaloc, Ior, ObjectUrl, Version};
 use tokio::runtime::{Handle, Runtime};
 
-use crate::connection::{Connection, ConnectionPool};
+use crate::connection::{Connection, ConnectionPool, Peer, Transport};
 use crate::poa::{self, MainThreadGuard, Poa};
 use crate::pool::Job;
 use crate::server::Server;
@@ -133,6 +133,14 @@ pub struct OrbOptions {
     /// Address published for the first TLS endpoint instead of the
     /// listening one (`-ORBendPointPublish giop:ssl:HOST:PORT`).
     pub tls_endpoint_publish: Option<EndpointAddr>,
+    /// Unix domain sockets to listen on (omniORB's
+    /// `-ORBendPoint giop:unix:PATH`, Linux and macOS only): each entry is
+    /// the path of the socket. An empty path is a new socket in
+    /// `/tmp/omni-USER/`, and a path ending in `/` a new socket in that
+    /// directory. Published in the `TAG_OMNIORB_UNIX_TRANS` components of
+    /// IORs, which clients on the same host use before TCP. See
+    /// docs/unix-transport.md.
+    pub unix_endpoints: Vec<String>,
     /// Certificates, key and checks of TLS connections, client and server.
     pub tls: TlsOptions,
     /// The trace level of the process (`-ORBtraceLevel N`), set when the
@@ -282,6 +290,7 @@ impl Default for OrbOptions {
             socket_send_buffer: None,
             socket_receive_buffer: None,
             tls_endpoints: Vec::new(),
+            unix_endpoints: Vec::new(),
             tls_endpoint_publish: None,
             tls: TlsOptions::default(),
             trace_level: None,
@@ -322,6 +331,7 @@ impl OrbOptions {
     /// | `-ORBacceptBiDirectionalGIOP 0\|1` | [`accept_bidir`](OrbOptions::accept_bidir) |
     /// | `-ORBendPoint giop:ssl:HOST:PORT` | [`tls_endpoints`](OrbOptions::tls_endpoints) (repeatable) |
     /// | `-ORBendPointPublish giop:ssl:HOST:PORT` | [`tls_endpoint_publish`](OrbOptions::tls_endpoint_publish) |
+    /// | `-ORBendPoint giop:unix:PATH` | [`unix_endpoints`](OrbOptions::unix_endpoints) (repeatable; Unix only) |
     /// | `-ORBsslCAFile PATH` | [`TlsOptions::ca_file`] |
     /// | `-ORBsslCertFile PATH` | [`TlsOptions::cert_file`] |
     /// | `-ORBsslKeyFile PATH` | [`TlsOptions::key_file`] |
@@ -448,6 +458,13 @@ impl OrbOptions {
                     if !matches!(value.as_str(), "0" | "1") {
                         return Err(bad_option());
                     }
+                }
+                "endPoint" if value.starts_with("giop:unix:") => {
+                    if !cfg!(unix) {
+                        return Err(bad_option());
+                    }
+                    self.unix_endpoints
+                        .push(value["giop:unix:".len()..].to_owned());
                 }
                 "endPoint" if value.starts_with("giop:ssl:") => self
                     .tls_endpoints
@@ -1208,10 +1225,23 @@ impl Orb {
         self.inner.server.lock().unwrap().clone()
     }
 
-    /// The server side, if `host:port` is one of its endpoints (a TLS one
-    /// if `tls`).
-    pub(crate) fn local_server(&self, host: &str, port: u16, tls: bool) -> Option<Arc<Server>> {
-        self.server().filter(|s| s.is_local(host, port, tls))
+    /// The server side, if `host:port` is one of its endpoints over
+    /// `transport` (for a Unix socket, `host` is its path).
+    pub(crate) fn local_server(
+        &self,
+        host: &str,
+        port: u16,
+        transport: Transport,
+    ) -> Option<Arc<Server>> {
+        self.server().filter(|s| s.is_local(host, port, transport))
+    }
+
+    /// The paths of the `giop:unix` sockets the server side listens on
+    /// and publishes in IORs; empty until the RootPOA is used.
+    pub fn unix_endpoints(&self) -> Vec<String> {
+        self.server()
+            .map(|s| s.published_unix().to_vec())
+            .unwrap_or_default()
     }
 
     /// The addresses the server side publishes in IORs, as host and port;
@@ -1496,17 +1526,21 @@ impl Orb {
         &self,
         host: &str,
         port: u16,
-        tls: bool,
+        transport: Transport,
         deadline: Option<Instant>,
     ) -> Result<Arc<Connection>, SystemException> {
         self.check_running()?;
-        let key = (host.to_owned(), port, tls);
+        let key = (host.to_owned(), port, transport);
         if let Some(conn) = self.inner.connections.lock().unwrap().get(&key) {
             if conn.is_usable() {
                 return Ok(Arc::clone(conn));
             }
         }
-        let config = if tls { Some(self.tls_client()?) } else { None };
+        let config = if transport == Transport::Tls {
+            Some(self.tls_client()?)
+        } else {
+            None
+        };
         if let Some(timeout) = self.inner.options.client_idle_timeout {
             self.inner.idle_scan.get_or_init(|| {
                 self.inner.handle.spawn(close_idle(
@@ -1519,6 +1553,7 @@ impl Orb {
         let connect = Connection::connect(
             host,
             port,
+            transport == Transport::Unix,
             config,
             &self.inner.options,
             Arc::downgrade(&self.inner.connections),
@@ -1599,9 +1634,8 @@ async fn close_idle(
         drop(pool);
         for conn in idle {
             trace::info!(
-                "closing the connection to {}:{}: idle for {timeout:?}",
-                conn.endpoint().0,
-                conn.endpoint().1
+                "closing the connection to {}: idle for {timeout:?}",
+                Peer(conn.endpoint())
             );
             tokio::spawn(async move { conn.close_idle(order).await });
         }

@@ -295,6 +295,7 @@ Every binding takes the same `-ORB...` options (from the command line, or
 | `-ORBmaxServerConnections N` | the most connections the server keeps open (default: no limit) |
 | `-ORBofferBiDirectionalGIOP 1`, `-ORBacceptBiDirectionalGIOP 1` | bidirectional GIOP: callbacks over the connection the client opened ([bidir-giop.md](bidir-giop.md)) |
 | `-ORBendPoint giop:ssl:HOST:PORT`, `-ORBsslCAFile`, `-ORBsslKeyFile` | SSLIOP ([ssliop.md](ssliop.md)) |
+| `-ORBendPoint giop:unix:PATH` | listen on a Unix domain socket, omniORB's `giop:unix` (Linux and macOS; [unix-transport.md](unix-transport.md)) |
 | `-ORBid ID`, `-ORBServerId ID` | the ORB id and server id that Portable Interceptors see ([portable-interceptors.md](portable-interceptors.md)) |
 | `-ORBtraceLevel N`, `-ORBtraceTime 1` | trace output on standard error, or `logging` in Python: 5 connections, 10 requests, 25 GIOP messages ([tracing.md](tracing.md)) |
 

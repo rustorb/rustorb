@@ -74,7 +74,14 @@ inline Options parse_args(int argc, char** argv, std::vector<std::string>& orb_a
     orb_args.push_back("-ORBsslVerifyClient");
     orb_args.push_back("required");
   }
-  if (opt.port) {
+  // INTEROP_UNIX=DIR (run-matrix.sh --unix): the endpoint is a Unix socket
+  // in DIR only (omniORB's giop:unix).
+  const char* unix_dir = std::getenv("INTEROP_UNIX");
+  if (opt.port && unix_dir && *unix_dir) {
+    orb_args.push_back("-ORBendPoint");
+    orb_args.push_back(std::string("giop:unix:") + unix_dir + "/" + opt.host + "-" +
+                       std::to_string(opt.port) + ".sock");
+  } else if (opt.port) {
     orb_args.push_back("-ORBendPoint");
     orb_args.push_back((tls ? "giop:ssl:" : "giop:tcp:") + opt.host + ":" +
                        std::to_string(opt.port));
