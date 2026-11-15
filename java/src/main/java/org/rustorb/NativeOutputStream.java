@@ -339,7 +339,17 @@ final class NativeOutputStream extends org.omg.CORBA_2_3.portable.OutputStream {
                     CompletionStatus.COMPLETED_MAYBE);
         }
         // Custom values are always chunked.
-        if (Native.outBeginValue(out(), key(value), ids, ids.length > 1 || custom)) {
+        boolean chunked = ids.length > 1 || custom;
+        boolean state;
+        if (Native.outKeepsHosts(out())) {
+            // Inserting into an any: the core keeps the instance, by a
+            // number that stays the same while it does.
+            long host = Hosts.retain(value);
+            state = Native.outBeginHostValue(out(), host, host, ids, chunked);
+        } else {
+            state = Native.outBeginValue(out(), key(value), ids, chunked);
+        }
+        if (state) {
             if (helper != null) {
                 helper.write_value(this, value);
             } else if (custom) {

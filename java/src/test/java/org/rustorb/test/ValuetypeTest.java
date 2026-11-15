@@ -109,6 +109,53 @@ class ValuetypeTest {
         }
     }
 
+    static final class P extends Point {
+        private static final long serialVersionUID = 1L;
+    }
+
+    static final class N extends Node {
+        private static final long serialVersionUID = 1L;
+    }
+
+    /** An any holds its valuetype instance by reference (#164): one
+     * instance in several anys stays one, and extracting gives it back. */
+    @Test
+    void anysShareValues() throws Exception {
+        try (Orbs orbs = new Orbs()) {
+            ORB orb = orbs.client;
+            Point p = new P();
+            p.x = 1;
+            p.y = 2;
+            org.omg.CORBA.Any a = orb.create_any();
+            org.omg.CORBA.Any b = orb.create_any();
+            PointHelper.insert(a, p);
+            PointHelper.insert(b, p);
+            assertSame(p, PointHelper.extract(a));
+            assertSame(p, PointHelper.extract(b));
+            assertTrue(a.equal(b));
+            // Inserting it again replaces the state the anys hold.
+            p.x = 5;
+            org.omg.CORBA.Any c = orb.create_any();
+            PointHelper.insert(c, p);
+            assertTrue(a.equal(c));
+            assertTrue(b.equal(c));
+            // An instance inside another is given back too.
+            Node tail = new N();
+            tail.id = 2;
+            Node head = new N();
+            head.id = 1;
+            head.next = tail;
+            org.omg.CORBA.Any d = orb.create_any();
+            NodeHelper.insert(d, head);
+            org.omg.CORBA.Any e = orb.create_any();
+            NodeHelper.insert(e, tail);
+            Node got = NodeHelper.extract(d);
+            assertSame(head, got);
+            assertSame(tail, got.next);
+            assertSame(tail, NodeHelper.extract(e));
+        }
+    }
+
     @Test
     void defaultFactories() throws Exception {
         try (Orbs orbs = new Orbs()) {

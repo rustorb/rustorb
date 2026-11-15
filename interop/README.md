@@ -263,9 +263,7 @@ DSI); both are in `impls/rustorbcpp/dii_adapters.h`. C++ has no
 descriptions of the operations at run time, so the proxies and the
 dispatch are written per operation, for the basic, any and value suites.
 The callback objects of the client and the calls the servants make stay
-static. `same[shared]` of the value suite is a known failure: a C++ any
-holds a copy of its valuetype, so one instance in two anys is two
-instances (docs/dii-dsi.md).
+static.
 
 ```sh
 interop/run-matrix.sh rustorbcpp-dii:omniorb-cpp omniorbpy:rustorbcpp-dii
@@ -333,8 +331,7 @@ servants behind a `PortableServer.DynamicImplementation` that reads the
 arguments with `org.omg.CORBA.ServerRequest` and calls the static servant
 (the DSI); both are in `impls/java/interop/DiiAdapters.java`, which uses
 only the standard API. The callback objects of the client and the calls the
-servants make stay static. `same[shared]` of the value suite is a known
-failure, as for `rustorbcpp-dii`: a Java any holds a copy of its valuetype.
+servants make stay static.
 `java/` (`DiiTest`) runs the same adapters in one process.
 
 ```sh

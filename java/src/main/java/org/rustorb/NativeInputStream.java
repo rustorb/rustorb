@@ -299,6 +299,10 @@ class NativeInputStream extends org.omg.CORBA_2_3.portable.InputStream {
                 values = new java.util.HashMap<>();
             }
             values.put(pendingSlot, value);
+            if (Native.inKeepsHosts(in())) {
+                // Reading an any: the core's instance keeps this one.
+                Native.inSetHostValue(in(), pendingSlot, Hosts.retain(value));
+            }
             pendingSlot = -1;
         }
     }
@@ -314,6 +318,13 @@ class NativeInputStream extends org.omg.CORBA_2_3.portable.InputStream {
         long slot = slotCount[0];
         if (kind == Native.VALUE_INDIRECTION) {
             java.io.Serializable v = values == null ? null : values.get(slot);
+            if (v == null) {
+                // Reading an any: the instance the core's stands for.
+                long host = Native.inGetValue(in(), slot);
+                if (host != 0) {
+                    v = (java.io.Serializable) Hosts.get(host);
+                }
+            }
             if (v == null) {
                 Native.inFail(in());
             }

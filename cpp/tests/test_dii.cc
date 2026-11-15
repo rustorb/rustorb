@@ -26,11 +26,7 @@ namespace PI = PortableInterceptor;
 using ObjectRef = IDL::traits<CORBA::Object>::ref_type;
 using EchoRef = IDL::traits<InteropTest::Echo>::ref_type;
 
-// A case whose failure is known (docs/dii-dsi.md): C++ anys copy their
-// valuetypes, so one instance in two anys arrives as two.
-static const std::set<std::string> known_failures = {"same[shared]"};
-
-// Runs the cases of a suite, counting the known failures apart.
+// Runs the cases of a suite.
 static int run_suite(const std::string& label, const std::function<void(Runner&)>& cases) {
   Runner r;
   std::cout << "--- " << label << std::endl;
@@ -41,11 +37,9 @@ static int run_suite(const std::string& label, const std::function<void(Runner&)
     std::cout << "FAIL " << label << ": " << e << std::endl;
     ++failed;
   }
-  for (const auto& name : r.failed()) {
-    if (!known_failures.count(name)) ++failed;
-  }
-  std::cout << label << ": " << r.passed() << " passed, " << r.failed().size() << " failed ("
-            << failed << " unexpected)" << std::endl;
+  failed += static_cast<int>(r.failed().size());
+  std::cout << label << ": " << r.passed() << " passed, " << r.failed().size() << " failed"
+            << std::endl;
   return failed;
 }
 

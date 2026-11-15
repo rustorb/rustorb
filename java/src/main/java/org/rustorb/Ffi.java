@@ -245,6 +245,10 @@ final class Ffi {
             FunctionDescriptor.of(JAVA_INT, JAVA_LONG), CRITICAL);
     static final MethodHandle rorb_in_from_bytes = fn("rorb_in_from_bytes",
             FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_LONG));
+    static final MethodHandle rorb_in_get_value = fn("rorb_in_get_value",
+            FunctionDescriptor.of(JAVA_LONG, JAVA_LONG, JAVA_LONG), CRITICAL);
+    static final MethodHandle rorb_in_keeps_hosts = fn("rorb_in_keeps_hosts",
+            FunctionDescriptor.of(JAVA_INT, JAVA_LONG), CRITICAL);
     static final MethodHandle rorb_in_new = fn("rorb_in_new",
             FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG));
     static final MethodHandle rorb_in_read_any = fn("rorb_in_read_any",
@@ -293,6 +297,8 @@ final class Ffi {
             FunctionDescriptor.of(JAVA_LONG, JAVA_LONG, JAVA_LONG), CRITICAL);
     static final MethodHandle rorb_in_release = fn("rorb_in_release",
             FunctionDescriptor.ofVoid(JAVA_LONG));
+    static final MethodHandle rorb_in_set_host_value = fn("rorb_in_set_host_value",
+            FunctionDescriptor.ofVoid(JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG));
     static final MethodHandle rorb_in_value_id = fn("rorb_in_value_id",
             FunctionDescriptor.of(JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG));
     static final MethodHandle rorb_init_info_add_client_request_interceptor = fn("rorb_init_info_add_client_request_interceptor",
@@ -413,11 +419,15 @@ final class Ffi {
             FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG));
     static final MethodHandle rorb_orb_work_pending = fn("rorb_orb_work_pending",
             FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_LONG));
+    static final MethodHandle rorb_out_begin_host_value = fn("rorb_out_begin_host_value",
+            FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_INT));
     static final MethodHandle rorb_out_begin_value = fn("rorb_out_begin_value",
             FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_INT));
     static final MethodHandle rorb_out_end_value = fn("rorb_out_end_value",
             FunctionDescriptor.ofVoid(JAVA_LONG));
     static final MethodHandle rorb_out_failed = fn("rorb_out_failed",
+            FunctionDescriptor.of(JAVA_INT, JAVA_LONG), CRITICAL);
+    static final MethodHandle rorb_out_keeps_hosts = fn("rorb_out_keeps_hosts",
             FunctionDescriptor.of(JAVA_INT, JAVA_LONG), CRITICAL);
     static final MethodHandle rorb_out_write_any = fn("rorb_out_write_any",
             FunctionDescriptor.ofVoid(JAVA_LONG, JAVA_LONG));

@@ -93,6 +93,7 @@ C++ と Java のバインディングは、状態の読み書きを自分で行�
 
 - 書き出し：`rorb_out_write_null_value`、`rorb_out_begin_value(out, key, count, ids, id_lens, chunked)`、`rorb_out_end_value`。`key` は呼び出し側のインスタンスの名前（C++ はオブジェクトのアドレス、Java は `IdentityHashMap` で振った `1 << 62` 以上の番号）で、同じストリームで2回目の `key` は間接参照になり 0 を返す。1 を返したときだけ状態を書いて `end_value` を呼ぶ
 - 読み込み：`rorb_in_read_value_header(in, &slot, &id_count)` が `RORB_VALUE_NULL` / `RORB_VALUE_INDIRECTION` / `RORB_VALUE_NEW` を返す。新しい値なら `rorb_in_value_id(in, i, &len)` で受け取った ID を見てファクトリを選び、インスタンスを作ったらすぐ（状態を読む前に。循環のため）`rorb_in_set_value(in, slot, ptr, release)` で置き、状態を読んで `rorb_in_end_value`（切り捨てた残りを読み飛ばす）。間接参照は `rorb_in_get_value(in, slot)` で置いたインスタンスを得る。置いたインスタンスはストリームの終わりに `release(ptr)` で手放す
+- Any の中の値とインスタンスを結ぶ関数（`rorb_out_keeps_hosts`・`rorb_out_begin_host_value`・`rorb_in_set_host_value`・`rorb_in_keeps_hosts`）は [Any の中のインスタンス](#any-の中のインスタンス) に書いた
 - `rorb_tc_value` が valuetype の TypeCode を作る（`ORB::create_value_tc`）。`rorb_register_value_type(tc)` で、Any の中の値をコアが読むときに使う型を登録する
 - `rorb_set_value_type_resolver(resolve, ctx)`：登録されていない ID の型をコアが問い合わせる関数。Java は、まだ読み込まれていないクラスの型（Any の中の派生型など）を、この関数から `<名前>Helper.type()` をリフレクションで呼んで返す。見つかった型はコアが登録する
 
@@ -193,6 +194,19 @@ abstract interface にはスケルトンがなく、それを継承する最初�
 - omniORB C++ の生成コードは nil を null の値（FALSE と `0`）で書き、受け取った nil の参照は nil のオブジェクト参照（null ポインタではない）になる。rustorb は nil の参照で書くが、どちらの実装も両方の書き方を受け付けるので、すべての組で nil が往復する
 - JacORB 3.9 は abstract interface の値も `javax.rmi.CORBA` で書こうとして Java 17 で止まる（サーバーのログに `sun.reflect.ReflectionFactory`）。JacORB は値を受け取れるが送れないので、値を送るケースを JacORB の組で `known-failures.txt` に載せた。参照はすべて通る
 - JacORB の `NamedHelper.insert` は、オブジェクトを参照の型の TypeCode（`tk_objref`）で Any に入れる。このため JacORB のクライアントの `echo_any[object]` は TypeCode が `Named` にならない
+
+## Any の中のインスタンス
+
+[#164](https://github.com/rustorb/rustorb/issues/164)。C++ と Java の Any は値をコアの側（`rorb_any`）に持つ。挿入は言語のインスタンスをストリームに書いてコアが読み直し、取り出しはコアのインスタンスをストリームに書いて言語の側が読み直す。そのままでは、同じインスタンスを入れた2つの Any が別々のコアのインスタンスを持ち、DII の引数どうしで共有が切れる（1つのメッセージの中で共有した値は共有のまま届くのが CORBA の決まり）。そこで、コアのインスタンスと言語のインスタンスを結ぶ。Any は valuetype を参照で持つことになる（IDL to C++11 と IDL to Java の Any の挿入と同じ意味）。
+
+- コアの `ValueRef` は、それが表す言語のインスタンスを `native` に持つ（C ABI の `Host`：呼び出し側のキーと参照と解放の関数）。コアのインスタンスがなくなると、どのスレッドでも参照を解放する
+- C ABI は、キーからコアのインスタンスへの表（弱参照）をプロセスに1つ持つ。コアのインスタンスが言語のインスタンスを生かしておくので、表にあって生きているキーは使い回されていない
+- 挿入（`rorb_any_insert` のストリーム。`rorb_out_keeps_hosts` が 1）：言語の側は値ごとに `rorb_out_begin_host_value(out, key, host, release, ...)` で自分のインスタンスへの参照を渡す。コアは読み直す前に、表にあるキーの値を書いた位置（スロット）に既存のコアのインスタンスを置き（`InStream::preset_value`）、そのインスタンスに状態を読み直す。つまり同じインスタンスを入れ直すと同じコアのインスタンスになり、状態はそのときのもので置き換わる（先に入れた Any の値も変わる）。新しいインスタンスには参照を付けて表に載せる
+- 取り出し（`rorb_any_extract` のストリーム。`rorb_in_keeps_hosts` が 1）：コアは書いた順にインスタンスを記録し（`OutStream::log_values`。n 番目がスロット n）、値はすべてチャンク付きで書く。言語のインスタンスを持つ値のヘッダーでは状態を読み飛ばし、`RORB_VALUE_INDIRECTION` でそのスロットにそのインスタンスを返す。持たない値は言語の側が作って `rorb_in_set_host_value(in, slot, key, ptr, release)` で置き、取り出しが終わるとその参照をコアのインスタンスに移す。2回目からの取り出しは同じインスタンスを返す
+- C++：キーはインスタンスのアドレス、参照は `new object_reference<ValueBase>`（`rustorb::cdr::write_value` と `read_value`）
+- Java：キーは `org.rustorb.Hosts` が振る番号（`1 << 61` 以上）。`Hosts` はコアが持つ参照の数を数え、0 になるまでインスタンスを強く持つ（解放はコアからの upcall）
+- 効果：DII の引数どうし、DII の応答の戻り値と `out` の値どうし、DSI の引数どうしと応答、静的なスタブの Any の引数どうしで、valuetype の共有が保たれる。同じ Any から何度取り出しても同じインスタンス
+- 制限：状態は挿入したときのもの（参照で持つが、あとで言語のインスタンスを書き換えても、入れ直すまでコアの状態は変わらない）。`create_input_stream`（`rorb_any_input`）と DynAny は結びつきを使わない（毎回新しいインスタンス）。Java で、valuetype が自分の入った Any をメンバーに持つと、`Hosts` を通した循環になり GC が集めない
 
 ## 循環した値の解放
 

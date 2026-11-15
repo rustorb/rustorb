@@ -1670,6 +1670,7 @@ fn encode_request<A: WriteArgs + ?Sized>(
             enc: m.body(),
             code_sets,
             orb: None,
+            values: None,
         };
         args.write_args(&mut out)?;
     }

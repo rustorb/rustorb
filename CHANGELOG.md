@@ -7,6 +7,25 @@ break the API).
 
 ## [Unreleased]
 
+The C ABI version stays 3: only functions are added
+(`rorb_out_keeps_hosts`, `rorb_out_begin_host_value`, `rorb_in_set_host_value`,
+`rorb_in_keeps_hosts`).
+
+### Changed
+
+- C++ and Java anys hold their valuetypes by reference (docs/valuetype.md,
+  #164): the core's instance of a value stands for the C++ or Java instance
+  inserted or extracted. One instance put in several anys stays one, so the
+  DII and the DSI keep valuetypes shared among the arguments (and the result)
+  of a request, as static stubs and skeletons do, and so do the any arguments
+  of static stubs; extracting from an any gives the same instance each time.
+  Inserting an instance again replaces the state its earlier anys hold. The
+  known failures `same[shared]` of `rustorbcpp-dii` and `rustorbjava-dii` are
+  gone.
+- `rustorb_core`: `ValueRef::downgrade` and `WeakValueRef`,
+  `OutStream::log_values` / `written_values`, `InStream::preset_value` /
+  `value_at`, and `Encoder::value_count` in rustorb-cdr, for the bindings.
+
 ## [0.5.0] - 2026-11-15
 
 The C ABI version stays 3: the DII and DSI, SyncScope and POAManagerFactory

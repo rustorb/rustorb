@@ -1338,6 +1338,62 @@ final class Native {
         }
     }
 
+    /** Whether the stream keeps the instances written (rorb_any_insert). */
+    static boolean outKeepsHosts(long out) {
+        try {
+            return (int) Ffi.rorb_out_keeps_hosts.invokeExact(out) != 0;
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    /** outBeginValue for a stream that keeps the instances written: takes
+     * host, a reference from Hosts.retain. */
+    static boolean outBeginHostValue(long out, long key, long host, String[] ids,
+            boolean chunked) {
+        Scratch s = Scratch.get();
+        long mark = s.mark();
+        try {
+            int n = ids.length;
+            long[] l = strs(s, ids, n);
+            return (int) Ffi.rorb_out_begin_host_value.invokeExact(out, key, host,
+                    Upcalls.RELEASE_HOST, (long) n, l[0], l[1], chunked ? 1 : 0) != 0;
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        } finally {
+            s.reset(mark);
+        }
+    }
+
+    /** Whether the stream gives the instances read to the core
+     * (rorb_any_extract). */
+    static boolean inKeepsHosts(long in) {
+        try {
+            return (int) Ffi.rorb_in_keeps_hosts.invokeExact(in) != 0;
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    /** Gives host, a reference from Hosts.retain to the instance read at
+     * slot, to the stream. */
+    static void inSetHostValue(long in, long slot, long host) {
+        try {
+            Ffi.rorb_in_set_host_value.invokeExact(in, slot, host, host, Upcalls.RELEASE_HOST);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
+    /** The pointer the stream keeps for slot (a number of Hosts), or 0. */
+    static long inGetValue(long in, long slot) {
+        try {
+            return (long) Ffi.rorb_in_get_value.invokeExact(in, slot);
+        } catch (Throwable t) {
+            throw Library.rethrow(t);
+        }
+    }
+
     static void outEndValue(long out) {
         try {
             Ffi.rorb_out_end_value.invokeExact(out);
@@ -3393,6 +3449,15 @@ final class Native {
         static final long RELEASE_LOCAL = stub("releaseLocal", fd(null, JAVA_LONG));
         static final long COPY_LOCAL = stub("copyLocal", fd(null, JAVA_LONG, JAVA_LONG));
         static final long RESOLVE = stub("resolve", fd(JAVA_LONG, JAVA_LONG, JAVA_LONG, JAVA_LONG));
+        static final long RELEASE_HOST = stub("releaseHost", fd(null, JAVA_LONG));
+
+        private static void releaseHost(long id) {
+            try {
+                Hosts.release(id);
+            } catch (Throwable t) {
+                // Nothing to do.
+            }
+        }
 
         private static long vtable(long... fns) {
             MemorySegment v = Arena.global().allocate(8L * fns.length, 8);

@@ -281,6 +281,29 @@ fn each_ref(v: &Value, f: &mut impl FnMut(&ValueRef)) {
     }
 }
 
+/// A [`ValueRef`] that does not keep the instance alive (see
+/// [`ValueRef::downgrade`]).
+#[derive(Clone)]
+pub struct WeakValueRef(std::sync::Weak<ValueObj>);
+
+impl WeakValueRef {
+    /// The instance, if it is still alive.
+    pub fn upgrade(&self) -> Option<ValueRef> {
+        self.0.upgrade().map(ValueRef)
+    }
+
+    /// Whether the instance has been dropped (or is being dropped).
+    pub fn is_dead(&self) -> bool {
+        self.0.strong_count() == 0
+    }
+}
+
+impl std::fmt::Debug for WeakValueRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("WeakValueRef")
+    }
+}
+
 /// An instance of a valuetype or a value box: its type and its state.
 ///
 /// Clones share the instance, as references do in the language
@@ -362,6 +385,11 @@ impl ValueRef {
     /// A number that identifies the instance while it is alive.
     pub fn key(&self) -> u64 {
         Arc::as_ptr(&self.0) as usize as u64
+    }
+
+    /// A reference that does not keep the instance alive.
+    pub fn downgrade(&self) -> WeakValueRef {
+        WeakValueRef(Arc::downgrade(&self.0))
     }
 
     fn lock(&self) -> MutexGuard<'_, Vec<Value>> {
@@ -811,9 +839,11 @@ fn write_valuetype(
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
     // A value of a truncatable type is chunked, so that a receiver can
     // skip what it does not know.
-    if !out.begin_value(v.key(), &ids, ids.len() > 1)? {
+    let chunked = ids.len() > 1 || out.values.as_ref().is_some_and(|l| l.chunked);
+    if !out.begin_value(v.key(), &ids, chunked)? {
         return Ok(());
     }
+    out.note_value(v);
     let types = state_types(&tc);
     let members = v.members();
     if members.len() != types.len() {
@@ -836,6 +866,7 @@ fn write_custom(
     if !out.begin_value(v.key(), &[tc.id().unwrap_or_default()], true)? {
         return Ok(());
     }
+    out.note_value(v);
     for item in v.members() {
         let Value::Any(item) = item else {
             return Err(bad_param());
@@ -1085,10 +1116,15 @@ impl Reader {
             Ok(VM_ABSTRACT) => return Err(input.marshal_error()),
             _ => None,
         };
-        let v = ValueRef::new(tc.clone(), Vec::new());
         if input.values.len() <= slot {
             input.values.resize(slot + 1, None);
         }
+        // An instance set for this slot beforehand (`InStream::preset_value`)
+        // is read into, if it has the type read.
+        let v = match input.values[slot].take() {
+            Some(r) if r.typecode().id().ok() == tc.id().ok() => r,
+            _ => ValueRef::new(tc.clone(), Vec::new()),
+        };
         input.values[slot] = Some(v.clone());
         if let Some(reader) = custom {
             reader(&v, input)?;
