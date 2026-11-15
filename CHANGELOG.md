@@ -7,6 +7,14 @@ break the API).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-15
+
+The C ABI version stays 3: the DII and DSI, SyncScope and POAManagerFactory
+only add functions and constants (`rorb_request_*`, `rorb_server_request_*`,
+`rorb_any_typed`, `rorb_poa_*_poa_manager*`, `RORB_SYNC_SCOPE_POLICY_TYPE`,
+`RORB_MANAGER_ALREADY_EXISTS`). The pinned IDL compiler is rustorb-idl 0.4.0,
+which makes the IDL `context` clause an error in every backend (#151).
+
 ### Added
 
 - `omniORB.URI` in rustorb-omniorb-compat (docs/omniorb-compat.md, #152):
@@ -393,7 +401,8 @@ omniORBpy, and valuetypes in JacORB on Java 17).
   cycles; Java relies on the GC) (#85)
 - On Windows the read path of #66 / #67 falls back to the I/O task (#86)
 
-[Unreleased]: https://github.com/rustorb/rustorb/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/rustorb/rustorb/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/rustorb/rustorb/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/rustorb/rustorb/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/rustorb/rustorb/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/rustorb/rustorb/compare/v0.1.1...v0.2.0

@@ -31,7 +31,7 @@ Nov 1, 2026
 | 機能 | 現状 | issue |
 | --- | --- | --- |
 | Interface Repository、`_interface` / `get_interface`、`create_operation_list` | 対象外。`_interface` は `INTF_REPOS` | |
-| `CORBA::Context` と IDL の `context` 句 | DII / DSI でも `NO_IMPLEMENT`、生成器も扱わない | |
+| `CORBA::Context` と IDL の `context` 句 | DII / DSI でも `NO_IMPLEMENT`。生成器（rustorb-idl 0.4.0 以降）はすべての backend で `context` 句をエラーにする（[#151](https://github.com/rustorb/rustorb/issues/151)） | |
 | Implementation Repository（PERSISTENT な POA の起動と転送） | なし。PERSISTENT の POA は固定ポートで動かす前提 | |
 | CSIv2（認証・権限の伝搬）、セキュリティサービスの API | 対象外（SSLIOP のみ）。SSLIOP も SNI・暗号化した鍵・CRL・OCSP、`corbaloc:ssliop:` は扱わない（[ssliop.md](ssliop.md)） | |
 | DynAny の抽象インターフェース（`insert_abstract` / `get_abstract`） | `NO_IMPLEMENT`（[dynany.md](dynany.md)） | |

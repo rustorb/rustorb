@@ -141,7 +141,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, name: linux-x86_64 }
+          # ubuntu-24.04 like aarch64: a library built on ubuntu-latest
+          # (26.04) would need its newer glibc.
+          - { os: ubuntu-24.04, name: linux-x86_64 }
           - { os: ubuntu-24.04-arm, name: linux-aarch64 }
           - { os: macos-latest, name: macos-aarch64 }
           - { os: windows-latest, name: windows-x86_64 }
