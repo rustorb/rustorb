@@ -12,6 +12,17 @@ Rust製のCORBA実装（[English](README.md)）
 
 **公式ページ: <https://rustorb.github.io/ja/>**（クイックスタート、インストール、各言語のチュートリアル）
 
+rustorb は IIOP、SSLIOP、omniORB の Unix ドメインソケットの上で GIOP 1.0〜1.2 を話し、CI で omniORB、omniORBpy、JacORB とクライアント・サーバー・ネーミングサービスのすべての組み合わせで試しています。既存のシステムの omniORB / omniORBpy を置き換えることを目指しており、Python バインディングは omniidl -bpython と同じ API を生成し、互換パッケージで OpenRTM-aist-Python などの omniORBpy のアプリケーションがそのまま動きます。
+
+## 機能
+
+- **プロトコル**：CDR、フラグメントを含む GIOP 1.0〜1.2、IOR、`corbaloc:` と `corbaname:`、コードセットの交渉、双方向 GIOP、SSLIOP（rustls の TLS）、omniORB の `giop:unix` エンドポイント（Unix ドメインソケット。Linux と macOS）
+- **サーバー側**：標準のポリシーを持つ POA、サーバントマネージャー、デフォルトサーバント、アダプターアクティベーター、3つのスレッドモデル、`POAManagerFactory`
+- **型**：Any、TypeCode、DynAny、`fixed`、`long double`、valuetype（custom、truncatable、boxed、`supports`）、abstract interface
+- **ネーミングサービス**：CosNaming のクライアントとサーバー、`rustorb-names` デーモン（omniNames の代わり。永続化つき）
+- **非同期呼び出し**：Python、C++、Java の callback AMI（`rustorb-idl -Wbami` の `sendc_` と応答ハンドラ）、Rust の非同期 API（任意）
+- **その他**：DII / DSI（Rust、Python、C++、Java）、Portable Interceptors、ポリシー、呼び出しのタイムアウトと oneway の `SyncScope`、omniORBpy の `omniORB.URI`、トレース
+
 ## ドキュメント
 
 - [公式ページ](https://rustorb.github.io/ja/)（クイックスタート、インストール、各言語のチュートリアル）
@@ -23,6 +34,10 @@ Rust製のCORBA実装（[English](README.md)）
 - [Python バインディング（PyO3）](docs/python-binding.md)
 - [C++ バインディング（C ABI + IDL to C++11）](docs/cpp-binding.md)
 - [Java バインディング（FFM + IDL to Java）](docs/java-binding.md)
+- [omniORBpy 互換](docs/omniorb-compat.md)
+- [POA](docs/poa-design.md)、[Any と TypeCode](docs/any-typecode.md)、[DynAny](docs/dynany.md)、[valuetype](docs/valuetype.md)、[DII / DSI](docs/dii-dsi.md)、[callback AMI](docs/ami.md)、[Portable Interceptors](docs/portable-interceptors.md)
+- [SSLIOP](docs/ssliop.md)、[Unix ドメインソケット](docs/unix-transport.md)、[双方向 GIOP](docs/bidir-giop.md)、[接続](docs/connections.md)、[タイムアウト](docs/timeouts.md)、[SyncScope](docs/sync-scope.md)、[ORB の操作](docs/orb-operations.md)、[トレース](docs/tracing.md)、[非同期 API](docs/async-api.md)、[負荷試験](docs/load-testing.md)
+- [相互接続テスト](interop/README.md)
 - [リリースの手順](docs/release.md)、[変更履歴](CHANGELOG.md)
 
 ## クレート構成
