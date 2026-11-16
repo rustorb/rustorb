@@ -13,7 +13,8 @@ rustorb のリリースで何を出すか、どう作るか、公開をどう行
 | クレート | `rustorb-cdr`、`rustorb-typesupport`、`rustorb-giop`、`rustorb-core`、`rustorb-naming`（`rustorb-names` を含む）、`rustorb-ffi` | crates.io |
 | `rustorb` の wheel | ネイティブモジュール込みの abi3 wheel（CPython 3.9 以降）。Linux x86_64 / aarch64（manylinux 2_28）、macOS x86_64 / arm64、Windows x64。sdist も | PyPI |
 | `rustorb-omniorb-compat` | omniORBpy 互換パッケージ（純 Python） | PyPI |
-| `rustorb-native-<版>-<環境>` | `librustorb_ffi`（静的と共有）、C++ のヘッダ、CMake のパッケージ（`find_package(rustorb)`）。Linux x86_64 / aarch64、macOS arm64、Windows x86_64 | GitHub Release |
+| `rustorb-native-<版>-<環境>` | `librustorb_ffi`（静的と共有）、C++ のヘッダ、CMake のパッケージ（`find_package(rustorb)`）、ネーミングサービス `rustorb-names`（`bin/`）。Linux x86_64 / aarch64、macOS arm64、Windows x86_64 | GitHub Release |
+| `rustorb-names-<版>-<環境>` | ネーミングサービス `rustorb-names` の実行ファイルだけ（`cargo install rustorb-naming` の代わり）。環境は上と同じ | GitHub Release |
 | `rustorb-<版>.jar` | Java のマッピング。共有ライブラリは上の `rustorb-native` から使う | GitHub Release |
 
 `rustorb-python`（wheel の中身）と `rustorb-interop`（相互接続テスト）は crates.io に出さない（`publish = false`）。
@@ -23,7 +24,7 @@ rustorb のリリースで何を出すか、どう作るか、公開をどう行
 バージョンは Cargo のワークスペース、2つの `pyproject.toml`、`java/pom.xml`、`cpp/CMakeLists.txt` に書いてあり、すべて同じにする。
 
 ```sh
-tools/set-version.py 0.5.0          # まとめて書き換える
+tools/set-version.py 0.6.0          # まとめて書き換える
 cargo update --workspace            # Cargo.lock を合わせる（--locked のビルドのため）
 tools/set-version.py --check        # そろっているか（CI とリリースのワークフローでも確かめる）
 ```
@@ -74,7 +75,7 @@ tools/set-version.py --check        # そろっているか（CI とリリース
 **C++**：`rustorb-native` を展開した場所を `CMAKE_PREFIX_PATH` に入れる。IDL からのコード生成には `pip install rustorb-idl` で入る `rustorb-idl` を使う（PATH にあるか、`RUSTORB_IDL` で指定する）。
 
 ```cmake
-find_package(rustorb 0.5 REQUIRED)
+find_package(rustorb 0.6 REQUIRED)
 rustorb_idl_generate(SOURCES Echo.idl)   # build/idl/Echo.hh、Echo.cc
 add_executable(app main.cc ${SOURCES})
 target_include_directories(app PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl")

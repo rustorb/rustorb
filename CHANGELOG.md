@@ -7,9 +7,21 @@ break the API).
 
 ## [Unreleased]
 
-The C ABI version stays 3: only functions are added
+## [0.6.0] - 2026-11-16
+
+C++ and Java anys now hold valuetypes by reference, which changes what
+inserting an instance again does (see below); hence a new minor version. The
+pinned IDL compiler stays rustorb-idl 0.4.0. The C ABI version stays 3: only
+functions are added
 (`rorb_out_keeps_hosts`, `rorb_out_begin_host_value`, `rorb_in_set_host_value`,
 `rorb_in_keeps_hosts`).
+
+### Added
+
+- The GitHub Release has the naming service `rustorb-names` built for
+  Linux x86_64 / aarch64, macOS arm64 and Windows x86_64: in the `bin/` of
+  each `rustorb-native` archive, and alone in `rustorb-names-<version>-<platform>`
+  archives, so it no longer needs `cargo install rustorb-naming`.
 
 ### Changed
 
@@ -25,6 +37,13 @@ The C ABI version stays 3: only functions are added
 - `rustorb_core`: `ValueRef::downgrade` and `WeakValueRef`,
   `OutStream::log_values` / `written_values`, `InStream::preset_value` /
   `value_at`, and `Encoder::value_count` in rustorb-cdr, for the bindings.
+
+### Fixed
+
+- Python: the docstring of `rustorb.timeouts` gave the thread's timeout
+  before the reference's; the reference's comes first (docs/timeouts.md).
+- The GitHub Release no longer carries `rustorb-mapping-tests-0.0.0.crate`,
+  a test package that is not published.
 
 ## [0.5.0] - 2026-11-15
 
@@ -420,7 +439,8 @@ omniORBpy, and valuetypes in JacORB on Java 17).
   cycles; Java relies on the GC) (#85)
 - On Windows the read path of #66 / #67 falls back to the I/O task (#86)
 
-[Unreleased]: https://github.com/rustorb/rustorb/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/rustorb/rustorb/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/rustorb/rustorb/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/rustorb/rustorb/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/rustorb/rustorb/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/rustorb/rustorb/compare/v0.2.0...v0.3.0

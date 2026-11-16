@@ -15,7 +15,8 @@ C++ and Java. ([日本語](README.ja.md))
 **Documentation: <https://rustorb.github.io/>** (quick start, install and
 tutorials for every language)
 
-rustorb speaks GIOP 1.0 to 1.2 over IIOP and SSLIOP, and is tested in CI
+rustorb speaks GIOP 1.0 to 1.2 over IIOP, SSLIOP and omniORB's Unix domain
+sockets, and is tested in CI
 against omniORB, omniORBpy and JacORB in every combination of client, server
 and naming service. It aims to replace omniORB / omniORBpy in existing
 systems: the Python binding generates the same API as omniidl -bpython, and
@@ -23,14 +24,22 @@ a compatibility package runs omniORBpy applications such as
 OpenRTM-aist-Python unchanged.
 
 - **Protocol**: CDR, GIOP 1.0–1.2 with fragments, IORs, `corbaloc:` and
-  `corbaname:`, code set negotiation, SSLIOP (TLS with rustls)
+  `corbaname:`, code set negotiation, bidirectional GIOP, SSLIOP (TLS with
+  rustls), omniORB's `giop:unix` endpoints (Unix domain sockets, Linux and
+  macOS)
 - **Server side**: the POA with the standard policies, servant managers,
-  default servants, adapter activators and the three thread models
+  default servants, adapter activators, the three thread models and the
+  `POAManagerFactory`
 - **Types**: Any, TypeCode, DynAny, `fixed`, `long double`, valuetypes
   (custom, truncatable, boxed, `supports`), abstract interfaces
 - **Naming Service**: CosNaming client and server, and the `rustorb-names`
   daemon (a replacement for omniNames, with persistence)
-- **More**: DII / DSI, policies and call timeouts, an optional async API
+- **Asynchronous calls**: callback AMI (`sendc_` and reply handlers) for
+  Python, C++ and Java with `rustorb-idl -Wbami`, an optional async API for
+  Rust
+- **More**: DII / DSI (Rust, Python, C++ and Java), Portable Interceptors,
+  policies, call timeouts and `SyncScope` for oneway calls, omniORBpy's
+  `omniORB.URI`, tracing
 
 ## Install
 
@@ -99,9 +108,14 @@ service; the code is in [examples/](examples/), and
   [Python generator](https://github.com/rustorb/rustorb-idl/blob/main/docs/python-codegen.md), [omniORBpy compatibility](docs/omniorb-compat.md),
   [C++ binding](docs/cpp-binding.md), [Java binding](docs/java-binding.md),
   [POA](docs/poa-design.md), [Any and TypeCode](docs/any-typecode.md),
-  [valuetypes](docs/valuetype.md), [SSLIOP](docs/ssliop.md),
-  [Unix domain sockets](docs/unix-transport.md),
-  [timeouts](docs/timeouts.md), [async API](docs/async-api.md),
+  [DynAny](docs/dynany.md), [valuetypes](docs/valuetype.md),
+  [DII / DSI](docs/dii-dsi.md), [callback AMI](docs/ami.md),
+  [Portable Interceptors](docs/portable-interceptors.md),
+  [SSLIOP](docs/ssliop.md), [Unix domain sockets](docs/unix-transport.md),
+  [bidirectional GIOP](docs/bidir-giop.md), [connections](docs/connections.md),
+  [timeouts](docs/timeouts.md), [SyncScope](docs/sync-scope.md),
+  [ORB operations](docs/orb-operations.md), [tracing](docs/tracing.md),
+  [async API](docs/async-api.md), [load testing](docs/load-testing.md),
   [unsupported CORBA features](docs/unsupported-features.md)
 - Interoperability tests: [interop/](interop/README.md)
 

@@ -366,3 +366,7 @@ P0〜P3 の issue がすべて終わった後（2026-10-31）、各設計書の�
 - P2：[#103](https://github.com/rustorb/rustorb/issues/103) 双方向 GIOP、[#104](https://github.com/rustorb/rustorb/issues/104) `-brust` の abstract / local interface など、[#105](https://github.com/rustorb/rustorb/issues/105) ログ・トレースの出力
 
 0.3.0 の後（2026-11-03）、unsupported-features.md の P2 から Messaging AMI を選び、計画 [#135](https://github.com/rustorb/rustorb/issues/135)（設計：[ami.md](ami.md)）と sub-issue #136〜#141 を起票した。
+
+0.4.0 の後（2026-11-10）、残りの候補（`context` 句、`omniORB.URI`、SyncScope、POAManagerFactory、C++ / Java の DII / DSI、`giop:unix`）を計画 [#150](https://github.com/rustorb/rustorb/issues/150) と sub-issue #151〜#158 にし、0.5.0 で出した。C++ / Java の Any の valuetype の共有（[#164](https://github.com/rustorb/rustorb/issues/164)）はその後に入れた。
+
+0.5.0 の後（2026-11-16）、0.6.0 のリリースとドキュメントの整備を計画 [#169](https://github.com/rustorb/rustorb/issues/169) と sub-issue #170〜#172 にした。
