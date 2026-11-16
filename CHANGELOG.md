@@ -7,7 +7,12 @@ break the API).
 
 ## [Unreleased]
 
-The C ABI version stays 3: only functions are added
+## [0.6.0] - 2026-11-16
+
+C++ and Java anys now hold valuetypes by reference, which changes what
+inserting an instance again does (see below); hence a new minor version. The
+pinned IDL compiler stays rustorb-idl 0.4.0. The C ABI version stays 3: only
+functions are added
 (`rorb_out_keeps_hosts`, `rorb_out_begin_host_value`, `rorb_in_set_host_value`,
 `rorb_in_keeps_hosts`).
 
@@ -420,7 +425,8 @@ omniORBpy, and valuetypes in JacORB on Java 17).
   cycles; Java relies on the GC) (#85)
 - On Windows the read path of #66 / #67 falls back to the I/O task (#86)
 
-[Unreleased]: https://github.com/rustorb/rustorb/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/rustorb/rustorb/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/rustorb/rustorb/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/rustorb/rustorb/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/rustorb/rustorb/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/rustorb/rustorb/compare/v0.2.0...v0.3.0
