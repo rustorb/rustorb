@@ -69,7 +69,7 @@ jobs:
       # Packages and builds each crate against the others as packaged, in
       # the order cargo publish would upload them.
       - run: cargo publish --workspace --dry-run --locked --exclude rustorb-python --exclude rustorb-interop
-      - run: cargo package --workspace --locked --no-verify --exclude rustorb-python --exclude rustorb-interop
+      - run: cargo package --workspace --locked --no-verify --exclude rustorb-python --exclude rustorb-interop --exclude rustorb-mapping-tests
       - uses: actions/upload-artifact@v4
         with:
           name: crates
@@ -133,8 +133,10 @@ jobs:
           name: python-sdist
           path: dist/*
 
-  # librustorb_ffi (static and shared), the C++ headers and the CMake
-  # package, per platform. The Java binding loads the shared library.
+  # librustorb_ffi (static and shared), the C++ headers, the CMake package
+  # and the rustorb-names naming service, per platform. The Java binding
+  # loads the shared library. rustorb-names also goes into an archive of
+  # its own, for those who want only the naming service.
   native:
     needs: version
     strategy:
@@ -150,6 +152,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       ARCHIVE: rustorb-native-${{ needs.version.outputs.version }}-${{ matrix.name }}
+      NAMES: rustorb-names-${{ needs.version.outputs.version }}-${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -159,16 +162,33 @@ jobs:
       - run: cmake -S cpp -B build/cpp -DRUSTORB_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build/cpp --config Release
       - run: cmake --install build/cpp --config Release --prefix "dist/${{ env.ARCHIVE }}"
-      - name: Add the shared library and the licenses
+      - run: cargo build --release --locked -p rustorb-naming --bin rustorb-names
+      - name: Add the shared library, rustorb-names and the licenses
         shell: bash
         run: |
           d="dist/$ARCHIVE"
+          n="dist/$NAMES"
+          mkdir -p "$d/bin" "$n"
           case "$RUNNER_OS" in
             Linux) cp target/release/librustorb_ffi.so "$d/lib/" ;;
             macOS) cp target/release/librustorb_ffi.dylib "$d/lib/" ;;
-            Windows) mkdir -p "$d/bin" && cp target/release/rustorb_ffi.dll "$d/bin/" ;;
+            Windows) cp target/release/rustorb_ffi.dll "$d/bin/" ;;
           esac
+          exe=rustorb-names
+          if [[ "$RUNNER_OS" == Windows ]]; then exe=rustorb-names.exe; fi
+          cp "target/release/$exe" "$d/bin/"
+          cp "target/release/$exe" "$n/"
           cp LICENSE-MIT LICENSE-APACHE "$d/"
+          cp LICENSE-MIT LICENSE-APACHE "$n/"
+      - name: Check that rustorb-names starts
+        shell: bash
+        run: |
+          "dist/$NAMES/rustorb-names" -memory -start 28090 > names.log 2>&1 &
+          pid=$!
+          for _ in $(seq 100); do grep -q listening names.log && break; sleep 0.1; done
+          kill $pid || true
+          cat names.log
+          grep -q "listening as corbaloc::.*:28090/NameService" names.log
       - name: Build an application against the installed package
         shell: bash
         run: |
@@ -180,7 +200,9 @@ jobs:
         shell: bash
         run: |
           cd dist
-          if [[ "$RUNNER_OS" == Windows ]]; then 7z a "$ARCHIVE.zip" "$ARCHIVE"; else tar czf "$ARCHIVE.tar.gz" "$ARCHIVE"; fi
+          for a in "$ARCHIVE" "$NAMES"; do
+            if [[ "$RUNNER_OS" == Windows ]]; then 7z a "$a.zip" "$a"; else tar czf "$a.tar.gz" "$a"; fi
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: native-${{ matrix.name }}
@@ -189,6 +211,8 @@ jobs:
           path: |
             dist/${{ env.ARCHIVE }}.tar.gz
             dist/${{ env.ARCHIVE }}.zip
+            dist/${{ env.NAMES }}.tar.gz
+            dist/${{ env.NAMES }}.zip
           if-no-files-found: error
 
   java:

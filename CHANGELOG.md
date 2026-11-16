@@ -16,6 +16,13 @@ functions are added
 (`rorb_out_keeps_hosts`, `rorb_out_begin_host_value`, `rorb_in_set_host_value`,
 `rorb_in_keeps_hosts`).
 
+### Added
+
+- The GitHub Release has the naming service `rustorb-names` built for
+  Linux x86_64 / aarch64, macOS arm64 and Windows x86_64: in the `bin/` of
+  each `rustorb-native` archive, and alone in `rustorb-names-<version>-<platform>`
+  archives, so it no longer needs `cargo install rustorb-naming`.
+
 ### Changed
 
 - C++ and Java anys hold their valuetypes by reference (docs/valuetype.md,
@@ -30,6 +37,13 @@ functions are added
 - `rustorb_core`: `ValueRef::downgrade` and `WeakValueRef`,
   `OutStream::log_values` / `written_values`, `InStream::preset_value` /
   `value_at`, and `Encoder::value_count` in rustorb-cdr, for the bindings.
+
+### Fixed
+
+- Python: the docstring of `rustorb.timeouts` gave the thread's timeout
+  before the reference's; the reference's comes first (docs/timeouts.md).
+- The GitHub Release no longer carries `rustorb-mapping-tests-0.0.0.crate`,
+  a test package that is not published.
 
 ## [0.5.0] - 2026-11-15
 

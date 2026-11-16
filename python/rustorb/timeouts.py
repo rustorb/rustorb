@@ -4,9 +4,9 @@ none).
 A call waits for its reply as long as the first of these that is set
 says:
 
-1. the calling thread's timeout (:func:`set_thread_call_timeout`),
-2. the object reference's (:func:`set_object_call_timeout`), shared by
+1. the object reference's (:func:`set_object_call_timeout`), shared by
    the references narrowed from it,
+2. the calling thread's timeout (:func:`set_thread_call_timeout`),
 3. the ORB's (:func:`set_call_timeout`, or ``-ORBclientCallTimeOutPeriod``).
 
 When the time is up, the call raises ``CORBA.TIMEOUT`` with

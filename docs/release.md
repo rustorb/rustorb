@@ -13,7 +13,8 @@ rustorb のリリースで何を出すか、どう作るか、公開をどう行
 | クレート | `rustorb-cdr`、`rustorb-typesupport`、`rustorb-giop`、`rustorb-core`、`rustorb-naming`（`rustorb-names` を含む）、`rustorb-ffi` | crates.io |
 | `rustorb` の wheel | ネイティブモジュール込みの abi3 wheel（CPython 3.9 以降）。Linux x86_64 / aarch64（manylinux 2_28）、macOS x86_64 / arm64、Windows x64。sdist も | PyPI |
 | `rustorb-omniorb-compat` | omniORBpy 互換パッケージ（純 Python） | PyPI |
-| `rustorb-native-<版>-<環境>` | `librustorb_ffi`（静的と共有）、C++ のヘッダ、CMake のパッケージ（`find_package(rustorb)`）。Linux x86_64 / aarch64、macOS arm64、Windows x86_64 | GitHub Release |
+| `rustorb-native-<版>-<環境>` | `librustorb_ffi`（静的と共有）、C++ のヘッダ、CMake のパッケージ（`find_package(rustorb)`）、ネーミングサービス `rustorb-names`（`bin/`）。Linux x86_64 / aarch64、macOS arm64、Windows x86_64 | GitHub Release |
+| `rustorb-names-<版>-<環境>` | ネーミングサービス `rustorb-names` の実行ファイルだけ（`cargo install rustorb-naming` の代わり）。環境は上と同じ | GitHub Release |
 | `rustorb-<版>.jar` | Java のマッピング。共有ライブラリは上の `rustorb-native` から使う | GitHub Release |
 
 `rustorb-python`（wheel の中身）と `rustorb-interop`（相互接続テスト）は crates.io に出さない（`publish = false`）。
