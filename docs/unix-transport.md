@@ -94,7 +94,7 @@ TCP と Unix ソケットの違いは `crates/rustorb-core/src/sock.rs` に閉�
 - `crates/rustorb-core/tests/unix.rs`：IOR の形、ソケットのモードと後始末、既定のパスと `DIR/`、残ったソケット・使われているソケット・普通のファイル・ないディレクトリ、大きなメッセージ、同一 ORB 内の呼び出し、クライアントの選び方（自分のホスト・他のホスト・消えたソケット、テストが作った待ち受けで、どちらに接続が来たかを見る）、双方向 GIOP
 - `crates/rustorb-giop/tests/ior.rs`：omniORBpy 4.3.4 が出した IOR の `TAG_OMNIORB_UNIX_TRANS` を読み、同じバイト列に書き戻せること
 - `python/tests/test_unix.py`：Python の ORB 引数
-- 相互接続：`interop/run-matrix.sh --unix`。サーバーとクライアントのコールバックの待ち受けを `giop:unix` だけにし、2つのコンテナに同じホスト名と、ソケットを置くボリュームを共有させる（ネームサービスは TCP のまま）。JacORB は `giop:unix` がないので外す。omniORB C++ / omniORBpy と rustorb（Rust）の全組み合わせが、TCP のときと同じ既知の失敗（omniORBpy の `wchar`）を除いて通った
+- 相互接続：`interop/run-matrix.sh --unix`。サーバーとクライアントのコールバックの待ち受けを `giop:unix` だけにし、2つのコンテナに同じホスト名と、ソケットを置くボリュームを共有させる（ネームサービスは TCP のまま）。JacORB は `giop:unix` がないので外す。omniORB C++ / omniORBpy と rustorb（Rust・Python・C++・Java）の全組み合わせが、TCP のときと同じ既知の失敗（omniORBpy の `wchar` など）を除いて通る。CI（`interop.yml`）で回している
 
 ## 扱わないこと
 
