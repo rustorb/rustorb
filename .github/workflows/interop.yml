@@ -89,6 +89,12 @@ jobs:
       - name: Run the matrix over TLS
         run: interop/run-matrix.sh --ssl
 
+      # giop:unix (#157): Unix socket endpoints only, between omniORB C++,
+      # omniORBpy and the rustorb implementations (Rust, Python, C++ and
+      # Java); JacORB has no giop:unix.
+      - name: Run the matrix over Unix sockets
+        run: interop/run-matrix.sh --unix
+
       # The stage 2 suite (AnyTest.idl): Any and TypeCode values.
       - name: Run the Any / TypeCode matrix
         run: interop/run-matrix.sh --suite any
