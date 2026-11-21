@@ -109,9 +109,22 @@ orb.run();
 - DSI のサーバントは `DynamicImplementation` を継承して `invoke(ServerRequest)` と `_primary_interface(oid, poa)` を書く。`invoke` が投げた `UnknownUserException` は `set_exception` と同じ
 - コンテキスト（null でない `ctx`、`ServerRequest.ctx()`、`get_default_context`）は `NO_IMPLEMENT`
 
+## Portable Interceptors と IOP::Codec
+
+`PortableInterceptor`・`IOP`・`Dynamic` に、CORBA 3.0 の Portable Interceptors のローカルインターフェースを IDL4 to C# の形で置いた（属性はプロパティ：`ri.operation`、`ri.request_id`、`interceptor.name`）。実装は C ABI の `rorb_cri_*`・`rorb_sri_*`・`rorb_ior_info_*`・`rorb_init_info_*`・`rorb_codec_*` で、挙動は他のバインディングと同じ（[portable-interceptors.md](portable-interceptors.md)）。
+
+- インターセプターは `IClientRequestInterceptor`・`IServerRequestInterceptor`・`IIORInterceptor` を実装する（`Corba.LocalObject` を継承し、1つのクラスで複数を実装してもよい）。操作が何もしない基底クラス `ClientRequestInterceptor`・`ServerRequestInterceptor`・`IORInterceptor`・`ORBInitializer` もある
+- 初期化子の登録は `PortableInterceptor.ORBInitializerRegistry.register_orb_initializer(init)`（それより後に作るすべての ORB。仕様の `register_orb_initializer`）か、その ORB だけの `Corba.ORB.init(args, orb_id, init1, init2, ...)`
+- 情報のオブジェクト（`IClientRequestInfo` など）はその点の間だけ使える。後から使うと `BAD_INV_ORDER`（minor 14）、`ORB.init` の後の `IORBInitInfo` は `OBJECT_NOT_EXIST`（minor 10）
+- 点が投げた `PortableInterceptor.ForwardRequest` は転送、`Corba.SystemException` はそのまま、その他は `UNKNOWN`（minor 0、COMPLETED_MAYBE）
+- `orb.resolve_initial_references("PICurrent")`（`PortableInterceptor.CurrentHelper.narrow`）と `("CodecFactory")`（`IOP.CodecFactoryHelper.narrow`）。`IOP.ServiceContext`・`TaggedComponent` のオクテット列は `byte[]`（`ObjectId` と同じ）、その他の列は `ISequence<T>`
+- 静的なスタブとスケルトンの要求の `arguments`・`result`・`exceptions` は `NO_RESOURCES`（minor 1）。DII と DSI の要求では使える
+- `post_init` で `RootPOA` を解決すると、RootPOA が IOR インターセプターの登録より前に作られ、そのコンポーネントが入らない（コアの順序のとおり）
+- `register_policy_factory` は `NO_IMPLEMENT`
+
 ## まだないもの
 
-valuetype、abstract / local インターフェース（IDL で定義したもの）、Portable Interceptors、AMI、IDL 4 の bitmask / bitset は [#186](https://github.com/rustorb/rustorb/issues/186) で足す。`-bcsharp` はこれらの構文をエラーにする。
+valuetype、abstract / local インターフェース（IDL で定義したもの）、AMI、IDL 4 の bitmask / bitset は [#186](https://github.com/rustorb/rustorb/issues/186) で足す。`-bcsharp` はこれらの構文をエラーにする。
 
 ## テスト
 
@@ -121,6 +134,7 @@ valuetype、abstract / local インターフェース（IDL で定義したも�
   - テストのクラスは順に走らせる（各 fixture がプロセスの ORB を `init` し、終わりに `destroy` するので、並行だと他のクラスの ORB を壊す）
   - `ServantManagerTests`：servant activator（incarnate、例外、ForwardRequest、etherealize）、servant locator（cookie）、adapter activator
   - `DiiTests`：静的なサーバントと DSI のサーバントへの DII（`out`、同じ要求の再送、ユーザー例外とリストにないもの、deferred と `get_next_response`、oneway）、静的なスタブから DSI のサーバント、`NVList` と `ExceptionList`、`_create_request`
+  - `PiTests`：初期化子（`pre_init` / `post_init`、`DuplicateName`、段階ごとの `resolve_initial_references`）、サービスコンテキストの往復と PICurrent のスロット、IOR インターセプターのコンポーネント、サーバーのインターセプターのシステム例外、`ForwardRequest`、DII の `arguments`、点の後の情報、`Codec`
   - `MappingTests`：C++・Java と同じ `cpp/tests/idl/CxxMapping.idl` の定数、再帰型、すべての判別子の union、入れ子の型、キーワード、fixed と long double、インターフェースの多重継承、オブジェクト参照の列、TypeCode と Any
 - rustorb-idl の `python/tests/test_csharp_backend.py`：生成物の形、`-Wbdotnet_naming`、対応しない構文のエラー、生成コードとランタイムのコンパイル（警告をエラーにする）。golden は `tests/golden/csharp`
 - CI（`ci.yml` の `dotnet`）：Linux、macOS、Windows で `dotnet test`。Linux では同梱の CosNaming のスタブが生成器の出力と、`Ffi.g.cs` が `rustorb.h` と一致することも確かめる
@@ -131,3 +145,4 @@ valuetype、abstract / local インターフェース（IDL で定義したも�
 - DynAny プローブ（`run-dynany-probe.sh`）：`rustorbcs`（`interop/impls/rustorbcs/src/DynAnyProbe.cs`）の出力は rustorb の期待出力と一致する
 - naming check（`run-naming-check.sh`。omniNames と rustorb-names、再起動を含む）と wire probe（`run-wire-probe.sh`）は、`rustorbcs` でも期待出力と一致する。POA プローブ（`run-poa-probe.sh`）の `rustorbcs`（`interop/impls/rustorbcs/src/PoaProbeServer.cs`）の出力も rustorb の期待出力と一致する
 - 相互接続：`interop/impls/rustorbcs-dii` は `rustorbcs` のクライアントとサーバーを、スタブの呼び出しを DII に、サーバントを DSI に差し替えて動かす（`interop/impls/rustorbcs/src/DiiAdapters.cs`、環境変数 `RUSTORB_DII=1`）。basic（GIOP 1.2 / 1.1）で、omniORBpy・omniORB C++・JacORB・rustorb（Rust、Python、C++、.NET、Python と C++ の DII）との組が両方向で `rustorbcs` と同じ結果になる（失敗は既知のものだけ）。CI（`interop.yml`）でも回す
+- PI プローブ（`run-pi-probe.sh`）：`rustorbcs`（`interop/impls/rustorbcs/src/PiProbeMain.cs`）が rustorb の Rust・Python・C++・.NET、JacORB、omniORBpy、omniORB C++ との組で GIOP 1.2 / 1.1 / 1.0 とも期待どおり（JacORB のクライアントは仕組みどおり 1.2 のみ）。Java との組は CI で確かめる

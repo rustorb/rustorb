@@ -131,6 +131,28 @@ namespace Rustorb.Native
             }
         }
 
+        /// <summary>New peers for the targets: their selfs stay valid until
+        /// Release, and after it while the core holds them.</summary>
+        internal static ManagerPeer[] Hold(object[] targets)
+        {
+            var ps = new ManagerPeer[targets.Length];
+            for (int i = 0; i < targets.Length; i++)
+            {
+                ps[i] = new ManagerPeer(Rustorb.Seq.NotNull(targets[i]), null);
+            }
+            return ps;
+        }
+
+        internal static void Release(ManagerPeer[] peers)
+        {
+            foreach (ManagerPeer p in peers)
+            {
+                p.Done();
+            }
+        }
+
+        internal nint Self => GCHandle.ToIntPtr(self);
+
         private void Done()
         {
             bool free;
@@ -206,6 +228,9 @@ namespace Rustorb.Native
             v[first.Length + 1] = (nint)(delegate* unmanaged[Cdecl]<nint, void>)&RemoveRefCb;
             return v;
         }
+
+        internal static readonly nint AddRefFn = (nint)(delegate* unmanaged[Cdecl]<nint, void>)&AddRefCb;
+        internal static readonly nint RemoveRefFn = (nint)(delegate* unmanaged[Cdecl]<nint, void>)&RemoveRefCb;
 
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         private static void AddRefCb(nint self) => Of(self).AddRef();

@@ -35,7 +35,23 @@ namespace Corba
 
         /// <summary>ORB_init that also gives the arguments that are not ORB
         /// options.</summary>
-        public static ORB init(string[] args, out string[] rest)
+        public static ORB init(string[] args, out string[] rest) => Init(args, null, null, out rest);
+
+        /// <summary>ORB_init with the ORB id (which -ORBid overrides) and the
+        /// initializers of this ORB only, run after the ones of
+        /// PortableInterceptor.ORBInitializerRegistry. A failing initializer
+        /// fails the ORB with its exception.</summary>
+        public static ORB init(string[] args, string orb_id, params PortableInterceptor.IORBInitializer[] initializers) =>
+            Init(args, orb_id ?? "", initializers ?? System.Array.Empty<PortableInterceptor.IORBInitializer>(), out _);
+
+        private struct InitializerEntry
+        {
+            public nint self;
+            public void* vtable;
+        }
+
+        private static ORB Init(string[] args, string? orbId, PortableInterceptor.IORBInitializer[]? inits,
+            out string[] rest)
         {
             Library.Check();
             args ??= System.Array.Empty<string>();
@@ -55,11 +71,42 @@ namespace Corba
                     argv[i] = (byte*)pins[i].AddrOfPinnedObject();
                 }
                 int argc = all.Length;
-                nint orb;
-                RorbException exc;
+                nint orb = 0;
+                RorbException exc = default;
                 fixed (byte** pv = argv)
                 {
-                    Errors.Check(Ffi.rorb_orb_init(&argc, pv, &orb, &exc), ref exc);
+                    if (orbId == null)
+                    {
+                        Errors.Check(Ffi.rorb_orb_init(&argc, pv, &orb, &exc), ref exc);
+                    }
+                    else
+                    {
+                        var entries = new InitializerEntry[inits!.Length];
+                        byte[] id = Strings.ToUtf8(orbId);
+                        ManagerPeer[] held = ManagerPeer.Hold(inits);
+                        try
+                        {
+                            for (int i = 0; i < held.Length; i++)
+                            {
+                                entries[i] = new InitializerEntry
+                                {
+                                    self = held[i].Self, vtable = PortableInterceptor.PiCallbacks.InitializerVtable,
+                                };
+                            }
+                            int st;
+                            fixed (byte* ip = id)
+                            fixed (InitializerEntry* ep = entries)
+                            {
+                                st = Ffi.rorb_orb_init_pi(&argc, pv, ip, (nuint)id.Length, ep, (nuint)entries.Length,
+                                    &orb, &exc);
+                            }
+                            Errors.Check(st, ref exc);
+                        }
+                        finally
+                        {
+                            ManagerPeer.Release(held);
+                        }
+                    }
                     rest = new string[Math.Max(argc - 1, 0)];
                     for (int i = 1; i < argc; i++)
                     {
@@ -130,6 +177,18 @@ namespace Corba
             {
                 return DynamicAny.DynAnyFactory.Instance;
             }
+            if (identifier == "PICurrent")
+            {
+                var c = new PortableInterceptor.Current(new PiCurrentHandle(Ffi.rorb_orb_pi_current(Raw)));
+                GC.KeepAlive(this);
+                return c;
+            }
+            if (identifier == "CodecFactory")
+            {
+                var f = new IOP.CodecFactory(new OrbHandle(Ffi.rorb_orb_clone(Raw)));
+                GC.KeepAlive(this);
+                return f;
+            }
             byte[] b = Strings.ToUtf8(identifier);
             nint obj;
             RorbException exc;
@@ -184,7 +243,7 @@ namespace Corba
             {
                 list.Add("RootPOA");
             }
-            foreach (string local in new[] { "POACurrent", "DynAnyFactory" })
+            foreach (string local in new[] { "POACurrent", "DynAnyFactory", "PICurrent", "CodecFactory" })
             {
                 if (!list.Contains(local))
                 {
