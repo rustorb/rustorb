@@ -7,7 +7,7 @@
 # --update   rewrites the expected files with the current output
 #
 # SERVER is omniorbpy, omniorb-cpp, rustorb (Rust), rustorbpy (Python),
-# rustorbcpp (C++), rustorbjava (Java), rustorbcs (.NET) or rustorbc (C)
+# rustorbcpp (C++), rustorbjava (Java), rustorbcs (.NET), rustorbc (C) or rustorbrb (Ruby)
 # (default: all of them). The rustorb
 # servers are built on the host and mounted into the container, like in
 # run-matrix.sh; the Python, C++ and Java ones run on the same core as the
@@ -26,7 +26,7 @@ if [ "${1:-}" = "--update" ]; then
   shift
 fi
 servers=("$@")
-[ ${#servers[@]} -eq 0 ] && servers=(omniorbpy omniorb-cpp rustorb rustorbpy rustorbcpp rustorbjava rustorbcs rustorbc)
+[ ${#servers[@]} -eq 0 ] && servers=(omniorbpy omniorb-cpp rustorb rustorbpy rustorbcpp rustorbjava rustorbcs rustorbc rustorbrb)
 image=${SERVER_IMAGE:-rustorb-interop-omniorb:latest}
 network=interop-poa-probe
 
@@ -40,6 +40,7 @@ server_cmd() {
     rustorbjava) echo impls/rustorbjava/poa-probe-server ;;
     rustorbcs) echo impls/rustorbcs/poa-probe-server ;;
     rustorbc) echo impls/rustorbc/poa-probe-server ;;
+    rustorbrb) echo impls/rustorbrb/poa-probe-server ;;
     *) echo "unknown server: $1" >&2; exit 2 ;;
   esac
 }
@@ -47,7 +48,7 @@ server_cmd() {
 # The expected output: the bindings of the rustorb core share one.
 expected_name() {
   case "$1" in
-    rustorbpy | rustorbcpp | rustorbjava | rustorbcs | rustorbc) echo rustorb ;;
+    rustorbpy | rustorbcpp | rustorbjava | rustorbcs | rustorbc | rustorbrb) echo rustorb ;;
     *) echo "$1" ;;
   esac
 }
@@ -68,7 +69,8 @@ start_server() {
     -v "$PWD/impls/rustorbcpp:/opt/interop/impls/rustorbcpp:ro" \
     -v "$PWD/impls/rustorbjava:/opt/interop/impls/rustorbjava:ro" \
     -v "$PWD/impls/rustorbcs:/opt/interop/impls/rustorbcs:ro" \
-    -v "$PWD/impls/rustorbc:/opt/interop/impls/rustorbc:ro" "$image" \
+    -v "$PWD/impls/rustorbc:/opt/interop/impls/rustorbc:ro" \
+    -v "$PWD/impls/rustorbrb:/opt/interop/impls/rustorbrb:ro" "$image" \
     "$cmd" --host server --port 2820 --ior-file "/out/${dir#out/}/control.ior" >/dev/null
   for _ in $(seq 100); do
     [ -f "$dir/control.ior" ] && return 0
@@ -94,6 +96,7 @@ for server in "${servers[@]}"; do
       cp ../target/release/rustorb-poa-probe-server impls/rustorb/bin/
       ;;
     rustorbpy | rustorbcpp | rustorbjava | rustorbcs | rustorbc) "impls/$server/build.sh" ;;
+    rustorbrb) IMAGE="$image" impls/rustorbrb/build.sh ;;
   esac
 done
 

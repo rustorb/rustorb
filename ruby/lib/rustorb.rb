@@ -16,6 +16,7 @@ require "rustorb/orb"
 require "rustorb/portable_server"
 require "rustorb/dynamic_any"
 require "rustorb/dii"
+require "rustorb/servant_managers"
 
 module CORBA
   # The names RCLM gives the bases of generated structs and unions.

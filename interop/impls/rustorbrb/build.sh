@@ -28,7 +28,8 @@ cp -R "$root/ruby/lib/." "$here/rt/"
 pythonpath="${RUSTORB_IDL_DIR:+$RUSTORB_IDL_DIR/python}"
 [ -n "${IDL_PARSER_DIR:-}" ] && pythonpath="$IDL_PARSER_DIR${pythonpath:+:$pythonpath}"
 PYTHONPATH="$pythonpath" python3 -m rustorb_idl -bruby -C "$here/gen" -I"$root/interop/idl" \
-  "$root/interop/idl/InteropTest.idl" "$root/interop/idl/AnyTest.idl" "$root/interop/idl/AnyTestHidden.idl"
+  "$root/interop/idl/InteropTest.idl" "$root/interop/idl/AnyTest.idl" "$root/interop/idl/AnyTestHidden.idl" \
+  "$root/interop/idl/PoaProbe.idl"
 
 ext="$here/rt/rustorb/rustorb_ext.so"
 if [ -n "${RUSTORB_RB_HOST:-}" ]; then

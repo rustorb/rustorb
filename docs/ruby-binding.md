@@ -92,6 +92,7 @@ hello.say("hi")
   - 要求は Ruby のディスパッチャースレッドのプールに渡し、終わるのを待つ（`Rustorb::Native.dispatcher_loop`）
   - プールはディスパッチャーが最後の空きを取るたびに1つ増える。サーバントが外へ呼び出して呼び返されても、受けるスレッドがある
   - `PortableServer::Current` とサーバントの「いまの参照」（要求の中の `_this`）は rustorb のスレッドごとの状態にある。そのためディスパッチャーは、それを待っているアップコールのスレッドに問い合わせを頼む
+  - アップコールの中からの rustorb の呼び出し（呼び出し、`ORB#shutdown`、POA の destroy、POAManager の操作など）も、待っているアップコールのスレッドで行う。こうすると rustorb は呼び出しがアップコールの中だとわかる。SINGLE_THREAD の POA への入れ子の呼び出しは外の呼び出しと同じスレッドで受け、アップコールの中の `shutdown(true)` は `BAD_INV_ORDER` になる
 - **サーバント**：C の peer（Ruby のオブジェクトとリポジトリ ID）を rustorb にサーバントとして渡す。rustorb が参照を持っているあいだは、GC の mark で Ruby のオブジェクトを生かしておく
   - `_rustorb_dispatch` は引数を読み、メソッドを呼び、結果を書く
   - 宣言されたユーザー例外はそのまま返す
@@ -100,6 +101,7 @@ hello.say("hi")
 - **ORB**：`CORBA.ORB_init(args)` は `-ORB` の引数を `args` から取り除く。ORB はプロセスに1つ。`RootPOA` と `POACurrent` は Ruby のラッパーを返す
 - **DynAny**：`orb.resolve_initial_references("DynAnyFactory")`。`DynamicAny::DynAny`・`DynStruct`・`DynUnion`・`DynEnum`・`DynFixed`・`DynSequence`・`DynArray`・`DynValue`・`DynValueBox` は操作を IDL の名前（`insert_long`、`get_members`、`current_component` など）で持つ。値は Ruby の値、any は `CORBA::Any`、TCKind は `CORBA::TK_` の Integer、`DynFixed#get_value` は String（`set_value` は BigDecimal も受ける）。例外は `DynamicAny::DynAny::InvalidValue`・`TypeMismatch`、`DynAnyFactory::InconsistentTypeCode`、`DynamicAny::MustTruncate`。中身は C 拡張の `Rustorb::Native::DynAny` が `rorb_dynany_*` を包み、値は any で受け渡す
 - **DII / DSI**：`CORBA::Request`（`obj._request(op)`、`_create_request`）・`NVList`・`NamedValue`・`ServerRequest` と `PortableServer::DynamicImplementation`。C 拡張の `Rustorb::Native::Request`・`ServerRequest` が `rorb_request_*`・`rorb_server_request_*` を包む。詳しくは [dii-dsi.md](dii-dsi.md)
+- **servant manager**：`PortableServer::ServantActivator`（`incarnate`・`etherealize`）、`ServantLocator`（`preinvoke` は `[servant, cookie]` かサーバントだけを返す。`postinvoke` はその cookie を受ける）、`AdapterActivator`（`unknown_adapter`）を継承し、`POA#set_servant_manager`・`the_activator=` で渡す。`PortableServer::ForwardRequest.new(ref)` で別のオブジェクトへ転送する。POA のアップコールのスレッドから GVL を取って呼ぶ。`interop/run-poa-probe.sh rustorbrb` の結果は rustorb のものと同じ
 - **rustorb の拡張**：`CORBA::ORB#call_timeout=`・`CORBA::Object#_call_timeout=`（秒）、`Rustorb::Native` の下の低水準の API
 
 ## 例外
@@ -125,7 +127,7 @@ POA・POAManager・Current・ORB・TypeCode の例外は `PortableServer::POA::O
 次のものは [#188](https://github.com/rustorb/rustorb/issues/188) で足す。
 
 - valuetype と abstract interface
-- local インターフェース（servant manager など）
+- 生成する local インターフェース
 - Portable Interceptors
 - AMI（`-Wbami`）
 
@@ -137,6 +139,7 @@ POA・POAManager・Current・ORB・TypeCode の例外は `PortableServer::POA::O
   - `test_runtime`：手書きのスタブとスケルトン（`test/demo`）で、呼び出し、例外、any のいろいろな値、POA の操作と例外、Current、スレッドから並行の呼び出しを確かめる
   - `test_idl4`：`cpp/tests/idl/Idl4.idl` の int8・bitmask・bitset・`@default`・`@range` を ORB 越しに確かめる（any の中も）
   - `test_mapping`：他のバインディングと同じ `cpp/tests/idl/CxxMapping.idl` を ORB 越しに確かめる。定数、再帰型、すべての判別子の union、入れ子の型、キーワード、上限と不正な値、fixed と long double、多重継承、TypeCode と any
+  - `test_servant_managers`：servant activator（転送、例外、etherealize）、servant locator（cookie）、adapter activator
   - `test_interop`：相互接続の Ruby クライアントの79ケース（`interop/impls/rustorbrb/lib/cases.rb`）と any スイートのケース（`anytest.rb`）を、同じプロセスのサーバントに向けて流す
   - `test_dynany`：生成した型の DynAny、クラスと例外
   - `test_dii`：DII と DSI

@@ -211,6 +211,14 @@ static void* at_home(gvl_fn fn, void* arg) {
   return without_gvl(home_nogvl, &c);
 }
 
+/* Runs fn(arg) (a rustorb call, which must not call Ruby) without the GVL:
+   on the rustorb thread whose upcall this dispatcher runs, when it runs
+   one, so that the core sees the call made inside that upcall (a nested
+   call to a SINGLE_THREAD POA, ORB::shutdown(true) in an upcall...). */
+static void* blocking(gvl_fn fn, void* arg) {
+  return tls_job ? at_home(fn, arg) : without_gvl(fn, arg);
+}
+
 static void* wait_job(void* unused) {
   job* j = NULL;
   (void)unused;
@@ -519,7 +527,7 @@ static VALUE orb_shutdown(VALUE self, VALUE wait) {
   memset(&o, 0, sizeof o);
   o.orb = ORB(self);
   o.wait = RTEST(wait);
-  without_gvl(shutdown_nogvl, &o);
+  blocking(shutdown_nogvl, &o);
   if (o.st != RORB_OK) raise_status(o.st, &o.exc);
   return Qnil;
 }
@@ -528,7 +536,7 @@ static VALUE orb_destroy(VALUE self) {
   struct orb_op o;
   memset(&o, 0, sizeof o);
   o.orb = ORB(self);
-  without_gvl(destroy_nogvl, &o);
+  blocking(destroy_nogvl, &o);
   if (o.st != RORB_OK) raise_status(o.st, &o.exc);
   return Qnil;
 }
@@ -543,7 +551,7 @@ static VALUE orb_perform_work(VALUE self) {
   struct orb_op o;
   memset(&o, 0, sizeof o);
   o.orb = ORB(self);
-  without_gvl(perform_work_nogvl, &o);
+  blocking(perform_work_nogvl, &o);
   if (o.st != RORB_OK) raise_status(o.st, &o.exc);
   return Qnil;
 }
@@ -617,7 +625,7 @@ static VALUE ref_call(VALUE self, gvl_fn fn, VALUE s) {
     o.s = RSTRING_PTR(s);
     o.len = (size_t)RSTRING_LEN(s);
   }
-  without_gvl(fn, &o);
+  blocking(fn, &o);
   RB_GC_GUARD(s);
   if (o.st != RORB_OK) raise_status(o.st, &o.exc);
   return o.result ? Qtrue : Qfalse;
@@ -787,7 +795,7 @@ static VALUE ref_invoke(VALUE self, VALUE op, VALUE oneway, VALUE timeout, VALUE
   c.inv.write_args = write_args;
   c.inv.read_reply = read_reply;
   c.inv.read_user_exception = read_user_exception;
-  without_gvl(invoke_nogvl, &c);
+  blocking(invoke_nogvl, &c);
   RB_GC_GUARD(op);
   RB_GC_GUARD(writer);
   RB_GC_GUARD(reader);
@@ -1621,7 +1629,7 @@ static VALUE poa_destroy(VALUE self, VALUE etherealize, VALUE wait) {
   o.poa = POA(self);
   o.a = RTEST(etherealize);
   o.b = RTEST(wait);
-  without_gvl(poa_destroy_nogvl, &o);
+  blocking(poa_destroy_nogvl, &o);
   if (o.st != RORB_OK) raise_status(o.st, &o.exc);
   return Qnil;
 }
@@ -1728,7 +1736,7 @@ static VALUE mgr_call(VALUE self, int what, VALUE a, VALUE b) {
   o.what = what;
   o.a = RTEST(a);
   o.b = RTEST(b);
-  without_gvl(mgr_nogvl, &o);
+  blocking(mgr_nogvl, &o);
   if (o.st != RORB_OK) raise_status(o.st, &o.exc);
   return Qnil;
 }
@@ -2190,7 +2198,7 @@ static VALUE request_call(VALUE self, int what) {
   memset(&c, 0, sizeof c);
   c.r = REQ(self);
   c.what = what;
-  without_gvl(request_nogvl, &c);
+  blocking(request_nogvl, &c);
   if (c.st == RORB_USER_EXCEPTION) {
     rorb_exception_clear(&c.exc);
     return Qfalse;
@@ -2281,6 +2289,236 @@ static void init_dii(void) {
   DEF(cServerRequest, "set_result", server_request_set_result, 1);
   DEF(cServerRequest, "set_exception", server_request_set_exception, 1);
   DEF(cServerRequest, "reply", server_request_reply, 1);
+}
+
+/* --- servant managers and adapter activators ------------------------------------------ */
+
+/* A Ruby ServantActivator, ServantLocator or AdapterActivator is a peer
+   too (kept alive while the POA holds it). The callbacks run its
+   _rustorb_* methods (portable_server.rb) with the GVL:
+
+     _rustorb_incarnate(oid, poa)              -> outcome
+     _rustorb_etherealize(oid, poa, servant, cleanup, remaining)
+     _rustorb_preinvoke(oid, poa, op)          -> outcome (with a cookie key)
+     _rustorb_postinvoke(oid, poa, op, key, servant)
+     _rustorb_unknown_adapter(parent, name)    -> true / false
+
+   An outcome is [:servant, servant, ids(, key)], [:forward, Native::Ref]
+   or [:system, id, minor, completed]. */
+static ID id_incarnate, id_etherealize, id_preinvoke, id_postinvoke, id_unknown_adapter;
+static VALUE sym_servant, sym_forward;
+
+struct mgr_cb {
+  peer* p;
+  const uint8_t* id;
+  size_t id_len;
+  rorb_poa* adapter;
+  const char* op;
+  size_t op_len;
+  void* servant_self;
+  int32_t a, b;
+  void* cookie;
+  rorb_servant** servant;
+  void** cookie_out;
+  rorb_manager_error* error;
+  int what;
+  rorb_status st;
+  int32_t answer;
+};
+
+static VALUE mgr_poa(rorb_poa* poa) { return W_POA(rorb_poa_clone(poa)); }
+
+/* Applies an outcome; returns its status. */
+static rorb_status mgr_outcome(struct mgr_cb* c, VALUE r) {
+  VALUE kind;
+  if (!RB_TYPE_P(r, T_ARRAY) || RARRAY_LEN(r) < 2) return RORB_SYSTEM_EXCEPTION;
+  kind = rb_ary_entry(r, 0);
+  if (kind == sym_servant) {
+    VALUE servant = rb_ary_entry(r, 1);
+    peer* sp = peer_of(servant, rb_ary_entry(r, 2));
+    *c->servant = rorb_servant_get(sp, sp->ids[0] ? sp->ids[0] : "", sp->id_lens[0], &servant_vtable);
+    if (c->cookie_out) *c->cookie_out = (void*)(uintptr_t)NUM2ULL(rb_ary_entry(r, 3));
+    return RORB_OK;
+  }
+  if (kind == sym_forward) {
+    rorb_manager_error_forward(c->error, OBJ(rb_ary_entry(r, 1)));
+    return RORB_SYSTEM_EXCEPTION;
+  }
+  {
+    VALUE id = utf8_arg(rb_ary_entry(r, 1));
+    rorb_manager_error_system(c->error, RSTRING_PTR(id), (size_t)RSTRING_LEN(id),
+                              NUM2UINT(rb_ary_entry(r, 2)), NUM2UINT(rb_ary_entry(r, 3)));
+    return RORB_SYSTEM_EXCEPTION;
+  }
+}
+
+static VALUE mgr_body(VALUE arg) {
+  struct mgr_cb* c = (struct mgr_cb*)arg;
+  VALUE oid = c->id ? rb_str_new((const char*)c->id, (long)c->id_len) : Qnil;
+  VALUE poa = mgr_poa(c->adapter);
+  VALUE servant = c->servant_self ? ((peer*)c->servant_self)->obj : Qnil;
+  VALUE r;
+  switch (c->what) {
+    case 0:
+      r = rb_funcall(c->p->obj, id_incarnate, 2, oid, poa);
+      c->st = mgr_outcome(c, r);
+      break;
+    case 1:
+      rb_funcall(c->p->obj, id_etherealize, 5, oid, poa, servant, c->a ? Qtrue : Qfalse,
+                 c->b ? Qtrue : Qfalse);
+      break;
+    case 2:
+      r = rb_funcall(c->p->obj, id_preinvoke, 3, oid, poa, utf8(c->op, c->op_len));
+      c->st = mgr_outcome(c, r);
+      break;
+    case 3:
+      rb_funcall(c->p->obj, id_postinvoke, 5, oid, poa, utf8(c->op, c->op_len),
+                 ULL2NUM((uintptr_t)c->cookie), servant);
+      break;
+    default:
+      r = rb_funcall(c->p->obj, id_unknown_adapter, 2, poa, utf8(c->op, c->op_len));
+      c->answer = RTEST(r) ? 1 : 0;
+      break;
+  }
+  return Qnil;
+}
+
+static void* mgr_gvl(void* arg) {
+  struct mgr_cb* c = arg;
+  int state = 0;
+  rb_protect(mgr_body, (VALUE)c, &state);
+  if (state) {
+    VALUE e = rb_errinfo();
+    rb_set_errinfo(Qnil);
+    rb_funcall(rb_stderr, rb_intern("puts"), 1,
+               rb_str_concat(rb_str_new_cstr("rustorb: servant manager failed: "), rb_inspect(e)));
+    if (c->error) {
+      rorb_manager_error_system(c->error, "IDL:omg.org/CORBA/UNKNOWN:1.0", 29, 0, RORB_COMPLETED_NO);
+      c->st = RORB_SYSTEM_EXCEPTION;
+    }
+    c->answer = 0;
+  }
+  return c;
+}
+
+static void mgr_run(struct mgr_cb* c) {
+  if (!with_gvl(mgr_gvl, c) && c->error) {
+    rorb_manager_error_system(c->error, "IDL:omg.org/CORBA/TRANSIENT:1.0", 31, 0, RORB_COMPLETED_NO);
+    c->st = RORB_SYSTEM_EXCEPTION;
+  }
+}
+
+static rorb_status act_incarnate(void* self, const uint8_t* id, size_t id_len, rorb_poa* adapter,
+                                 rorb_servant** servant, rorb_manager_error* error) {
+  struct mgr_cb c;
+  memset(&c, 0, sizeof c);
+  c.p = self, c.id = id, c.id_len = id_len, c.adapter = adapter, c.servant = servant;
+  c.error = error, c.what = 0, c.st = RORB_SYSTEM_EXCEPTION;
+  mgr_run(&c);
+  return c.st;
+}
+static void act_etherealize(void* self, const uint8_t* id, size_t id_len, rorb_poa* adapter,
+                            void* servant, int32_t cleanup, int32_t remaining) {
+  struct mgr_cb c;
+  memset(&c, 0, sizeof c);
+  c.p = self, c.id = id, c.id_len = id_len, c.adapter = adapter, c.servant_self = servant;
+  c.a = cleanup, c.b = remaining, c.what = 1;
+  mgr_run(&c);
+}
+static rorb_status loc_preinvoke(void* self, const uint8_t* id, size_t id_len, rorb_poa* adapter,
+                                 const char* op, size_t op_len, rorb_servant** servant,
+                                 void** cookie, rorb_manager_error* error) {
+  struct mgr_cb c;
+  memset(&c, 0, sizeof c);
+  c.p = self, c.id = id, c.id_len = id_len, c.adapter = adapter, c.op = op, c.op_len = op_len;
+  c.servant = servant, c.cookie_out = cookie, c.error = error, c.what = 2;
+  c.st = RORB_SYSTEM_EXCEPTION;
+  mgr_run(&c);
+  return c.st;
+}
+static void loc_postinvoke(void* self, const uint8_t* id, size_t id_len, rorb_poa* adapter,
+                           const char* op, size_t op_len, void* cookie, void* servant) {
+  struct mgr_cb c;
+  memset(&c, 0, sizeof c);
+  c.p = self, c.id = id, c.id_len = id_len, c.adapter = adapter, c.op = op, c.op_len = op_len;
+  c.cookie = cookie, c.servant_self = servant, c.what = 3;
+  mgr_run(&c);
+}
+static int32_t aa_unknown_adapter(void* self, rorb_poa* parent, const char* name, size_t len) {
+  struct mgr_cb c;
+  memset(&c, 0, sizeof c);
+  c.p = self, c.adapter = parent, c.op = name, c.op_len = len, c.what = 4;
+  mgr_run(&c);
+  return c.answer;
+}
+
+static const rorb_servant_activator_vtable activator_vtable = {
+    act_incarnate, act_etherealize, servant_add_ref, servant_remove_ref};
+static const rorb_servant_locator_vtable locator_vtable = {loc_preinvoke, loc_postinvoke,
+                                                           servant_add_ref, servant_remove_ref};
+static const rorb_adapter_activator_vtable adapter_activator_vtable = {
+    aa_unknown_adapter, servant_add_ref, servant_remove_ref};
+
+static VALUE poa_set_servant_activator(VALUE self, VALUE obj) {
+  peer* p = peer_of(obj, rb_ary_new());
+  CHECK(rorb_poa_set_servant_activator(POA(self), p, &activator_vtable, EXC));
+  return Qnil;
+}
+static VALUE poa_set_servant_locator(VALUE self, VALUE obj) {
+  peer* p = peer_of(obj, rb_ary_new());
+  CHECK(rorb_poa_set_servant_locator(POA(self), p, &locator_vtable, EXC));
+  return Qnil;
+}
+static VALUE poa_get_servant_manager(VALUE self) {
+  int32_t kind = 0;
+  void* s = NULL;
+  CHECK(rorb_poa_get_servant_manager(POA(self), &kind, &s, EXC));
+  return servant_of(s);
+}
+static VALUE poa_set_the_activator(VALUE self, VALUE obj) {
+  if (NIL_P(obj)) {
+    CHECK(rorb_poa_set_the_activator(POA(self), NULL, &adapter_activator_vtable, EXC));
+  } else {
+    peer* p = peer_of(obj, rb_ary_new());
+    CHECK(rorb_poa_set_the_activator(POA(self), p, &adapter_activator_vtable, EXC));
+  }
+  return Qnil;
+}
+static VALUE poa_the_activator(VALUE self) { return servant_of(rorb_poa_the_activator(POA(self))); }
+
+static void init_managers(void) {
+  id_incarnate = rb_intern("_rustorb_incarnate");
+  id_etherealize = rb_intern("_rustorb_etherealize");
+  id_preinvoke = rb_intern("_rustorb_preinvoke");
+  id_postinvoke = rb_intern("_rustorb_postinvoke");
+  id_unknown_adapter = rb_intern("_rustorb_unknown_adapter");
+  sym_servant = ID2SYM(rb_intern("servant"));
+  sym_forward = ID2SYM(rb_intern("forward"));
+  DEF(cPOA, "set_servant_activator", poa_set_servant_activator, 1);
+  DEF(cPOA, "set_servant_locator", poa_set_servant_locator, 1);
+  DEF(cPOA, "get_servant_manager", poa_get_servant_manager, 0);
+  DEF(cPOA, "set_the_activator", poa_set_the_activator, 1);
+  DEF(cPOA, "the_activator", poa_the_activator, 0);
+}
+
+/* Rustorb::Native.upcall_thread: an Integer that names the native thread
+   rustorb runs the current upcall on (the thread waiting for this
+   dispatcher), or this thread outside an upcall; main_thread: that of the
+   thread that loaded the extension. For probes of the thread model. */
+static pthread_t main_pthread;
+static void* self_thread(void* out) {
+  *(pthread_t*)out = pthread_self();
+  return NULL;
+}
+static VALUE native_upcall_thread(VALUE self) {
+  pthread_t t;
+  (void)self;
+  at_home(self_thread, &t);
+  return ULL2NUM((unsigned long long)(uintptr_t)t);
+}
+static VALUE native_main_thread(VALUE self) {
+  (void)self;
+  return ULL2NUM((unsigned long long)(uintptr_t)main_pthread);
 }
 
 static VALUE handle_class(const char* name) {
@@ -2488,4 +2726,8 @@ void Init_rustorb_ext(void) {
 
   init_dynany();
   init_dii();
+  init_managers();
+  main_pthread = pthread_self();
+  rb_define_singleton_method(mNative, "upcall_thread", RUBY_METHOD_FUNC(native_upcall_thread), 0);
+  rb_define_singleton_method(mNative, "main_thread", RUBY_METHOD_FUNC(native_main_thread), 0);
 }
