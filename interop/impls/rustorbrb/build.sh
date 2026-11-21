@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds what the rustorb Ruby client, server and naming check need: rt/
 # (the runtime of the rustorb gem, ruby/lib, with its rustorb_ext extension)
-# and gen/ (InteropTest.idl through rustorb-idl -bruby). run-matrix.sh,
+# and gen/ (InteropTest.idl, AnyTest.idl and AnyTestHidden.idl through
+# rustorb-idl -bruby). run-matrix.sh,
 # run-naming-check.sh and run-wire-probe.sh run it; rustorb-idl must be
 # importable (tools/rustorb-idl.txt), or RUSTORB_IDL_DIR / IDL_PARSER_DIR set
 # to checkouts.
@@ -26,7 +27,8 @@ mkdir -p "$here/rt" "$here/gen"
 cp -R "$root/ruby/lib/." "$here/rt/"
 pythonpath="${RUSTORB_IDL_DIR:+$RUSTORB_IDL_DIR/python}"
 [ -n "${IDL_PARSER_DIR:-}" ] && pythonpath="$IDL_PARSER_DIR${pythonpath:+:$pythonpath}"
-PYTHONPATH="$pythonpath" python3 -m rustorb_idl -bruby -C "$here/gen" "$root/interop/idl/InteropTest.idl"
+PYTHONPATH="$pythonpath" python3 -m rustorb_idl -bruby -C "$here/gen" -I"$root/interop/idl" \
+  "$root/interop/idl/InteropTest.idl" "$root/interop/idl/AnyTest.idl" "$root/interop/idl/AnyTestHidden.idl"
 
 ext="$here/rt/rustorb/rustorb_ext.so"
 if [ -n "${RUSTORB_RB_HOST:-}" ]; then

@@ -24,3 +24,19 @@ class InteropTest_ < Minitest::Test
     assert_equal 79, r.passed
   end
 end
+
+# The stage 2 (AnyTest.idl) cases of the interop client against its
+# AnyEcho servant, in one process.
+require "anytest"
+require "AnyTestHiddenC"
+
+class AnyTest_ < Minitest::Test
+  def test_cases
+    echo = TestORB.ref(AnyEchoServant.new, AnyTest::AnyEcho)
+    out = StringIO.new
+    r = Runner.new(out)
+    AnyCases.run(r, echo)
+    assert_empty r.failed, out.string
+    assert_equal 6 * AnyCases::NAMES.size + 3 + 1 + 2 * AnyCases::HIDDEN.size + 6, r.passed
+  end
+end
