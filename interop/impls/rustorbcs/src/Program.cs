@@ -3,7 +3,8 @@
 // and exits non-zero if one fails; `rustorbcs server ARGS` serves Echo;
 // `rustorbcs naming-check ARGS` runs the CosNaming sequence of
 // run-naming-check.sh; `rustorbcs dynany-probe` the cases of
-// run-dynany-probe.sh.
+// run-dynany-probe.sh; `rustorbcs poa-probe-server` the server of
+// run-poa-probe.sh.
 //
 // Licensed under MIT OR Apache-2.0, like the rest of the rustorb core.
 
@@ -24,8 +25,9 @@ namespace Interop
                 case "server": return Server(rest);
                 case "naming-check": return NamingCheck.Run(rest);
                 case "dynany-probe": return DynAnyProbe.Run(rest);
+                case "poa-probe-server": return PoaProbeServer.Run(rest);
                 default:
-                    Console.Error.WriteLine("usage: rustorbcs client|server|naming-check|dynany-probe ARGS");
+                    Console.Error.WriteLine("usage: rustorbcs client|server|naming-check|dynany-probe|poa-probe-server ARGS");
                     return 2;
             }
         }

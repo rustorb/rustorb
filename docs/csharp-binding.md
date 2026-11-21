@@ -90,9 +90,18 @@ orb.run();
 - `insert_val` / `get_val` は valuetype の対応（#186 の後の段）までは `NO_IMPLEMENT`。値は `from_any` / `to_any` で扱える。`insert_abstract` / `get_abstract` は他のバインディングと同じく `NO_IMPLEMENT`
 - `ORB` に `create_value_tc`・`create_value_box_tc`・`create_native_tc`・`create_abstract_interface_tc`・`create_local_interface_tc`、`Corba.ValueMember` と `Corba.Constants`（`VM_NONE` など）を足した
 
+## servant manager と adapter activator
+
+`PortableServer` に `IServantActivator`・`IServantLocator`・`IAdapterActivator`（IDL4 to C# のローカルインターフェース）と、それを実装する基底クラス `ServantActivator`・`ServantLocator`・`AdapterActivator`（`Corba.LocalObject` の派生）、`ForwardRequest` を置いた。
+
+- `POA.set_servant_manager` / `get_servant_manager`、`POA.the_activator`（プロパティ。null で外す）。`get_servant_manager` と `the_activator` は渡したオブジェクトそのものを返す
+- servant locator の `Cookie`（native）は `object` で、`preinvoke` の `out` の値がそのまま `postinvoke` に渡る
+- `incarnate` / `preinvoke` が投げた `ForwardRequest` はクライアントを転送し、システム例外はそのまま返り、それ以外の例外は `UNKNOWN`
+- コアは POA が持っている間だけ manager を強く参照する（サーバントと同じく `add_ref` / `remove_ref`）
+
 ## まだないもの
 
-valuetype、abstract / local インターフェース（servant manager などのローカルインターフェースを含む）、DII / DSI、Portable Interceptors、AMI、IDL 4 の bitmask / bitset は [#186](https://github.com/rustorb/rustorb/issues/186) で足す。`-bcsharp` はこれらの構文をエラーにする。
+valuetype、abstract / local インターフェース（IDL で定義したもの）、DII / DSI、Portable Interceptors、AMI、IDL 4 の bitmask / bitset は [#186](https://github.com/rustorb/rustorb/issues/186) で足す。`-bcsharp` はこれらの構文をエラーにする。
 
 ## テスト
 
@@ -100,6 +109,7 @@ valuetype、abstract / local インターフェース（servant manager など�
   - `EchoTests`：相互接続の `InteropTest.idl` の全操作（基本型、構造体、union、配列、列、パラメーターの向き、ユーザー例外とシステム例外、属性、oneway、参照、コールバック、Any）を、文字列化した参照を通して同じプロセスで呼ぶ
   - `DynAnyTests`：`AnyTest.idl` の型での DynAny（構造体、union、列、enum、例外、同一性）
   - テストのクラスは順に走らせる（各 fixture がプロセスの ORB を `init` し、終わりに `destroy` するので、並行だと他のクラスの ORB を壊す）
+  - `ServantManagerTests`：servant activator（incarnate、例外、ForwardRequest、etherealize）、servant locator（cookie）、adapter activator
   - `MappingTests`：C++・Java と同じ `cpp/tests/idl/CxxMapping.idl` の定数、再帰型、すべての判別子の union、入れ子の型、キーワード、fixed と long double、インターフェースの多重継承、オブジェクト参照の列、TypeCode と Any
 - rustorb-idl の `python/tests/test_csharp_backend.py`：生成物の形、`-Wbdotnet_naming`、対応しない構文のエラー、生成コードとランタイムのコンパイル（警告をエラーにする）。golden は `tests/golden/csharp`
 - CI（`ci.yml` の `dotnet`）：Linux、macOS、Windows で `dotnet test`。Linux では同梱の CosNaming のスタブが生成器の出力と、`Ffi.g.cs` が `rustorb.h` と一致することも確かめる
@@ -108,4 +118,4 @@ valuetype、abstract / local インターフェース（servant manager など�
   - GIOP 1.1、`--fragment 1024`、`--ssl`、`--unix` でも omniORB・omniORBpy・自身との組（GIOP 1.1 と Fragment は JacORB とも）が同じ結果（GIOP 1.1 の omniORB 側の wchar / wstring は既知）
   - Java（`rustorbjava`）との組はローカルに Java 22 がなく CI（`interop.yml`）で確かめる
 - DynAny プローブ（`run-dynany-probe.sh`）：`rustorbcs`（`interop/impls/rustorbcs/src/DynAnyProbe.cs`）の出力は rustorb の期待出力と一致する
-- naming check（`run-naming-check.sh`。omniNames と rustorb-names、再起動を含む）と wire probe（`run-wire-probe.sh`）は、`rustorbcs` でも期待出力と一致する。POA プローブは servant manager（ローカルインターフェース）が要るので #186 で加える
+- naming check（`run-naming-check.sh`。omniNames と rustorb-names、再起動を含む）と wire probe（`run-wire-probe.sh`）は、`rustorbcs` でも期待出力と一致する。POA プローブ（`run-poa-probe.sh`）の `rustorbcs`（`interop/impls/rustorbcs/src/PoaProbeServer.cs`）の出力も rustorb の期待出力と一致する

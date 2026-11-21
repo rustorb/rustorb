@@ -22,7 +22,7 @@ mkdir -p "$here/gen"
 pythonpath="${RUSTORB_IDL_DIR:+$RUSTORB_IDL_DIR/python}"
 [ -n "${IDL_PARSER_DIR:-}" ] && pythonpath="$IDL_PARSER_DIR${pythonpath:+:$pythonpath}"
 PYTHONPATH="$pythonpath" python3 -m rustorb_idl -bcsharp -I "$root/interop/idl" -C "$here/gen" \
-  "$root/interop/idl/InteropTest.idl"
+  "$root/interop/idl/InteropTest.idl" "$root/interop/idl/PoaProbe.idl"
 dotnet publish "$here/rustorbcs.csproj" -c Release -o "$here/out" --nologo -v quiet
 case "$(uname -s)" in
   Darwin) cp "$root/target/release/librustorb_ffi.dylib" "$here/out/" ;;
