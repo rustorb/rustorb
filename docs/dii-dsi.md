@@ -113,6 +113,15 @@ IDL to C++11 マッピングの DII / DSI。
 - コンテキスト（`ctx` が null でない、または空でない `ctxlist` の `_create_request`、`Request.ctx()`、`ServerRequest.ctx()`）と `get_default_context`、`create_operation_list` は `NO_IMPLEMENT`
 - valuetype：C++ と同じく、Any は値を参照で持ち、引数どうしの共有が保たれる（[#164](https://github.com/rustorb/rustorb/issues/164)）
 
+## .NET（`Corba`・`PortableServer`）
+
+[#186](https://github.com/rustorb/rustorb/issues/186)。IDL4 to C# の DII / DSI を C ABI の上に載せた（[csharp-binding.md](csharp-binding.md)）。名前と形は Java と同じで、違いは次のとおり。
+
+- 呼び出しの例外は投げる（C# の他の呼び出しと同じ）。`env.exception` にも入る
+- DSI のサーバントは `_primary_interface(oid, poa)` を書く（`_all_interfaces` はその1つを返す）。`invoke` から `UnknownUserException` を投げてもユーザー例外の応答になる
+- `Request` を送るたびに C ABI の要求を作る、`out` と `inout` の Any を同じオブジェクトのまま置き換える、`get_next_response` が1ミリ秒ごとに見て回る（空なら `BAD_INV_ORDER`）、値を入れていない `out` は `BAD_PARAM`、は Java と同じ
+- valuetype はまだない（#186 の後の段）
+
 ## テスト
 
 - `crates/rustorb-core/tests/dii.rs`：DSI のサーバントと静的なサーバントを、DII（同期・async・deferred・oneway）で TCP 越しと同一 ORB 内で呼ぶ。`ServerRequest` の呼び出し順の検査
@@ -122,3 +131,5 @@ IDL to C++11 マッピングの DII / DSI。
 - 相互接続：`interop/impls/rustorbcpp-dii` は `rustorbcpp` のクライアントとサーバーを、スタブの呼び出しを DII に、サーバントを DSI に差し替えて動かす（`dii_adapters.h`、環境変数 `RUSTORB_DII=1`）。basic（GIOP 1.2 / 1.1）・any・value で、omniORB C++・omniORBpy・`rustorbpy-dii` との組が両方向で `rustorbcpp` と同じ結果になる（失敗は `long double` と omniORBpy の wchar の既知のものだけ）。CI でも回す
 - `java/src/test/java/org/rustorb/test/DiiTest.java`：basic・any・value の相互接続の項目（`interop/impls/java/interop/DiiAdapters.java`）を、Java の DII → DSI、DII → 静的なサーバント、静的なスタブ → DSI の3通りで回す。API の項目：アクセサーと同じ要求の再送、`_create_request` と例外リスト、システム例外とリストにないユーザー例外、NVList などの `Bounds`、deferred と `get_next_response`、`send_multiple_requests_*`、`ServerRequest` の呼び出し順、値のない `out`、ローカルなオブジェクト、同一 ORB 内。`DiiPiTest.java`：インターセプターの `arguments`・`result`・`exceptions`
 - 相互接続：`interop/impls/rustorbjava-dii` は `rustorbjava` のクライアントとサーバーを、スタブの呼び出しを DII に、サーバントを DSI に差し替えて動かす（`interop/impls/java/interop/DiiAdapters.java`、環境変数 `RUSTORB_DII=1`）。basic（GIOP 1.2 / 1.1）・any・value で、omniORB C++・omniORBpy・JacORB・rustorb の各実装との組が両方向で `rustorbjava` と同じ結果になる（失敗は既知のものだけ）。CI でも回す
+- `dotnet/tests/Rustorb.Tests/DiiTests.cs`：.NET の DII → 静的なサーバントと DSI、静的なスタブ → DSI、deferred と `get_next_response`、`NVList` と `ExceptionList`、oneway
+- 相互接続：`interop/impls/rustorbcs-dii`（`interop/impls/rustorbcs/src/DiiAdapters.cs`、環境変数 `RUSTORB_DII=1`）。basic（GIOP 1.2 / 1.1）で omniORB C++・omniORBpy・JacORB・rustorb の各実装との組が両方向で `rustorbcs` と同じ結果になる。CI でも回す

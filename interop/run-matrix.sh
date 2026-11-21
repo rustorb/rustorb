@@ -11,12 +11,13 @@
 # rustorbjava (the Rust, the Python, the C++ and the Java client and server of
 # rustorb) and, for the basic suite, rustorbcs (the .NET client and server),
 # rustorbc (the C client and server) and rustorbrb (the Ruby client and
-# server), which are built on the host (rustorbrb's extension in the image). rustorbjava-portable (the Java client
-# and server on rustorb with JacORB's generated stubs), rustorbpy-dii (the
-# Python client and server through the DII and the DSI), rustorbcpp-dii
-# (the C++ client and server through the DII and the DSI) and
-# rustorbjava-dii (the Java client and server through the DII and the DSI)
-# run only when named in a pair.
+# server), which are built on the host (rustorbrb's extension in the
+# image). rustorbjava-portable (the Java client and server on rustorb with
+# JacORB's generated stubs), rustorbpy-dii (the Python client and server
+# through the DII and the DSI), rustorbcpp-dii (the C++ client and server
+# through the DII and the DSI), rustorbjava-dii (the Java client and server
+# through the DII and the DSI) and rustorbcs-dii (the .NET client and server
+# through the DII and the DSI, basic suite) run only when named in a pair.
 # --build    builds the omniORB image first
 # --capture  captures each client's traffic and splits it into GIOP messages
 # --fragment N  the rustorb clients and servers split GIOP 1.2 messages
@@ -231,7 +232,7 @@ done
 # The rustorb .NET client and server, with stubs from rustorb-idl -bcsharp.
 for pair in "${pairs[@]}"; do
   case " ${pair%%:*} ${pair##*:} " in
-    *" rustorbcs "*)
+    *" rustorbcs "*|*" rustorbcs-dii "*)
       impls/rustorbcs/build.sh
       break
       ;;

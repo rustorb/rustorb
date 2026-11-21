@@ -247,6 +247,118 @@ namespace Corba
             set => Ffi.rorb_set_thread_call_timeout(value);
         }
 
+        // --- the DII ---------------------------------------------------------------
+
+        public NVList create_list(int count) => new NVList();
+
+        public NamedValue create_named_value(string name, Any value, uint flags) => new NamedValue(name, value, flags);
+
+        public ExceptionList create_exception_list() => new ExceptionList();
+
+        public Environment create_environment() => new Environment();
+
+        /// <summary>Contexts are not supported: NO_IMPLEMENT.</summary>
+        public object get_default_context() =>
+            throw new NO_IMPLEMENT("contexts are not supported", 0, CompletionStatus.COMPLETED_NO);
+
+        private static readonly List<Request> deferred = new();
+
+        internal static void Deferred(Request r, bool add)
+        {
+            lock (deferred)
+            {
+                if (add)
+                {
+                    deferred.Add(r);
+                }
+                else
+                {
+                    deferred.Remove(r);
+                }
+            }
+        }
+
+        public void send_multiple_requests_oneway(Request[] req)
+        {
+            foreach (Request r in req)
+            {
+                r.send_oneway();
+            }
+        }
+
+        public void send_multiple_requests_deferred(Request[] req)
+        {
+            foreach (Request r in req)
+            {
+                r.send_deferred();
+            }
+        }
+
+        /// <summary>Whether a request sent deferred has its response
+        /// (BAD_INV_ORDER when none is outstanding).</summary>
+        public bool poll_next_response()
+        {
+            Request[] all;
+            lock (deferred)
+            {
+                all = deferred.ToArray();
+            }
+            if (all.Length == 0)
+            {
+                throw new BAD_INV_ORDER("no deferred request is outstanding", 11, CompletionStatus.COMPLETED_NO);
+            }
+            foreach (Request r in all)
+            {
+                if (r.Pending && r.poll_response())
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>The next request sent deferred whose response has come,
+        /// after get_response (it looks every millisecond; BAD_INV_ORDER when
+        /// none is outstanding).</summary>
+        public Request get_next_response()
+        {
+            while (true)
+            {
+                Request[] all;
+                lock (deferred)
+                {
+                    all = deferred.ToArray();
+                }
+                if (all.Length == 0)
+                {
+                    throw new BAD_INV_ORDER("no deferred request is outstanding", 11, CompletionStatus.COMPLETED_NO);
+                }
+                foreach (Request r in all)
+                {
+                    bool ready;
+                    try
+                    {
+                        ready = r.Pending && r.poll_response();
+                    }
+                    catch (BAD_INV_ORDER)
+                    {
+                        continue;
+                    }
+                    if (ready)
+                    {
+                        try
+                        {
+                            r.get_response();
+                        }
+                        catch (UnknownUserException) { }
+                        catch (SystemException) { }
+                        return r;
+                    }
+                }
+                System.Threading.Thread.Sleep(1);
+            }
+        }
+
         public Any create_any() => new Any();
 
         public TypeCode get_primitive_tc(TCKind kind) => Rustorb.TypeCodes.Simple(kind);
@@ -339,7 +451,7 @@ namespace Corba
 
     /// <summary>The constants of the CORBA module (IDL4 to C#: a Constants
     /// class per namespace) that the runtime uses.</summary>
-    public static class Constants
+    public static partial class Constants
     {
         public const short VM_NONE = 0;
         public const short VM_CUSTOM = 1;

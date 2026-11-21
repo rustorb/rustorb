@@ -208,6 +208,19 @@ jobs:
           interop/run-matrix.sh --suite any $any
           interop/run-matrix.sh --suite value $pairs
 
+      # The .NET client calling through Corba.Request and the .NET server
+      # answering through PortableServer.DynamicImplementation, on the
+      # basic suite (the one rustorbcs runs).
+      - name: Run the matrix with the .NET DII client and DSI server
+        run: |
+          p=rustorbcs-dii
+          pairs="$p:$p"
+          for x in omniorbpy omniorb-cpp jacorb rustorb rustorbpy rustorbcpp rustorbcs rustorbpy-dii rustorbcpp-dii; do
+            pairs="$pairs $p:$x $x:$p"
+          done
+          interop/run-matrix.sh $pairs
+          interop/run-matrix.sh --giop 1.1 $pairs
+
       # omniORBpy and the rustorb clients (Rust, Python, C++, Java).
       - name: Run the naming service check
         run: interop/run-naming-check.sh

@@ -99,9 +99,19 @@ orb.run();
 - `incarnate` / `preinvoke` が投げた `ForwardRequest` はクライアントを転送し、システム例外はそのまま返り、それ以外の例外は `UNKNOWN`
 - コアは POA が持っている間だけ manager を強く参照する（サーバントと同じく `add_ref` / `remove_ref`）
 
+## DII と DSI
+
+`Corba` に IDL4 to C# の DII（`Request`、`NVList`、`NamedValue`、`ExceptionList`、`Environment`、`Bounds`、`UnknownUserException`、`Constants.ARG_IN` / `ARG_OUT` / `ARG_INOUT`）を、`PortableServer` に DSI の `DynamicImplementation` と `Corba.ServerRequest` を置いた。実装は C ABI の `rorb_request_*` と `rorb_server_request_*` で、決めたことは他のバインディングと同じ（[dii-dsi.md](dii-dsi.md)）。
+
+- `obj._request(op)`、`obj._create_request(ctx, op, arg_list, result[, exclist, ctxlist])`、`orb.create_list` / `create_named_value` / `create_exception_list` / `create_environment`、`orb.send_multiple_requests_oneway` / `_deferred`、`poll_next_response`、`get_next_response`
+- `Request` の `add_in_arg` などは `Any` を返す。`out` には型だけを入れる（`any.type = tc`）。`invoke`・`send_oneway`・`send_deferred`・`poll_response`・`get_response`
+- 呼び出しの例外は投げ、`env.exception` にも入れる（C# の他の呼び出しと同じく例外で知らせる）。ユーザー例外は `UnknownUserException`（`except` は例外リストの TypeCode で読んだ本体の Any）
+- DSI のサーバントは `DynamicImplementation` を継承して `invoke(ServerRequest)` と `_primary_interface(oid, poa)` を書く。`invoke` が投げた `UnknownUserException` は `set_exception` と同じ
+- コンテキスト（null でない `ctx`、`ServerRequest.ctx()`、`get_default_context`）は `NO_IMPLEMENT`
+
 ## まだないもの
 
-valuetype、abstract / local インターフェース（IDL で定義したもの）、DII / DSI、Portable Interceptors、AMI、IDL 4 の bitmask / bitset は [#186](https://github.com/rustorb/rustorb/issues/186) で足す。`-bcsharp` はこれらの構文をエラーにする。
+valuetype、abstract / local インターフェース（IDL で定義したもの）、Portable Interceptors、AMI、IDL 4 の bitmask / bitset は [#186](https://github.com/rustorb/rustorb/issues/186) で足す。`-bcsharp` はこれらの構文をエラーにする。
 
 ## テスト
 
@@ -110,6 +120,7 @@ valuetype、abstract / local インターフェース（IDL で定義したも�
   - `DynAnyTests`：`AnyTest.idl` の型での DynAny（構造体、union、列、enum、例外、同一性）
   - テストのクラスは順に走らせる（各 fixture がプロセスの ORB を `init` し、終わりに `destroy` するので、並行だと他のクラスの ORB を壊す）
   - `ServantManagerTests`：servant activator（incarnate、例外、ForwardRequest、etherealize）、servant locator（cookie）、adapter activator
+  - `DiiTests`：静的なサーバントと DSI のサーバントへの DII（`out`、同じ要求の再送、ユーザー例外とリストにないもの、deferred と `get_next_response`、oneway）、静的なスタブから DSI のサーバント、`NVList` と `ExceptionList`、`_create_request`
   - `MappingTests`：C++・Java と同じ `cpp/tests/idl/CxxMapping.idl` の定数、再帰型、すべての判別子の union、入れ子の型、キーワード、fixed と long double、インターフェースの多重継承、オブジェクト参照の列、TypeCode と Any
 - rustorb-idl の `python/tests/test_csharp_backend.py`：生成物の形、`-Wbdotnet_naming`、対応しない構文のエラー、生成コードとランタイムのコンパイル（警告をエラーにする）。golden は `tests/golden/csharp`
 - CI（`ci.yml` の `dotnet`）：Linux、macOS、Windows で `dotnet test`。Linux では同梱の CosNaming のスタブが生成器の出力と、`Ffi.g.cs` が `rustorb.h` と一致することも確かめる
@@ -119,3 +130,4 @@ valuetype、abstract / local インターフェース（IDL で定義したも�
   - Java（`rustorbjava`）との組はローカルに Java 22 がなく CI（`interop.yml`）で確かめる
 - DynAny プローブ（`run-dynany-probe.sh`）：`rustorbcs`（`interop/impls/rustorbcs/src/DynAnyProbe.cs`）の出力は rustorb の期待出力と一致する
 - naming check（`run-naming-check.sh`。omniNames と rustorb-names、再起動を含む）と wire probe（`run-wire-probe.sh`）は、`rustorbcs` でも期待出力と一致する。POA プローブ（`run-poa-probe.sh`）の `rustorbcs`（`interop/impls/rustorbcs/src/PoaProbeServer.cs`）の出力も rustorb の期待出力と一致する
+- 相互接続：`interop/impls/rustorbcs-dii` は `rustorbcs` のクライアントとサーバーを、スタブの呼び出しを DII に、サーバントを DSI に差し替えて動かす（`interop/impls/rustorbcs/src/DiiAdapters.cs`、環境変数 `RUSTORB_DII=1`）。basic（GIOP 1.2 / 1.1）で、omniORBpy・omniORB C++・JacORB・rustorb（Rust、Python、C++、.NET、Python と C++ の DII）との組が両方向で `rustorbcs` と同じ結果になる（失敗は既知のものだけ）。CI（`interop.yml`）でも回す

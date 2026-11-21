@@ -38,7 +38,16 @@ namespace Interop
             Corba.ORB orb = Common.OrbInit(opt);
             PortableServer.POA poa = Common.PersistentPoa(orb, "InteropTest");
             byte[] oid = Common.Oid("Echo");
-            poa.activate_object_with_id(oid, new EchoImpl(orb));
+            var impl = new EchoImpl(orb);
+            if (Dii.Enabled)
+            {
+                poa.activate_object_with_id(oid, new DsiEcho(impl,
+                    PortableServer.CurrentHelper.narrow(orb.resolve_initial_references("POACurrent"))));
+            }
+            else
+            {
+                poa.activate_object_with_id(oid, impl);
+            }
             Common.BindName(Common.RootContext(orb, opt.Timeout), opt.Name, poa.id_to_reference(oid));
             Console.WriteLine("server ready: " + opt.Name);
             Console.Out.Flush();
@@ -59,6 +68,10 @@ namespace Interop
                 var root = Common.RootContext(orb, opt.Timeout);
                 Corba.IObject obj = Common.Retry("the Echo server", () => Common.Resolve(root, opt.Name), opt.Timeout);
                 IEcho echo = EchoHelper.narrow(obj);
+                if (Dii.Enabled)
+                {
+                    echo = DiiEcho.Wrap(echo);
+                }
                 Common.Retry("the Echo server", echo._non_existent, opt.Timeout);
 
                 var r = new Runner();

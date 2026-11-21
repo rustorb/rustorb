@@ -253,6 +253,8 @@ namespace Rustorb
             this.ptr = ptr;
         }
 
+        internal nint Ptr => ptr;
+
         /// <summary>The stream of a normal reply.</summary>
         public CdrOutput output() => new CdrOutput(Ffi.rorb_server_reply_output(ptr));
 
