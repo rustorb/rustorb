@@ -1,0 +1,67 @@
+<!--
+  The tests of the .NET binding: the code rustorb-idl -bcsharp writes for
+  the test IDLs, called through the ORB in one process.
+
+    dotnet test dotnet/tests/Rustorb.Tests
+
+  The build runs cargo for librustorb_ffi (-p:CargoSkip=true to use one built
+  elsewhere, found through RUSTORB_FFI_LIBRARY) and rustorb-idl -bcsharp
+  (installed, tools/rustorb-idl.txt, or the checkout in RUSTORB_IDL_DIR;
+  idl_parser importable or in IDL_PARSER_DIR).
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <LangVersion>12</LangVersion>
+    <IsPackable>false</IsPackable>
+    <RustorbRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../../..'))</RustorbRoot>
+    <Python Condition="'$(Python)' == ''">python3</Python>
+    <CargoSkip Condition="'$(CargoSkip)' == ''">false</CargoSkip>
+    <IdlOut>$(BaseIntermediateOutputPath)idl/</IdlOut>
+    <IdlPythonPath>$(IDL_PARSER_DIR)</IdlPythonPath>
+    <IdlPythonPath Condition="'$(RUSTORB_IDL_DIR)' != ''">$(IdlPythonPath)$([System.IO.Path]::PathSeparator)$(RUSTORB_IDL_DIR)/python</IdlPythonPath>
+    <NativeName Condition="$([MSBuild]::IsOSPlatform('Windows'))">rustorb_ffi.dll</NativeName>
+    <NativeName Condition="$([MSBuild]::IsOSPlatform('OSX'))">librustorb_ffi.dylib</NativeName>
+    <NativeName Condition="'$(NativeName)' == ''">librustorb_ffi.so</NativeName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Rustorb.Corba/Rustorb.Corba.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <TestIdl Include="$(RustorbRoot)/interop/idl/InteropTest.idl" />
+    <TestIdl Include="$(RustorbRoot)/interop/idl/AnyTest.idl" />
+    <TestIdl Include="$(RustorbRoot)/interop/idl/PoaProbe.idl" />
+    <TestIdl Include="$(RustorbRoot)/cpp/tests/idl/CxxMapping.idl" />
+  </ItemGroup>
+
+  <!-- librustorb_ffi, for the tests. -->
+  <Target Name="Cargo" BeforeTargets="Build" Condition="'$(CargoSkip)' != 'true'">
+    <Exec Command="cargo build --locked -p rustorb-ffi --manifest-path &quot;$(RustorbRoot)/Cargo.toml&quot;" />
+    <Copy SourceFiles="$(RustorbRoot)/target/debug/$(NativeName)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- The stubs and skeletons of the test IDLs. -->
+  <Target Name="RustorbIdl" BeforeTargets="CoreCompile" Inputs="@(TestIdl)" Outputs="$(IdlOut)stamp">
+    <RemoveDir Directories="$(IdlOut)" />
+    <Exec Command="&quot;$(Python)&quot; -m rustorb_idl -bcsharp -I &quot;$(RustorbRoot)/interop/idl&quot; -C &quot;$(IdlOut)&quot; @(TestIdl->'&quot;%(FullPath)&quot;', ' ')"
+          EnvironmentVariables="PYTHONPATH=$(IdlPythonPath)" />
+    <Touch Files="$(IdlOut)stamp" AlwaysCreate="true" />
+  </Target>
+  <Target Name="IdlSources" AfterTargets="RustorbIdl" BeforeTargets="CoreCompile">
+    <ItemGroup>
+      <Compile Include="$(IdlOut)*.cs" />
+    </ItemGroup>
+  </Target>
+</Project>

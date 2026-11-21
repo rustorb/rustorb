@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>Rustorb.Corba</AssemblyName>
+    <RootNamespace>Rustorb</RootNamespace>
+    <PackageId>Rustorb</PackageId>
+    <Version>0.6.0</Version>
+    <Authors>rustorb contributors</Authors>
+    <Description>CORBA for .NET on rustorb: the IDL4 to C# mapping (formal/21-07-01) with the ORB, the POA and CosNaming.</Description>
+    <PackageLicenseExpression>MIT OR Apache-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/rustorb/rustorb</PackageProjectUrl>
+    <Nullable>enable</Nullable>
+    <LangVersion>12</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- The generated CosNaming code and the IDL-named API do not follow
+         the .NET naming rules, by the mapping's design. -->
+    <NoWarn>$(NoWarn);CS1591;CS8981</NoWarn>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>
