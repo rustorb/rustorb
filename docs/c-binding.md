@@ -185,5 +185,6 @@ valuetype と abstract interface は C マッピングにないので `-bc` は�
   - basic（79ケース）：omniORBpy・omniORB C++・JacORB・rustorb の Rust・Python・C++・.NET・C 自身と両方向で通る。失敗は omniORBpy の wchar（3ケース）と JacORB の union の判別子（`echo_value[5]`）だけで、他の rustorb のバインディングと同じ
   - GIOP 1.1、`--fragment 1024`、`--ssl`、`--unix` でも omniORB・omniORBpy・自身との組（GIOP 1.1 と Fragment は JacORB とも）が同じ結果（GIOP 1.1 の omniORB 側の wchar / wstring は既知）
   - any（259ケース、[#187](https://github.com/rustorb/rustorb/issues/187)）：omniORBpy・omniORB C++・rustorb の Rust・Python・C++・.NET・C 自身と両方向で通る。失敗は long double（omniORBpy にはなく、omniORB C++ は x87 の形式で送る）だけで、他の rustorb のバインディングと同じ。サーバーは AnyEcho を名前に、Echo を名前に `-Echo` を付けたところに置き、AnyTestHidden.idl の型はクライアントだけが持つ
+  - DII と DSI（`rustorbc-dii`。`RUSTORB_DII=1` で、クライアントは生成スタブの呼び出しを `CORBA_Request` で送り、サーバーは静的なサーバントを `PortableServer_DynamicImpl` で包む）：basic と GIOP 1.1 は rustorb の全バインディング・omniORBpy・omniORB C++・JacORB と、any は全サーバーから `rustorbc-dii` のサーバーへ通る。失敗は上と同じ既知のものだけ。CI では basic・GIOP 1.1・any を流す
   - Java（`rustorbjava`）との組は CI（`interop.yml`）で確かめる
 - naming check（`run-naming-check.sh`。omniNames と rustorb-names、再起動を含む）と wire probe（`run-wire-probe.sh`）は、`rustorbc` でも期待出力と一致する。POA プローブ（`run-poa-probe.sh`。`interop/impls/rustorbc/src/poa_probe_server.c`：servant activator、servant locator、adapter activator、スレッドポリシー、POAManager の状態）も期待出力（rustorb のもの）と一致する
