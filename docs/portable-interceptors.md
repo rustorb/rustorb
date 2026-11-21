@@ -20,6 +20,7 @@
 - **.NET（`PortableInterceptor`・`IOP`・`Dynamic`）**：実装済み（[csharp-binding.md](csharp-binding.md)、[#186](https://github.com/rustorb/rustorb/issues/186)）。IDL4 to C# のローカルインターフェース（`IClientRequestInterceptor` など）と、何もしない基底クラス。初期化子は `PortableInterceptor.ORBInitializerRegistry.register_orb_initializer` か `Corba.ORB.init(args, orb_id, initializers)`。`dotnet/tests/Rustorb.Tests/PiTests.cs`。相互接続は `run-pi-probe.sh` の `rustorbcs`
   - 相互接続：`run-pi-probe.sh` に rustorbcpp（`interop/impls/rustorbcpp/pi_probe.cc`）と rustorbjava（`interop/impls/rustorbjava/probe/interop/PiProbe.java`、どちらも `interop/idl/PiProbe.idl` の静的なスタブ）を足し、rustorb・rustorbpy・rustorbcpp・rustorbjava・JacORB 3.9 のすべての組（25 組）を GIOP 1.2 で確かめた（Docker が使えないため、ホストで同じ手順を動かした）
   - `post_init` で RootPOA を作ると、その POA の参照には IOR インターセプターのコンポーネントが付かない（インターセプターが働くのは ORB の初期化が済んでから）
+- **C（`<rustorb/pi.h>`）**：実装済み（[c-binding.md](c-binding.md)、[#187](https://github.com/rustorb/rustorb/issues/187)）。local インターフェースの形の構造体と `PortableInterceptor_register_orb_initializer`。`c/tests/test_pi.c`。相互接続は `run-pi-probe.sh` の `rustorbc`（GIOP 1.0〜1.2）
 
 ## 範囲
 

@@ -5,8 +5,8 @@
 # client, AnyTestHidden.idl) from rustorb-idl -bc -Wbami (in gen/; -Wbami
 # adds the AMI handlers and sendc_ functions that the AMI probe uses)
 # and the sources in src/, linked statically. run-matrix.sh,
-# run-naming-check.sh, run-wire-probe.sh, run-poa-probe.sh and
-# run-ami-probe.sh run it; rustorb-idl must be
+# run-naming-check.sh, run-wire-probe.sh and the POA, AMI and PI probes
+# run it; rustorb-idl must be
 # importable (tools/rustorb-idl.txt), or RUSTORB_IDL_DIR / IDL_PARSER_DIR set
 # to checkouts. CC picks the compiler (default cc).
 #
@@ -34,11 +34,11 @@ pythonpath="${RUSTORB_IDL_DIR:+$RUSTORB_IDL_DIR/python}"
 [ -n "${IDL_PARSER_DIR:-}" ] && pythonpath="$IDL_PARSER_DIR${pythonpath:+:$pythonpath}"
 PYTHONPATH="$pythonpath" python3 -m rustorb_idl -bc -Wbami -I "$root/interop/idl" -C "$here/gen" \
   "$root/interop/idl/InteropTest.idl" "$root/interop/idl/AnyTest.idl" \
-  "$root/interop/idl/AnyTestHidden.idl" "$root/interop/idl/PoaProbe.idl"
+  "$root/interop/idl/AnyTestHidden.idl" "$root/interop/idl/PoaProbe.idl" "$root/interop/idl/PiProbe.idl"
 
 flags=(-std=c99 -O2 -Wall -Wextra -Wpedantic -I"$root/c/include" -I"$root/crates/rustorb-ffi/include"
        -I"$here/gen" -I"$here/src")
-for f in InteropTest AnyTest AnyTestHidden PoaProbe; do
+for f in InteropTest AnyTest AnyTestHidden PoaProbe PiProbe; do
   "$cc" "${flags[@]}" -c "$here/gen/$f.c" -o "$here/gen/$f.o"
 done
 "$cc" "${flags[@]}" -c "$here/src/common.c" -o "$here/gen/common.o"
@@ -58,3 +58,4 @@ link client "$here/src/client.c" "$here/src/cases.c" "$here/src/anytest.c" \
 link naming_check "$here/src/naming_check.c"
 link poa_probe_server "$here/src/poa_probe_server.c" "$here/gen/PoaProbe.o"
 link ami_probe "$here/src/ami_probe.c" "$here/src/ami_cases.c"
+link pi_probe "$here/src/pi_probe.c" "$here/gen/PiProbe.o"

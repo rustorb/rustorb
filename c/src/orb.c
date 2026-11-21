@@ -16,6 +16,13 @@ static const char* const pseudo_ids[] = {
     "IDL:omg.org/DynamicAny/DynAnyFactory:1.0",
     "IDL:omg.org/DynamicAny/DynAny:1.0",
     "IDL:omg.org/CORBA/LocalObject:1.0",
+    "IDL:omg.org/PortableInterceptor/ClientRequestInfo:1.0",
+    "IDL:omg.org/PortableInterceptor/ServerRequestInfo:1.0",
+    "IDL:omg.org/PortableInterceptor/IORInfo:1.0",
+    "IDL:omg.org/PortableInterceptor/ORBInitInfo:1.0",
+    "IDL:omg.org/IOP/Codec:1.0",
+    "IDL:omg.org/PortableInterceptor/Current:1.0",
+    "IDL:omg.org/IOP/CodecFactory:1.0",
 };
 
 int rustorb_c_dynany_is_a(CORBA_Object obj, const char* id);
@@ -36,7 +43,22 @@ CORBA_Object CORBA_Object_duplicate(CORBA_Object obj, CORBA_Environment* ev) {
     case OBJ_TYPECODE:
       return rustorb_c_wrap_tc(rorb_tc_clone((rorb_typecode*)obj->handle), obj->desc);
     case OBJ_DYNANY: return rustorb_c_wrap(OBJ_DYNANY, rorb_dynany_clone((rorb_dynany*)obj->handle));
-    case OBJ_LOCAL: return rustorb_c_wrap(OBJ_LOCAL, obj->handle);
+    case OBJ_LOCAL:
+    case OBJ_CLIENT_INFO:
+    case OBJ_SERVER_INFO:
+    case OBJ_IOR_INFO:
+    case OBJ_INIT_INFO: return rustorb_c_wrap(obj->kind, obj->handle);
+    case OBJ_CODEC:
+    case OBJ_PI_CURRENT:
+      rustorb_c_shared_ref((rustorb_c_shared*)obj->handle);
+      o = rustorb_c_wrap(obj->kind, obj->handle);
+      if (!o) rustorb_c_shared_unref((rustorb_c_shared*)obj->handle);
+      return o;
+    case OBJ_CODEC_FACTORY:
+      o = rustorb_c_wrap(OBJ_CODEC_FACTORY,
+                         obj->flags ? obj->handle : rorb_orb_clone((rorb_orb*)obj->handle));
+      if (o) o->flags = obj->flags;
+      return o;
     default:
       o = rustorb_c_wrap(obj->kind, NULL);
       if (o) {
@@ -57,6 +79,11 @@ void CORBA_Object_release(CORBA_Object obj, CORBA_Environment* ev) {
     case OBJ_POA_MANAGER: rorb_poa_manager_release((rorb_poa_manager*)obj->handle); break;
     case OBJ_TYPECODE: rorb_tc_release((rorb_typecode*)obj->handle); break;
     case OBJ_DYNANY: rorb_dynany_release((rorb_dynany*)obj->handle); break;
+    case OBJ_CODEC:
+    case OBJ_PI_CURRENT: rustorb_c_shared_unref((rustorb_c_shared*)obj->handle); break;
+    case OBJ_CODEC_FACTORY:
+      if (!obj->flags) rorb_orb_release((rorb_orb*)obj->handle);
+      break;
     default: break;
   }
   free(obj);
@@ -275,6 +302,9 @@ CORBA_Object CORBA_ORB_resolve_initial_references(CORBA_ORB orb, const CORBA_cha
   }
   if (strcmp(identifier, "POACurrent") == 0) return rustorb_c_wrap(OBJ_CURRENT, NULL);
   if (strcmp(identifier, "DynAnyFactory") == 0) return rustorb_c_wrap(OBJ_DYNANY_FACTORY, NULL);
+  if (strcmp(identifier, "PICurrent") == 0) return rustorb_c_pi_current(rorb_orb_pi_current(o));
+  if (strcmp(identifier, "CodecFactory") == 0)
+    return rustorb_c_wrap(OBJ_CODEC_FACTORY, rorb_orb_clone(o));
   if (rustorb_c_failed(
           ev, rorb_orb_resolve_initial_references(o, identifier, strlen(identifier), &obj, &exc),
           &exc))
@@ -312,6 +342,8 @@ CORBA_ORB_ObjectIdList* CORBA_ORB_list_initial_services(CORBA_ORB orb, CORBA_Env
   add_name(&n, "RootPOA", 7);
   add_name(&n, "POACurrent", 10);
   add_name(&n, "DynAnyFactory", 13);
+  add_name(&n, "PICurrent", 9);
+  add_name(&n, "CodecFactory", 12);
   list = CORBA_sequence_string__alloc();
   if (list) {
     list->_buffer = CORBA_sequence_string_allocbuf((CORBA_unsigned_long)n.len);

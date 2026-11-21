@@ -60,7 +60,7 @@ else()
 endif()
 
 set(RUSTORB_C_SOURCES
-  src/any.c src/dii.c src/dynany.c src/env.c src/invoke.c src/managers.c src/marshal.c src/messaging.c src/memory.c src/orb.c src/poa.c
+  src/any.c src/dii.c src/dynany.c src/env.c src/invoke.c src/managers.c src/marshal.c src/messaging.c src/pi.c src/memory.c src/orb.c src/poa.c
   src/types.c src/CosNaming.c)
 add_library(rustorb_c STATIC ${RUSTORB_C_SOURCES})
 add_dependencies(rustorb_c rustorb_ffi_build)
@@ -196,3 +196,11 @@ target_compile_options(test_ami PRIVATE ${RUSTORB_WARNINGS})
 target_compile_definitions(test_ami PRIVATE
   "AMI_EXPECTED=\"${RUSTORB_ROOT}/interop/expected/ami-probe.txt\"")
 add_test(NAME ami COMMAND test_ami)
+
+# Portable Interceptors and IOP::Codec (<rustorb/pi.h>) around the Echo
+# servant in this process.
+add_executable(test_pi tests/test_pi.c "${RUSTORBC}/echo_impl.c" ${INTEROP_SOURCES})
+target_include_directories(test_pi PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl" "${RUSTORBC}")
+target_link_libraries(test_pi PRIVATE rustorb_c)
+target_compile_options(test_pi PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME pi COMMAND test_pi)

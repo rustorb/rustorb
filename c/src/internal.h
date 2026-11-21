@@ -22,8 +22,31 @@ enum {
   OBJ_DYNANY,
   /* A local object: handle is its implementation (a servant initialised
      with rustorb_c_local_init), not owned. */
-  OBJ_LOCAL
+  OBJ_LOCAL,
+  /* The infos of the interceptor points (pi.c): handle is the core's,
+     borrowed during the call. */
+  OBJ_CLIENT_INFO,
+  OBJ_SERVER_INFO,
+  OBJ_IOR_INFO,
+  OBJ_INIT_INFO,
+  /* handle is a rustorb_c_shared of an rorb_codec / rorb_pi_current. */
+  OBJ_CODEC,
+  OBJ_PI_CURRENT,
+  /* handle is an rorb_orb (owned), or with flags 1 an rorb_orb_init_info
+     (borrowed). */
+  OBJ_CODEC_FACTORY
 };
+
+/* A handle of the core without a clone function, shared by the duplicates
+   of a CORBA_Object. */
+typedef struct rustorb_c_shared {
+  int refs;
+  void* handle;
+  void (*release)(void* handle);
+} rustorb_c_shared;
+rustorb_c_shared* rustorb_c_shared_new(void* handle, void (*release)(void* handle));
+void rustorb_c_shared_ref(rustorb_c_shared* s);
+void rustorb_c_shared_unref(rustorb_c_shared* s);
 
 struct CORBA_Object_struct {
   int kind;
@@ -35,6 +58,8 @@ struct CORBA_Object_struct {
   /* A policy. */
   CORBA_unsigned_long policy_type;
   uint64_t policy_value;
+  /* See the kinds. */
+  int flags;
 };
 
 CORBA_Object rustorb_c_wrap(int kind, void* handle);
@@ -109,6 +134,11 @@ rorb_status rustorb_c_dsi_dispatch(PortableServer_Servant servant, const char* o
    of them. */
 int rustorb_c_local_is_a(CORBA_Object obj, const char* id);
 const char* rustorb_c_local_id(CORBA_Object obj);
+
+/* A PICurrent object over current (taken), or nil. */
+CORBA_Object rustorb_c_pi_current(rorb_pi_current* current);
+/* A policy object of a type and its raw value. */
+CORBA_Policy rustorb_c_policy(CORBA_PolicyType type, uint64_t value);
 
 /* One global lock for the caches. */
 void rustorb_c_lock(void);

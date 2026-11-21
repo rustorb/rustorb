@@ -13,6 +13,8 @@ rustorb の C バインディングの構成をまとめる。C++・Java・.NET 
 | `crates/rustorb-ffi` | C ABI（`librustorb_ffi`）。C++・Java・.NET と共通 | MIT OR Apache-2.0 |
 | `c/include/rustorb/orb.h` | `CORBA_*` の型、`CORBA_Environment` と例外、`CORBA_free` と確保の関数、列、`CORBA_any`、TypeCode、`CORBA_Object`・`CORBA_ORB`・`CORBA_Policy` | MIT OR Apache-2.0 |
 | `c/include/rustorb/poa.h` | `PortableServer_*`（`ServantBase`、POA、POAManager、Current、ポリシー、POA の例外） | MIT OR Apache-2.0 |
+| `c/include/rustorb/messaging.h` | AMI の `Messaging_ReplyHandler` と `Messaging_ExceptionHolder` | MIT OR Apache-2.0 |
+| `c/include/rustorb/pi.h` | Portable Interceptors（`PortableInterceptor_*`、`Dynamic_*`）と `IOP_*`（サービスコンテキスト、タグ付きコンポーネント、`IOP_Codec`） | MIT OR Apache-2.0 |
 | `c/include/rustorb/runtime.h` | 生成コードとの取り決め（型の記述子、操作の記述子、`rustorb_c_invoke`、サーバントのクラス）。アプリケーションは使わない | MIT OR Apache-2.0 |
 | `c/include/rustorb/CosNaming.h`・`c/src/CosNaming.c` | `rustorb-idl -bc` で生成した CosNaming（`c/generate-stubs.sh`） | MIT OR Apache-2.0 |
 | `c/src` | ランタイム（`memory.c` 確保と解放とコピー、`types.c` 記述子と TypeCode、`marshal.c` 汎用の読み書き、`any.c`、`invoke.c` スタブとスケルトン、`orb.c`、`poa.c`、`env.c`） | MIT OR Apache-2.0 |
@@ -187,9 +189,28 @@ static void my_divide_excep(PortableServer_Servant s, const Messaging_ExceptionH
 InteropTest_Echo_sendc_divide(echo, handler, 7, 2, &ev);
 ```
 
+## Portable Interceptors
+
+[portable-interceptors.md](portable-interceptors.md) のコアの PI を `<rustorb/pi.h>` で使う。C マッピング 1.0 には PI がないので、local インターフェースの形（上の節）に合わせた。
+
+- インターセプターと初期化子は local インターフェースの実装の構造体。`POA_PortableInterceptor_ClientRequestInterceptor__epv`（`send_request`・`send_poll`・`receive_reply`・`receive_exception`・`receive_other`）、`ServerRequestInterceptor`、`IORInterceptor`（`establish_components`）、`ORBInitializer`（`pre_init`・`post_init`）。vepv は `_base_epv`、`Interceptor` の epv（`_get_name`・`destroy`）、自分の epv の順。`__init` で初期化し、`__create` で参照にする
+- 初期化子は `PortableInterceptor_register_orb_initializer(init, ev)` で登録し、次の `CORBA_ORB_init` が呼ぶ。`-ORBid` の値が ORB id。`ORBInitInfo` の `add_client_request_interceptor` などは名前の重複に `DuplicateName`、違う種類の参照に `BAD_PARAM`、`resolve_initial_references` は `pre_init` の中では `BAD_INV_ORDER`。`destroy` は `CORBA_ORB_destroy` で呼ばれる
+- 情報のオブジェクト（`ClientRequestInfo`・`ServerRequestInfo`・`IORInfo`・`ORBInitInfo`）はその呼び出しの間だけ使える。複製も解放もしなくてよい。属性は `PortableInterceptor_RequestInfo__get_operation` などで、結果は呼んだ側が `CORBA_free` する。呼べない点では `BAD_INV_ORDER`（minor 14）、静的なスタブとスケルトンの `arguments` などは `NO_RESOURCES`（minor 1）。DII / DSI の要求では `arguments`・`result`・`exceptions` が読める
+- インターセプターから返す例外：`PortableInterceptor_ForwardRequest`（`forward`）は転送、システム例外はそのまま、それ以外は `UNKNOWN`。静的なスケルトンのユーザー例外は、`send_exception` の `sending_exception` では `UNKNOWN` の any（コアと同じ）。リポジトリ ID は `received_exception_id`（クライアント）で読める
+- `resolve_initial_references` は `"PICurrent"`（`PortableInterceptor_Current`、`get_slot` / `set_slot`、`InvalidSlot`）と `"CodecFactory"`（`IOP_CodecFactory_create_codec`。CDR カプセルの 1.0〜1.2、それ以外は `UnknownEncoding`）を答える。`IOP_Codec_encode` / `decode` は any、`encode_value` / `decode_value` は値だけで、`decode_value` は TypeCode を受け取る。読めない中身は `FormatMismatch`
+
+```c
+static void my_send_request(PortableServer_Servant s, PortableInterceptor_ClientRequestInfo ri,
+                            CORBA_Environment* ev) {
+  IOP_ServiceContext c = {0x50495052, {0, 0, NULL, CORBA_FALSE}};
+  /* c.context_data を IOP_Codec_encode_value で作る */
+  PortableInterceptor_ClientRequestInfo_add_request_service_context(ri, &c, CORBA_FALSE, ev);
+}
+```
+
 ## まだないもの
 
-valuetype と abstract interface は C マッピングにないので `-bc` はエラーにする（AMI の `ExceptionHolder` だけは上のとおり）。`CORBA_exception_as_any`、fixed の演算（`CORBA_fixed_add` など）、Portable Interceptors、IDL 4 の bitmask / bitset は [#187](https://github.com/rustorb/rustorb/issues/187) で足す。共有ライブラリ版と Windows（MSVC）の CI もまだない。
+valuetype と abstract interface は C マッピングにないので `-bc` はエラーにする（AMI の `ExceptionHolder` だけは上のとおり）。`CORBA_exception_as_any`、fixed の演算（`CORBA_fixed_add` など）、IDL 4 の bitmask / bitset は [#187](https://github.com/rustorb/rustorb/issues/187) で足す。共有ライブラリ版と Windows（MSVC）の CI もまだない。
 
 ## テスト
 
@@ -201,6 +222,7 @@ valuetype と abstract interface は C マッピングにないので `-bc` は�
   - `test_local`：.NET のテストと同じ `LocalTest.idl` の local インターフェース（実装の構造体と `__create`、属性、out、ユーザー例外、継承した操作、`is_a` などの参照の操作、引数と結果の local オブジェクト、送れないこと）
   - `test_dynany`：DynAny の基本の型、`any` の中の `any`、struct（メンバー、`get_members_as_dyn_any` の共有、`seek` / `next`）、union、enum、sequence と array、fixed、`equal`・`copy`・`destroy`、例外（`TypeMismatch`・`InvalidValue`・`BAD_OPERATION`）
   - `test_ami`：AMI のプローブと同じケース（`interop/impls/rustorbc/src/ami_cases.c`）を同じプロセスの Echo サーバントに向けて流し、`interop/expected/ami-probe.txt` と比べる。`ExceptionHolder` の読めない中身、知らない例外、`raise_exception_with_list`
+  - `test_pi`：初期化子（ORB id、引数、`DuplicateName`、種類の違う参照、`pre_init` の `resolve_initial_references`）、両方向のサービスコンテキストと重複、PICurrent のスロットが要求のスコープに写ること、IOR のタグ付きコンポーネント、`get_effective_policy`、`InvalidSlot`、静的なスタブの `NO_RESOURCES`、ユーザー例外、`receive_request` からのシステム例外、`send_request` からの `ForwardRequest`、`Codec`、ORB の破棄での `destroy`
   - `-DRUSTORB_SANITIZE=address` で AddressSanitizer と LeakSanitizer。どのテストもリークなし
 - rustorb-idl の `python/tests/test_c_backend.py`：生成物の形、対応しない構文のエラー、生成コードの C99（警告をエラーにする）と、ヘッダの C++ としてのコンパイル。golden は `tests/golden/c`
 - CI（`ci.yml` の `c` と `c-sanitize`）：Linux の gcc と clang、macOS の clang で `ctest`、Linux の gcc で ASan。Linux では同梱の CosNaming のスタブが生成器の出力と一致することも確かめる
@@ -210,4 +232,4 @@ valuetype と abstract interface は C マッピングにないので `-bc` は�
   - any（259ケース、[#187](https://github.com/rustorb/rustorb/issues/187)）：omniORBpy・omniORB C++・rustorb の Rust・Python・C++・.NET・C 自身と両方向で通る。失敗は long double（omniORBpy にはなく、omniORB C++ は x87 の形式で送る）だけで、他の rustorb のバインディングと同じ。サーバーは AnyEcho を名前に、Echo を名前に `-Echo` を付けたところに置き、AnyTestHidden.idl の型はクライアントだけが持つ
   - DII と DSI（`rustorbc-dii`。`RUSTORB_DII=1` で、クライアントは生成スタブの呼び出しを `CORBA_Request` で送り、サーバーは静的なサーバントを `PortableServer_DynamicImpl` で包む）：basic と GIOP 1.1 は rustorb の全バインディング・omniORBpy・omniORB C++・JacORB と、any は全サーバーから `rustorbc-dii` のサーバーへ通る。失敗は上と同じ既知のものだけ。CI では basic・GIOP 1.1・any を流す
   - Java（`rustorbjava`）との組は CI（`interop.yml`）で確かめる
-- naming check（`run-naming-check.sh`。omniNames と rustorb-names、再起動を含む）と wire probe（`run-wire-probe.sh`）は、`rustorbc` でも期待出力と一致する。POA プローブ（`run-poa-probe.sh`。`interop/impls/rustorbc/src/poa_probe_server.c`：servant activator、servant locator、adapter activator、スレッドポリシー、POAManager の状態）も期待出力（rustorb のもの）と一致する。AMI プローブ（`run-ami-probe.sh`。`interop/impls/rustorbc/src/ami_probe.c`）は omniORB C++・omniORBpy・JacORB・rustorb・`rustorbc` のサーバーで期待出力と一致する
+- naming check（`run-naming-check.sh`。omniNames と rustorb-names、再起動を含む）と wire probe（`run-wire-probe.sh`）は、`rustorbc` でも期待出力と一致する。POA プローブ（`run-poa-probe.sh`。`interop/impls/rustorbc/src/poa_probe_server.c`：servant activator、servant locator、adapter activator、スレッドポリシー、POAManager の状態）も期待出力（rustorb のもの）と一致する。AMI プローブ（`run-ami-probe.sh`。`interop/impls/rustorbc/src/ami_probe.c`）は omniORB C++・omniORBpy・JacORB・rustorb・`rustorbc` のサーバーで期待出力と一致する。PI プローブ（`run-pi-probe.sh`。`interop/impls/rustorbc/src/pi_probe.c`）は GIOP 1.2・1.1・1.0 で、rustorb の Rust・Python・C++・.NET・C 自身と JacORB・omniORBpy とは両方向、omniORB C++ のクライアントから `rustorbc` のサーバーへ通る（JacORB のクライアントは他と同じく 1.2 だけ）
