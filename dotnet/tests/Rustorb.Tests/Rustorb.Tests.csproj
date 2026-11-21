@@ -58,7 +58,7 @@
   <!-- The stubs and skeletons of the test IDLs. -->
   <Target Name="RustorbIdl" BeforeTargets="CoreCompile" Inputs="@(TestIdl)" Outputs="$(IdlOut)stamp">
     <RemoveDir Directories="$(IdlOut)" />
-    <Exec Command="&quot;$(Python)&quot; -m rustorb_idl -bcsharp -I &quot;$(RustorbRoot)/interop/idl&quot; -C &quot;$(IdlOut)&quot; @(TestIdl->'&quot;%(FullPath)&quot;', ' ')"
+    <Exec Command="&quot;$(Python)&quot; -m rustorb_idl -bcsharp -Wbami -I &quot;$(RustorbRoot)/interop/idl&quot; -C &quot;$(IdlOut)&quot; @(TestIdl->'&quot;%(FullPath)&quot;', ' ')"
           EnvironmentVariables="PYTHONPATH=$(IdlPythonPath)" />
     <Touch Files="$(IdlOut)stamp" AlwaysCreate="true" />
   </Target>

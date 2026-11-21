@@ -176,7 +176,7 @@ jobs:
       # it, until rustorb-idl 0.5.0 (#189) and tools/rustorb-idl.txt.
       - run: >
           pip install idl_parser==0.6.2
-          "rustorb-idl @ git+https://github.com/rustorb/rustorb-idl@c7f539096d590d5172d0d99f37ebab9bade4a8f7#subdirectory=python"
+          "rustorb-idl @ git+https://github.com/rustorb/rustorb-idl@78157250fd0e56fbb03504493a9e84d995a5f142#subdirectory=python"
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
@@ -257,7 +257,7 @@ jobs:
       # until rustorb-idl 0.5.0 (#189) and tools/rustorb-idl.txt.
       - run: >
           pip install idl_parser==0.6.2
-          "rustorb-idl @ git+https://github.com/rustorb/rustorb-idl@c7f539096d590d5172d0d99f37ebab9bade4a8f7#subdirectory=python"
+          "rustorb-idl @ git+https://github.com/rustorb/rustorb-idl@78157250fd0e56fbb03504493a9e84d995a5f142#subdirectory=python"
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}

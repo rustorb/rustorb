@@ -21,7 +21,7 @@ rm -rf "$here/gen" "$here/out"
 mkdir -p "$here/gen"
 pythonpath="${RUSTORB_IDL_DIR:+$RUSTORB_IDL_DIR/python}"
 [ -n "${IDL_PARSER_DIR:-}" ] && pythonpath="$IDL_PARSER_DIR${pythonpath:+:$pythonpath}"
-PYTHONPATH="$pythonpath" python3 -m rustorb_idl -bcsharp -I "$root/interop/idl" -C "$here/gen" \
+PYTHONPATH="$pythonpath" python3 -m rustorb_idl -bcsharp -Wbami -I "$root/interop/idl" -C "$here/gen" \
   "$root/interop/idl/InteropTest.idl" "$root/interop/idl/PoaProbe.idl" "$root/interop/idl/PiProbe.idl" \
   "$root/interop/idl/AnyTest.idl" "$root/interop/idl/AnyTestHidden.idl" \
   "$root/interop/idl/ValueTest.idl" "$root/interop/idl/CustomTest.idl" "$root/interop/idl/AbstractTest.idl"

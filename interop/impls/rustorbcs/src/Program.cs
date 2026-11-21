@@ -27,8 +27,9 @@ namespace Interop
                 case "dynany-probe": return DynAnyProbe.Run(rest);
                 case "poa-probe-server": return PoaProbeServer.Run(rest);
                 case "pi-probe": return PiProbeMain.Run(rest);
+                case "ami-probe": return AmiProbe.Run(rest);
                 default:
-                    Console.Error.WriteLine("usage: rustorbcs client|server|naming-check|dynany-probe|poa-probe-server|pi-probe ARGS");
+                    Console.Error.WriteLine("usage: rustorbcs client|server|naming-check|dynany-probe|poa-probe-server|pi-probe|ami-probe ARGS");
                     return 2;
             }
         }

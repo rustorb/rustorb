@@ -5,7 +5,7 @@
 #
 #   ami-pair CLIENT SERVER
 #
-# CLIENT is rustorbpy, rustorbcpp or rustorbjava; SERVER a directory under
+# CLIENT is rustorbpy, rustorbcpp, rustorbjava or rustorbcs; SERVER a directory under
 # impls/.
 set -eu
 client="$1"

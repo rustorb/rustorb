@@ -143,9 +143,19 @@ IDL4 to C# 7.6 が決めているのは、valuetype が抽象クラスになる�
 - 受け取った値の型にファクトリがなければ（truncatable の基底のファクトリもなければ）`MARSHAL`
 - `Corba.Any` に `insert_Value(v, tc)` と `extract_Value()` を足した
 
+## AMI
+
+コールバック型の AMI（[ami.md](ami.md)）を `-bcsharp -Wbami` で生成する。形は Java のマッピングと同じにした（IDL4 to C# には AMI の写し方の定めがない）。
+
+- `sendc_<op>(handler, in と inout の引数)` と属性の `sendc_get_<attr>` / `sendc_set_<attr>` はスタブクラス（`Demo.Calc`。インターフェースとその基底の分）に置き、`ICalc` / `ICalcOperations` には足さない（サーバントや DII のアダプターが実装しなくてよいように）。使う側は `((Demo.Calc)calc).sendc_add(h, 1, 2)` のようにスタブにキャストする
+- `AMI_<I>Handler` は普通のインターフェースとして生成する（`IAMI_CalcHandlerOperations`・`AMI_CalcHandlerPOA`・タイ `AMI_CalcHandlerPOATie` など）。例外は `<op>_excep(Messaging.ExceptionHolder)` に届く
+- 生成した `sendc_` は `Rustorb.Ami.Sendc`（C ABI の `rorb_object_sendc`）を呼ぶ。in の引数は呼んだ時点で写し取る。Handler は返事用のプールのスレッドで呼ばれ、Handler が投げた例外は捨てる。nil の Handler なら返事は読んで捨てる。タイムアウトはスタブの `_call_timeout_us` がそのまま効く
+- `Messaging.ReplyHandler` 一式は生成したもの（`dotnet/generate-stubs.sh`）、`Messaging.ExceptionHolder` は手で書いた valuetype（`Rustorb/Ami.cs`）。`raise_exception()`・`raise_exception_with_list(IList<Corba.TypeCode>)` がユーザー例外またはシステム例外を投げる。ユーザー例外は、生成コードがモジュール初期化子で `Rustorb.UserExceptions.Register` に登録した読み書きの関数でリポジトリ ID から戻す。登録のない ID は `UNKNOWN`（minor 0x4f4d0001、`COMPLETED_YES`）
+- `ExceptionHolder` は valuetype なので、Handler を別のプロセスに置いても届く（状態メンバーの `marshaled_exception` は C ABI の `rorb_cdr_encode` で書いた CDR）
+
 ## まだないもの
 
-local インターフェース（IDL で定義したもの）、AMI、IDL 4 の bitmask / bitset は [#186](https://github.com/rustorb/rustorb/issues/186) で足す。`-bcsharp` はこれらの構文をエラーにする。
+local インターフェース（IDL で定義したもの）と IDL 4 の bitmask / bitset は [#186](https://github.com/rustorb/rustorb/issues/186) で足す。`-bcsharp` はこれらの構文をエラーにする。
 
 ## テスト
 
@@ -157,6 +167,7 @@ local インターフェース（IDL で定義したもの）、AMI、IDL 4 の 
   - `DiiTests`：静的なサーバントと DSI のサーバントへの DII（`out`、同じ要求の再送、ユーザー例外とリストにないもの、deferred と `get_next_response`、oneway）、静的なスタブから DSI のサーバント、`NVList` と `ExceptionList`、`_create_request`
   - `PiTests`：初期化子（`pre_init` / `post_init`、`DuplicateName`、段階ごとの `resolve_initial_references`）、サービスコンテキストの往復と PICurrent のスロット、IOR インターセプターのコンポーネント、サーバーのインターセプターのシステム例外、`ForwardRequest`、DII の `arguments`、点の後の情報、`Codec`
   - `ValueTests`：`ValueTest.idl`・`CustomTest.idl`・`AbstractTest.idl` の値（null、truncatable の派生、共有と循環、value box、ファクトリと初期化子、タイ、ファクトリのない型の `MARSHAL`、any の中の値と同一性、DynAny の `insert_val` / `get_val`）、custom の値、abstract インターフェース（参照と値）
+  - `AmiTests`：`InteropTest.idl` の `sendc_`（戻り値、inout と out、ユーザー例外とシステム例外の `ExceptionHolder`、属性、nil の Handler）。Handler は `DispatchProxy` をタイに渡したもの
   - `MappingTests`：C++・Java と同じ `cpp/tests/idl/CxxMapping.idl` の定数、再帰型、すべての判別子の union、入れ子の型、キーワード、fixed と long double、インターフェースの多重継承、オブジェクト参照の列、TypeCode と Any
 - rustorb-idl の `python/tests/test_csharp_backend.py`：生成物の形、`-Wbdotnet_naming`、対応しない構文のエラー、生成コードとランタイムのコンパイル（警告をエラーにする）。golden は `tests/golden/csharp`
 - CI（`ci.yml` の `dotnet`）：Linux、macOS、Windows で `dotnet test`。Linux では同梱の CosNaming のスタブが生成器の出力と、`Ffi.g.cs` が `rustorb.h` と一致することも確かめる
@@ -164,6 +175,7 @@ local インターフェース（IDL で定義したもの）、AMI、IDL 4 の 
   - basic（79ケース）：omniORBpy・omniORB C++・JacORB・rustorb の Rust・Python・C++・.NET 自身と両方向で通る。失敗は omniORBpy の wchar（3ケース）と JacORB の union の判別子（`echo_value[5]`）だけで、他の rustorb のバインディングと同じ
   - GIOP 1.1、`--fragment 1024`、`--ssl`、`--unix` でも omniORB・omniORBpy・自身との組（GIOP 1.1 と Fragment は JacORB とも）が同じ結果（GIOP 1.1 の omniORB 側の wchar / wstring は既知）
   - Java（`rustorbjava`）との組はローカルに Java 22 がなく CI（`interop.yml`）で確かめる
+- AMI プローブ（`run-ami-probe.sh`）：`rustorbcs`（`interop/impls/rustorbcs/src/AmiProbe.cs`）の AMI クライアントから omniORB C++・omniORBpy・JacORB・rustorb（Rust、.NET）のサーバーへ、すべて期待出力と一致する。rustorbpy・rustorbcpp のクライアントから `rustorbcs` のサーバーへも同じ。Java との組は CI で確かめる
 - DynAny プローブ（`run-dynany-probe.sh`）：`rustorbcs`（`interop/impls/rustorbcs/src/DynAnyProbe.cs`）の出力は rustorb の期待出力と一致する
 - naming check（`run-naming-check.sh`。omniNames と rustorb-names、再起動を含む）と wire probe（`run-wire-probe.sh`）は、`rustorbcs` でも期待出力と一致する。POA プローブ（`run-poa-probe.sh`）の `rustorbcs`（`interop/impls/rustorbcs/src/PoaProbeServer.cs`）の出力も rustorb の期待出力と一致する
 - 相互接続：`interop/impls/rustorbcs-dii` は `rustorbcs` のクライアントとサーバーを、スタブの呼び出しを DII に、サーバントを DSI に差し替えて動かす（`interop/impls/rustorbcs/src/DiiAdapters.cs`、環境変数 `RUSTORB_DII=1`）。basic（GIOP 1.2 / 1.1）で、omniORBpy・omniORB C++・JacORB・rustorb（Rust、Python、C++、.NET、Python と C++ の DII）との組が両方向で `rustorbcs` と同じ結果になる（失敗は既知のものだけ）。CI（`interop.yml`）でも回す

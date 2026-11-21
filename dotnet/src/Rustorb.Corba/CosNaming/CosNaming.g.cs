@@ -2672,3 +2672,17 @@ namespace CosNaming
     }
 
 }
+
+internal static class __RustorbValues_CosNaming
+{
+    [global::System.Runtime.CompilerServices.ModuleInitializer]
+    internal static void Register()
+    {
+        global::Rustorb.UserExceptions.Register<global::CosNaming.NamingContext.NotFound>("IDL:omg.org/CosNaming/NamingContext/NotFound:1.0", global::CosNaming.NamingContext.NotFoundHelper.read, global::CosNaming.NamingContext.NotFoundHelper.write);
+        global::Rustorb.UserExceptions.Register<global::CosNaming.NamingContext.CannotProceed>("IDL:omg.org/CosNaming/NamingContext/CannotProceed:1.0", global::CosNaming.NamingContext.CannotProceedHelper.read, global::CosNaming.NamingContext.CannotProceedHelper.write);
+        global::Rustorb.UserExceptions.Register<global::CosNaming.NamingContext.InvalidName>("IDL:omg.org/CosNaming/NamingContext/InvalidName:1.0", global::CosNaming.NamingContext.InvalidNameHelper.read, global::CosNaming.NamingContext.InvalidNameHelper.write);
+        global::Rustorb.UserExceptions.Register<global::CosNaming.NamingContext.AlreadyBound>("IDL:omg.org/CosNaming/NamingContext/AlreadyBound:1.0", global::CosNaming.NamingContext.AlreadyBoundHelper.read, global::CosNaming.NamingContext.AlreadyBoundHelper.write);
+        global::Rustorb.UserExceptions.Register<global::CosNaming.NamingContext.NotEmpty>("IDL:omg.org/CosNaming/NamingContext/NotEmpty:1.0", global::CosNaming.NamingContext.NotEmptyHelper.read, global::CosNaming.NamingContext.NotEmptyHelper.write);
+        global::Rustorb.UserExceptions.Register<global::CosNaming.NamingContextExt.InvalidAddress>("IDL:omg.org/CosNaming/NamingContextExt/InvalidAddress:1.0", global::CosNaming.NamingContextExt.InvalidAddressHelper.read, global::CosNaming.NamingContextExt.InvalidAddressHelper.write);
+    }
+}
