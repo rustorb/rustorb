@@ -1719,7 +1719,9 @@ static VALUE any_dup(VALUE self) { return W_ANY(rorb_any_clone(ANY(self))); }
    is kept alive while rustorb holds a reference (refs > 0): the registry's
    mark function marks it. The peer is freed with the Ruby object (the
    Rustorb::Native::Peer in its ivar), which then is not referenced from
-   rustorb any more. */
+   rustorb any more, except at exit, when Ruby frees every object: then the
+   peer is left as an orphan (PEER_ORPHAN added to refs) and freed by the
+   last servant_remove_ref. */
 typedef struct peer {
   VALUE obj;
   int refs; /* atomic */
@@ -1738,18 +1740,24 @@ static void registry_mark(void* unused) {
     if (__atomic_load_n(&p->refs, __ATOMIC_SEQ_CST) > 0) rb_gc_mark(p->obj);
 }
 
+#define PEER_ORPHAN (1 << 30)
+
+static void peer_delete(peer* p) {
+  size_t i;
+  for (i = 0; i < p->id_count; ++i) free(p->ids[i]);
+  free(p->ids);
+  free(p->id_lens);
+  free(p);
+}
+
 static void peer_free(void* ptr) {
   peer* p = ptr;
-  size_t i;
   if (p->prev)
     p->prev->next = p->next;
   else
     peers = p->next;
   if (p->next) p->next->prev = p->prev;
-  for (i = 0; i < p->id_count; ++i) free(p->ids[i]);
-  free(p->ids);
-  free(p->id_lens);
-  free(p);
+  if (__atomic_add_fetch(&p->refs, PEER_ORPHAN, __ATOMIC_SEQ_CST) == PEER_ORPHAN) peer_delete(p);
 }
 
 static size_t peer_size(const void* ptr) {
@@ -1765,7 +1773,8 @@ static void servant_add_ref(void* self) {
 }
 
 static void servant_remove_ref(void* self) {
-  __atomic_sub_fetch(&((peer*)self)->refs, 1, __ATOMIC_SEQ_CST);
+  if (__atomic_sub_fetch(&((peer*)self)->refs, 1, __ATOMIC_SEQ_CST) == PEER_ORPHAN)
+    peer_delete(self);
 }
 
 static int32_t servant_is_a(void* self, const char* id, size_t len) {
@@ -2989,6 +2998,14 @@ static void* pi_point_gvl(void* p) {
   return c;
 }
 
+static int ruby_ending(void) {
+  int r;
+  pthread_mutex_lock(&queue_lock);
+  r = shutting_down;
+  pthread_mutex_unlock(&queue_lock);
+  return r;
+}
+
 static rorb_status pi_run(void* self, const char* point, VALUE* klass, const void* info,
                           rorb_pi_error* error) {
   struct pi_point c;
@@ -3000,7 +3017,7 @@ static rorb_status pi_run(void* self, const char* point, VALUE* klass, const voi
   c.error = error;
   c.st = RORB_OK;
   c.info_v = Qnil;
-  with_gvl(pi_point_gvl, &c);
+  if (!ruby_ending()) with_gvl(pi_point_gvl, &c);
   return c.st;
 }
 
@@ -3011,7 +3028,11 @@ static void* pi_destroy_gvl(void* p) {
   if (state) rb_set_errinfo(Qnil);
   return p;
 }
-static void pi_destroy(void* self) { with_gvl(pi_destroy_gvl, self); }
+/* At exit the ORBs are released while Ruby frees its objects, so an
+   interceptor's object may be gone: no Ruby then. */
+static void pi_destroy(void* self) {
+  if (!ruby_ending()) with_gvl(pi_destroy_gvl, self);
+}
 
 #define PI_POINT(fn, name, T, klass)                                     \
   static rorb_status fn(void* self, const T* ri, rorb_pi_error* error) { \
