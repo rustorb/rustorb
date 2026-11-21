@@ -138,7 +138,7 @@ valuetype、abstract / local インターフェース（IDL で定義したも�
   - `MappingTests`：C++・Java と同じ `cpp/tests/idl/CxxMapping.idl` の定数、再帰型、すべての判別子の union、入れ子の型、キーワード、fixed と long double、インターフェースの多重継承、オブジェクト参照の列、TypeCode と Any
 - rustorb-idl の `python/tests/test_csharp_backend.py`：生成物の形、`-Wbdotnet_naming`、対応しない構文のエラー、生成コードとランタイムのコンパイル（警告をエラーにする）。golden は `tests/golden/csharp`
 - CI（`ci.yml` の `dotnet`）：Linux、macOS、Windows で `dotnet test`。Linux では同梱の CosNaming のスタブが生成器の出力と、`Ffi.g.cs` が `rustorb.h` と一致することも確かめる
-- 相互接続（[#179](https://github.com/rustorb/rustorb/issues/179)）：`interop/run-matrix.sh` に `rustorbcs`（`interop/impls/rustorbcs`。ホストで `dotnet publish` し、イメージの .NET 8 ランタイムで動かす）を加えた。いまは basic（InteropTest.idl）だけで、any・value・custom・abstract のマトリクスには入れない（#186）。ローカルで確認した結果は次のとおりで、失敗はすべて `known-failures.txt` の範囲
+- 相互接続（[#179](https://github.com/rustorb/rustorb/issues/179)）：`interop/run-matrix.sh` に `rustorbcs`（`interop/impls/rustorbcs`。ホストで `dotnet publish` し、イメージの .NET 8 ランタイムで動かす）を加えた。basic（InteropTest.idl）と any（AnyTest.idl。`interop/impls/rustorbcs/src/AnyTests.cs`）に入る。value・custom・abstract は valuetype の対応（#186）の後。ローカルで確認した結果は次のとおりで、失敗はすべて `known-failures.txt` の範囲
   - basic（79ケース）：omniORBpy・omniORB C++・JacORB・rustorb の Rust・Python・C++・.NET 自身と両方向で通る。失敗は omniORBpy の wchar（3ケース）と JacORB の union の判別子（`echo_value[5]`）だけで、他の rustorb のバインディングと同じ
   - GIOP 1.1、`--fragment 1024`、`--ssl`、`--unix` でも omniORB・omniORBpy・自身との組（GIOP 1.1 と Fragment は JacORB とも）が同じ結果（GIOP 1.1 の omniORB 側の wchar / wstring は既知）
   - Java（`rustorbjava`）との組はローカルに Java 22 がなく CI（`interop.yml`）で確かめる
@@ -146,3 +146,4 @@ valuetype、abstract / local インターフェース（IDL で定義したも�
 - naming check（`run-naming-check.sh`。omniNames と rustorb-names、再起動を含む）と wire probe（`run-wire-probe.sh`）は、`rustorbcs` でも期待出力と一致する。POA プローブ（`run-poa-probe.sh`）の `rustorbcs`（`interop/impls/rustorbcs/src/PoaProbeServer.cs`）の出力も rustorb の期待出力と一致する
 - 相互接続：`interop/impls/rustorbcs-dii` は `rustorbcs` のクライアントとサーバーを、スタブの呼び出しを DII に、サーバントを DSI に差し替えて動かす（`interop/impls/rustorbcs/src/DiiAdapters.cs`、環境変数 `RUSTORB_DII=1`）。basic（GIOP 1.2 / 1.1）で、omniORBpy・omniORB C++・JacORB・rustorb（Rust、Python、C++、.NET、Python と C++ の DII）との組が両方向で `rustorbcs` と同じ結果になる（失敗は既知のものだけ）。CI（`interop.yml`）でも回す
 - PI プローブ（`run-pi-probe.sh`）：`rustorbcs`（`interop/impls/rustorbcs/src/PiProbeMain.cs`）が rustorb の Rust・Python・C++・.NET、JacORB、omniORBpy、omniORB C++ との組で GIOP 1.2 / 1.1 / 1.0 とも期待どおり（JacORB のクライアントは仕組みどおり 1.2 のみ）。Java との組は CI で確かめる
+- any（`run-matrix.sh --suite any`）：omniORBpy・omniORB C++・rustorb の Rust・Python・C++・.NET 自身と両方向で、失敗は `known-failures.txt` の long double だけ（omniORB 側のものと、.NET の `decimal` が double の 0.1 を28桁までしか持てず、値をビットで比べる Rust と合わないもの）。`fixed<31,4>` の値は `decimal` に収まらないので、表の値は `DynFixed` の文字列で作り、比べる

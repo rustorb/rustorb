@@ -37,6 +37,10 @@ namespace Interop
         {
             Options opt = Common.ParseArgs("server", argv);
             Corba.ORB orb = Common.OrbInit(opt);
+            if (opt.Suite == "any")
+            {
+                return AnyServer(orb, opt);
+            }
             PortableServer.POA poa = Common.PersistentPoa(orb, "InteropTest");
             byte[] oid = Common.Oid("Echo");
             var impl = new EchoImpl(orb);
@@ -58,6 +62,46 @@ namespace Interop
             return 0;
         }
 
+        /// <summary>The stage 2 suite: AnyTest::AnyEcho, with an Echo object
+        /// next to it for the client to shut the server down.</summary>
+        private static int AnyServer(Corba.ORB orb, Options opt)
+        {
+            AnyTests.Factory = DynamicAny.DynAnyFactoryHelper.narrow(orb.resolve_initial_references("DynAnyFactory"));
+            PortableServer.POA poa = Common.PersistentPoa(orb, "AnyTest");
+            byte[] anyOid = Common.Oid("AnyEcho");
+            poa.activate_object_with_id(anyOid, new AnyTests.AnyEchoImpl());
+            byte[] oid = Common.Oid("Echo");
+            poa.activate_object_with_id(oid, new EchoImpl(orb));
+            var root = Common.RootContext(orb, opt.Timeout);
+            Common.BindName(root, opt.Name, poa.id_to_reference(anyOid));
+            Common.BindName(root, opt.Name + "-Echo", poa.id_to_reference(oid));
+            Console.WriteLine("server ready: " + opt.Name);
+            Console.Out.Flush();
+            orb.run();
+            orb.destroy();
+            Console.WriteLine("server stopped");
+            return 0;
+        }
+
+        /// <summary>The stage 2 suite against the AnyEcho object at
+        /// opt.Name; the server's Echo object is at opt.Name + "-Echo".</summary>
+        private static int AnyClient(Corba.ORB orb, Options opt)
+        {
+            AnyTests.Factory = DynamicAny.DynAnyFactoryHelper.narrow(orb.resolve_initial_references("DynAnyFactory"));
+            var root = Common.RootContext(orb, opt.Timeout);
+            Corba.IObject obj = Common.Retry("the AnyEcho server", () => Common.Resolve(root, opt.Name), opt.Timeout);
+            AnyTest.IAnyEcho echo = AnyTest.AnyEchoHelper.narrow(obj);
+            Common.Retry("the AnyEcho server", echo._non_existent, opt.Timeout);
+            var r = new Runner();
+            AnyTests.Run(r, echo);
+            if (opt.ShutdownServer)
+            {
+                EchoHelper.narrow(Common.Resolve(root, opt.Name + "-Echo")).shutdown();
+            }
+            r.Summary();
+            return r.Failed.Count == 0 ? 0 : 1;
+        }
+
         private static int Client(string[] argv)
         {
             Options opt = Common.ParseArgs("client", argv);
@@ -65,6 +109,12 @@ namespace Interop
             int status;
             try
             {
+                if (opt.Suite == "any")
+                {
+                    status = AnyClient(orb, opt);
+                    orb.destroy();
+                    return status;
+                }
                 PortableServer.POA poa = Common.PersistentPoa(orb, "InteropTestClient");
                 var root = Common.RootContext(orb, opt.Timeout);
                 Corba.IObject obj = Common.Retry("the Echo server", () => Common.Resolve(root, opt.Name), opt.Timeout);

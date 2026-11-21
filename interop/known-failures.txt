@@ -162,3 +162,12 @@ suite=any rustorb* omniorb-cpp check[longdouble] omniORB sends long double in th
 suite=any rustorb* omniorb-cpp dyn_check[longdouble] omniORB sends long double in the x87 format
 suite=any rustorb* omniorb-cpp dyn_make[longdouble] omniORB sends long double in the x87 format
 suite=any rustorb* omniorb-cpp make[longdouble] omniORB sends long double in the x87 format
+
+# The .NET mapping's long double is a decimal (IDL4 to C#), whose 28 digits
+# cannot hold the double 0.1 that the other implementations send as the
+# "longdouble" value. Python, C++ and Java compare the value as a double
+# and accept it; the Rust implementation compares the 128 bits.
+suite=any rustorbcs rustorb check[longdouble] a .NET decimal cannot hold the double 0.1
+suite=any rustorbcs rustorb dyn_check[longdouble] a .NET decimal cannot hold the double 0.1
+suite=any rustorb rustorbcs make[longdouble] a .NET decimal cannot hold the double 0.1
+suite=any rustorb rustorbcs dyn_make[longdouble] a .NET decimal cannot hold the double 0.1

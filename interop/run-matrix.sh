@@ -131,9 +131,11 @@ else
 fi
 rustorb_impls="rustorb rustorbpy rustorbcpp rustorbjava"
 # The .NET, C and Ruby bindings have the basic suite only so far
-# (rustorb#186, rustorb#187, rustorb#188).
+# (rustorb#186, rustorb#187, rustorb#188), and .NET the any suite too.
 if [ "$suite" = basic ]; then
   rustorb_impls+=" rustorbcs rustorbc rustorbrb"
+elif [ "$suite" = any ]; then
+  rustorb_impls+=" rustorbcs"
 fi
 CLIENT_IMPLS="${CLIENT_IMPLS:-$IMPLS $rustorb_impls}"
 SERVER_IMPLS="${SERVER_IMPLS:-$IMPLS $rustorb_impls}"

@@ -46,10 +46,10 @@ namespace Interop
                     case "--shutdown-server": opt.ShutdownServer = true; break;
                     case "--suite":
                         opt.Suite = Value(argv, ++i, a);
-                        if (opt.Suite != "basic")
+                        if (opt.Suite != "basic" && opt.Suite != "any")
                         {
-                            // The any, value, custom and abstract suites need
-                            // what rustorb#186 adds (DynAny, valuetypes...).
+                            // The value, custom and abstract suites need the
+                            // valuetypes of rustorb#186.
                             Console.Error.WriteLine("suite " + opt.Suite + " is not supported by rustorbcs");
                             Environment.Exit(2);
                         }
