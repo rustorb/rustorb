@@ -4,6 +4,8 @@ Nov 1, 2026
 
 0.1.0 の後（PR #98 の時点）に、rustorb がまだ対応していない CORBA の機能を洗い出し、優先度を付けた。CORBA 3.x と関連仕様（Messaging、Portable Interceptors、CSIv2、COS サービスなど）の機能を、[development-plan.md](development-plan.md) と各設計書の「残り」「対象外」、生成器（`rustorb_idl` の各 backend）がエラーにする構文、コア（`rustorb-core`・`rustorb-giop`）のコードと突き合わせた。他の ORB のソースは読んでいない。
 
+仕様の章ごとの対応状況は [corba-compliance.md](corba-compliance.md) にまとめた。
+
 優先度は「omniORB / omniORBpy の置き換え」と OpenRTM での利用を基準にした目安。issue の欄が空のものは起票していない（需要が出たら起票する）。
 
 ## P1：置き換えの障害になりやすいもの
@@ -11,8 +13,8 @@ Nov 1, 2026
 | 機能 | 現状 | 影響 | issue |
 | --- | --- | --- | --- |
 | Portable Interceptors（`ORBInitializer`、Client / ServerRequestInterceptor、IORInterceptor、`PICurrent`） | コア（Rust）・Python・C ABI / C++・Java で実装済み。omniORB C++ / omniORBpy との相互接続も確認済み（[#125](https://github.com/rustorb/rustorb/issues/125)） | 認証トークンやトレース ID をサービスコンテキストで運ぶ用途、フレームワークのフックが使えない。CSIv2・FT CORBA などの土台にもなる | [#100](https://github.com/rustorb/rustorb/issues/100)、設計：[portable-interceptors.md](portable-interceptors.md) |
-| 接続の管理（使っていない接続を閉じる、接続数の上限） | アップコールスレッドの idle 終了はあるが、接続を閉じる仕組みはない | 相手の多い長寿命のサーバーで接続が溜まる | [#101](https://github.com/rustorb/rustorb/issues/101) |
-| GIOP メッセージの最大長の設定と、送信側の Fragment | 受信の上限は `OrbOptions::max_message_size`（既定 64 MiB）だが ORB 引数がない。送るメッセージは分割しない | 大きな値を送ると相手の上限に当たって失敗する。JacORB は GIOP 1.1 の Fragment を受けない（`known-failures.txt`） | [#102](https://github.com/rustorb/rustorb/issues/102) |
+| 接続の管理（使っていない接続を閉じる、接続数の上限） | 実装済み（`-ORBoutConScanPeriod`・`-ORBinConScanPeriod`・`-ORBmaxServerConnections`。[connections.md](connections.md)、omniORB・omniORBpy・JacORB と確認） | 相手の多い長寿命のサーバーで接続が溜まる | [#101](https://github.com/rustorb/rustorb/issues/101) |
+| GIOP メッセージの最大長の設定と、送信側の Fragment | 実装済み（`-ORBgiopMaxMsgSize`、GIOP 1.2 の送信側 Fragment は `-ORBgiopFragmentSize`。[message-size.md](message-size.md)） | 大きな値を送ると相手の上限に当たって失敗する。JacORB は GIOP 1.1 の Fragment を受けない（`known-failures.txt`） | [#102](https://github.com/rustorb/rustorb/issues/102) |
 
 ## P2：需要が見込めるもの
 
@@ -20,7 +22,7 @@ Nov 1, 2026
 | --- | --- | --- | --- |
 | 双方向 GIOP（BiDir、`BiDirPolicy`） | 実装済み（コア（Rust）・Python・C ABI・C++・Java。[bidir-giop.md](bidir-giop.md)、omniORB C++ / omniORBpy と両方向で確認） | NAT・ファイアウォール越しのコールバックに要る | [#103](https://github.com/rustorb/rustorb/issues/103) |
 | `-brust` の abstract interface・local interface・抽象 valuetype・`context` 句 | 対応済み（[rust-mapping.md](rust-mapping.md)）。`context` 句は、コアに `CORBA::Context` がないので生成器のエラーのままにすると決めた | Rust の利用者がローカルオブジェクトを IDL で書けない（解消） | [#104](https://github.com/rustorb/rustorb/issues/104) |
-| ログ・トレースの出力（`-ORBtraceLevel` 相当） | コアにログの仕組みがない | 相互接続や設定の問題を利用者が調べにくい | [#105](https://github.com/rustorb/rustorb/issues/105) |
+| ログ・トレースの出力（`-ORBtraceLevel` 相当） | 実装済み（`-ORBtraceLevel`・`-ORBtraceTime`。[tracing.md](tracing.md)） | 相互接続や設定の問題を利用者が調べにくい | [#105](https://github.com/rustorb/rustorb/issues/105) |
 | Messaging AMI（IDL の `sendc_` と `ReplyHandler`、ポーリング） | コールバック型（`sendc_`・`AMI_<I>Handler`・`ExceptionHolder`）を C++・Java・Python で実装済み（`rustorb-idl -Wbami`）。omniORB C++・omniORBpy・JacORB のサーバーとの相互接続も確認済み（[#140](https://github.com/rustorb/rustorb/issues/140)）。ポーリング型（`sendp_`）と Rust の生成コードは入れないと決めた（Rust は async API（[async-api.md](async-api.md)）と DII の deferred） | C++・Java・Python に非同期呼び出しの標準 API がなかった（解消） | [#135](https://github.com/rustorb/rustorb/issues/135)、設計：[ami.md](ami.md) |
 | Messaging のその他のポリシー（SyncScope、Rebind、RequestPriority など） | タイムアウト（RelativeRoundtripTimeout）と `SyncScope`（実装済み。コア・Python・C ABI / C++・Java。[sync-scope.md](sync-scope.md)）。Rebind・RequestPriority などはなし | oneway の送り方を利用者が選べなかった（`SyncScope` で解消） | [#153](https://github.com/rustorb/rustorb/issues/153) |
 | C++・Java の DII / DSI | 実装済み（コア・Python・C ABI / C++・Java。[dii-dsi.md](dii-dsi.md)）。コンテキストは扱わない | ブリッジ・ゲートウェイ・汎用ツール向け（解消） | [#155](https://github.com/rustorb/rustorb/issues/155)、[#156](https://github.com/rustorb/rustorb/issues/156) |

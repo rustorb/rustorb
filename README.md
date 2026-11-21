@@ -116,6 +116,7 @@ service; the code is in [examples/](examples/), and
   [timeouts](docs/timeouts.md), [SyncScope](docs/sync-scope.md),
   [ORB operations](docs/orb-operations.md), [tracing](docs/tracing.md),
   [async API](docs/async-api.md), [load testing](docs/load-testing.md),
+  [CORBA compliance](docs/corba-compliance.md),
   [unsupported CORBA features](docs/unsupported-features.md)
 - Interoperability tests: [interop/](interop/README.md)
 
