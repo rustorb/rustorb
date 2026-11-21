@@ -33,8 +33,9 @@ end
 task :gen do
   gen = File.join(__dir__, "test", "gen")
   FileUtils.mkdir_p(gen)
+  sh "#{IDL} -bruby -Wbami -C #{gen} #{ROOT}/interop/idl/InteropTest.idl"
   sh "#{IDL} -bruby -C #{gen} -I#{ROOT}/interop/idl #{ROOT}/cpp/tests/idl/CxxMapping.idl " \
-     "#{ROOT}/interop/idl/InteropTest.idl #{ROOT}/cpp/tests/idl/Idl4.idl #{ROOT}/interop/idl/AnyTest.idl #{ROOT}/interop/idl/AnyTestHidden.idl " \
+     "#{ROOT}/cpp/tests/idl/Idl4.idl #{ROOT}/interop/idl/AnyTest.idl #{ROOT}/interop/idl/AnyTestHidden.idl " \
      "#{ROOT}/dotnet/tests/Rustorb.Tests/idl/LocalTest.idl #{ROOT}/interop/idl/ValueTest.idl " \
      "#{ROOT}/interop/idl/AbstractTest.idl #{ROOT}/interop/idl/CustomTest.idl"
 end

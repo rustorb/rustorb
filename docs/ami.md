@@ -16,6 +16,7 @@ Nov 3, 2026
 - **Java（#139）**：実装済み。`org.omg.Messaging` の `ReplyHandler` 一式と `ExceptionHolder`、`org.rustorb.Stubs.sendc`・`SendcCall`、FFM の `rorb_object_sendc` / `rorb_cdr_encode` / `rorb_in_from_bytes`。生成器の `sendc_` は rustorb/rustorb-idl#10。試験は `java/src/test/java/org/rustorb/test/AmiTest.java`（14 件）
 - **.NET（rustorb#186）**：実装済み。`Messaging.ReplyHandler` 一式と `Messaging.ExceptionHolder`、`Rustorb.Ami.Sendc`、`Rustorb.UserExceptions`。生成器の `-bcsharp -Wbami` は rustorb/rustorb-idl#20。形は Java と同じ（`sendc_` はスタブクラスだけ）で、詳しくは [csharp-binding.md](csharp-binding.md) の「AMI」。試験は `dotnet/tests/Rustorb.Tests/AmiTests.cs`
 - **C（rustorb#187）**：実装済み。`<rustorb/messaging.h>` の `Messaging_ReplyHandler`・`POA_Messaging_ReplyHandler`、`ExceptionHolder` の状態の構造体 `Messaging_ExceptionHolder` と `Messaging_ExceptionHolder_raise_exception`、`rustorb_c_sendc`。生成器の `-bc -Wbami` は rustorb/rustorb-idl#20。詳しくは [c-binding.md](c-binding.md) の「AMI」。試験は `c/tests/test_ami.c`
+- **Ruby（rustorb#188）**：実装済み。ランタイムの `Messaging::ReplyHandler`・`POA::Messaging::ReplyHandler`・`Messaging::ExceptionHolder`（valuetype）と `CORBA::Object#_sendc`、C 拡張の `Ref#sendc`。生成器の `-bruby -Wbami` は rustorb/rustorb-idl#20。詳しくは [ruby-binding.md](ruby-binding.md) の「AMI」。試験は `ruby/test/test_ami.rb`
 - 相互接続（#140）：確認済み。rustorbpy・rustorbcpp・rustorbjava・rustorbcs・rustorbc の AMI クライアントから omniORB C++・omniORBpy・JacORB・rustorb のサーバーへ、`interop/run-ami-probe.sh`（CI の interop.yml）。下の「相互接続」の節
 
 ## 目的

@@ -119,6 +119,11 @@ hello.say("hi")
   - 受けた値の型にファクトリがなければ（truncatable の基底のファクトリもなければ）`MARSHAL`。truncatable の値を基底のファクトリで受けると、基底の状態だけを読んで残りを飛ばす
   - any の中で基底の型として届いた派生の値を読めるように、コアが知らない valuetype の TypeCode は生成コードの登録から渡す（`rorb_set_value_type_resolver`）
   - `orb.lookup_value_factory(id)`・`unregister_value_factory(id)`（登録がなければ `BAD_PARAM`）
+- **AMI**：コールバック型の AMI（[ami.md](ami.md)）は `-bruby -Wbami` で入る。RCLM に AMI の定めはないので、他のバインディングに合わせた
+  - 暗黙の IDL の `M::AMI_IHandler` はふつうのインターフェース（モジュールとスタブ、`POA::M::AMI_IHandler`）。基底の `Messaging::ReplyHandler` はランタイムにある
+  - スタブに `sendc_<op>(ami_handler, <in と inout の値>)`、属性は `sendc_get_<attr>(ami_handler)` / `sendc_set_<attr>(ami_handler, attr_<attr>)`。引数はその場で any に写す（後から値を変えても送る内容は変わらない）。返事は ORB の返事用スレッドから GVL を取って、Handler の参照の `<op>(戻り値、inout と out の値)` か `<op>_excep(excep_holder)` を普通の呼び出しとして呼ぶ。nil の Handler なら返事は捨て、Handler が投げた例外も捨てる。呼び出しのタイムアウトは `_call_timeout=` などの、送ったときのものが効く
+  - `Messaging::ExceptionHolder` は valuetype（状態メンバーは `is_system_exception`・`byte_order`・`marshaled_exception`）。`raise_exception` が例外を投げ、`raise_exception_with_list(tcs)` は一覧にないユーザー例外を `UNKNOWN`（minor 0x4f4d0001）にする。別のプロセスから届いたものは、登録された生成コードのクラスで `marshaled_exception` から戻し、知らないものは `UNKNOWN`
+  - C 拡張の `Ref#sendc` が `rorb_object_sendc` を、`Native.cdr_encode` / `cdr_decode` が `rorb_cdr_encode` / `rorb_in_from_bytes` を包む。`interop/run-ami-probe.sh rustorbrb:SERVER` の結果は他の ORB と同じ
 - **servant manager**：`PortableServer::ServantActivator`（`incarnate`・`etherealize`）、`ServantLocator`（`preinvoke` は `[servant, cookie]` かサーバントだけを返す。`postinvoke` はその cookie を受ける）、`AdapterActivator`（`unknown_adapter`）を継承し、`POA#set_servant_manager`・`the_activator=` で渡す。`PortableServer::ForwardRequest.new(ref)` で別のオブジェクトへ転送する。POA のアップコールのスレッドから GVL を取って呼ぶ。`interop/run-poa-probe.sh rustorbrb` の結果は rustorb のものと同じ
 - **rustorb の拡張**：`CORBA::ORB#call_timeout=`・`CORBA::Object#_call_timeout=`（秒）、`Rustorb::Native` の下の低水準の API
 
@@ -145,7 +150,6 @@ POA・POAManager・Current・ORB・TypeCode の例外は `PortableServer::POA::O
 次のものは [#188](https://github.com/rustorb/rustorb/issues/188) で足す。
 
 - Portable Interceptors
-- AMI（`-Wbami`）
 
 `-bruby` はこれらをエラーにする。gem の配布（`librustorb_ffi` の同梱）は [#189](https://github.com/rustorb/rustorb/issues/189) で行う。
 
@@ -156,6 +160,7 @@ POA・POAManager・Current・ORB・TypeCode の例外は `PortableServer::POA::O
   - `test_idl4`：`cpp/tests/idl/Idl4.idl` の int8・bitmask・bitset・`@default`・`@range` を ORB 越しに確かめる（any の中も）
   - `test_mapping`：他のバインディングと同じ `cpp/tests/idl/CxxMapping.idl` を ORB 越しに確かめる。定数、再帰型、すべての判別子の union、入れ子の型、キーワード、上限と不正な値、fixed と long double、多重継承、TypeCode と any
   - `test_local`：`LocalTest.idl`（.NET のテストと同じ）の local インターフェースの実装、`_narrow`、TypeCode、送れないこと
+  - `test_ami`：`sendc_` の結果、inout と out、属性、ユーザー例外とシステム例外の `ExceptionHolder`（状態だけのものも）、nil の Handler、例外を投げる Handler、並行の 50 件、引数の写し
   - `test_values`：値のファクトリの登録と探索、ファクトリがないときの `MARSHAL`、TypeCode の問い合わせ、any の中のインスタンス、ストリームが持ったものを手放すこと
   - `test_servant_managers`：servant activator（転送、例外、etherealize）、servant locator（cookie）、adapter activator
   - `test_interop`：相互接続の Ruby クライアントの79ケース（`interop/impls/rustorbrb/lib/cases.rb`）、any スイートのケース（`anytest.rb`）、value・abstract・custom スイートのケース（`valuetest.rb`・`abstracttest.rb`・`customtest.rb`）を、同じプロセスのサーバントに向けて流す

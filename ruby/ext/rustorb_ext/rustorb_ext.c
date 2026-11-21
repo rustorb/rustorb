@@ -1169,6 +1169,183 @@ static rorb_typecode* resolve_value_type(void* context, const char* id, size_t l
   return c.tc;
 }
 
+/* --- callback AMI ----------------------------------------------------------------- */
+
+/* A request rorb_object_sendc sent: the arguments, written into anys when
+   sendc_ was called (rorb_out_write_any_value writes them, without the
+   GVL, as often as the core asks); the procs, kept alive by the host of
+   keep until done. */
+struct sendc_ctx {
+  struct invoke_ctx c;
+  host* keep;
+  rorb_any** anys;
+  size_t count;
+  VALUE done;
+};
+
+static rorb_status sendc_write(void* ctx, rorb_out* out) {
+  struct sendc_ctx* s = ctx;
+  size_t i;
+  for (i = 0; i < s->count; ++i) rorb_out_write_any_value(out, s->anys[i]);
+  return RORB_OK;
+}
+
+struct sendc_done_call {
+  struct sendc_ctx* s;
+  rorb_status st;
+  const rorb_exception* exc;
+};
+
+static void* sendc_done_gvl(void* p) {
+  struct sendc_done_call* d = p;
+  VALUE argv[2], error = Qnil;
+  argv[0] = INT2NUM(d->st);
+  argv[1] = Qnil;
+  if (d->st == RORB_SYSTEM_EXCEPTION && d->exc)
+    argv[1] = rb_ary_new_from_args(
+        3, utf8(d->exc->repository_id, d->exc->repository_id_len), UINT2NUM(d->exc->minor),
+        UINT2NUM(d->exc->completed));
+  call_protected(d->s->done, 2, argv, &error);
+  return NULL;
+}
+
+static void sendc_done(void* ctx, rorb_status st, const rorb_exception* exc) {
+  struct sendc_done_call d;
+  struct sendc_ctx* s = ctx;
+  d.s = s;
+  d.st = st;
+  d.exc = exc;
+  with_gvl(sendc_done_gvl, &d);
+  host_release(s->keep);
+  free(s->anys);
+  free(s);
+}
+
+struct sendc_call {
+  rorb_object* obj;
+  struct sendc_ctx* s;
+  rorb_status st;
+  rorb_exception exc;
+};
+
+static void* sendc_nogvl(void* p) {
+  struct sendc_call* c = p;
+  c->st = rorb_object_sendc(c->obj, &c->s->c.inv, sendc_done, &c->exc);
+  return NULL;
+}
+
+/* Ref#sendc(op, anys, timeout_us, reader, user_exc, done): sends the
+   request without waiting. anys are the in and inout arguments (Native::Any
+   values of their types); reader.call(in) reads the reply and
+   user_exc.call(id, in) a user exception (as for invoke, on a thread of the
+   reply pool); done.call(status, [id, minor, completed] or nil) follows
+   (RORB_OK, RORB_USER_EXCEPTION, RORB_SYSTEM_EXCEPTION or
+   RORB_CALLBACK_FAILED). Errors the procs raise go nowhere: they keep
+   them. */
+static VALUE ref_sendc(VALUE self, VALUE op, VALUE anys, VALUE timeout, VALUE reader,
+                       VALUE user_exc, VALUE done) {
+  struct sendc_call c;
+  struct sendc_ctx* s;
+  size_t i, n;
+  VALUE keep;
+  Check_Type(anys, T_ARRAY);
+  op = utf8_arg(op);
+  n = (size_t)RARRAY_LEN(anys);
+  for (i = 0; i < n; ++i) ANY(rb_ary_entry(anys, (long)i)); /* type checks */
+  s = calloc(1, sizeof *s);
+  if (!s) rb_raise(rb_eNoMemError, "rustorb: no memory for a request");
+  s->anys = calloc(n + 1, sizeof *s->anys);
+  if (!s->anys) {
+    free(s);
+    rb_raise(rb_eNoMemError, "rustorb: no memory for a request");
+  }
+  for (i = 0; i < n; ++i) s->anys[i] = ANY(rb_ary_entry(anys, (long)i));
+  s->count = n;
+  keep = rb_ary_new_from_args(4, rb_ary_dup(anys), reader, user_exc, done);
+  s->keep = host_retain(keep);
+  s->done = done;
+  s->c.writer = Qnil;
+  s->c.reader = reader;
+  s->c.user_exc = user_exc;
+  s->c.error = Qnil;
+  s->c.user_error = Qnil;
+  s->c.inv.operation = RSTRING_PTR(op);
+  s->c.inv.operation_len = (size_t)RSTRING_LEN(op);
+  s->c.inv.timeout_us = NIL_P(timeout) ? -1 : NUM2LL(timeout);
+  s->c.inv.context = s;
+  s->c.inv.write_args = sendc_write;
+  s->c.inv.read_reply = read_reply;
+  s->c.inv.read_user_exception = read_user_exception;
+  memset(&c, 0, sizeof c);
+  c.obj = OBJ(self);
+  c.s = s;
+  blocking(sendc_nogvl, &c);
+  RB_GC_GUARD(op);
+  RB_GC_GUARD(keep);
+  if (c.st != RORB_OK) {
+    host_release(s->keep);
+    free(s->anys);
+    free(s);
+    raise_status(c.st, &c.exc);
+  }
+  return Qnil;
+}
+
+/* Native.cdr_encode(little_endian, writer): the bytes writer.call(out)
+   writes on a standalone stream (rorb_cdr_encode). */
+struct cdr_ctx {
+  VALUE proc;
+  VALUE error;
+};
+
+static rorb_status cdr_write(void* ctx, rorb_out* out) {
+  struct cdr_ctx* c = ctx;
+  VALUE o = wrap_borrowed(cOut, out);
+  VALUE r = call_protected(c->proc, 1, &o, &c->error);
+  invalidate(o);
+  return r == Qundef ? RORB_CALLBACK_FAILED : RORB_OK;
+}
+
+static VALUE native_cdr_encode(VALUE self, VALUE little, VALUE writer) {
+  struct cdr_ctx c;
+  rorb_bytes bytes;
+  rorb_exception exc;
+  rorb_status st;
+  VALUE r;
+  (void)self;
+  c.proc = writer;
+  c.error = Qnil;
+  memset(&bytes, 0, sizeof bytes);
+  memset(&exc, 0, sizeof exc);
+  st = rorb_cdr_encode(cdr_write, &c, RTEST(little), &bytes, &exc);
+  if (!NIL_P(c.error)) {
+    rorb_exception_clear(&exc);
+    rb_exc_raise(c.error);
+  }
+  if (st != RORB_OK) raise_status(st, &exc);
+  r = rb_str_new((const char*)bytes.data, (long)bytes.len);
+  rorb_bytes_free(bytes);
+  return r;
+}
+
+/* Native.cdr_decode(bytes, little_endian, reader): reader.call(in) on a
+   stream over bytes (rorb_in_from_bytes); returns what it returns. */
+static VALUE native_cdr_decode(VALUE self, VALUE bytes, VALUE little, VALUE reader) {
+  rorb_in* in = NULL;
+  VALUE i, r, error = Qnil;
+  (void)self;
+  StringValue(bytes);
+  CHECK(rorb_in_from_bytes((const uint8_t*)RSTRING_PTR(bytes), (size_t)RSTRING_LEN(bytes),
+                           RTEST(little), NULL, &in, EXC));
+  i = wrap_borrowed(cIn, in);
+  r = call_protected(reader, 1, &i, &error);
+  invalidate(i);
+  rorb_in_release(in);
+  RB_GC_GUARD(bytes);
+  if (r == Qundef) rb_exc_raise(error);
+  return r;
+}
+
 /* --- TypeCodes ------------------------------------------------------------------- */
 
 static VALUE tc_simple(VALUE klass, VALUE kind) {
@@ -2751,6 +2928,8 @@ void Init_rustorb_ext(void) {
   rb_gc_register_mark_object(TypedData_Wrap_Struct(rb_cObject, &hosts_type, host_buckets));
   rorb_set_value_type_resolver(resolve_value_type, NULL);
   rb_define_module_function(mNative, "kept_values", native_kept_values, 0);
+  rb_define_module_function(mNative, "cdr_encode", native_cdr_encode, 2);
+  rb_define_module_function(mNative, "cdr_decode", native_cdr_decode, 3);
   rb_set_end_proc(at_exit_dispatchers, Qnil);
 
   SDEF(mNative, "orb_init", native_orb_init, 1);
@@ -2796,6 +2975,7 @@ void Init_rustorb_ext(void) {
   DEF(cRef, "set_call_timeout", ref_set_call_timeout, 1);
   DEF(cRef, "call_timeout", ref_call_timeout, 0);
   DEF(cRef, "invoke", ref_invoke, 6);
+  DEF(cRef, "sendc", ref_sendc, 6);
 
   cOut = handle_class("Out");
   DEF(cOut, "write_boolean", out_write_boolean, 1);

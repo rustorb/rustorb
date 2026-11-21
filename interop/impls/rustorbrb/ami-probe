@@ -1,0 +1,5 @@
+#!/bin/sh
+# rustorb Ruby side of run-ami-probe.sh (lib/ami_probe.rb). run-ami-probe.sh
+# builds the runtime and the stubs (build.sh) and mounts this directory into
+# the container.
+exec "${RUSTORB_RUBY:-ruby}" "$(dirname "$0")/lib/ami_probe.rb" "$@"
