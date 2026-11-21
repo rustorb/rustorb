@@ -72,6 +72,9 @@ int main(int argc, char** argv) {
 | union | `_d` と `_u` の構造体 |
 | enum | C の enum（列挙子はスコープ付きの名前） |
 | const | `#define`（型付きの式。`fixed` と `wstring` は複合リテラル） |
+| IDL 4 の `int8` | `CORBA_int8`（`signed char`。C++ のマッピングと同じく octet として送り、TypeCode も `tk_octet`） |
+| IDL 4 の bitmask | ビットを収める符号なし整数（`@bit_bound` に合わせて `CORBA_octet`・`CORBA_unsigned_short`・`CORBA_unsigned_long`・`CORBA_unsigned_long_long`）の typedef と、値の定数（`Mod_READ` は `((Mod_Flags)(1U << 0))`。名前は enum の列挙子と同じ規則） |
+| IDL 4 の bitset | 同じく整数の typedef。C のビットフィールドは配置が処理系で決まるので、送るときの形の整数のまま持ち、フィールドはマクロ `Mod_Header_kind(v)` / `Mod_Header_set_kind(&v, x)` で読み書きする（符号付きのフィールドは符号を広げる）。継承はエラー。bitmask も bitset も TypeCode と記述子は整数のもの。`@default` と `@range` は C では無視する |
 | TypeCode | `TC_<名前>`（借りたもので解放しない。`TC_long` なども同じ） |
 | interface | `typedef CORBA_Object Mod_Iface;`、スタブ `Mod_Iface_op(_obj, 引数..., CORBA_Environment* _ev)`、属性は `Mod_Iface__get_x` / `__set_x`。継承した操作も派生の名前で出す |
 | サーバント | `POA_Mod_Iface`（`_private`・`vepv`）、`POA_Mod_Iface__epv`（自分の操作）、`POA_Mod_Iface__vepv`（`_base_epv`、祖先の epv を遠い順に、最後に自分の epv）、`POA_Mod_Iface__init` / `__fini` |
@@ -223,7 +226,7 @@ static void my_send_request(PortableServer_Servant s, PortableInterceptor_Client
 
 ## まだないもの
 
-valuetype と abstract interface は C マッピングにないので `-bc` はエラーにする（AMI の `ExceptionHolder` だけは上のとおり）。IDL 4 の bitmask / bitset は [#187](https://github.com/rustorb/rustorb/issues/187) で足す。共有ライブラリ版と Windows（MSVC）の CI もまだない。
+valuetype と abstract interface は C マッピングにないので `-bc` はエラーにする（AMI の `ExceptionHolder` だけは上のとおり）。共有ライブラリ版と Windows（MSVC）の CI もまだない。
 
 ## テスト
 
@@ -238,6 +241,7 @@ valuetype と abstract interface は C マッピングにないので `-bc` は�
   - `test_pi`：初期化子（ORB id、引数、`DuplicateName`、種類の違う参照、`pre_init` の `resolve_initial_references`）、両方向のサービスコンテキストと重複、PICurrent のスロットが要求のスコープに写ること、IOR のタグ付きコンポーネント、`get_effective_policy`、`InvalidSlot`、静的なスタブの `NO_RESOURCES`、ユーザー例外、`receive_request` からのシステム例外、`send_request` からの `ForwardRequest`、`Codec`、ORB の破棄での `destroy`
   - `test_exception`：`CORBA_exception_as_any` のユーザー例外（メンバーのあるもの、ないもの、記述子のないもの）、システム例外、疑似オブジェクトの例外。どれも `IOP_Codec` で往復させる
   - `test_fixed`：fixed の演算（線上の形、符号、桁の違う引数、切り捨て、上の桁を捨てること、31 桁、0 での割り算、`CORBA_fixed_alloc`）
+  - `test_idl4`：C++・Java・.NET と同じ `cpp/tests/idl/Idl4.idl` の int8・bitmask・bitset（定数、フィールドのマクロと符号、同じプロセスのサーバントへの呼び出し、any の TypeCode、`IOP_Codec` での線上の形）
   - `-DRUSTORB_SANITIZE=address` で AddressSanitizer と LeakSanitizer。どのテストもリークなし
 - rustorb-idl の `python/tests/test_c_backend.py`：生成物の形、対応しない構文のエラー、生成コードの C99（警告をエラーにする）と、ヘッダの C++ としてのコンパイル。golden は `tests/golden/c`
 - CI（`ci.yml` の `c` と `c-sanitize`）：Linux の gcc と clang、macOS の clang で `ctest`、Linux の gcc で ASan。Linux では同梱の CosNaming のスタブが生成器の出力と一致することも確かめる

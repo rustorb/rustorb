@@ -217,3 +217,11 @@ add_executable(test_fixed tests/test_fixed.c)
 target_link_libraries(test_fixed PRIVATE rustorb_c)
 target_compile_options(test_fixed PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME fixed COMMAND test_fixed)
+
+# The IDL 4 types (int8, bitmask, bitset) of the C++ test IDL.
+rustorb_idl_generate(IDL4_SOURCES "${RUSTORB_ROOT}/cpp/tests/idl/Idl4.idl")
+add_executable(test_idl4 tests/test_idl4.c ${IDL4_SOURCES})
+target_include_directories(test_idl4 PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl")
+target_link_libraries(test_idl4 PRIVATE rustorb_c)
+target_compile_options(test_idl4 PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME idl4 COMMAND test_idl4)

@@ -82,6 +82,7 @@ extern const rustorb_c_type CORBA_boolean__desc;
 extern const rustorb_c_type CORBA_char__desc;
 extern const rustorb_c_type CORBA_wchar__desc;
 extern const rustorb_c_type CORBA_octet__desc;
+extern const rustorb_c_type CORBA_int8__desc;
 extern const rustorb_c_type CORBA_string__desc;
 extern const rustorb_c_type CORBA_wstring__desc;
 extern const rustorb_c_type CORBA_any__desc;

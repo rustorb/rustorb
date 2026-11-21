@@ -42,6 +42,8 @@ typedef char CORBA_char;
 typedef uint16_t CORBA_wchar;
 typedef unsigned char CORBA_boolean;
 typedef unsigned char CORBA_octet;
+/* IDL 4 int8 (rustorb): sent and typed as an octet. */
+typedef signed char CORBA_int8;
 typedef CORBA_unsigned_long CORBA_enum;
 
 #define CORBA_FALSE 0

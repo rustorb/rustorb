@@ -176,7 +176,7 @@ jobs:
       # it, until rustorb-idl 0.5.0 (#189) and tools/rustorb-idl.txt.
       - run: >
           pip install idl_parser==0.6.2
-          "rustorb-idl @ git+https://github.com/rustorb/rustorb-idl@3b3d663319697069a75aa40fe580e84856855c52#subdirectory=python"
+          "rustorb-idl @ git+https://github.com/rustorb/rustorb-idl@461bb2184ce9ea7c8438d7fc185da2975683d137#subdirectory=python"
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
@@ -211,7 +211,7 @@ jobs:
       # until rustorb-idl 0.5.0 (#189) and tools/rustorb-idl.txt.
       - run: >
           pip install idl_parser==0.6.2
-          "rustorb-idl @ git+https://github.com/rustorb/rustorb-idl@3b3d663319697069a75aa40fe580e84856855c52#subdirectory=python"
+          "rustorb-idl @ git+https://github.com/rustorb/rustorb-idl@461bb2184ce9ea7c8438d7fc185da2975683d137#subdirectory=python"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cmake -S c -B build/c
@@ -231,7 +231,7 @@ jobs:
           python-version: "3.12"
       - run: >
           pip install idl_parser==0.6.2
-          "rustorb-idl @ git+https://github.com/rustorb/rustorb-idl@3b3d663319697069a75aa40fe580e84856855c52#subdirectory=python"
+          "rustorb-idl @ git+https://github.com/rustorb/rustorb-idl@461bb2184ce9ea7c8438d7fc185da2975683d137#subdirectory=python"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cmake -S c -B build/c -DCMAKE_C_COMPILER=gcc -DRUSTORB_SANITIZE=address
@@ -257,7 +257,7 @@ jobs:
       # until rustorb-idl 0.5.0 (#189) and tools/rustorb-idl.txt.
       - run: >
           pip install idl_parser==0.6.2
-          "rustorb-idl @ git+https://github.com/rustorb/rustorb-idl@3b3d663319697069a75aa40fe580e84856855c52#subdirectory=python"
+          "rustorb-idl @ git+https://github.com/rustorb/rustorb-idl@461bb2184ce9ea7c8438d7fc185da2975683d137#subdirectory=python"
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}

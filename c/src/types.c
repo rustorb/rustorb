@@ -20,6 +20,7 @@ BASIC(CORBA_boolean, CORBA_boolean, CORBA_tk_boolean);
 BASIC(CORBA_char, CORBA_char, CORBA_tk_char);
 BASIC(CORBA_wchar, CORBA_wchar, CORBA_tk_wchar);
 BASIC(CORBA_octet, CORBA_octet, CORBA_tk_octet);
+BASIC(CORBA_int8, CORBA_int8, CORBA_tk_octet);
 BASIC(CORBA_string, CORBA_char*, CORBA_tk_string);
 BASIC(CORBA_wstring, CORBA_wchar*, CORBA_tk_wstring);
 BASIC(CORBA_any, CORBA_any, CORBA_tk_any);
