@@ -65,13 +65,22 @@ module CORBA
     # native: a Rustorb::Native::TC. members: [[name, TypeCode]] (struct,
     # except), [[label, name, TypeCode]] (union, label :default), or names
     # (enum); content: the TypeCode of a sequence, array or alias.
-    def initialize(native, members: nil, content: nil, discriminator: nil, recursive_id: nil)
+    # extra: what the native TypeCode does not say, for the IDL 4 types
+    # sent as integers (rustorb): :int8 (an octet read as signed), or the
+    # class of a bitset (sent as the unsigned integer of the TypeCode).
+    def initialize(native, members: nil, content: nil, discriminator: nil, recursive_id: nil,
+                   extra: nil)
       @native = native
       @kind = native&.kind
       @members = members
       @content = content
       @discriminator = discriminator
       @recursive_id = recursive_id
+      @extra = extra
+    end
+
+    def _extra
+      @extra
     end
 
     def self._wrap(native)
@@ -264,6 +273,18 @@ module CORBA
       Rustorb.register_tc(new(Rustorb::Native::TC.enum(id, name, names), members: names))
     end
 
+    # IDL 4 int8 (rustorb): the TypeCode of octet, read and written as a
+    # signed value.
+    def self.create_int8_tc
+      @int8_tc ||= new(Rustorb::Native::TC.simple(TK_OCTET), extra: :int8)
+    end
+
+    # An IDL 4 bitset (rustorb): the TypeCode of the unsigned integer kind
+    # that holds its bits; values are instances of klass (a Rustorb::Bitset).
+    def self._bitset_tc(kind, klass)
+      new(Rustorb::Native::TC.simple(kind), extra: klass)
+    end
+
     def self.create_recursive_tc(id)
       new(Rustorb::Native::TC.recursive(id), recursive_id: id)
     end
@@ -285,6 +306,10 @@ module CORBA
 
   NULL_TC_KINDS.each do |name, kind|
     define_singleton_method("_tc_#{name}") { TypeCode.simple(kind) }
+  end
+
+  def self._tc_int8
+    TypeCode.create_int8_tc
   end
 
   def self._tc_Object

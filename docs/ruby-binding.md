@@ -72,6 +72,10 @@ hello.say("hi")
 | enum | Integer の定数を持つ module（`Color::RED`）。列挙子は IDL のスコープどおり外側にも置く（`Mod::RED`）。`ENUMERATORS` は名前の配列 |
 | typedef | `_tc` を持つ module。struct・union の typedef はその派生クラス |
 | const | Ruby の定数 |
+| `int8`（IDL 4） | Integer（-128〜127）。octet として送る |
+| bitmask（IDL 4） | `1 << position` の Integer の定数と `BIT_BOUND` を持つ module。値は Integer。`_tc` は保持する符号なし整数（`@bit_bound` から octet・ushort・ulong・ulonglong） |
+| bitset（IDL 4） | `Rustorb::Bitset` の派生クラス。ビットフィールドごとの `attr_accessor` と位置引数の `new`。`FIELDS` は `[名前, 位置, ビット数, :unsigned / :signed / :boolean]`。保持する符号なし整数として送る。幅に収まらない値は `MARSHAL` |
+| `@default`・`@range`・`@min`・`@max`（IDL 4） | struct の `DEFAULTS`（`new` に渡さなかったメンバーの値）と `RANGES`（`[min, max]`）。範囲外のメンバーは送るときに `BAD_PARAM`、受け取るときに `MARSHAL` |
 | exception | `CORBA::UserException` の派生クラス（メンバーは struct と同じ） |
 | TypeCode | どの型も `_tc`。初めて使うときに作る（`Rustorb.lazy_tc`。再帰型は作っている途中の型を `create_recursive_tc` で指す） |
 | interface | module（`Mod::Iface`）。操作ごとのメソッドと、属性ごとの `x` と `x=` を持つ。基底インターフェースの module を include する。`Mod::Iface._narrow` と `_unchecked_narrow` がスタブ（`Mod::Iface::Stub`、`CORBA::Object` の派生で module を include したもの）を返す |
@@ -124,7 +128,6 @@ POA・POAManager・Current・ORB・TypeCode の例外は `PortableServer::POA::O
 - DynAny
 - Portable Interceptors
 - AMI（`-Wbami`）
-- IDL 4 の bitmask / bitset
 
 `-bruby` はこれらをエラーにする。gem の配布（`librustorb_ffi` の同梱）は [#189](https://github.com/rustorb/rustorb/issues/189) で行う。
 
@@ -132,6 +135,7 @@ POA・POAManager・Current・ORB・TypeCode の例外は `PortableServer::POA::O
 
 - `ruby/test`（`cd ruby && rake`）。cargo で `librustorb_ffi` を作り、拡張をビルドし、`rustorb-idl -bruby` でテスト用 IDL のコードを作って minitest を流す。`RUSTORB_IDL` で生成器のコマンドを変えられる
   - `test_runtime`：手書きのスタブとスケルトン（`test/demo`）で、呼び出し、例外、any のいろいろな値、POA の操作と例外、Current、スレッドから並行の呼び出しを確かめる
+  - `test_idl4`：`cpp/tests/idl/Idl4.idl` の int8・bitmask・bitset・`@default`・`@range` を ORB 越しに確かめる（any の中も）
   - `test_mapping`：他のバインディングと同じ `cpp/tests/idl/CxxMapping.idl` を ORB 越しに確かめる。定数、再帰型、すべての判別子の union、入れ子の型、キーワード、上限と不正な値、fixed と long double、多重継承、TypeCode と any
   - `test_interop`：相互接続の Ruby クライアントの79ケース（`interop/impls/rustorbrb/lib/cases.rb`）を、同じプロセスの Echo サーバントに向けて流す
 - rustorb-idl の `python/tests/test_ruby_backend.py`：生成物の形、名前の規則、include、対応しない構文のエラー、`ruby -wc`。golden は `tests/golden/ruby`

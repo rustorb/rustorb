@@ -34,7 +34,7 @@ task :gen do
   gen = File.join(__dir__, "test", "gen")
   FileUtils.mkdir_p(gen)
   sh "#{IDL} -bruby -C #{gen} -I#{ROOT}/interop/idl #{ROOT}/cpp/tests/idl/CxxMapping.idl " \
-     "#{ROOT}/interop/idl/InteropTest.idl"
+     "#{ROOT}/interop/idl/InteropTest.idl #{ROOT}/cpp/tests/idl/Idl4.idl"
 end
 
 # CosNaming as the gem has it (checked in; CI checks it is up to date).

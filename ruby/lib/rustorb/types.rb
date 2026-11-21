@@ -13,7 +13,10 @@ module Rustorb
       members = self.class::MEMBERS
       raise ArgumentError, "#{self.class}: #{args.size} values for #{members.size} members" if args.size > members.size
 
-      members.each_with_index { |m, i| instance_variable_set("@#{m}", args[i]) }
+      defaults = self.class::DEFAULTS
+      members.each_with_index do |m, i|
+        instance_variable_set("@#{m}", args.size > i ? args[i] : defaults[m])
+      end
     end
 
     def _values
@@ -35,6 +38,77 @@ module Rustorb
 
     def inspect
       "#<#{self.class.name} #{self.class::MEMBERS.zip(_values).map { |m, v| "#{m}=#{v.inspect}" }.join(', ')}>"
+    end
+    alias to_s inspect
+  end
+
+  # A struct's IDL 4 @default values (DEFAULTS, by member) are those of
+  # the members new does not get; @range / @min / @max (RANGES, by member:
+  # [min, max], either nil) are checked when the struct is written.
+  class Struct
+    DEFAULTS = {}.freeze
+    RANGES = {}.freeze
+  end
+
+  # An IDL 4 bitset (rustorb): FIELDS ([name, position, bits, kind], kind
+  # :unsigned, :signed or :boolean), an attr_accessor per field and a
+  # positional new. Sent as the unsigned integer that holds the bits.
+  class Bitset
+    def initialize(*args)
+      fields = self.class::FIELDS
+      raise ArgumentError, "#{self.class}: #{args.size} values for #{fields.size} fields" if args.size > fields.size
+
+      fields.each_with_index do |f, i|
+        instance_variable_set("@#{f[0]}", args.size > i ? args[i] : (f[3] == :boolean ? false : 0))
+      end
+    end
+
+    def _values
+      self.class::FIELDS.map { |f| instance_variable_get("@#{f[0]}") }
+    end
+
+    def _tc
+      self.class._tc
+    end
+
+    # The bits as sent.
+    def _bits
+      x = 0
+      self.class::FIELDS.each do |name, pos, bits, kind|
+        v = instance_variable_get("@#{name}")
+        v = if kind == :boolean
+              v ? 1 : 0
+            else
+              Rustorb::Marshal.int(v, kind == :signed ? -(2**(bits - 1)) : 0,
+                                   kind == :signed ? 2**(bits - 1) - 1 : 2**bits - 1, "#{bits}-bit #{name}")
+            end
+        x |= (v & ((1 << bits) - 1)) << pos
+      end
+      x
+    end
+
+    def self._from_bits(x)
+      b = allocate
+      self::FIELDS.each do |name, pos, bits, kind|
+        v = (x >> pos) & ((1 << bits) - 1)
+        v = v != 0 if kind == :boolean
+        v -= 1 << bits if kind == :signed && v >= (1 << (bits - 1))
+        b.instance_variable_set("@#{name}", v)
+      end
+      b
+    end
+
+    def ==(other)
+      other.class == self.class && other._values == _values
+    end
+    alias eql? ==
+
+    def hash
+      [self.class, _values].hash
+    end
+
+    def inspect
+      "#<#{self.class.name} #{self.class::FIELDS.map(&:first).zip(_values).map { |m, v| "#{m}=#{v.inspect}" }.join(', ')}>"
     end
     alias to_s inspect
   end

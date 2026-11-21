@@ -85,6 +85,8 @@ module Rustorb
 
     def write(out, tc, v)
       tc = tc.resolve
+      return write_extra(out, tc, v) if tc._extra
+
       case tc.kind
       when CORBA::TK_NULL, CORBA::TK_VOID then nil
       when CORBA::TK_SHORT then out.write_short(int(v, -(2**15), 2**15 - 1, "short"))
@@ -118,6 +120,7 @@ module Rustorb
         members = tc._struct_members
         bad("#{tc.name} expected, got #{v.inspect}") unless v.respond_to?(:_values)
         values = v._values
+        check_ranges(v.class, values) if v.class.const_defined?(:RANGES) && !v.class::RANGES.empty?
         members.each_with_index { |m, i| write(out, m[1], values[i]) }
       when CORBA::TK_UNION then write_union(out, tc, v)
       when CORBA::TK_SEQUENCE
@@ -149,9 +152,64 @@ module Rustorb
       end
     end
 
+    # IDL 4 int8 and bitsets (rustorb), sent as integers.
+    def write_extra(out, tc, v)
+      extra = tc._extra
+      if extra == :int8
+        out.write_octet(int(v, -128, 127, "int8") & 0xFF)
+      else
+        bad("#{extra} expected, got #{v.inspect}") unless v.is_a?(extra)
+        write(out, CORBA::TypeCode.simple(tc.kind), v._bits)
+      end
+    end
+
+    def read_extra(inp, tc)
+      extra = tc._extra
+      if extra == :int8
+        v = inp.read_octet
+        v >= 128 ? v - 256 : v
+      else
+        extra._from_bits(read(inp, CORBA::TypeCode.simple(tc.kind)))
+      end
+    end
+
+    # @range / @min / @max of a struct's members: BAD_PARAM out of them.
+    def check_ranges(klass, values)
+      klass::RANGES.each do |m, (lo, hi)|
+        v = values[klass::MEMBERS.index(m)]
+        next unless v.is_a?(Numeric)
+        next unless (lo && v < lo) || (hi && v > hi)
+
+        raise CORBA::BAD_PARAM.new("#{klass.name}##{m} #{v} is out of its @range", 0, CORBA::COMPLETED_NO)
+      end
+    end
+
+    # The members of a struct as read: those of the generated class when
+    # there is one (a TypeCode from the wire, as in an any, does not say
+    # which octets are int8 or which integers bitsets).
+    def struct_members(tc, klass)
+      members = tc._struct_members
+      return members unless klass.respond_to?(:_tc)
+
+      own = klass._tc.resolve
+      own.kind == tc.kind && own._struct_members.size == members.size ? own._struct_members : members
+    end
+
+    def in_ranges?(klass, values)
+      klass::RANGES.all? do |m, (lo, hi)|
+        v = values[klass::MEMBERS.index(m)]
+        !v.is_a?(Numeric) || !((lo && v < lo) || (hi && v > hi))
+      end
+    end
+
     def write_elements(out, content, v)
       c = content.unaliased
-      prim = PRIM[c.kind]
+      if c._extra == :int8 && v.is_a?(Array)
+        v.each { |e| int(e, -128, 127, "int8") }
+        out.write_array(0, v.pack("c*"))
+        return
+      end
+      prim = !c._extra && PRIM[c.kind]
       if prim
         if c.kind == CORBA::TK_OCTET && v.is_a?(String)
           out.write_array(0, v.b)
@@ -217,6 +275,8 @@ module Rustorb
 
     def read(inp, tc)
       tc = tc.resolve
+      return read_extra(inp, tc) if tc._extra
+
       case tc.kind
       when CORBA::TK_NULL, CORBA::TK_VOID then nil
       when CORBA::TK_SHORT then inp.read_short
@@ -244,8 +304,9 @@ module Rustorb
         inp.fail if v >= tc._enumerators.size
         v
       when CORBA::TK_STRUCT, CORBA::TK_EXCEPT
-        values = tc._struct_members.map { |m| read(inp, m[1]) }
         klass = Rustorb.find_type(tc.id)
+        values = struct_members(tc, klass).map { |m| read(inp, m[1]) }
+        inp.fail if klass && klass.const_defined?(:RANGES) && !klass::RANGES.empty? && !in_ranges?(klass, values)
         klass ? klass.new(*values) : GenericStruct.new(tc, values)
       when CORBA::TK_UNION
         disc = read(inp, tc.discriminator_type)
@@ -282,7 +343,9 @@ module Rustorb
 
     def read_elements(inp, content, n)
       c = content.unaliased
-      prim = PRIM[c.kind]
+      return inp.read_array(0, n).unpack("c*") if c._extra == :int8
+
+      prim = !c._extra && PRIM[c.kind]
       return inp.read_array(prim[0], n).unpack(prim[1]) if prim
 
       Array.new(n) { read(inp, content) }

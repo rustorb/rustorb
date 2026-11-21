@@ -60,7 +60,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: rustorb/rustorb-idl
-          ref: 461bb2184ce9ea7c8438d7fc185da2975683d137
+          ref: fee7ef60ae697b482371dfdf1bba72b1ac9854b0
           path: rustorb-idl
 
       # omniORB and omniORBpy are built from source; the GitHub Actions cache
