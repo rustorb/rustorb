@@ -40,3 +40,39 @@ class AnyTest_ < Minitest::Test
     assert_equal 8 * AnyCases::NAMES.size + 3 + 1 + 3 * AnyCases::HIDDEN.size + 6, r.passed
   end
 end
+
+# The same cases with every call through the DII and every servant through
+# the DSI (interop/impls/rustorbrb-dii), in a child process: the adapters
+# change CORBA::Object and the POA for the whole process.
+class DiiInterop_ < Minitest::Test
+  def test_cases
+    script = <<~'RUBY'
+      require "dii_adapters"
+      DiiAdapters.install
+      require "echo_servant"
+      require "cases"
+      require "anytest"
+      require "AnyTestHiddenC"
+      orb = TestORB.orb
+      poa = TestORB.root_poa
+      basic = Runner.new
+      echo = TestORB.ref(EchoServant.new(orb), InteropTest::Echo)
+      client_poa = poa.create_POA("InteropTestClient", nil, [
+        poa.create_lifespan_policy(PortableServer::PERSISTENT),
+        poa.create_id_assignment_policy(PortableServer::USER_ID)
+      ])
+      client_poa.the_POAManager.activate
+      Cases.run(basic, echo, client_poa)
+      any = Runner.new
+      AnyCases.run(any, TestORB.ref(AnyEchoServant.new, AnyTest::AnyEcho))
+      puts "RESULT #{basic.passed} #{basic.failed.size} #{any.passed} #{any.failed.size}"
+    RUBY
+    helper = File.expand_path("helper", __dir__)
+    out = IO.popen([RbConfig.ruby, "-r", helper, "-e", script],
+                   err: %i[child out], &:read)
+    m = out.match(/RESULT (\d+) (\d+) (\d+) (\d+)/)
+    assert m, out
+    assert_equal [79, 0], [m[1].to_i, m[2].to_i], out
+    assert_equal 0, m[4].to_i, out
+  end
+end

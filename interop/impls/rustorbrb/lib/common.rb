@@ -15,6 +15,12 @@ $LOAD_PATH.unshift(File.join(here, "gen"), File.join(here, "lib"), File.join(her
 require "corba"
 require "CosNamingC"
 
+if ENV["RUSTORB_DII"] && !ENV["RUSTORB_DII"].empty?
+  # rustorbrb-dii: every call through the DII, every servant through the DSI.
+  require "dii_adapters"
+  DiiAdapters.install
+end
+
 module Interop
   OPTIONS = {
     "--naming" => :naming, "--name" => :name, "--host" => :host, "--port" => :port,

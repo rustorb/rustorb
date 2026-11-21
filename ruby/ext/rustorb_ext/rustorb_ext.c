@@ -2125,6 +2125,164 @@ static void init_dynany(void) {
 #define DEF(klass, name, fn, n) rb_define_method(klass, name, RUBY_METHOD_FUNC(fn), n)
 #define SDEF(klass, name, fn, n) rb_define_singleton_method(klass, name, RUBY_METHOD_FUNC(fn), n)
 
+/* --- the DII and the DSI ------------------------------------------------------------- */
+
+/* Rustorb::Native::Request (one rorb_request) and ServerRequest (one
+   rorb_server_request); values are Rustorb::Native::Any. CORBA::Request
+   and CORBA::ServerRequest (dii.rb) are built on them. */
+static VALUE cRequest, cServerRequest;
+static void rel_request(void* p) { rorb_request_release(p); }
+static void rel_server_request(void* p) { rorb_server_request_release(p); }
+#define REQ(v) ((rorb_request*)unwrap((v), cRequest))
+#define SREQ(v) ((rorb_server_request*)unwrap((v), cServerRequest))
+
+static VALUE request_new(VALUE klass, VALUE target, VALUE op) {
+  rorb_request* r = NULL;
+  (void)klass;
+  op = utf8_arg(op);
+  CHECK(rorb_request_new(OBJ(target), RSTRING_PTR(op), (size_t)RSTRING_LEN(op), &r, EXC));
+  RB_GC_GUARD(op);
+  return wrap(cRequest, r, rel_request);
+}
+static VALUE request_add_arg(VALUE self, VALUE name, VALUE flags, VALUE any) {
+  name = utf8_arg(name);
+  CHECK(rorb_request_add_arg(REQ(self), RSTRING_PTR(name), (size_t)RSTRING_LEN(name), NUM2UINT(flags),
+                             ANY(any), EXC));
+  RB_GC_GUARD(name);
+  return Qnil;
+}
+static VALUE request_set_return_type(VALUE self, VALUE tc) {
+  rorb_request_set_return_type(REQ(self), TC(tc));
+  return Qnil;
+}
+static VALUE request_add_exception(VALUE self, VALUE tc) {
+  rorb_request_add_exception(REQ(self), TC(tc));
+  return Qnil;
+}
+static VALUE request_set_timeout(VALUE self, VALUE us) {
+  rorb_request_set_timeout(REQ(self), NUM2LL(us));
+  return Qnil;
+}
+
+struct request_call {
+  rorb_request* r;
+  int what;
+  int32_t ready;
+  rorb_status st;
+  rorb_exception exc;
+};
+
+static void* request_nogvl(void* p) {
+  struct request_call* c = p;
+  switch (c->what) {
+    case 0: c->st = rorb_request_invoke(c->r, &c->exc); break;
+    case 1: c->st = rorb_request_send_oneway(c->r, &c->exc); break;
+    case 2: c->st = rorb_request_send_deferred(c->r, &c->exc); break;
+    default: c->st = rorb_request_get_response(c->r, &c->exc); break;
+  }
+  return NULL;
+}
+
+/* true, or false when the operation raised a user exception of the list
+   (Request#exception has it). */
+static VALUE request_call(VALUE self, int what) {
+  struct request_call c;
+  memset(&c, 0, sizeof c);
+  c.r = REQ(self);
+  c.what = what;
+  without_gvl(request_nogvl, &c);
+  if (c.st == RORB_USER_EXCEPTION) {
+    rorb_exception_clear(&c.exc);
+    return Qfalse;
+  }
+  if (c.st != RORB_OK) raise_status(c.st, &c.exc);
+  return Qtrue;
+}
+static VALUE request_invoke(VALUE self) { return request_call(self, 0); }
+static VALUE request_send_oneway(VALUE self) { return request_call(self, 1); }
+static VALUE request_send_deferred(VALUE self) { return request_call(self, 2); }
+static VALUE request_get_response(VALUE self) { return request_call(self, 3); }
+static VALUE request_poll_response(VALUE self) {
+  int32_t ready = 0;
+  CHECK(rorb_request_poll_response(REQ(self), &ready, EXC));
+  return ready ? Qtrue : Qfalse;
+}
+static VALUE request_result(VALUE self) { return W_ANY(rorb_request_result(REQ(self))); }
+static VALUE request_argument(VALUE self, VALUE i) {
+  return W_ANY(rorb_request_argument(REQ(self), NUM2SIZET(i)));
+}
+static VALUE request_exception(VALUE self) { return W_ANY(rorb_request_exception(REQ(self))); }
+
+/* ServerRequest.new(in, op): the request of the dispatch whose input
+   stream is in (nothing read from it yet). */
+static VALUE server_request_new(VALUE klass, VALUE in, VALUE op) {
+  rorb_server_request* r = NULL;
+  (void)klass;
+  op = utf8_arg(op);
+  CHECK(rorb_server_request_new(IN(in), RSTRING_PTR(op), (size_t)RSTRING_LEN(op), &r, EXC));
+  RB_GC_GUARD(op);
+  return wrap(cServerRequest, r, rel_server_request);
+}
+static VALUE server_request_add_param(VALUE self, VALUE name, VALUE flags, VALUE tc) {
+  name = utf8_arg(name);
+  CHECK(rorb_server_request_add_param(SREQ(self), RSTRING_PTR(name), (size_t)RSTRING_LEN(name),
+                                      NUM2UINT(flags), TC(tc), EXC));
+  RB_GC_GUARD(name);
+  return Qnil;
+}
+static VALUE server_request_arguments(VALUE self) {
+  CHECK(rorb_server_request_arguments(SREQ(self), EXC));
+  return Qnil;
+}
+static VALUE server_request_argument(VALUE self, VALUE i) {
+  return W_ANY(rorb_server_request_argument(SREQ(self), NUM2SIZET(i)));
+}
+static VALUE server_request_set_argument(VALUE self, VALUE i, VALUE any) {
+  CHECK(rorb_server_request_set_argument(SREQ(self), NUM2SIZET(i), ANY(any), EXC));
+  return Qnil;
+}
+static VALUE server_request_set_result(VALUE self, VALUE any) {
+  CHECK(rorb_server_request_set_result(SREQ(self), ANY(any), EXC));
+  return Qnil;
+}
+static VALUE server_request_set_exception(VALUE self, VALUE any) {
+  CHECK(rorb_server_request_set_exception(SREQ(self), ANY(any), EXC));
+  return Qnil;
+}
+static VALUE server_request_reply(VALUE self, VALUE reply) {
+  CHECK(rorb_server_request_reply(SREQ(self), unwrap(reply, cReply), EXC));
+  return Qnil;
+}
+
+static void init_dii(void) {
+  cRequest = rb_define_class_under(mNative, "Request", rb_cObject);
+  rb_undef_alloc_func(cRequest);
+  rb_define_singleton_method(cRequest, "create", RUBY_METHOD_FUNC(request_new), 2);
+  DEF(cRequest, "add_arg", request_add_arg, 3);
+  DEF(cRequest, "set_return_type", request_set_return_type, 1);
+  DEF(cRequest, "add_exception", request_add_exception, 1);
+  DEF(cRequest, "set_timeout", request_set_timeout, 1);
+  DEF(cRequest, "invoke", request_invoke, 0);
+  DEF(cRequest, "send_oneway", request_send_oneway, 0);
+  DEF(cRequest, "send_deferred", request_send_deferred, 0);
+  DEF(cRequest, "get_response", request_get_response, 0);
+  DEF(cRequest, "poll_response", request_poll_response, 0);
+  DEF(cRequest, "result", request_result, 0);
+  DEF(cRequest, "argument", request_argument, 1);
+  DEF(cRequest, "exception", request_exception, 0);
+
+  cServerRequest = rb_define_class_under(mNative, "ServerRequest", rb_cObject);
+  rb_undef_alloc_func(cServerRequest);
+  rb_define_singleton_method(cServerRequest, "create", RUBY_METHOD_FUNC(server_request_new), 2);
+  DEF(cServerRequest, "add_param", server_request_add_param, 3);
+  DEF(cServerRequest, "arguments", server_request_arguments, 0);
+  DEF(cServerRequest, "argument", server_request_argument, 1);
+  DEF(cServerRequest, "set_argument", server_request_set_argument, 2);
+  DEF(cServerRequest, "set_result", server_request_set_result, 1);
+  DEF(cServerRequest, "set_exception", server_request_set_exception, 1);
+  DEF(cServerRequest, "reply", server_request_reply, 1);
+}
+
 static VALUE handle_class(const char* name) {
   VALUE k = rb_define_class_under(mNative, name, rb_cObject);
   rb_undef_alloc_func(k);
@@ -2329,4 +2487,5 @@ void Init_rustorb_ext(void) {
   DEF(cPOAManager, "equal", mgr_equal, 1);
 
   init_dynany();
+  init_dii();
 }

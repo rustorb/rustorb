@@ -6,7 +6,7 @@
 #   SERVER_IMPL / CLIENT_IMPL   directory under impls/ (omniorbpy, omniorb-cpp, jacorb,
 #                               rustorb, rustorbpy, rustorbcpp, rustorbjava,
 #                               rustorbjava-portable, rustorbjava-dii, rustorbcs, rustorbcs-dii,
-#                               rustorbc, rustorbc-dii, rustorbrb...)
+#                               rustorbc, rustorbc-dii, rustorbrb, rustorbrb-dii...)
 #   *_IMAGE                     image that contains that implementation
 #   NAMING_CMD                  command that starts the naming service
 #                               (impls/rustorb/naming-service 2809 for rustorb)
@@ -65,6 +65,7 @@ services:
       - ./impls/rustorbc:/opt/interop/impls/rustorbc:ro
       - ./impls/rustorbc-dii:/opt/interop/impls/rustorbc-dii:ro
       - ./impls/rustorbrb:/opt/interop/impls/rustorbrb:ro
+      - ./impls/rustorbrb-dii:/opt/interop/impls/rustorbrb-dii:ro
     command:
       - impls/${SERVER_IMPL:-omniorbpy}/server
       - --naming
@@ -110,6 +111,7 @@ services:
       - ./impls/rustorbc:/opt/interop/impls/rustorbc:ro
       - ./impls/rustorbc-dii:/opt/interop/impls/rustorbc-dii:ro
       - ./impls/rustorbrb:/opt/interop/impls/rustorbrb:ro
+      - ./impls/rustorbrb-dii:/opt/interop/impls/rustorbrb-dii:ro
     command:
       - run-client
       - impls/${CLIENT_IMPL:-omniorbpy}/client

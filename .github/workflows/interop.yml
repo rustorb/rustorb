@@ -239,6 +239,24 @@ jobs:
           done
           interop/run-matrix.sh --suite any $any
 
+      # The Ruby client calling through CORBA::Request and the Ruby server
+      # answering through PortableServer::DynamicImplementation (#188), on
+      # the basic and any suites (the ones rustorbrb runs).
+      - name: Run the matrix with the Ruby DII client and DSI server
+        run: |
+          p=rustorbrb-dii
+          pairs="$p:$p"
+          for x in omniorbpy omniorb-cpp jacorb rustorb rustorbpy rustorbcpp rustorbrb rustorbpy-dii rustorbc-dii; do
+            pairs="$pairs $p:$x $x:$p"
+          done
+          interop/run-matrix.sh $pairs
+          interop/run-matrix.sh --giop 1.1 $pairs
+          any="$p:$p"
+          for x in omniorbpy omniorb-cpp rustorb rustorbpy rustorbcpp rustorbrb rustorbpy-dii rustorbc-dii; do
+            any="$any $p:$x $x:$p"
+          done
+          interop/run-matrix.sh --suite any $any
+
       # omniORBpy and the rustorb clients (Rust, Python, C++, Java).
       - name: Run the naming service check
         run: interop/run-naming-check.sh

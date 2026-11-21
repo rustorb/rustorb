@@ -17,8 +17,10 @@
 # through the DII and the DSI), rustorbcpp-dii (the C++ client and server
 # through the DII and the DSI), rustorbjava-dii (the Java client and server
 # through the DII and the DSI), rustorbcs-dii (the .NET client and server
-# through the DII and the DSI, basic suite) and rustorbc-dii (the C client
-# and server through the DII and the DSI, basic and any suites) run only
+# through the DII and the DSI, basic suite), rustorbc-dii (the C client
+# and server through the DII and the DSI, basic and any suites) and
+# rustorbrb-dii (the Ruby client and server through the DII and the DSI,
+# basic and any suites) run only
 # when named in a pair.
 # --build    builds the omniORB image first
 # --capture  captures each client's traffic and splits it into GIOP messages
@@ -228,7 +230,7 @@ done
 # the extension built in the image.
 for pair in "${pairs[@]}"; do
   case " ${pair%%:*} ${pair##*:} " in
-    *" rustorbrb "*)
+    *" rustorbrb "*|*" rustorbrb-dii "*)
       IMAGE="$IMAGE" impls/rustorbrb/build.sh
       break
       ;;
