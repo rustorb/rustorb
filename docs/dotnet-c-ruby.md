@@ -84,9 +84,11 @@ C ABI は既存のもので足りる見込みで、足りないものが出た�
 
 ## C
 
+実装の結果は [c-binding.md](c-binding.md)。fixed の演算、DSI、`CORBA_exception_as_any` は #187 に回した。
+
 ### 方針
 
-- **ランタイム**：`c/` の `librustorb_c`（静的と共有）。C99 で書き、`rustorb.h` を呼ぶ。ヘッダは `<rustorb/orb.h>`（`CORBA_*` の型と関数）と `<rustorb/poa.h>`（`PortableServer_*`）。CMake の `rustorb_idl_generate()` は C++ と同じ形
+- **ランタイム**：`c/` の `librustorb_c`（静的ライブラリ。共有ライブラリ版は #187）。C99 で書き、`rustorb.h` を呼ぶ。ヘッダは `<rustorb/orb.h>`（`CORBA_*` の型と関数）と `<rustorb/poa.h>`（`PortableServer_*`）。CMake の `rustorb_idl_generate()` は C++ と同じ形
 - **型の記述子**：生成コードは型ごとに、TypeCode と C の配置（`sizeof`・`offsetof`）を持つ記述子を出す。ランタイムの1つの汎用の読み書き・解放の処理がそれを辿るので、スタブ・スケルトン・`CORBA_any`・`CORBA_free` を1つの仕組みで扱える
 - **`CORBA_free`**：ランタイムの確保（`T__alloc`、`CORBA_string_alloc`、`CORBA_sequence_T_allocbuf` など）は、確保した領域の前に記述子を指す見出しを置き、`CORBA_free` はそれを見て中の領域（列の文字列、参照など）まで解放する
 
@@ -97,7 +99,7 @@ C ABI は既存のもので足りる見込みで、足りないものが出た�
 | 名前 | スコープ付きの名前の `::` を `_` に（`Mod_Iface_op`） |
 | 基本型 | `CORBA_short`・`CORBA_long`・`CORBA_long_long`・`CORBA_unsigned_*`・`CORBA_float`・`CORBA_double`・`CORBA_long_double`・`CORBA_char`・`CORBA_wchar`・`CORBA_boolean`・`CORBA_octet` |
 | `string`・`wstring` | `CORBA_char*`・`CORBA_wchar*`（`CORBA_string_alloc`・`CORBA_wstring_alloc`） |
-| `fixed<D, S>` | `CORBA_fixed_D_S`（`_digits`・`_scale`・`_value[]`）と `CORBA_fixed_add` などの演算 |
+| `fixed<D, S>` | `CORBA_fixed_D_S`（`_digits`・`_scale`・`_value[]`） |
 | `sequence<T>` | `_maximum`・`_length`・`_buffer` の構造体（`CORBA_sequence_T`）、`CORBA_sequence_T_allocbuf`、`CORBA_sequence_set_release` / `get_release` |
 | 配列 | C の配列と `T_slice`、`T__alloc` |
 | struct・union | C の構造体。union は `_d` と `_u` |
