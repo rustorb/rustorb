@@ -153,9 +153,12 @@ IDL4 to C# 7.6 が決めているのは、valuetype が抽象クラスになる�
 - `Messaging.ReplyHandler` 一式は生成したもの（`dotnet/generate-stubs.sh`）、`Messaging.ExceptionHolder` は手で書いた valuetype（`Rustorb/Ami.cs`）。`raise_exception()`・`raise_exception_with_list(IList<Corba.TypeCode>)` がユーザー例外またはシステム例外を投げる。ユーザー例外は、生成コードがモジュール初期化子で `Rustorb.UserExceptions.Register` に登録した読み書きの関数でリポジトリ ID から戻す。登録のない ID は `UNKNOWN`（minor 0x4f4d0001、`COMPLETED_YES`）
 - `ExceptionHolder` は valuetype なので、Handler を別のプロセスに置いても届く（状態メンバーの `marshaled_exception` は C ABI の `rorb_cdr_encode` で書いた CDR）
 
-## まだないもの
+## local インターフェースと IDL 4 の構文
 
-local インターフェース（IDL で定義したもの）と IDL 4 の bitmask / bitset は [#186](https://github.com/rustorb/rustorb/issues/186) で足す。`-bcsharp` はこれらの構文をエラーにする。
+- `local interface L` は、`IL`（`ILOperations` と、基底の `I…` を継承）と、実装の基底になる抽象クラス `L : Corba.LocalObject, IL`（すべての操作と属性が抽象メンバー。中で定義した型と定数も持つ）にする。スタブ、スケルトン、タイはない。`LHelper.narrow(object)` は `IL` ならそのまま、ほかは `BAD_PARAM`。ローカルなオブジェクトは送れないので、`LHelper.write`・`read`（any への `insert` も）は `MARSHAL`（minor 4）。TypeCode は `tk_local_interface`
+- `bitmask` は `[Flags]` の enum（基になる型は `@bit_bound` に合わせて `byte`・`ushort`・`uint`・`ulong`）。`bitset` は bitfield ごとのプロパティを持つ struct（値で比べる）。どちらも C++ のマッピングと同じく、ビットを収める符号なし整数として送り、TypeCode もその整数のもの。符号付きの bitfield は読むときに符号を広げる。bitset の継承はエラー
+- `int8` は `sbyte`。GIOP に int8 の TypeCode はないので、C++ のマッピングと同じく octet の TypeCode にした
+- 構造体と例外のメンバーの `@default` は既定のコンストラクタでの初期値、`@range` / `@min` / `@max` は送るときに外れていれば `BAD_PARAM`、読むときに外れていれば `MARSHAL`（C++ と同じ）
 
 ## テスト
 
@@ -168,6 +171,8 @@ local インターフェース（IDL で定義したもの）と IDL 4 の bitma
   - `PiTests`：初期化子（`pre_init` / `post_init`、`DuplicateName`、段階ごとの `resolve_initial_references`）、サービスコンテキストの往復と PICurrent のスロット、IOR インターセプターのコンポーネント、サーバーのインターセプターのシステム例外、`ForwardRequest`、DII の `arguments`、点の後の情報、`Codec`
   - `ValueTests`：`ValueTest.idl`・`CustomTest.idl`・`AbstractTest.idl` の値（null、truncatable の派生、共有と循環、value box、ファクトリと初期化子、タイ、ファクトリのない型の `MARSHAL`、any の中の値と同一性、DynAny の `insert_val` / `get_val`）、custom の値、abstract インターフェース（参照と値）
   - `AmiTests`：`InteropTest.idl` の `sendc_`（戻り値、inout と out、ユーザー例外とシステム例外の `ExceptionHolder`、属性、nil の Handler）。Handler は `DispatchProxy` をタイに渡したもの
+  - `Idl4Tests`：C++ の `test_idl4.cc` と同じ `cpp/tests/idl/Idl4.idl`（bitmask、bitset、int8、`@default`、`@range`、any の中の bitset と bitmask）
+  - `LocalTests`：`dotnet/tests/Rustorb.Tests/idl/LocalTest.idl` の local インターフェース（基底の操作、属性、ユーザー例外、`_is_a`、`narrow`、送れないこと）
   - `MappingTests`：C++・Java と同じ `cpp/tests/idl/CxxMapping.idl` の定数、再帰型、すべての判別子の union、入れ子の型、キーワード、fixed と long double、インターフェースの多重継承、オブジェクト参照の列、TypeCode と Any
 - rustorb-idl の `python/tests/test_csharp_backend.py`：生成物の形、`-Wbdotnet_naming`、対応しない構文のエラー、生成コードとランタイムのコンパイル（警告をエラーにする）。golden は `tests/golden/csharp`
 - CI（`ci.yml` の `dotnet`）：Linux、macOS、Windows で `dotnet test`。Linux では同梱の CosNaming のスタブが生成器の出力と、`Ffi.g.cs` が `rustorb.h` と一致することも確かめる
