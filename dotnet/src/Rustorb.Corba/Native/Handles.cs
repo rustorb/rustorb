@@ -61,3 +61,9 @@ internal sealed class InHandle : Handle
     internal InHandle(nint h) : base(h) { }
     protected override bool ReleaseHandle() { Ffi.rorb_in_release(handle); return true; }
 }
+
+internal sealed class DynAnyHandle : Handle
+{
+    internal DynAnyHandle(nint h) : base(h) { }
+    protected override bool ReleaseHandle() { Ffi.rorb_dynany_release(handle); return true; }
+}

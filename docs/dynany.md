@@ -17,8 +17,9 @@ Oct 29, 2026 · @ysuga · issue #40
 | `crates/rustorb-ffi/src/dynany.rs`、`include/rustorb/rustorb.h` | C ABI の `rorb_dynany_*` |
 | `cpp/include/rustorb/dynany.h` | IDL to C++11 の `DynamicAny`（`rustorb/cdr.h` が読み込む） |
 | `java/src/main/java/org/rustorb/Native.java`（`dyn*`）、`java/src/main/java/org/omg/DynamicAny/`、`org/rustorb/DynAnyImpl.java`・`DynAnyFactoryImpl.java` | Java の `org.omg.DynamicAny` と、C ABI の上の実装 |
-| `cpp/tests/test_dynany.cc`、`java/src/test/java/org/rustorb/test/DynAnyTest.java`、`python/tests/test_dynany.py` | 各バインディングのテスト |
-| `interop/impls/*/dynany_probe*`、`dynany-probe`、`DynAnyProbe.java` | omniORB C++・rustorb（Rust・Python・C++・Java）で同じケースを回すプローブ |
+| `dotnet/src/Rustorb.Corba/DynamicAny/DynAny.cs` | .NET の `DynamicAny`（IDL4 to C#）と、C ABI の上の実装 |
+| `cpp/tests/test_dynany.cc`、`java/src/test/java/org/rustorb/test/DynAnyTest.java`、`python/tests/test_dynany.py`、`dotnet/tests/Rustorb.Tests/DynAnyTests.cs` | 各バインディングのテスト |
+| `interop/impls/*/dynany_probe*`、`dynany-probe`、`DynAnyProbe.java`、`DynAnyProbe.cs` | omniORB C++・rustorb（Rust・Python・C++・Java・.NET）で同じケースを回すプローブ |
 | `interop/run-dynany-probe.sh`、`interop/expected/dynany-probe-*.txt` | プローブの実行と期待出力 |
 
 ## API

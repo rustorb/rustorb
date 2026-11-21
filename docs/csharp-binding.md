@@ -80,14 +80,26 @@ orb.run();
 | 結果の書き込みで失敗 | その例外を COMPLETED_YES で返す |
 | 返ってきたユーザー例外が操作で宣言されていない | `UNKNOWN`（minor `0x4f4d0001`、COMPLETED_YES） |
 
+## DynAny
+
+`DynamicAny` 名前空間に、CORBA 3.0 の `DynamicAny` のローカルインターフェースを IDL4 to C# の形で置いた（`IDynAny`、`IDynFixed`、`IDynEnum`、`IDynStruct`、`IDynUnion`、`IDynSequence`、`IDynArray`、`IDynValueCommon`、`IDynValue`、`IDynValueBox`、`IDynAnyFactory`）。実装はコアの DynAny（C ABI の `rorb_dynany_*`）で、他のバインディングと同じ挙動になる（[dynany.md](dynany.md)）。
+
+- ファクトリは `orb.resolve_initial_references("DynAnyFactory")` を `DynAnyFactoryHelper.narrow` で得る。作られる DynAny は型の種類に合ったクラス（`DynStruct` など）で、`DynStructHelper.narrow` などで派生インターフェースにする
+- 例外は `DynAny.InvalidValue`・`DynAny.TypeMismatch`・`DynAnyFactory.InconsistentTypeCode`・`MustTruncate`
+- `insert_<型>_seq` / `get_<型>_seq` は `Omg.Types.ISequence<T>`、`get_members` などの列も `ISequence`
+- `insert_val` / `get_val` は valuetype の対応（#186 の後の段）までは `NO_IMPLEMENT`。値は `from_any` / `to_any` で扱える。`insert_abstract` / `get_abstract` は他のバインディングと同じく `NO_IMPLEMENT`
+- `ORB` に `create_value_tc`・`create_value_box_tc`・`create_native_tc`・`create_abstract_interface_tc`・`create_local_interface_tc`、`Corba.ValueMember` と `Corba.Constants`（`VM_NONE` など）を足した
+
 ## まだないもの
 
-valuetype、abstract / local インターフェース（servant manager などのローカルインターフェースを含む）、DII / DSI、DynAny、Portable Interceptors、AMI、IDL 4 の bitmask / bitset は [#186](https://github.com/rustorb/rustorb/issues/186) で足す。`-bcsharp` はこれらの構文をエラーにする。
+valuetype、abstract / local インターフェース（servant manager などのローカルインターフェースを含む）、DII / DSI、Portable Interceptors、AMI、IDL 4 の bitmask / bitset は [#186](https://github.com/rustorb/rustorb/issues/186) で足す。`-bcsharp` はこれらの構文をエラーにする。
 
 ## テスト
 
 - `dotnet/tests/Rustorb.Tests`（`dotnet test dotnet/tests/Rustorb.Tests`。cargo で `librustorb_ffi` を、`rustorb-idl -bcsharp` でテスト用 IDL のコードを作る）
   - `EchoTests`：相互接続の `InteropTest.idl` の全操作（基本型、構造体、union、配列、列、パラメーターの向き、ユーザー例外とシステム例外、属性、oneway、参照、コールバック、Any）を、文字列化した参照を通して同じプロセスで呼ぶ
+  - `DynAnyTests`：`AnyTest.idl` の型での DynAny（構造体、union、列、enum、例外、同一性）
+  - テストのクラスは順に走らせる（各 fixture がプロセスの ORB を `init` し、終わりに `destroy` するので、並行だと他のクラスの ORB を壊す）
   - `MappingTests`：C++・Java と同じ `cpp/tests/idl/CxxMapping.idl` の定数、再帰型、すべての判別子の union、入れ子の型、キーワード、fixed と long double、インターフェースの多重継承、オブジェクト参照の列、TypeCode と Any
 - rustorb-idl の `python/tests/test_csharp_backend.py`：生成物の形、`-Wbdotnet_naming`、対応しない構文のエラー、生成コードとランタイムのコンパイル（警告をエラーにする）。golden は `tests/golden/csharp`
 - CI（`ci.yml` の `dotnet`）：Linux、macOS、Windows で `dotnet test`。Linux では同梱の CosNaming のスタブが生成器の出力と、`Ffi.g.cs` が `rustorb.h` と一致することも確かめる
@@ -95,4 +107,5 @@ valuetype、abstract / local インターフェース（servant manager など�
   - basic（79ケース）：omniORBpy・omniORB C++・JacORB・rustorb の Rust・Python・C++・.NET 自身と両方向で通る。失敗は omniORBpy の wchar（3ケース）と JacORB の union の判別子（`echo_value[5]`）だけで、他の rustorb のバインディングと同じ
   - GIOP 1.1、`--fragment 1024`、`--ssl`、`--unix` でも omniORB・omniORBpy・自身との組（GIOP 1.1 と Fragment は JacORB とも）が同じ結果（GIOP 1.1 の omniORB 側の wchar / wstring は既知）
   - Java（`rustorbjava`）との組はローカルに Java 22 がなく CI（`interop.yml`）で確かめる
+- DynAny プローブ（`run-dynany-probe.sh`）：`rustorbcs`（`interop/impls/rustorbcs/src/DynAnyProbe.cs`）の出力は rustorb の期待出力と一致する
 - naming check（`run-naming-check.sh`。omniNames と rustorb-names、再起動を含む）と wire probe（`run-wire-probe.sh`）は、`rustorbcs` でも期待出力と一致する。POA プローブは servant manager（ローカルインターフェース）が要るので #186 で加える

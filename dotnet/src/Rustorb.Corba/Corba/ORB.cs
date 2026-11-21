@@ -126,6 +126,10 @@ namespace Corba
             {
                 return new PortableServer.Current(this);
             }
+            if (identifier == "DynAnyFactory")
+            {
+                return DynamicAny.DynAnyFactory.Instance;
+            }
             byte[] b = Strings.ToUtf8(identifier);
             nint obj;
             RorbException exc;
@@ -180,9 +184,12 @@ namespace Corba
             {
                 list.Add("RootPOA");
             }
-            if (!list.Contains("POACurrent"))
+            foreach (string local in new[] { "POACurrent", "DynAnyFactory" })
             {
-                list.Add("POACurrent");
+                if (!list.Contains(local))
+                {
+                    list.Add(local);
+                }
             }
             return list.ToArray();
         }
@@ -261,6 +268,23 @@ namespace Corba
             Rustorb.TypeCodes.Exception(id, name, System.Array.ConvertAll(members, m => m.name),
                 System.Array.ConvertAll(members, m => m.type));
 
+        public TypeCode create_value_tc(string id, string name, short type_modifier, TypeCode? concrete_base,
+            ValueMember[] members) =>
+            Rustorb.TypeCodes.Value(TCKind.tk_value, id, name, type_modifier, concrete_base,
+                System.Array.ConvertAll(members, m => m.name), System.Array.ConvertAll(members, m => m.type),
+                System.Array.ConvertAll(members, m => m.access));
+
+        public TypeCode create_value_box_tc(string id, string name, TypeCode boxed_type) =>
+            Rustorb.TypeCodes.ValueBox(id, name, boxed_type);
+
+        public TypeCode create_native_tc(string id, string name) => Rustorb.TypeCodes.Interface(TCKind.tk_native, id, name);
+
+        public TypeCode create_abstract_interface_tc(string id, string name) =>
+            Rustorb.TypeCodes.Interface(TCKind.tk_abstract_interface, id, name);
+
+        public TypeCode create_local_interface_tc(string id, string name) =>
+            Rustorb.TypeCodes.Interface(TCKind.tk_local_interface, id, name);
+
         /// <summary>The default member, if any, has the octet 0 as its label.</summary>
         public TypeCode create_union_tc(string id, string name, TypeCode discriminator_type, UnionMember[] members)
         {
@@ -296,6 +320,33 @@ namespace Corba
         public TypeCode type { get; set; } = Rustorb.TypeCodes.Simple(TCKind.tk_null);
         public StructMember() { }
         public StructMember(string name, TypeCode type) { this.name = name; this.type = type; }
+    }
+
+    /// <summary>CORBA::ValueMember (id, defined_in, version and type_def are
+    /// not kept: there is no interface repository).</summary>
+    public class ValueMember
+    {
+        public string name { get; set; } = "";
+        public string id { get; set; } = "";
+        public string defined_in { get; set; } = "";
+        public string version { get; set; } = "";
+        public TypeCode type { get; set; } = Rustorb.TypeCodes.Simple(TCKind.tk_null);
+        /// <summary>Constants.PRIVATE_MEMBER or Constants.PUBLIC_MEMBER.</summary>
+        public short access { get; set; }
+        public ValueMember() { }
+        public ValueMember(string name, TypeCode type, short access) { this.name = name; this.type = type; this.access = access; }
+    }
+
+    /// <summary>The constants of the CORBA module (IDL4 to C#: a Constants
+    /// class per namespace) that the runtime uses.</summary>
+    public static class Constants
+    {
+        public const short VM_NONE = 0;
+        public const short VM_CUSTOM = 1;
+        public const short VM_ABSTRACT = 2;
+        public const short VM_TRUNCATABLE = 3;
+        public const short PRIVATE_MEMBER = 0;
+        public const short PUBLIC_MEMBER = 1;
     }
 
     /// <summary>CORBA::UnionMember.</summary>

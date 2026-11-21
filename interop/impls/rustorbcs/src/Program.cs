@@ -2,7 +2,8 @@
 // ARGS` resolves the Echo object from the naming service, runs every case
 // and exits non-zero if one fails; `rustorbcs server ARGS` serves Echo;
 // `rustorbcs naming-check ARGS` runs the CosNaming sequence of
-// run-naming-check.sh.
+// run-naming-check.sh; `rustorbcs dynany-probe` the cases of
+// run-dynany-probe.sh.
 //
 // Licensed under MIT OR Apache-2.0, like the rest of the rustorb core.
 
@@ -22,8 +23,9 @@ namespace Interop
                 case "client": return Client(rest);
                 case "server": return Server(rest);
                 case "naming-check": return NamingCheck.Run(rest);
+                case "dynany-probe": return DynAnyProbe.Run(rest);
                 default:
-                    Console.Error.WriteLine("usage: rustorbcs client|server|naming-check ARGS");
+                    Console.Error.WriteLine("usage: rustorbcs client|server|naming-check|dynany-probe ARGS");
                     return 2;
             }
         }

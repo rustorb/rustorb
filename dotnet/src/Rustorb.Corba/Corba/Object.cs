@@ -160,7 +160,7 @@ namespace Corba
             logical_type_id == "IDL:omg.org/CORBA/Object:1.0" || Array.IndexOf(_ids(), logical_type_id) >= 0;
 
         public bool _non_existent() => false;
-        public bool _is_equivalent(IObject? other_object) => ReferenceEquals(this, other_object);
+        public virtual bool _is_equivalent(IObject? other_object) => ReferenceEquals(this, other_object);
         public uint _hash(uint maximum) => maximum == 0 ? 0 : (uint)GetHashCode() % maximum;
         public virtual ORB _get_orb() => throw new NO_IMPLEMENT("_get_orb of a local object", 0, CompletionStatus.COMPLETED_NO);
     }

@@ -468,6 +468,34 @@ namespace Rustorb
             return Wrap(h);
         }
 
+        /// <summary>tk_value or tk_event: modifier is a ValueModifier (VM_NONE...),
+        /// concreteBase null for none, visibilities PRIVATE_MEMBER or
+        /// PUBLIC_MEMBER per member.</summary>
+        public static Corba.TypeCode Value(Corba.TCKind kind, string id, string name, short modifier,
+            Corba.TypeCode? concreteBase, string[] names, Corba.TypeCode[] types, short[] visibilities)
+        {
+            byte[] i = Strings.ToUtf8(id), n = Strings.ToUtf8(name);
+            nint[] raw = Raw(types);
+            nint h;
+            RorbException exc;
+            using (var ns = new Names(names))
+            {
+                fixed (byte* ip = i, np = n)
+                fixed (byte** nps = ns.ptrs)
+                fixed (nuint* nls = ns.lens)
+                fixed (nint* ts = raw)
+                fixed (short* vs = visibilities)
+                {
+                    Errors.Check(Ffi.rorb_tc_value((uint)kind, ip, (nuint)i.Length, np, (nuint)n.Length, modifier,
+                        concreteBase == null ? 0 : concreteBase._handle.Raw, (nuint)names.Length, nps, nls, ts, vs,
+                        &h, &exc), ref exc);
+                }
+            }
+            GC.KeepAlive(types);
+            GC.KeepAlive(concreteBase);
+            return Wrap(h);
+        }
+
         /// <summary>A placeholder for a recursive struct or union (ORB::create_recursive_tc).</summary>
         public static Corba.TypeCode Recursive(string id)
         {
