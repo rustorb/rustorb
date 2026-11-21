@@ -1,0 +1,23 @@
+<!-- What the two example projects share: .NET 8, the rustorb runtime and
+     the code rustorb-idl -bcsharp writes from ../idl/Echo.idl into
+     $(ExampleGen) (default gen/ here):
+
+       rustorb-idl -bcsharp -C gen ../idl/Echo.idl
+
+     In the repository the runtime is the project in dotnet/src; outside it,
+     use the NuGet package instead:
+
+       <PackageReference Include="Rustorb" Version="0.7.0" /> -->
+<Project>
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <ExampleGen Condition="'$(ExampleGen)' == ''">$(MSBuildThisFileDirectory)gen/</ExampleGen>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(MSBuildThisFileDirectory)../../dotnet/src/Rustorb.Corba/Rustorb.Corba.csproj" />
+    <Compile Include="$(ExampleGen)*.cs" />
+  </ItemGroup>
+</Project>
