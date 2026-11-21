@@ -9,15 +9,17 @@
 # $SERVER_IMPLS. Both default to $IMPLS (omniorbpy, omniorb-cpp and, but for
 # --suite any, jacorb, in the image) plus rustorb, rustorbpy, rustorbcpp and
 # rustorbjava (the Rust, the Python, the C++ and the Java client and server of
-# rustorb), rustorbcs (the .NET client and server) and, for the basic suite,
-# rustorbc (the C client and server) and rustorbrb (the Ruby client and
-# server), which are built on the host (rustorbrb's extension in the
-# image). rustorbjava-portable (the Java client and server on rustorb with
+# rustorb), rustorbcs (the .NET client and server), for the basic and any
+# suites rustorbc (the C client and server) and, for the basic suite,
+# rustorbrb (the Ruby client and server), which are built on the host
+# (rustorbrb's extension in the image). rustorbjava-portable (the Java client and server on rustorb with
 # JacORB's generated stubs), rustorbpy-dii (the Python client and server
 # through the DII and the DSI), rustorbcpp-dii (the C++ client and server
 # through the DII and the DSI), rustorbjava-dii (the Java client and server
-# through the DII and the DSI) and rustorbcs-dii (the .NET client and server
-# through the DII and the DSI, basic suite) run only when named in a pair.
+# through the DII and the DSI), rustorbcs-dii (the .NET client and server
+# through the DII and the DSI, basic suite) and rustorbc-dii (the C client
+# and server through the DII and the DSI, basic and any suites) run only
+# when named in a pair.
 # --build    builds the omniORB image first
 # --capture  captures each client's traffic and splits it into GIOP messages
 # --fragment N  the rustorb clients and servers split GIOP 1.2 messages
@@ -130,10 +132,12 @@ else
   export INTEROP_UNIX= SERVER_HOSTNAME=server CLIENT_HOSTNAME=client
 fi
 rustorb_impls="rustorb rustorbpy rustorbcpp rustorbjava"
-# The C and Ruby bindings have the basic suite only so far (rustorb#187,
-# rustorb#188); .NET has them all.
+# .NET has every suite; C the basic and any ones (the C mapping has no
+# valuetypes); Ruby the basic one so far (rustorb#188).
 if [ "$suite" = basic ]; then
   rustorb_impls+=" rustorbcs rustorbc rustorbrb"
+elif [ "$suite" = any ]; then
+  rustorb_impls+=" rustorbcs rustorbc"
 else
   rustorb_impls+=" rustorbcs"
 fi
@@ -213,7 +217,7 @@ done
 # The rustorb C client and server, with stubs from rustorb-idl -bc.
 for pair in "${pairs[@]}"; do
   case " ${pair%%:*} ${pair##*:} " in
-    *" rustorbc "*)
+    *" rustorbc "*|*" rustorbc-dii "*)
       impls/rustorbc/build.sh
       break
       ;;

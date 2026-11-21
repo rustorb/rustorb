@@ -102,20 +102,88 @@ int main(int argc, char** argv) {
 | nil の参照で呼ぶ | `INV_OBJREF` |
 | 返ってきたユーザー例外が操作で宣言されていない | `UNKNOWN`（minor `0x4f4d0001`、COMPLETED_YES） |
 
+## DynAny
+
+`<rustorb/dynany.h>` に DynamicAny モジュール（`DynamicAny_DynAnyFactory`・`DynAny`・`DynFixed`・`DynEnum`・`DynStruct`・`DynUnion`・`DynSequence`・`DynArray`、`NameValuePair` などの列）を置く。C マッピングの書き方（`DynamicAny_DynAny_insert_long(d, v, &ev)`、結果は呼び出し側が `CORBA_free` / `CORBA_Object_release`）に従い、中身は rustorb-ffi の DynAny（Rust のコアと同じ実装）。
+
+```c
+DynamicAny_DynAnyFactory f = CORBA_ORB_resolve_initial_references(orb, "DynAnyFactory", &ev);
+DynamicAny_DynStruct d = DynamicAny_DynAnyFactory_create_dyn_any_from_type_code(f, TC_AnyTest_Point, &ev);
+DynamicAny_DynAny_insert_long(d, 3, &ev);   /* 現在のメンバー x */
+DynamicAny_DynAny_next(d, &ev);
+DynamicAny_DynAny_insert_double(d, 2.5, &ev);
+CORBA_any* a = DynamicAny_DynAny_to_any(d, &ev);
+```
+
+- DynAny は `CORBA_Object` で、`CORBA_Object_is_a` は種類ごとのインターフェース（`IDL:omg.org/DynamicAny/DynStruct:1.0` など）に答える。種類に合わない派生の操作は `BAD_OPERATION`
+- 値は `CORBA_any` で出入りする（`from_any`・`to_any`・`get_members` など）。生成コードの登録表にない型の値は、他の `any` と同じくバイト列のまま持つ
+- C マッピングに valuetype がないので `DynValue` はない。DynAny のプローブ（`run-dynany-probe.sh`）は valuetype の TypeCode を使うので C では動かさず、`c/tests/test_dynany.c` と any スイートの `dyn_*` のケースで確かめる
+
+## DII と DSI
+
+`<rustorb/dii.h>` に C マッピング 1.0 の `CORBA_NVList`・`CORBA_NamedValue`・`CORBA_Request`・`CORBA_ServerRequest`・`PortableServer_DynamicImpl` を置く。中身は rustorb-ffi の `rorb_request` / `rorb_server_request`（Rust のコアの DII と DSI）。
+
+```c
+CORBA_Request req;
+CORBA_long a = 7, b = 2, rem, q;
+CORBA_Object_create_request(echo, NULL, "divide", NULL, NULL, &req, 0, &ev);
+CORBA_Request_add_arg(req, "a", TC_long, &a, 0, CORBA_ARG_IN, &ev);
+CORBA_Request_add_arg(req, "b", TC_long, &b, 0, CORBA_ARG_IN, &ev);
+CORBA_Request_add_arg(req, "remainder", TC_long, &rem, 0, CORBA_ARG_OUT, &ev);
+CORBA_Request_add_exception(req, TC_InteropTest_DivideByZero, &ev);
+CORBA_Request_result(req, &ev)->argument._type = TC_long;
+CORBA_Request_result(req, &ev)->argument._value = &q;
+CORBA_Request_invoke(req, 0, &ev);     /* q == 3, rem == 1 */
+CORBA_Request_delete(req, &ev);
+```
+
+- 値は `CORBA_NamedValue` の `argument`（`CORBA_any`）で受け渡す。in の値は送るときに `_value` から読む（`CORBA_IN_COPY_VALUE` ならリストが複製を持つ）。out・inout の値と結果は、`_value` が指す領域に書く（inout は前の中身を解放してから）。`_value` が NULL なら ORB が確保し（`_release` が真）、リストと一緒に、または `CORBA_NVList_free_memory` で解放される
+- `CORBA_Request_invoke`、`CORBA_Request_send`（`CORBA_INV_NO_RESPONSE` で oneway）と `CORBA_Request_get_response`（`CORBA_RESP_NO_WAIT`）、rustorb の拡張 `CORBA_Request_poll_response`
+- ユーザー例外は、`CORBA_Request_add_exception`（rustorb の拡張。C マッピング 1.0 には例外のリストがない）で渡した型なら `CORBA_USER_EXCEPTION` になり、値は生成コードの構造体。リストにない例外は `UNKNOWN`（minor `0x4f4d0001`）
+- DSI のサーバントは `POA_PortableServer_DynamicImpl`（`vepv` に `invoke` と `primary_interface`）で、`PortableServer_DynamicImpl__init` が `primary_interface` を一度呼んで `_is_a` の答えにする。`invoke(servant, request)` は `CORBA_ServerRequest_arguments`（C マッピング 1.0 の名前 `_params` も使える）に型と向きだけのリストを渡して引数を読み、out の値を設定し、`_set_result` / `_set_exception` で返す。システム例外は `CORBA_ServerRequest_set_system_exception`（rustorb の拡張。`invoke` に `CORBA_Environment` がないため）
+- Context は扱わない（`ctx` が NULL でなければ `NO_IMPLEMENT`）。`CORBA_ORB_create_operation_list` と `CORBA_send_multiple_requests` もない
+
+## local インターフェースとサーバントマネージャー
+
+C マッピング 1.0 には local インターフェースがないので、rustorb で次のように決めた。
+
+- `-bc` は local インターフェース `M::L` にも、ふつうのインターフェースと同じスタブ（`M_L_op(obj, ..., ev)`）と `POA_M_L`・`POA_M_L__epv`・`POA_M_L__vepv` を作る。`POA_M_L__init` は構造体を local オブジェクトの実装にする（POA で活性化はしない）。`M_L__create(impl, ev)` がその local オブジェクトを作り、スタブは ORB を通らずに実装を呼ぶ
+- 実装の構造体は、local オブジェクトの参照がなくなるまで呼び出し側が持つ（`CORBA_Object_release` は実装を解放しない）。最後に `POA_M_L__fini`
+- TypeCode は `tk_local_interface`。local オブジェクトを送ろうとすると `MARSHAL`（minor 4）。`CORBA_Object_is_a` は実装のインターフェースと `IDL:omg.org/CORBA/LocalObject:1.0` に答える
+
+```c
+static POA_PortableServer_ServantActivator__epv epv = {NULL, my_incarnate, my_etherealize};
+static POA_PortableServer_ServantManager__epv mepv = {NULL};
+static POA_PortableServer_ServantActivator__vepv vepv = {&base_epv, &mepv, &epv};
+static POA_PortableServer_ServantActivator impl = {NULL, &vepv};
+
+POA_PortableServer_ServantActivator__init(&impl, &ev);
+mgr = PortableServer_ServantActivator__create(&impl, &ev);
+PortableServer_POA_set_servant_manager(poa, mgr, &ev);
+```
+
+- `<rustorb/poa.h>` の `PortableServer_ServantActivator`・`ServantLocator`・`AdapterActivator` も同じ形の local インターフェース（`incarnate` / `etherealize`、`preinvoke` / `postinvoke`、`unknown_adapter`）。`PortableServer_POA_set_servant_manager` / `get_servant_manager` と `PortableServer_POA__set_the_activator` / `_get_the_activator` で POA に渡す
+- `incarnate` と `preinvoke` は、`PortableServer_ForwardRequest`（`forward_reference`）を `CORBA_USER_EXCEPTION` で返すと転送になり、システム例外はクライアントに返る。返すサーバントは初期化したもの（`POA_<I>__init` か `PortableServer_DynamicImpl__init`）
+
 ## まだないもの
 
-valuetype と abstract interface は C マッピングにないので `-bc` はエラーにする。local インターフェース（servant manager など）、DII / DSI（`CORBA_ServerRequest`・`PortableServer_DynamicImpl`）、`CORBA_exception_as_any`、fixed の演算（`CORBA_fixed_add` など）、DynAny、Portable Interceptors、AMI（`-Wbami`）、IDL 4 の bitmask / bitset は [#187](https://github.com/rustorb/rustorb/issues/187) で足す。共有ライブラリ版と Windows（MSVC）の CI もまだない。
+valuetype と abstract interface は C マッピングにないので `-bc` はエラーにする。`CORBA_exception_as_any`、fixed の演算（`CORBA_fixed_add` など）、Portable Interceptors、AMI（`-Wbami`）、IDL 4 の bitmask / bitset は [#187](https://github.com/rustorb/rustorb/issues/187) で足す。共有ライブラリ版と Windows（MSVC）の CI もまだない。
 
 ## テスト
 
 - `c/tests`（`ctest --test-dir build/c`。cargo で `librustorb_ffi` を、`rustorb-idl -bc` でテスト用 IDL のコードを作る）
   - `test_interop`：相互接続の C クライアントの79ケース（`interop/impls/rustorbc/src/cases.c`）を、同じプロセスの Echo サーバント（`echo_impl.c`）に向けて流す
   - `test_mapping`：C++・Java・.NET と同じ `cpp/tests/idl/CxxMapping.idl` の定数、再帰型、すべての判別子の union、入れ子の型、キーワード、fixed と long double、インターフェースの多重継承と `NO_IMPLEMENT`、TypeCode、`AnyTest.idl` の型の `any` の往復（名前のない列、NVList、`out` / `inout` の `any`）、`CORBA_free` と `rustorb_c_copy`
-  - `-DRUSTORB_SANITIZE=address` で AddressSanitizer と LeakSanitizer。どちらのテストもリークなし
+  - `test_interop dii` と `test_interop deferred`：同じ79ケースを、DII（`interop/impls/rustorbc/src/dii_adapters.c`：生成スタブの呼び出しをオペレーションの型から作った `CORBA_Request` で送る）から DSI のサーバント（静的なサーバントのスケルトンを呼ぶ `PortableServer_DynamicImpl`）へ、また `CORBA_Request_send` と `get_response` で静的なサーバントへ流す
+  - `test_dii`：NVList、in の複製、ORB が確保する out と結果、inout、`send` / `poll_response` / `get_response`、oneway、リストの中と外のユーザー例外、システム例外、引数の誤り、手で書いた `PortableServer_DynamicImpl`
+  - `test_local`：.NET のテストと同じ `LocalTest.idl` の local インターフェース（実装の構造体と `__create`、属性、out、ユーザー例外、継承した操作、`is_a` などの参照の操作、引数と結果の local オブジェクト、送れないこと）
+  - `test_dynany`：DynAny の基本の型、`any` の中の `any`、struct（メンバー、`get_members_as_dyn_any` の共有、`seek` / `next`）、union、enum、sequence と array、fixed、`equal`・`copy`・`destroy`、例外（`TypeMismatch`・`InvalidValue`・`BAD_OPERATION`）
+  - `-DRUSTORB_SANITIZE=address` で AddressSanitizer と LeakSanitizer。どのテストもリークなし
 - rustorb-idl の `python/tests/test_c_backend.py`：生成物の形、対応しない構文のエラー、生成コードの C99（警告をエラーにする）と、ヘッダの C++ としてのコンパイル。golden は `tests/golden/c`
 - CI（`ci.yml` の `c` と `c-sanitize`）：Linux の gcc と clang、macOS の clang で `ctest`、Linux の gcc で ASan。Linux では同梱の CosNaming のスタブが生成器の出力と一致することも確かめる
-- 相互接続（[#182](https://github.com/rustorb/rustorb/issues/182)）：`interop/run-matrix.sh` に `rustorbc`（`interop/impls/rustorbc`。ホストで CMake と cc でビルドし、静的にリンクした `bin/client`・`bin/server`・`bin/naming_check` を相互接続のイメージで動かす）を加えた。いまは basic（InteropTest.idl）だけで、any・value・custom・abstract のマトリクスには入れない（#187）。ローカルで確認した結果は次のとおりで、失敗はすべて `known-failures.txt` の範囲
+- 相互接続（[#182](https://github.com/rustorb/rustorb/issues/182)）：`interop/run-matrix.sh` に `rustorbc`（`interop/impls/rustorbc`。ホストで CMake と cc でビルドし、静的にリンクした `bin/client`・`bin/server`・`bin/naming_check` を相互接続のイメージで動かす）を加えた。basic（InteropTest.idl）と any（AnyTest.idl）のスイートに入る。valuetype がないので value・custom・abstract には入らない。ローカルで確認した結果は次のとおりで、失敗はすべて `known-failures.txt` の範囲
   - basic（79ケース）：omniORBpy・omniORB C++・JacORB・rustorb の Rust・Python・C++・.NET・C 自身と両方向で通る。失敗は omniORBpy の wchar（3ケース）と JacORB の union の判別子（`echo_value[5]`）だけで、他の rustorb のバインディングと同じ
   - GIOP 1.1、`--fragment 1024`、`--ssl`、`--unix` でも omniORB・omniORBpy・自身との組（GIOP 1.1 と Fragment は JacORB とも）が同じ結果（GIOP 1.1 の omniORB 側の wchar / wstring は既知）
+  - any（259ケース、[#187](https://github.com/rustorb/rustorb/issues/187)）：omniORBpy・omniORB C++・rustorb の Rust・Python・C++・.NET・C 自身と両方向で通る。失敗は long double（omniORBpy にはなく、omniORB C++ は x87 の形式で送る）だけで、他の rustorb のバインディングと同じ。サーバーは AnyEcho を名前に、Echo を名前に `-Echo` を付けたところに置き、AnyTestHidden.idl の型はクライアントだけが持つ
   - Java（`rustorbjava`）との組は CI（`interop.yml`）で確かめる
-- naming check（`run-naming-check.sh`。omniNames と rustorb-names、再起動を含む）と wire probe（`run-wire-probe.sh`）は、`rustorbc` でも期待出力と一致する。POA プローブは servant manager（ローカルインターフェース）が要るので #187 で加える
+- naming check（`run-naming-check.sh`。omniNames と rustorb-names、再起動を含む）と wire probe（`run-wire-probe.sh`）は、`rustorbc` でも期待出力と一致する。POA プローブ（`run-poa-probe.sh`。`interop/impls/rustorbc/src/poa_probe_server.c`：servant activator、servant locator、adapter activator、スレッドポリシー、POAManager の状態）も期待出力（rustorb のもの）と一致する

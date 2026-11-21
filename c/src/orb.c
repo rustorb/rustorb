@@ -13,7 +13,12 @@ static const char* const pseudo_ids[] = {
     "IDL:omg.org/CORBA/TypeCode:1.0",
     "IDL:omg.org/CORBA/Policy:1.0",
     "IDL:omg.org/PortableServer/Current:1.0",
+    "IDL:omg.org/DynamicAny/DynAnyFactory:1.0",
+    "IDL:omg.org/DynamicAny/DynAny:1.0",
+    "IDL:omg.org/CORBA/LocalObject:1.0",
 };
+
+int rustorb_c_dynany_is_a(CORBA_Object obj, const char* id);
 
 /* --- Object ------------------------------------------------------------------ */
 
@@ -30,6 +35,8 @@ CORBA_Object CORBA_Object_duplicate(CORBA_Object obj, CORBA_Environment* ev) {
                             rorb_poa_manager_clone((rorb_poa_manager*)obj->handle));
     case OBJ_TYPECODE:
       return rustorb_c_wrap_tc(rorb_tc_clone((rorb_typecode*)obj->handle), obj->desc);
+    case OBJ_DYNANY: return rustorb_c_wrap(OBJ_DYNANY, rorb_dynany_clone((rorb_dynany*)obj->handle));
+    case OBJ_LOCAL: return rustorb_c_wrap(OBJ_LOCAL, obj->handle);
     default:
       o = rustorb_c_wrap(obj->kind, NULL);
       if (o) {
@@ -49,6 +56,7 @@ void CORBA_Object_release(CORBA_Object obj, CORBA_Environment* ev) {
     case OBJ_POA: rorb_poa_release((rorb_poa*)obj->handle); break;
     case OBJ_POA_MANAGER: rorb_poa_manager_release((rorb_poa_manager*)obj->handle); break;
     case OBJ_TYPECODE: rorb_tc_release((rorb_typecode*)obj->handle); break;
+    case OBJ_DYNANY: rorb_dynany_release((rorb_dynany*)obj->handle); break;
     default: break;
   }
   free(obj);
@@ -70,6 +78,10 @@ CORBA_boolean CORBA_Object_is_a(CORBA_Object obj, const CORBA_char* logical_type
     return CORBA_FALSE;
   }
   if (!obj) return CORBA_FALSE;
+  if (obj->kind == OBJ_DYNANY)
+    return rustorb_c_dynany_is_a(obj, logical_type_id) ||
+           strcmp(logical_type_id, pseudo_ids[OBJ_REF]) == 0;
+  if (obj->kind == OBJ_LOCAL && rustorb_c_local_is_a(obj, logical_type_id)) return CORBA_TRUE;
   if (obj->kind != OBJ_REF)
     return strcmp(logical_type_id, pseudo_ids[obj->kind]) == 0 ||
            strcmp(logical_type_id, pseudo_ids[OBJ_REF]) == 0;
@@ -99,6 +111,7 @@ CORBA_boolean CORBA_Object_is_equivalent(CORBA_Object obj, CORBA_Object other,
   if (!obj || !other) return obj == other;
   if (obj->kind == OBJ_REF && other->kind == OBJ_REF)
     return rorb_object_is_equivalent((rorb_object*)obj->handle, (rorb_object*)other->handle) != 0;
+  if (obj->kind == OBJ_LOCAL && other->kind == OBJ_LOCAL) return obj->handle == other->handle;
   if (obj->kind == OBJ_TYPECODE && other->kind == OBJ_TYPECODE)
     return rorb_tc_equal((rorb_typecode*)obj->handle, (rorb_typecode*)other->handle) != 0;
   if (obj->kind == OBJ_POA_MANAGER && other->kind == OBJ_POA_MANAGER)
@@ -169,6 +182,7 @@ CORBA_char* CORBA_Object__repository_id(CORBA_Object obj, CORBA_Environment* ev)
   const char* s;
   rustorb_c_ev_clear(ev);
   if (!obj) return CORBA_string_dup("");
+  if (obj->kind == OBJ_LOCAL) return CORBA_string_dup(rustorb_c_local_id(obj));
   if (obj->kind != OBJ_REF) return CORBA_string_dup(pseudo_ids[obj->kind]);
   s = rorb_object_type_id((rorb_object*)obj->handle, &len);
   return rustorb_c_strndup(s, len);
@@ -260,6 +274,7 @@ CORBA_Object CORBA_ORB_resolve_initial_references(CORBA_ORB orb, const CORBA_cha
     return rustorb_c_wrap(OBJ_POA, poa);
   }
   if (strcmp(identifier, "POACurrent") == 0) return rustorb_c_wrap(OBJ_CURRENT, NULL);
+  if (strcmp(identifier, "DynAnyFactory") == 0) return rustorb_c_wrap(OBJ_DYNANY_FACTORY, NULL);
   if (rustorb_c_failed(
           ev, rorb_orb_resolve_initial_references(o, identifier, strlen(identifier), &obj, &exc),
           &exc))
@@ -296,6 +311,7 @@ CORBA_ORB_ObjectIdList* CORBA_ORB_list_initial_services(CORBA_ORB orb, CORBA_Env
   rorb_orb_list_initial_services(o, &n, add_name);
   add_name(&n, "RootPOA", 7);
   add_name(&n, "POACurrent", 10);
+  add_name(&n, "DynAnyFactory", 13);
   list = CORBA_sequence_string__alloc();
   if (list) {
     list->_buffer = CORBA_sequence_string_allocbuf((CORBA_unsigned_long)n.len);

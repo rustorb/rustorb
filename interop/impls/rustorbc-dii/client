@@ -1,0 +1,4 @@
+#!/bin/sh
+# The rustorb C client (impls/rustorbc) with every call of the basic and any
+# suites made through the DII (impls/rustorbc/src/dii_adapters.c).
+RUSTORB_DII=1 exec "$(dirname "$0")/../rustorbc/bin/client" "$@"

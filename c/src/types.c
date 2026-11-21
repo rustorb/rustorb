@@ -64,7 +64,8 @@ static const rustorb_c_type* basic_desc(uint32_t kind) {
 
 CORBA_Object rustorb_c_wrap(int kind, void* handle) {
   CORBA_Object o;
-  if (!handle && kind != OBJ_CURRENT && kind != OBJ_POLICY) return CORBA_OBJECT_NIL;
+  if (!handle && kind != OBJ_CURRENT && kind != OBJ_POLICY && kind != OBJ_DYNANY_FACTORY)
+    return CORBA_OBJECT_NIL;
   o = (CORBA_Object)calloc(1, sizeof *o);
   if (!o) return CORBA_OBJECT_NIL;
   o->kind = kind;

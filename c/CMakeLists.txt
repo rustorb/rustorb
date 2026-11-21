@@ -60,7 +60,7 @@ else()
 endif()
 
 set(RUSTORB_C_SOURCES
-  src/any.c src/env.c src/invoke.c src/marshal.c src/memory.c src/orb.c src/poa.c
+  src/any.c src/dii.c src/dynany.c src/env.c src/invoke.c src/managers.c src/marshal.c src/memory.c src/orb.c src/poa.c
   src/types.c src/CosNaming.c)
 add_library(rustorb_c STATIC ${RUSTORB_C_SOURCES})
 add_dependencies(rustorb_c rustorb_ffi_build)
@@ -135,11 +135,21 @@ enable_testing()
 set(RUSTORBC "${RUSTORB_ROOT}/interop/impls/rustorbc/src")
 rustorb_idl_generate(INTEROP_SOURCES "${RUSTORB_ROOT}/interop/idl/InteropTest.idl")
 add_executable(test_interop tests/test_interop.c "${RUSTORBC}/cases.c" "${RUSTORBC}/echo_impl.c"
-               ${INTEROP_SOURCES})
+               "${RUSTORBC}/dii_adapters.c" ${INTEROP_SOURCES})
 target_include_directories(test_interop PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl" "${RUSTORBC}")
 target_link_libraries(test_interop PRIVATE rustorb_c)
 target_compile_options(test_interop PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME interop COMMAND test_interop)
+# The same through the DII and the DSI (<rustorb/dii.h>).
+add_test(NAME interop_dii COMMAND test_interop dii)
+add_test(NAME interop_deferred COMMAND test_interop deferred)
+
+# The DII and the DSI against the Echo servant and a DynamicImpl.
+add_executable(test_dii tests/test_dii.c "${RUSTORBC}/echo_impl.c" ${INTEROP_SOURCES})
+target_include_directories(test_dii PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl" "${RUSTORBC}")
+target_link_libraries(test_dii PRIVATE rustorb_c)
+target_compile_options(test_dii PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME dii COMMAND test_dii)
 
 # The C++ mapping test IDL (constants, recursion, every discriminator,
 # nested types, keywords, fixed, long double, inheritance) and the any and
@@ -151,3 +161,18 @@ target_include_directories(test_mapping PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl
 target_link_libraries(test_mapping PRIVATE rustorb_c)
 target_compile_options(test_mapping PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME mapping COMMAND test_mapping)
+
+# Local interfaces (LocalTest.idl, the one of the .NET tests).
+rustorb_idl_generate(LOCAL_SOURCES "${RUSTORB_ROOT}/dotnet/tests/Rustorb.Tests/idl/LocalTest.idl")
+add_executable(test_local tests/test_local.c ${LOCAL_SOURCES})
+target_include_directories(test_local PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl")
+target_link_libraries(test_local PRIVATE rustorb_c)
+target_compile_options(test_local PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME local COMMAND test_local)
+
+# DynamicAny (<rustorb/dynany.h>) on the types of AnyTest.idl.
+add_executable(test_dynany tests/test_dynany.c "${CMAKE_CURRENT_BINARY_DIR}/idl/AnyTest.c")
+target_include_directories(test_dynany PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl")
+target_link_libraries(test_dynany PRIVATE rustorb_c)
+target_compile_options(test_dynany PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME dynany COMMAND test_dynany)

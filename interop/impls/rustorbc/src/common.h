@@ -16,6 +16,8 @@ typedef struct options {
   int port;
   double timeout;
   int shutdown_server;
+  /* --suite any (else basic). */
+  int any_suite;
   /* What is not ours goes to CORBA_ORB_init. */
   int orb_argc;
   char* orb_argv[64];

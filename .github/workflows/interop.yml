@@ -60,7 +60,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: rustorb/rustorb-idl
-          ref: 815686559da9249fc55d5a3349d3bd9324aea3e5
+          ref: 3ec3322c5ddb297edf0e87aaf8f4f50a971246b5
           path: rustorb-idl
 
       # omniORB and omniORBpy are built from source; the GitHub Actions cache
@@ -220,6 +220,24 @@ jobs:
           done
           interop/run-matrix.sh $pairs
           interop/run-matrix.sh --giop 1.1 $pairs
+
+      # The C client calling through CORBA_Request and the C server
+      # answering through PortableServer_DynamicImpl (#187), on the basic
+      # and any suites (the ones rustorbc runs).
+      - name: Run the matrix with the C DII client and DSI server
+        run: |
+          p=rustorbc-dii
+          pairs="$p:$p"
+          for x in omniorbpy omniorb-cpp jacorb rustorb rustorbpy rustorbcpp rustorbc rustorbpy-dii rustorbcpp-dii; do
+            pairs="$pairs $p:$x $x:$p"
+          done
+          interop/run-matrix.sh $pairs
+          interop/run-matrix.sh --giop 1.1 $pairs
+          any="$p:$p"
+          for x in omniorbpy omniorb-cpp rustorb rustorbpy rustorbcpp rustorbc rustorbpy-dii rustorbcpp-dii; do
+            any="$any $p:$x $x:$p"
+          done
+          interop/run-matrix.sh --suite any $any
 
       # omniORBpy and the rustorb clients (Rust, Python, C++, Java).
       - name: Run the naming service check

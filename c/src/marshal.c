@@ -130,6 +130,21 @@ static void read_fixed(rorb_in* in, const rustorb_c_type* t, void* p) {
   v[bytes - 1] |= negative ? 0x0d : 0x0c;
 }
 
+int rustorb_c_write_value(rorb_out* out, const rustorb_c_type* t, const void* p,
+                          rustorb_c_err* err) {
+  /* An exception's value in an any starts with its repository id. */
+  if (t->kind == CORBA_tk_except) rorb_out_write_string(out, t->id, strlen(t->id));
+  return rustorb_c_write(out, t, p, err);
+}
+
+void rustorb_c_read_value(rorb_in* in, const rustorb_c_type* t, void* p) {
+  if (t->kind == CORBA_tk_except) {
+    size_t len;
+    if (!rorb_in_read_string(in, &len)) return;
+  }
+  rustorb_c_read(in, t, p);
+}
+
 static int write_any(rorb_out* out, const CORBA_any* a, rustorb_c_err* err) {
   rorb_typecode* tc = rustorb_c_tc_handle(a->_type);
   const rustorb_c_type* t;
@@ -155,7 +170,7 @@ static int write_any(rorb_out* out, const CORBA_any* a, rustorb_c_err* err) {
   t = a->_type->desc ? a->_type->desc : rustorb_c_desc_for_tc(tc);
   if (!t) return fail(err, ex_CORBA_BAD_TYPECODE, 0);
   rorb_out_write_typecode(out, tc);
-  return rustorb_c_write(out, t, a->_value, err);
+  return rustorb_c_write_value(out, t, a->_value, err);
 }
 
 static void read_any(rorb_in* in, CORBA_any* a) {
@@ -174,7 +189,7 @@ static void read_any(rorb_in* in, CORBA_any* a) {
       rorb_in_fail(in);
       return;
     }
-    rustorb_c_read(in, t, a->_value);
+    rustorb_c_read_value(in, t, a->_value);
   } else {
     /* A type the program has no descriptor for: kept as it came. */
     a->_rustorb = rorb_in_read_any_value(in, tc);

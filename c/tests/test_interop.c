@@ -1,12 +1,19 @@
 /* The interop cases of interop/impls/rustorbc against its Echo servant, in
  * one process: the client calls go over GIOP to the same ORB.
  *
+ *   test_interop          the stubs and the skeletons
+ *   test_interop dii      the calls through the DII, the servant behind the
+ *                         DSI (impls/rustorbc/src/dii_adapters.c)
+ *   test_interop deferred the calls through the DII with CORBA_Request_send
+ *                         and get_response, the skeletons
+ *
  * Licensed under MIT OR Apache-2.0, like the rest of the rustorb core. */
 
 #include <stdio.h>
 #include <string.h>
 
 #include "cases.h"
+#include "dii_adapters.h"
 #include "echo_impl.h"
 
 static int check_ev(CORBA_Environment* ev, const char* what) {
@@ -21,7 +28,9 @@ int main(int argc, char** argv) {
   CORBA_ORB orb = CORBA_ORB_init(&argc, argv, "", &ev);
   PortableServer_POA poa;
   PortableServer_POAManager manager;
-  PortableServer_Servant echo_servant;
+  PortableServer_Servant echo_servant, dsi = NULL;
+  const char* mode = argc > 1 ? argv[argc - 1] : "";
+  int dii = strcmp(mode, "dii") == 0, deferred = strcmp(mode, "deferred") == 0;
   PortableServer_ObjectId* oid;
   CORBA_Object ref, echo;
   CORBA_char* ior;
@@ -35,7 +44,11 @@ int main(int argc, char** argv) {
 
   echo_servant = echo_impl_new(orb, &ev);
   if (!check_ev(&ev, "Echo servant")) return 1;
-  oid = PortableServer_POA_activate_object(poa, echo_servant, &ev);
+  if (dii) {
+    dsi = dii_servant_new(echo_servant, &ev);
+    if (!check_ev(&ev, "DSI servant")) return 1;
+  }
+  oid = PortableServer_POA_activate_object(poa, dsi ? dsi : echo_servant, &ev);
   if (!check_ev(&ev, "activate_object")) return 1;
   ref = PortableServer_POA_id_to_reference(poa, oid, &ev);
   if (!check_ev(&ev, "id_to_reference")) return 1;
@@ -50,8 +63,10 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  if (dii || deferred) dii_client_install(&InteropTest_idl__module, deferred);
   memset(&r, 0, sizeof r);
   cases_run(&r, echo, poa);
+  dii_client_uninstall();
   cases_summary(&r);
 
   CORBA_Object_release(echo, &ev);
@@ -65,6 +80,7 @@ int main(int argc, char** argv) {
   CORBA_ORB_destroy(orb, &ev);
   check_ev(&ev, "destroy");
   CORBA_Object_release(orb, &ev);
+  dii_servant_free(dsi);
   echo_impl_free(echo_servant);
   cases_fini();
   return r.failed == 0 && r.passed == 79 ? 0 : 1;

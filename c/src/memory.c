@@ -73,6 +73,8 @@ void rustorb_c_free_value(const rustorb_c_type* type, void* p) {
       *(void**)p = NULL;
       break;
     case CORBA_tk_objref:
+    case CORBA_tk_abstract_interface:
+    case CORBA_tk_local_interface:
     case CORBA_tk_TypeCode: {
       CORBA_Environment ev = {CORBA_NO_EXCEPTION, NULL, NULL};
       CORBA_Object_release(*(CORBA_Object*)p, &ev);

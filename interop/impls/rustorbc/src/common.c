@@ -50,12 +50,13 @@ void parse_args(const char* prog, int argc, char** argv, options* opt, int namin
       opt->shutdown_server = 1;
     } else if (!naming_only && strcmp(a, "--suite") == 0) {
       const char* suite = value(argc, argv, ++i, a);
-      if (strcmp(suite, "basic") != 0) {
-        /* The any, value, custom and abstract suites need what rustorb#187
-           adds (DynAny, valuetypes...). */
+      if (strcmp(suite, "basic") != 0 && strcmp(suite, "any") != 0) {
+        /* The value, custom and abstract suites need valuetypes, which the
+           C mapping does not have. */
         fprintf(stderr, "suite %s is not supported by rustorbc\n", suite);
         exit(2);
       }
+      opt->any_suite = strcmp(suite, "any") == 0;
     } else {
       orb_arg(opt, a);
     }
@@ -66,7 +67,7 @@ void parse_args(const char* prog, int argc, char** argv, options* opt, int namin
     else
       fprintf(stderr,
               "usage: %s --naming CORBALOC --name PATH [--host H] [--port N] [--timeout S]"
-              " [--shutdown-server] [--suite basic] [ORB options]\n",
+              " [--shutdown-server] [--suite basic|any] [ORB options]\n",
               prog);
     exit(2);
   }
