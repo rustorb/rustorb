@@ -104,6 +104,19 @@ int main(int argc, char** argv) {
 | nil の参照で呼ぶ | `INV_OBJREF` |
 | 返ってきたユーザー例外が操作で宣言されていない | `UNKNOWN`（minor `0x4f4d0001`、COMPLETED_YES） |
 
+`CORBA_exception_as_any(ev)` は例外を `CORBA_any` にする（例外がなければ NULL）。仕様のとおり any は Environment のもので、`CORBA_exception_free` まで有効、呼んだ側は解放しない。`_value` は `_params` そのもの（`_release` は FALSE）。
+
+- ユーザー例外の TypeCode は生成コードの記述子のもの。そのファイルの型をまだ使っていない（登録の前の）プログラムや、記述子のない例外のうちメンバーのあるものは NULL。疑似オブジェクトの例外（`CORBA_ORB_InvalidName`、`PortableServer_POA_InvalidPolicy` など）も any になる
+- システム例外は `tk_except` の TypeCode（名前はリポジトリ ID の最後の部分、メンバーは `minor` と `CompletionStatus` の `completed`）で、値は `CORBA_SystemException`。同じ形の any を読むと `_value` は `CORBA_SystemException` になる
+
+## fixed の演算
+
+C マッピング 1.14 の `CORBA_fixed_integer_part`・`fraction_part`・`set`・`add`・`sub`・`mul`・`div` と `CORBA_fixed_alloc`。仕様のとおり引数は `void*` で、どの `CORBA_fixed_D_S` も渡せる。結果も含めてすべての `_digits` と `_scale` を先に設定しておく。仕様が決めていないところは次のようにした。
+
+- 計算は十進の桁で正確に行い、結果 `*rp` の形に合わせる。`_scale` より下の桁は 0 の方へ切り捨て（丸めない）、`_digits` に入らない上の桁は捨てる。0 での割り算の結果は 0（関数に `CORBA_Environment` がないので例外は返せない）
+- `fraction_part` は小数部を `min(_scale, 9)` 桁の整数で、値の符号を付けて返す（12.345 は 345、-1.5 は -5）。`set(rp, i, f)` は `i + f / 10^min(_scale, 9)`。`integer_part` は 0 の方へ切り捨て、`CORBA_long` に入らないものは端の値
+- `CORBA_fixed_alloc(d)` は 31 桁までの `CORBA_fixed_d_s`（`_value` は 16 オクテット）を `_digits = d`、`_scale = 0`、値 0 で返し、`CORBA_free` で解放する
+
 ## DynAny
 
 `<rustorb/dynany.h>` に DynamicAny モジュール（`DynamicAny_DynAnyFactory`・`DynAny`・`DynFixed`・`DynEnum`・`DynStruct`・`DynUnion`・`DynSequence`・`DynArray`、`NameValuePair` などの列）を置く。C マッピングの書き方（`DynamicAny_DynAny_insert_long(d, v, &ev)`、結果は呼び出し側が `CORBA_free` / `CORBA_Object_release`）に従い、中身は rustorb-ffi の DynAny（Rust のコアと同じ実装）。
@@ -210,7 +223,7 @@ static void my_send_request(PortableServer_Servant s, PortableInterceptor_Client
 
 ## まだないもの
 
-valuetype と abstract interface は C マッピングにないので `-bc` はエラーにする（AMI の `ExceptionHolder` だけは上のとおり）。`CORBA_exception_as_any`、fixed の演算（`CORBA_fixed_add` など）、IDL 4 の bitmask / bitset は [#187](https://github.com/rustorb/rustorb/issues/187) で足す。共有ライブラリ版と Windows（MSVC）の CI もまだない。
+valuetype と abstract interface は C マッピングにないので `-bc` はエラーにする（AMI の `ExceptionHolder` だけは上のとおり）。IDL 4 の bitmask / bitset は [#187](https://github.com/rustorb/rustorb/issues/187) で足す。共有ライブラリ版と Windows（MSVC）の CI もまだない。
 
 ## テスト
 
@@ -223,6 +236,8 @@ valuetype と abstract interface は C マッピングにないので `-bc` は�
   - `test_dynany`：DynAny の基本の型、`any` の中の `any`、struct（メンバー、`get_members_as_dyn_any` の共有、`seek` / `next`）、union、enum、sequence と array、fixed、`equal`・`copy`・`destroy`、例外（`TypeMismatch`・`InvalidValue`・`BAD_OPERATION`）
   - `test_ami`：AMI のプローブと同じケース（`interop/impls/rustorbc/src/ami_cases.c`）を同じプロセスの Echo サーバントに向けて流し、`interop/expected/ami-probe.txt` と比べる。`ExceptionHolder` の読めない中身、知らない例外、`raise_exception_with_list`
   - `test_pi`：初期化子（ORB id、引数、`DuplicateName`、種類の違う参照、`pre_init` の `resolve_initial_references`）、両方向のサービスコンテキストと重複、PICurrent のスロットが要求のスコープに写ること、IOR のタグ付きコンポーネント、`get_effective_policy`、`InvalidSlot`、静的なスタブの `NO_RESOURCES`、ユーザー例外、`receive_request` からのシステム例外、`send_request` からの `ForwardRequest`、`Codec`、ORB の破棄での `destroy`
+  - `test_exception`：`CORBA_exception_as_any` のユーザー例外（メンバーのあるもの、ないもの、記述子のないもの）、システム例外、疑似オブジェクトの例外。どれも `IOP_Codec` で往復させる
+  - `test_fixed`：fixed の演算（線上の形、符号、桁の違う引数、切り捨て、上の桁を捨てること、31 桁、0 での割り算、`CORBA_fixed_alloc`）
   - `-DRUSTORB_SANITIZE=address` で AddressSanitizer と LeakSanitizer。どのテストもリークなし
 - rustorb-idl の `python/tests/test_c_backend.py`：生成物の形、対応しない構文のエラー、生成コードの C99（警告をエラーにする）と、ヘッダの C++ としてのコンパイル。golden は `tests/golden/c`
 - CI（`ci.yml` の `c` と `c-sanitize`）：Linux の gcc と clang、macOS の clang で `ctest`、Linux の gcc で ASan。Linux では同梱の CosNaming のスタブが生成器の出力と一致することも確かめる

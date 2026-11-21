@@ -281,10 +281,17 @@ typedef struct CORBA_any {
 
 CORBA_any* CORBA_any__alloc(void);
 #define CORBA_any_alloc CORBA_any__alloc
+
 void CORBA_any_set_release(CORBA_any* any, CORBA_boolean release);
 CORBA_boolean CORBA_any_get_release(CORBA_any* any);
 /* rustorb: whether the anys hold equal values of equal types. */
 CORBA_boolean CORBA_any_equal(const CORBA_any* a, const CORBA_any* b);
+
+/* The exception as an any (NULL for none). The Environment keeps it: it
+   stays valid until CORBA_exception_free, and the caller does not free
+   it. A user exception of a type no generated code in the program
+   describes gives NULL, unless it has no members. */
+CORBA_any* CORBA_exception_as_any(CORBA_Environment* ev);
 
 /* --- fixed (1.14) ------------------------------------------------------------- */
 
@@ -297,6 +304,31 @@ CORBA_boolean CORBA_any_equal(const CORBA_any* a, const CORBA_any* b);
     CORBA_short _scale;                                 \
     CORBA_octet _value[((d) + 2) / 2];                  \
   } CORBA_fixed_##d##_##s
+
+/* Any fixed up to 31 digits (CORBA_fixed_alloc). */
+typedef struct CORBA_fixed_d_s {
+  CORBA_unsigned_short _digits;
+  CORBA_short _scale;
+  CORBA_octet _value[16];
+} CORBA_fixed_d_s;
+
+/* The functions take any CORBA_fixed_D_S as void*; _digits and _scale of
+   every operand and of the result must be set. The exact result is made
+   to fit *rp: the digits below its _scale are truncated toward zero and
+   those above its _digits dropped. Division by zero gives 0. */
+CORBA_long CORBA_fixed_integer_part(const void* fp);
+/* The fraction as an integer of min(_scale, 9) digits, with the sign of
+   the value: 12.345 (scale 3) gives 345, -1.5 gives -5. */
+CORBA_long CORBA_fixed_fraction_part(const void* fp);
+/* *rp = i + f / 10^min(_scale, 9). */
+void CORBA_fixed_set(void* rp, const CORBA_long i, const CORBA_long f);
+void CORBA_fixed_add(void* rp, const void* f1p, const void* f2p);
+void CORBA_fixed_sub(void* rp, const void* f1p, const void* f2p);
+void CORBA_fixed_mul(void* rp, const void* f1p, const void* f2p);
+void CORBA_fixed_div(void* rp, const void* f1p, const void* f2p);
+/* A fixed of d digits (31 at most) and scale 0, value 0, freed with
+   CORBA_free; set _scale before use. */
+CORBA_fixed_d_s* CORBA_fixed_alloc(CORBA_unsigned_short d);
 
 /* --- Object (1.29) -------------------------------------------------------------- */
 
