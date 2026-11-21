@@ -370,3 +370,5 @@ P0〜P3 の issue がすべて終わった後（2026-10-31）、各設計書の�
 0.4.0 の後（2026-11-10）、残りの候補（`context` 句、`omniORB.URI`、SyncScope、POAManagerFactory、C++ / Java の DII / DSI、`giop:unix`）を計画 [#150](https://github.com/rustorb/rustorb/issues/150) と sub-issue #151〜#158 にし、0.5.0 で出した。C++ / Java の Any の valuetype の共有（[#164](https://github.com/rustorb/rustorb/issues/164)）はその後に入れた。
 
 0.5.0 の後（2026-11-16）、0.6.0 のリリースとドキュメントの整備を計画 [#169](https://github.com/rustorb/rustorb/issues/169) と sub-issue #170〜#172 にした。
+
+0.6.0 の後（2026-11-21）、.NET（C#）・C・Ruby の言語マッピングを計画 [#176](https://github.com/rustorb/rustorb/issues/176)（計画書：[dotnet-c-ruby.md](dotnet-c-ruby.md)）と sub-issue #177〜#189 にした。
