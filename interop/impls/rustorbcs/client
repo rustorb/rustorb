@@ -1,0 +1,5 @@
+#!/bin/sh
+# rustorb .NET interop client. run-matrix.sh builds it on the host (build.sh)
+# and mounts this directory, with out/, into the container.
+here="$(dirname "$0")"
+exec dotnet "$here/out/rustorbcs.dll" client "$@"

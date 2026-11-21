@@ -91,4 +91,8 @@ valuetype、abstract / local インターフェース（servant manager など�
   - `MappingTests`：C++・Java と同じ `cpp/tests/idl/CxxMapping.idl` の定数、再帰型、すべての判別子の union、入れ子の型、キーワード、fixed と long double、インターフェースの多重継承、オブジェクト参照の列、TypeCode と Any
 - rustorb-idl の `python/tests/test_csharp_backend.py`：生成物の形、`-Wbdotnet_naming`、対応しない構文のエラー、生成コードとランタイムのコンパイル（警告をエラーにする）。golden は `tests/golden/csharp`
 - CI（`ci.yml` の `dotnet`）：Linux、macOS、Windows で `dotnet test`。Linux では同梱の CosNaming のスタブが生成器の出力と、`Ffi.g.cs` が `rustorb.h` と一致することも確かめる
-- 相互接続（omniORB C++・omniORBpy・JacORB との `interop/run-matrix.sh`）は [#179](https://github.com/rustorb/rustorb/issues/179) で加える
+- 相互接続（[#179](https://github.com/rustorb/rustorb/issues/179)）：`interop/run-matrix.sh` に `rustorbcs`（`interop/impls/rustorbcs`。ホストで `dotnet publish` し、イメージの .NET 8 ランタイムで動かす）を加えた。いまは basic（InteropTest.idl）だけで、any・value・custom・abstract のマトリクスには入れない（#186）。ローカルで確認した結果は次のとおりで、失敗はすべて `known-failures.txt` の範囲
+  - basic（79ケース）：omniORBpy・omniORB C++・JacORB・rustorb の Rust・Python・C++・.NET 自身と両方向で通る。失敗は omniORBpy の wchar（3ケース）と JacORB の union の判別子（`echo_value[5]`）だけで、他の rustorb のバインディングと同じ
+  - GIOP 1.1、`--fragment 1024`、`--ssl`、`--unix` でも omniORB・omniORBpy・自身との組（GIOP 1.1 と Fragment は JacORB とも）が同じ結果（GIOP 1.1 の omniORB 側の wchar / wstring は既知）
+  - Java（`rustorbjava`）との組はローカルに Java 22 がなく CI（`interop.yml`）で確かめる
+- naming check（`run-naming-check.sh`。omniNames と rustorb-names、再起動を含む）と wire probe（`run-wire-probe.sh`）は、`rustorbcs` でも期待出力と一致する。POA プローブは servant manager（ローカルインターフェース）が要るので #186 で加える
