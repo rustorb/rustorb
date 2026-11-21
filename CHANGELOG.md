@@ -7,6 +7,12 @@ break the API).
 
 ## [Unreleased]
 
+### Fixed
+
+- A callback request (AMI) to an object of the same ORB ignored the call
+  timeout: it now ends with `TIMEOUT` (`COMPLETED_MAYBE`) like one to a
+  remote object.
+
 ## [0.6.0] - 2026-11-16
 
 C++ and Java anys now hold valuetypes by reference, which changes what

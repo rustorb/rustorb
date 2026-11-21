@@ -271,6 +271,19 @@ int rustorb_c_write(rorb_out* out, const rustorb_c_type* t, const void* p, rusto
         if (rustorb_c_write(out, t->members[i].type, (const char*)p + t->members[i].offset, err))
           return -1;
       return 0;
+    case CORBA_tk_value: {
+      /* A valuetype with the state of the members (only
+         Messaging::ExceptionHolder: the C mapping has no valuetypes). */
+      size_t len = strlen(t->id);
+      if (rorb_out_begin_value(out, (uint64_t)(uintptr_t)p, 1, &t->id, &len, 0)) {
+        for (i = 0; i < t->count; i++)
+          if (rustorb_c_write(out, t->members[i].type, (const char*)p + t->members[i].offset,
+                              err))
+            return -1;
+        rorb_out_end_value(out);
+      }
+      return 0;
+    }
     case CORBA_tk_union: {
       int64_t e;
       if (rustorb_c_write(out, t->content, p, err)) return -1;
@@ -389,6 +402,24 @@ void rustorb_c_read(rorb_in* in, const rustorb_c_type* t, void* p) {
       for (i = 0; i < t->count; i++)
         rustorb_c_read(in, t->members[i].type, (char*)p + t->members[i].offset);
       return;
+    case CORBA_tk_value: {
+      size_t slot = 0, ids = 0;
+      int32_t r = rorb_in_read_value_header(in, &slot, &ids);
+      if (r == RORB_VALUE_INDIRECTION) {
+        const void* v = rorb_in_get_value(in, slot);
+        if (v)
+          rustorb_c_copy_value(t, p, v);
+        else
+          rorb_in_fail(in);
+      } else if (r == RORB_VALUE_NEW) {
+        rorb_in_set_value(in, slot, p, NULL);
+        for (i = 0; i < t->count; i++)
+          rustorb_c_read(in, t->members[i].type, (char*)p + t->members[i].offset);
+        rorb_in_end_value(in);
+      }
+      /* A null value stays zeroed. */
+      return;
+    }
     case CORBA_tk_union: {
       int64_t e;
       rustorb_c_read(in, t->content, p);

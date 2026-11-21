@@ -165,9 +165,31 @@ PortableServer_POA_set_servant_manager(poa, mgr, &ev);
 - `<rustorb/poa.h>` の `PortableServer_ServantActivator`・`ServantLocator`・`AdapterActivator` も同じ形の local インターフェース（`incarnate` / `etherealize`、`preinvoke` / `postinvoke`、`unknown_adapter`）。`PortableServer_POA_set_servant_manager` / `get_servant_manager` と `PortableServer_POA__set_the_activator` / `_get_the_activator` で POA に渡す
 - `incarnate` と `preinvoke` は、`PortableServer_ForwardRequest`（`forward_reference`）を `CORBA_USER_EXCEPTION` で返すと転送になり、システム例外はクライアントに返る。返すサーバントは初期化したもの（`POA_<I>__init` か `PortableServer_DynamicImpl__init`）
 
+## AMI
+
+コールバック型の AMI（[ami.md](ami.md)）は `-bc -Wbami` で入る。C マッピング 1.0 には AMI がないので、他の言語の形に合わせて次のように決めた。
+
+- 暗黙の IDL の `M::AMI_IHandler` はふつうのインターフェース（`M_AMI_IHandler`、`POA_M_AMI_IHandler`）。基底の `Messaging::ReplyHandler` はランタイムの `<rustorb/messaging.h>`（`Messaging_ReplyHandler`、操作のない `POA_Messaging_ReplyHandler__epv`）で、vepv にはその場所もある
+- `M_I_sendc_<op>(obj, ami_handler, <in と inout の値>, ev)`、属性は `M_I_sendc_get_<attr>(obj, ami_handler, ev)` / `M_I_sendc_set_<attr>(obj, ami_handler, attr_<attr>, ev)`。生成コードでは各 Handler の後ろに置く。引数は写してから返り、`ev` に入るのは送る前に分かる失敗（nil の参照は `INV_OBJREF`、ORB の終了後は `BAD_INV_ORDER`）だけ。返事は ORB の返事用スレッドで Handler の `<op>`（戻り値、inout と out の値）か `<op>_excep` を呼ぶ。nil の Handler なら返事は捨てる。呼び出しのタイムアウト（`rustorb_Object_set_call_timeout` など）は送ったときのものが効く
+- C マッピングには valuetype がないので、`Messaging::ExceptionHolder` は状態メンバーの構造体 `Messaging_ExceptionHolder`（`is_system_exception`・`byte_order`・`marshaled_exception`）にした。線上では valuetype として送り、`<op>_excep` は in の構造体（`const Messaging_ExceptionHolder*`）として受け取る
+- `Messaging_ExceptionHolder_raise_exception(holder, ev)` が `ev` を例外にする。ユーザー例外は生成コードの記述子で読むので、そのファイルの型をこのプログラムがまだ使っていないもの（登録の前）や知らないものは `UNKNOWN`（minor 0x4f4d0001）。`raise_exception_with_list(holder, list, count, ev)` は TypeCode の並びにない例外も `UNKNOWN` にする。読めない `marshaled_exception` は `MARSHAL`
+
+```c
+static void my_divide(PortableServer_Servant s, CORBA_long r, CORBA_long rem, CORBA_Environment* ev);
+static void my_divide_excep(PortableServer_Servant s, const Messaging_ExceptionHolder* h,
+                            CORBA_Environment* ev) {
+  CORBA_Environment e = {CORBA_NO_EXCEPTION, NULL, NULL};
+  Messaging_ExceptionHolder_raise_exception(h, &e);
+  /* e は InteropTest_DivideByZero など */
+  CORBA_exception_free(&e);
+}
+
+InteropTest_Echo_sendc_divide(echo, handler, 7, 2, &ev);
+```
+
 ## まだないもの
 
-valuetype と abstract interface は C マッピングにないので `-bc` はエラーにする。`CORBA_exception_as_any`、fixed の演算（`CORBA_fixed_add` など）、Portable Interceptors、AMI（`-Wbami`）、IDL 4 の bitmask / bitset は [#187](https://github.com/rustorb/rustorb/issues/187) で足す。共有ライブラリ版と Windows（MSVC）の CI もまだない。
+valuetype と abstract interface は C マッピングにないので `-bc` はエラーにする（AMI の `ExceptionHolder` だけは上のとおり）。`CORBA_exception_as_any`、fixed の演算（`CORBA_fixed_add` など）、Portable Interceptors、IDL 4 の bitmask / bitset は [#187](https://github.com/rustorb/rustorb/issues/187) で足す。共有ライブラリ版と Windows（MSVC）の CI もまだない。
 
 ## テスト
 
@@ -178,6 +200,7 @@ valuetype と abstract interface は C マッピングにないので `-bc` は�
   - `test_dii`：NVList、in の複製、ORB が確保する out と結果、inout、`send` / `poll_response` / `get_response`、oneway、リストの中と外のユーザー例外、システム例外、引数の誤り、手で書いた `PortableServer_DynamicImpl`
   - `test_local`：.NET のテストと同じ `LocalTest.idl` の local インターフェース（実装の構造体と `__create`、属性、out、ユーザー例外、継承した操作、`is_a` などの参照の操作、引数と結果の local オブジェクト、送れないこと）
   - `test_dynany`：DynAny の基本の型、`any` の中の `any`、struct（メンバー、`get_members_as_dyn_any` の共有、`seek` / `next`）、union、enum、sequence と array、fixed、`equal`・`copy`・`destroy`、例外（`TypeMismatch`・`InvalidValue`・`BAD_OPERATION`）
+  - `test_ami`：AMI のプローブと同じケース（`interop/impls/rustorbc/src/ami_cases.c`）を同じプロセスの Echo サーバントに向けて流し、`interop/expected/ami-probe.txt` と比べる。`ExceptionHolder` の読めない中身、知らない例外、`raise_exception_with_list`
   - `-DRUSTORB_SANITIZE=address` で AddressSanitizer と LeakSanitizer。どのテストもリークなし
 - rustorb-idl の `python/tests/test_c_backend.py`：生成物の形、対応しない構文のエラー、生成コードの C99（警告をエラーにする）と、ヘッダの C++ としてのコンパイル。golden は `tests/golden/c`
 - CI（`ci.yml` の `c` と `c-sanitize`）：Linux の gcc と clang、macOS の clang で `ctest`、Linux の gcc で ASan。Linux では同梱の CosNaming のスタブが生成器の出力と一致することも確かめる
@@ -187,4 +210,4 @@ valuetype と abstract interface は C マッピングにないので `-bc` は�
   - any（259ケース、[#187](https://github.com/rustorb/rustorb/issues/187)）：omniORBpy・omniORB C++・rustorb の Rust・Python・C++・.NET・C 自身と両方向で通る。失敗は long double（omniORBpy にはなく、omniORB C++ は x87 の形式で送る）だけで、他の rustorb のバインディングと同じ。サーバーは AnyEcho を名前に、Echo を名前に `-Echo` を付けたところに置き、AnyTestHidden.idl の型はクライアントだけが持つ
   - DII と DSI（`rustorbc-dii`。`RUSTORB_DII=1` で、クライアントは生成スタブの呼び出しを `CORBA_Request` で送り、サーバーは静的なサーバントを `PortableServer_DynamicImpl` で包む）：basic と GIOP 1.1 は rustorb の全バインディング・omniORBpy・omniORB C++・JacORB と、any は全サーバーから `rustorbc-dii` のサーバーへ通る。失敗は上と同じ既知のものだけ。CI では basic・GIOP 1.1・any を流す
   - Java（`rustorbjava`）との組は CI（`interop.yml`）で確かめる
-- naming check（`run-naming-check.sh`。omniNames と rustorb-names、再起動を含む）と wire probe（`run-wire-probe.sh`）は、`rustorbc` でも期待出力と一致する。POA プローブ（`run-poa-probe.sh`。`interop/impls/rustorbc/src/poa_probe_server.c`：servant activator、servant locator、adapter activator、スレッドポリシー、POAManager の状態）も期待出力（rustorb のもの）と一致する
+- naming check（`run-naming-check.sh`。omniNames と rustorb-names、再起動を含む）と wire probe（`run-wire-probe.sh`）は、`rustorbc` でも期待出力と一致する。POA プローブ（`run-poa-probe.sh`。`interop/impls/rustorbc/src/poa_probe_server.c`：servant activator、servant locator、adapter activator、スレッドポリシー、POAManager の状態）も期待出力（rustorb のもの）と一致する。AMI プローブ（`run-ami-probe.sh`。`interop/impls/rustorbc/src/ami_probe.c`）は omniORB C++・omniORBpy・JacORB・rustorb・`rustorbc` のサーバーで期待出力と一致する

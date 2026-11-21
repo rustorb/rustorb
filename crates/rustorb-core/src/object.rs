@@ -1193,9 +1193,21 @@ async fn invoke_async<A: WriteArgs + ?Sized>(
                             let _ = tx.send(call.run(&on_pool));
                         }));
                         // The pool is gone when the ORB is being destroyed.
-                        let result = rx.await.unwrap_or_else(|_| {
-                            Err(sys(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No))
-                        });
+                        let gone =
+                            || Err(sys(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No));
+                        // The call timeout holds as for a remote object: the
+                        // servant may still be running when it passes.
+                        let result = match deadline {
+                            Some(at) => match tokio::time::timeout_at(at.into(), rx).await {
+                                Ok(r) => r.unwrap_or_else(|_| gone()),
+                                Err(_) => Err(sys(
+                                    SystemExceptionKind::TIMEOUT,
+                                    0,
+                                    CompletionStatus::Maybe,
+                                )),
+                            },
+                            None => rx.await.unwrap_or_else(|_| gone()),
+                        };
                         local_outcome(orb, result, &mut reply_contexts)
                     }
                     Err(done) => done,

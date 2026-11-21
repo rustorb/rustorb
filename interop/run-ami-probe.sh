@@ -2,15 +2,16 @@
 # Callback AMI (docs/ami.md) from the rustorb clients to the Echo servers
 # of omniORB C++, omniORBpy, JacORB and rustorb: impls/rustorbpy/ami_probe.py,
 # impls/rustorbcpp/ami_probe.cc,
-# impls/rustorbjava/probe/interop/AmiProbe.java and
-# impls/rustorbcs/src/AmiProbe.cs send sendc_ requests
+# impls/rustorbjava/probe/interop/AmiProbe.java,
+# impls/rustorbcs/src/AmiProbe.cs and impls/rustorbc/src/ami_probe.c send
+# sendc_ requests
 # (results, inout and out arguments, a user exception, a system exception,
 # attributes, a nil handler and a call timeout) and print what their
 # AMI_EchoHandler got, which must match expected/ami-probe.txt.
 #
 #   ./run-ami-probe.sh [CLIENT:SERVER ...]
 #
-# CLIENT is rustorbpy, rustorbcpp, rustorbjava or rustorbcs; SERVER a directory under
+# CLIENT is rustorbpy, rustorbcpp, rustorbjava, rustorbcs or rustorbc; SERVER a directory under
 # impls/ (default: each client against omniorb-cpp, omniorbpy, jacorb and
 # rustorb). AMI requests and replies are ordinary GIOP requests and
 # replies on the wire, so the servers need nothing for AMI. Each pair runs
@@ -28,7 +29,7 @@ cd "$(dirname "$0")"
 image=${IMAGE:-rustorb-interop-omniorb:latest}
 pairs=("$@")
 if [ ${#pairs[@]} -eq 0 ]; then
-  for c in rustorbpy rustorbcpp rustorbjava rustorbcs; do
+  for c in rustorbpy rustorbcpp rustorbjava rustorbcs rustorbc; do
     for s in omniorb-cpp omniorbpy jacorb rustorb; do pairs+=("$c:$s"); done
   done
 fi
@@ -40,6 +41,7 @@ impls/rustorbpy/build.sh
 impls/rustorbcpp/build.sh > /dev/null
 impls/rustorbjava/build.sh > /dev/null
 impls/rustorbcs/build.sh > /dev/null
+impls/rustorbc/build.sh > /dev/null
 
 failed=0
 for p in "${pairs[@]}"; do
@@ -51,6 +53,7 @@ for p in "${pairs[@]}"; do
       -v "$PWD/impls/rustorbcpp:/opt/interop/impls/rustorbcpp:ro" \
       -v "$PWD/impls/rustorbjava:/opt/interop/impls/rustorbjava:ro" \
       -v "$PWD/impls/rustorbcs:/opt/interop/impls/rustorbcs:ro" \
+      -v "$PWD/impls/rustorbc:/opt/interop/impls/rustorbc:ro" \
       -v "$PWD/scripts/ami-pair:/opt/interop/scripts/ami-pair:ro" \
       "$image" scripts/ami-pair "$client" "$server") \
       && [ "$actual" = "$(cat expected/ami-probe.txt)" ]; then

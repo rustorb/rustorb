@@ -282,6 +282,24 @@ fn objects_of_the_same_orb() {
     assert!(rx.recv_timeout(Duration::from_secs(10)).unwrap());
     assert_eq!(*servant.posted.lock().unwrap(), vec![2]);
 
+    // The call timeout holds for them too.
+    let (tx, rx) = mpsc::channel();
+    obj.request_callback("sleep")
+        .args(|out| {
+            out.write_u32(2000);
+            Ok(())
+        })
+        .timeout(Some(Duration::from_millis(100)))
+        .send(move |r| {
+            let _ = tx.send(r);
+        })
+        .unwrap();
+    let e = system_of(rx.recv_timeout(Duration::from_secs(1)).unwrap());
+    assert_eq!(e.kind(), Some(SystemExceptionKind::TIMEOUT));
+    assert_eq!(e.completed, CompletionStatus::Maybe);
+    // Let the servant finish before the ORB goes.
+    thread::sleep(Duration::from_millis(2000));
+
     orb.destroy().unwrap();
 }
 

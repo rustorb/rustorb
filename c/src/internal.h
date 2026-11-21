@@ -77,6 +77,10 @@ uint64_t rustorb_c_label(const rustorb_c_type* disc, const void* p);
 /* The union entry selected by the union at p: 1 and *index, or 0. */
 int rustorb_c_union_entry(const rustorb_c_type* type, const void* p, int64_t* index);
 
+/* A named type registered (rustorb_c_register_module), by repository id,
+   or NULL. */
+const rustorb_c_type* rustorb_c_desc_for_id(const char* id);
+
 /* Environments. */
 void rustorb_c_ev_clear(CORBA_Environment* ev);
 void rustorb_c_ev_system(CORBA_Environment* ev, const char* id, CORBA_unsigned_long minor,

@@ -60,7 +60,7 @@ else()
 endif()
 
 set(RUSTORB_C_SOURCES
-  src/any.c src/dii.c src/dynany.c src/env.c src/invoke.c src/managers.c src/marshal.c src/memory.c src/orb.c src/poa.c
+  src/any.c src/dii.c src/dynany.c src/env.c src/invoke.c src/managers.c src/marshal.c src/messaging.c src/memory.c src/orb.c src/poa.c
   src/types.c src/CosNaming.c)
 add_library(rustorb_c STATIC ${RUSTORB_C_SOURCES})
 add_dependencies(rustorb_c rustorb_ffi_build)
@@ -176,3 +176,23 @@ target_include_directories(test_dynany PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl"
 target_link_libraries(test_dynany PRIVATE rustorb_c)
 target_compile_options(test_dynany PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME dynany COMMAND test_dynany)
+
+# Callback AMI (<rustorb/messaging.h>, rustorb-idl -Wbami): the cases of
+# run-ami-probe.sh against the Echo servant in this process.
+set(AMI_OUT "${CMAKE_CURRENT_BINARY_DIR}/idl-ami")
+add_custom_command(
+  OUTPUT "${AMI_OUT}/InteropTest.h" "${AMI_OUT}/InteropTest.c"
+  COMMAND "${CMAKE_COMMAND}" -E env "PYTHONPATH=${RUSTORB_IDL_PYTHONPATH}"
+          "${Python3_EXECUTABLE}" -m rustorb_idl -bc -Wbami -C "${AMI_OUT}"
+          "${RUSTORB_ROOT}/interop/idl/InteropTest.idl"
+  DEPENDS "${RUSTORB_ROOT}/interop/idl/InteropTest.idl" ${RUSTORB_IDL_GENERATOR}
+  COMMENT "rustorb-idl -bc -Wbami InteropTest.idl"
+  VERBATIM)
+add_executable(test_ami tests/test_ami.c "${RUSTORBC}/ami_cases.c" "${RUSTORBC}/echo_impl.c"
+               "${AMI_OUT}/InteropTest.c")
+target_include_directories(test_ami PRIVATE "${AMI_OUT}" "${RUSTORBC}")
+target_link_libraries(test_ami PRIVATE rustorb_c)
+target_compile_options(test_ami PRIVATE ${RUSTORB_WARNINGS})
+target_compile_definitions(test_ami PRIVATE
+  "AMI_EXPECTED=\"${RUSTORB_ROOT}/interop/expected/ami-probe.txt\"")
+add_test(NAME ami COMMAND test_ami)

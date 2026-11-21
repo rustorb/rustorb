@@ -92,6 +92,7 @@ void rustorb_c_free_value(const rustorb_c_type* type, void* p) {
     }
     case CORBA_tk_struct:
     case CORBA_tk_except:
+    case CORBA_tk_value:
       for (i = 0; i < type->count; i++)
         rustorb_c_free_value(type->members[i].type, (char*)p + type->members[i].offset);
       break;
@@ -294,6 +295,7 @@ void rustorb_c_copy_value(const rustorb_c_type* type, void* dst, const void* src
     }
     case CORBA_tk_struct:
     case CORBA_tk_except:
+    case CORBA_tk_value:
       for (i = 0; i < type->count; i++)
         rustorb_c_copy_value(type->members[i].type, (char*)dst + type->members[i].offset,
                              (const char*)src + type->members[i].offset);
