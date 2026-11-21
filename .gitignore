@@ -20,3 +20,4 @@ __pycache__/
 /examples/csharp/gen
 /examples/csharp/*/bin
 /examples/csharp/*/obj
+/ruby/vendor
