@@ -5,16 +5,31 @@
 # Licensed under MIT OR Apache-2.0, like the rest of the rustorb core.
 
 module CORBA
-  # ORB_init(args, orb_id): the ORB, configured by the -ORB options of args
-  # (removed from it, as CORBA says) and the environment. The ORB is one per
-  # process; a second call gives the same one.
-  def self.ORB_init(args = [], _orb_id = "")
+  # ORB_init(args, orb_id): the ORB of orb_id, configured by the -ORB
+  # options of args (removed from it, as CORBA says) and the environment.
+  # A second call with the same id gives the same ORB (until it is
+  # destroyed). An ORB of an id other than "" has its own server
+  # resources; initializers (rustorb) are PortableInterceptor::
+  # ORBInitializers of that ORB only, run after the registered ones.
+  def self.ORB_init(args = [], orb_id = "", initializers: nil)
     @orb_lock ||= Mutex.new
+    @orbs ||= {}
+    orb_id = orb_id.to_s
     @orb_lock.synchronize do
-      native, rest = Rustorb::Native.orb_init([$PROGRAM_NAME] + args.map(&:to_s))
+      orb = @orbs[orb_id]
+      if orb && !orb._native.nil? && !orb._destroyed?
+        Rustorb.strip_orb_options(args)
+        return orb
+      end
+      argv = [$PROGRAM_NAME] + args.map(&:to_s)
+      PortableInterceptor._take_locals
+      native, rest = if orb_id.empty? && initializers.nil?
+                       Rustorb::Native.orb_init(argv)
+                     else
+                       Rustorb::Native.orb_init_pi(argv, orb_id, initializers.to_a)
+                     end
       args.replace(rest.drop(1)) if args.is_a?(Array) && !args.frozen?
-      @orb = ORB.new(native) if @orb.nil? || @orb._native.nil?
-      @orb
+      @orbs[orb_id] = ORB.new(native, PortableInterceptor._take_locals)
     end
   end
 
@@ -26,9 +41,13 @@ module CORBA
 
     Rustorb::Native::LOCAL_EXCEPTIONS[13] = ->(_) { InvalidName.new }
 
-    def initialize(native)
+    def initialize(native, locals = {})
       @native = native
+      @locals = locals
+      @destroyed = false
     end
+
+    def _destroyed? = @destroyed
 
     def _native
       @native
@@ -47,12 +66,15 @@ module CORBA
       when "RootPOA" then PortableServer::POA._wrap(@native.root_poa)
       when "POACurrent" then PortableServer::Current.instance
       when "DynAnyFactory" then DynamicAny::DynAnyFactory.instance
-      else CORBA::Object._from_ref(@native.resolve_initial_references(name))
+      when "PICurrent" then @locals[name] || PortableInterceptor::Current.new(@native.pi_current)
+      when "CodecFactory" then @locals[name] || IOP::CodecFactory.new(@native)
+      else @locals[name] || CORBA::Object._from_ref(@native.resolve_initial_references(name))
       end
     end
 
     def list_initial_services
-      (@native.list_initial_services + %w[RootPOA POACurrent DynAnyFactory]).uniq
+      (@native.list_initial_services + %w[RootPOA POACurrent DynAnyFactory PICurrent CodecFactory] +
+       @locals.keys).uniq
     end
 
     def register_initial_reference(name, obj)
@@ -71,6 +93,7 @@ module CORBA
 
     def destroy
       @native.destroy
+      @destroyed = true
     end
 
     def work_pending
@@ -104,5 +127,26 @@ module CORBA
     def get_primitive_tc(kind)
       CORBA::TypeCode.simple(kind)
     end
+  end
+end
+
+module Rustorb
+  # Removes the -ORB options (each with its value) from args, for an
+  # ORB_init that gives an ORB already made.
+  def self.strip_orb_options(args)
+    return unless args.is_a?(Array) && !args.frozen?
+
+    out = []
+    skip = false
+    args.each do |a|
+      if skip
+        skip = false
+      elsif a.to_s.start_with?("-ORB")
+        skip = !a.to_s.include?("=")
+      else
+        out << a
+      end
+    end
+    args.replace(out)
   end
 end

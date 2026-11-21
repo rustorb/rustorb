@@ -21,6 +21,7 @@
   - 相互接続：`run-pi-probe.sh` に rustorbcpp（`interop/impls/rustorbcpp/pi_probe.cc`）と rustorbjava（`interop/impls/rustorbjava/probe/interop/PiProbe.java`、どちらも `interop/idl/PiProbe.idl` の静的なスタブ）を足し、rustorb・rustorbpy・rustorbcpp・rustorbjava・JacORB 3.9 のすべての組（25 組）を GIOP 1.2 で確かめた（Docker が使えないため、ホストで同じ手順を動かした）
   - `post_init` で RootPOA を作ると、その POA の参照には IOR インターセプターのコンポーネントが付かない（インターセプターが働くのは ORB の初期化が済んでから）
 - **C（`<rustorb/pi.h>`）**：実装済み（[c-binding.md](c-binding.md)、[#187](https://github.com/rustorb/rustorb/issues/187)）。local インターフェースの形の構造体と `PortableInterceptor_register_orb_initializer`。`c/tests/test_pi.c`。相互接続は `run-pi-probe.sh` の `rustorbc`（GIOP 1.0〜1.2）
+- **Ruby（`PortableInterceptor`・`IOP`・`Dynamic`）**：実装済み（[ruby-binding.md](ruby-binding.md)、[#188](https://github.com/rustorb/rustorb/issues/188)）。インターセプターは既定のメソッドを持つモジュールを include する。初期化子は `PortableInterceptor.register_orb_initializer` か `CORBA.ORB_init(args, orb_id, initializers: [...])`。点は GVL を取ったディスパッチャーのスレッドで動き、PICurrent と DSI の返事は rustorb のアップコールのスレッドで扱う。`ruby/test/test_pi.rb`。相互接続は `run-pi-probe.sh` の `rustorbrb`（GIOP 1.0〜1.2）
 
 ## 範囲
 

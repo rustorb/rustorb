@@ -2638,8 +2638,26 @@ static VALUE server_request_set_exception(VALUE self, VALUE any) {
   CHECK(rorb_server_request_set_exception(SREQ(self), ANY(any), EXC));
   return Qnil;
 }
+struct sreq_reply {
+  rorb_server_request* r;
+  rorb_server_reply* reply;
+  rorb_status st;
+  rorb_exception exc;
+};
+static void* sreq_reply_nogvl(void* p) {
+  struct sreq_reply* c = p;
+  c->st = rorb_server_request_reply(c->r, c->reply, &c->exc);
+  return NULL;
+}
+/* On the thread rustorb runs the upcall on (at_home), where the server
+   interceptors look for what the servant set. */
 static VALUE server_request_reply(VALUE self, VALUE reply) {
-  CHECK(rorb_server_request_reply(SREQ(self), unwrap(reply, cReply), EXC));
+  struct sreq_reply c;
+  memset(&c, 0, sizeof c);
+  c.r = SREQ(self);
+  c.reply = unwrap(reply, cReply);
+  at_home(sreq_reply_nogvl, &c);
+  if (c.st != RORB_OK) raise_status(c.st, &c.exc);
   return Qnil;
 }
 
@@ -2880,6 +2898,641 @@ static void init_managers(void) {
   DEF(cPOA, "get_servant_manager", poa_get_servant_manager, 0);
   DEF(cPOA, "set_the_activator", poa_set_the_activator, 1);
   DEF(cPOA, "the_activator", poa_the_activator, 0);
+}
+
+/* --- Portable Interceptors and IOP::Codec ------------------------------------------- */
+
+/* An interceptor or ORB initializer is a host of its Ruby object (the ORB's
+   add_ref / remove_ref count on it). A point runs, with the GVL,
+   Rustorb::PI.point(obj, point, info): info is a Native::ClientRequestInfo,
+   ServerRequestInfo, IORInfo or ORBInitInfo, valid only during the point;
+   it returns nil, [:forward, Native::Ref] or [:system, id, minor,
+   completed]. The info calls are made here, on the thread that runs the
+   point, while the thread rustorb called the point on waits for it. */
+static VALUE cCRInfo, cSRInfo, cIORInfo, cInitInfo, cPICurrent, cCodec, mPI;
+static ID id_point, id_destroy_interceptor;
+static VALUE sym_system;
+
+static void rel_pi_current(void* p) { rorb_pi_current_release(p); }
+static void rel_codec(void* p) { rorb_codec_release(p); }
+#define CRI(v) ((const rorb_client_request_info*)unwrap((v), cCRInfo))
+#define SRI(v) ((const rorb_server_request_info*)unwrap((v), cSRInfo))
+#define IORI(v) ((const rorb_ior_info*)unwrap((v), cIORInfo))
+#define INITI(v) ((rorb_orb_init_info*)unwrap((v), cInitInfo))
+#define PICUR(v) ((rorb_pi_current*)unwrap((v), cPICurrent))
+#define CODEC(v) ((rorb_codec*)unwrap((v), cCodec))
+
+static void pi_add_ref(void* self) {
+  host* h = self;
+  pthread_mutex_lock(&host_lock);
+  ++h->count;
+  pthread_mutex_unlock(&host_lock);
+}
+static void pi_remove_ref(void* self) { host_release(self); }
+
+struct pi_point {
+  host* h;
+  const char* point;
+  VALUE* klass;
+  void* info;
+  rorb_pi_error* error;
+  rorb_status st;
+  VALUE info_v;
+};
+
+static VALUE pi_point_body(VALUE p) {
+  struct pi_point* c = (struct pi_point*)p;
+  return rb_funcall(mPI, id_point, 3, c->h->obj, ID2SYM(rb_intern(c->point)), c->info_v);
+}
+
+static void pi_unknown(struct pi_point* c) {
+  rorb_pi_error_system(c->error, "IDL:omg.org/CORBA/UNKNOWN:1.0", 29, 0, RORB_COMPLETED_MAYBE);
+  c->st = RORB_SYSTEM_EXCEPTION;
+}
+
+static void* pi_point_gvl(void* p) {
+  struct pi_point* c = p;
+  int state = 0;
+  VALUE r, info = wrap_borrowed(*c->klass, c->info);
+  c->info_v = info;
+  r = rb_protect(pi_point_body, (VALUE)c, &state);
+  invalidate(info);
+  RB_GC_GUARD(info);
+  if (state) {
+    rb_set_errinfo(Qnil);
+    pi_unknown(c);
+    return c;
+  }
+  if (NIL_P(r)) return c;
+  if (!RB_TYPE_P(r, T_ARRAY) || RARRAY_LEN(r) < 2) {
+    pi_unknown(c);
+  } else if (rb_ary_entry(r, 0) == sym_forward) {
+    VALUE ref = rb_ary_entry(r, 1);
+    if (!rb_obj_is_kind_of(ref, cRef)) {
+      pi_unknown(c);
+      return c;
+    }
+    rorb_pi_error_forward(c->error, OBJ(ref));
+    c->st = RORB_SYSTEM_EXCEPTION;
+  } else if (RARRAY_LEN(r) >= 4) {
+    VALUE id = rb_ary_entry(r, 1);
+    if (!RB_TYPE_P(id, T_STRING)) {
+      pi_unknown(c);
+      return c;
+    }
+    rorb_pi_error_system(c->error, RSTRING_PTR(id), (size_t)RSTRING_LEN(id),
+                         NUM2UINT(rb_ary_entry(r, 2)), NUM2UINT(rb_ary_entry(r, 3)));
+    c->st = RORB_SYSTEM_EXCEPTION;
+  } else {
+    pi_unknown(c);
+  }
+  return c;
+}
+
+static rorb_status pi_run(void* self, const char* point, VALUE* klass, const void* info,
+                          rorb_pi_error* error) {
+  struct pi_point c;
+  memset(&c, 0, sizeof c);
+  c.h = self;
+  c.point = point;
+  c.klass = klass;
+  c.info = (void*)info;
+  c.error = error;
+  c.st = RORB_OK;
+  c.info_v = Qnil;
+  with_gvl(pi_point_gvl, &c);
+  return c.st;
+}
+
+static VALUE pi_destroy_body(VALUE obj) { return rb_funcall(mPI, id_destroy_interceptor, 1, obj); }
+static void* pi_destroy_gvl(void* p) {
+  int state = 0;
+  rb_protect(pi_destroy_body, ((host*)p)->obj, &state);
+  if (state) rb_set_errinfo(Qnil);
+  return p;
+}
+static void pi_destroy(void* self) { with_gvl(pi_destroy_gvl, self); }
+
+#define PI_POINT(fn, name, T, klass)                                     \
+  static rorb_status fn(void* self, const T* ri, rorb_pi_error* error) { \
+    return pi_run(self, name, &klass, ri, error);                        \
+  }
+PI_POINT(pi_send_request, "send_request", rorb_client_request_info, cCRInfo)
+PI_POINT(pi_receive_reply, "receive_reply", rorb_client_request_info, cCRInfo)
+PI_POINT(pi_receive_exception, "receive_exception", rorb_client_request_info, cCRInfo)
+PI_POINT(pi_receive_other, "receive_other", rorb_client_request_info, cCRInfo)
+PI_POINT(pi_receive_request_service_contexts, "receive_request_service_contexts",
+         rorb_server_request_info, cSRInfo)
+PI_POINT(pi_receive_request, "receive_request", rorb_server_request_info, cSRInfo)
+PI_POINT(pi_send_reply, "send_reply", rorb_server_request_info, cSRInfo)
+PI_POINT(pi_send_exception, "send_exception", rorb_server_request_info, cSRInfo)
+PI_POINT(pi_send_other, "send_other", rorb_server_request_info, cSRInfo)
+PI_POINT(pi_establish_components, "establish_components", rorb_ior_info, cIORInfo)
+
+static rorb_status pi_pre_init(void* self, rorb_orb_init_info* info, rorb_pi_error* error) {
+  return pi_run(self, "pre_init", &cInitInfo, info, error);
+}
+static rorb_status pi_post_init(void* self, rorb_orb_init_info* info, rorb_pi_error* error) {
+  return pi_run(self, "post_init", &cInitInfo, info, error);
+}
+
+static const rorb_client_interceptor_vtable client_interceptor_vtable = {
+    pi_send_request, pi_receive_reply, pi_receive_exception, pi_receive_other,
+    pi_destroy,      pi_add_ref,       pi_remove_ref};
+static const rorb_server_interceptor_vtable server_interceptor_vtable = {
+    pi_receive_request_service_contexts, pi_receive_request, pi_send_reply, pi_send_exception,
+    pi_send_other, pi_destroy, pi_add_ref, pi_remove_ref};
+static const rorb_ior_interceptor_vtable ior_interceptor_vtable = {
+    pi_establish_components, pi_destroy, pi_add_ref, pi_remove_ref};
+static const rorb_orb_initializer_vtable orb_initializer_vtable = {pi_pre_init, pi_post_init,
+                                                                   pi_add_ref, pi_remove_ref};
+
+/* Native.register_orb_initializer(obj). */
+static VALUE native_register_orb_initializer(VALUE self, VALUE obj) {
+  host* h = host_retain(obj);
+  (void)self;
+  rorb_register_orb_initializer(h, &orb_initializer_vtable);
+  host_release(h);
+  return Qnil;
+}
+
+/* Native.orb_init_pi(args, orb_id, initializers): [orb, args left], an ORB
+   of its own with these initializers too (rorb_orb_init_pi). */
+static VALUE native_orb_init_pi(VALUE self, VALUE args, VALUE orb_id, VALUE inits) {
+  long n, i, k;
+  int argc;
+  char** argv;
+  rorb_orb* orb = NULL;
+  rorb_orb_initializer* entries;
+  VALUE rest, strs;
+  rorb_exception exc;
+  rorb_status st;
+  (void)self;
+  Check_Type(args, T_ARRAY);
+  Check_Type(inits, T_ARRAY);
+  orb_id = utf8_arg(orb_id);
+  n = RARRAY_LEN(args);
+  strs = rb_ary_new_capa(n);
+  argv = ALLOCA_N(char*, n + 1);
+  for (i = 0; i < n; ++i) {
+    VALUE s = rb_str_dup(utf8_arg(rb_ary_entry(args, i)));
+    rb_ary_push(strs, s);
+    argv[i] = StringValueCStr(s);
+  }
+  argv[n] = NULL;
+  argc = (int)n;
+  k = RARRAY_LEN(inits);
+  entries = ALLOCA_N(rorb_orb_initializer, k + 1);
+  for (i = 0; i < k; ++i) {
+    entries[i].self = host_retain(rb_ary_entry(inits, i));
+    entries[i].vtable = &orb_initializer_vtable;
+  }
+  memset(&exc, 0, sizeof exc);
+  st = rorb_orb_init_pi(&argc, argv, RSTRING_PTR(orb_id), (size_t)RSTRING_LEN(orb_id), entries,
+                        (size_t)k, &orb, &exc);
+  for (i = 0; i < k; ++i) host_release(entries[i].self);
+  if (st != RORB_OK) raise_status(st, &exc);
+  rest = rb_ary_new_capa(argc);
+  for (i = 0; i < argc; ++i) rb_ary_push(rest, rb_utf8_str_new_cstr(argv[i]));
+  RB_GC_GUARD(strs);
+  RB_GC_GUARD(orb_id);
+  RB_GC_GUARD(inits);
+  return rb_assoc_new(W_ORB(orb), rest);
+}
+
+/* --- the each callbacks (called on this thread, with the GVL) ------------------------- */
+
+static void pi_each_string(void* ctx, const char* s, size_t len) {
+  rb_ary_push(*(VALUE*)ctx, utf8(s, len));
+}
+static void pi_each_component(void* ctx, uint32_t tag, const uint8_t* data, size_t len) {
+  rb_ary_push(*(VALUE*)ctx, rb_assoc_new(UINT2NUM(tag), rb_str_new((const char*)data, (long)len)));
+}
+static void pi_each_parameter(void* ctx, rorb_any* any, uint32_t mode) {
+  rb_ary_push(*(VALUE*)ctx, rb_assoc_new(W_ANY(any), UINT2NUM(mode)));
+}
+static void pi_each_typecode(void* ctx, rorb_typecode* tc) { rb_ary_push(*(VALUE*)ctx, W_TC(tc)); }
+
+static VALUE utf8_bytes(rorb_bytes b) { return rb_enc_associate(bytes_str(b), rb_utf8_encoding()); }
+
+/* --- RequestInfo: what ClientRequestInfo (cri) and ServerRequestInfo (sri) share --- */
+
+#define RI_COMMON(P, R)                                                                  \
+  static VALUE P##_request_id(VALUE self) { return UINT2NUM(rorb_##P##_request_id(R(self))); } \
+  static VALUE P##_operation(VALUE self) {                                               \
+    size_t len = 0;                                                                      \
+    const char* s = rorb_##P##_operation(R(self), &len);                                 \
+    return utf8(s, len);                                                                 \
+  }                                                                                      \
+  static VALUE P##_response_expected(VALUE self) {                                       \
+    return rorb_##P##_response_expected(R(self)) ? Qtrue : Qfalse;                       \
+  }                                                                                      \
+  static VALUE P##_sync_scope(VALUE self) { return INT2FIX(rorb_##P##_sync_scope(R(self))); } \
+  static VALUE P##_reply_status(VALUE self) {                                            \
+    int16_t s = 0;                                                                       \
+    CHECK(rorb_##P##_reply_status(R(self), &s, EXC));                                    \
+    return INT2FIX(s);                                                                   \
+  }                                                                                      \
+  static VALUE P##_forward_reference(VALUE self) {                                       \
+    rorb_object* o = NULL;                                                               \
+    CHECK(rorb_##P##_forward_reference(R(self), &o, EXC));                               \
+    return W_OBJ(o);                                                                     \
+  }                                                                                      \
+  static VALUE P##_get_slot(VALUE self, VALUE id) {                                      \
+    rorb_any* a = NULL;                                                                  \
+    CHECK(rorb_##P##_get_slot(R(self), NUM2UINT(id), &a, EXC));                          \
+    return W_ANY(a);                                                                     \
+  }                                                                                      \
+  static VALUE P##_get_request_service_context(VALUE self, VALUE id) {                   \
+    rorb_bytes b;                                                                        \
+    memset(&b, 0, sizeof b);                                                             \
+    CHECK(rorb_##P##_get_request_service_context(R(self), NUM2UINT(id), &b, EXC));       \
+    return bytes_str(b);                                                                 \
+  }                                                                                      \
+  static VALUE P##_get_reply_service_context(VALUE self, VALUE id) {                     \
+    rorb_bytes b;                                                                        \
+    memset(&b, 0, sizeof b);                                                             \
+    CHECK(rorb_##P##_get_reply_service_context(R(self), NUM2UINT(id), &b, EXC));         \
+    return bytes_str(b);                                                                 \
+  }                                                                                      \
+  static VALUE P##_arguments(VALUE self) {                                               \
+    VALUE r = rb_ary_new();                                                              \
+    CHECK(rorb_##P##_arguments(R(self), &r, pi_each_parameter, EXC));                    \
+    return r;                                                                            \
+  }                                                                                      \
+  static VALUE P##_exceptions(VALUE self) {                                              \
+    VALUE r = rb_ary_new();                                                              \
+    CHECK(rorb_##P##_exceptions(R(self), &r, pi_each_typecode, EXC));                    \
+    return r;                                                                            \
+  }                                                                                      \
+  static VALUE P##_result(VALUE self) {                                                  \
+    rorb_any* a = NULL;                                                                  \
+    CHECK(rorb_##P##_result(R(self), &a, EXC));                                          \
+    return W_ANY(a);                                                                     \
+  }
+
+RI_COMMON(cri, CRI)
+RI_COMMON(sri, SRI)
+
+static VALUE cri_target(VALUE self) { return W_OBJ(rorb_cri_target(CRI(self))); }
+static VALUE cri_effective_target(VALUE self) { return W_OBJ(rorb_cri_effective_target(CRI(self))); }
+static VALUE cri_effective_profile(VALUE self) {
+  rorb_bytes b;
+  uint32_t tag;
+  memset(&b, 0, sizeof b);
+  tag = rorb_cri_effective_profile(CRI(self), &b);
+  return rb_assoc_new(UINT2NUM(tag), bytes_str(b));
+}
+static VALUE cri_received_exception(VALUE self) {
+  rorb_any* a = NULL;
+  CHECK(rorb_cri_received_exception(CRI(self), &a, EXC));
+  return W_ANY(a);
+}
+static VALUE cri_received_exception_id(VALUE self) {
+  rorb_bytes b;
+  memset(&b, 0, sizeof b);
+  CHECK(rorb_cri_received_exception_id(CRI(self), &b, EXC));
+  return utf8_bytes(b);
+}
+static VALUE cri_get_effective_component(VALUE self, VALUE tag) {
+  rorb_bytes b;
+  memset(&b, 0, sizeof b);
+  CHECK(rorb_cri_get_effective_component(CRI(self), NUM2UINT(tag), &b, EXC));
+  return bytes_str(b);
+}
+static VALUE cri_get_effective_components(VALUE self, VALUE tag) {
+  VALUE r = rb_ary_new();
+  CHECK(rorb_cri_get_effective_components(CRI(self), NUM2UINT(tag), &r, pi_each_component, EXC));
+  return r;
+}
+/* The raw value of the policy, or nil. */
+static VALUE cri_get_request_policy(VALUE self, VALUE type) {
+  int32_t found = 0;
+  uint64_t raw = 0;
+  CHECK(rorb_cri_get_request_policy(CRI(self), NUM2UINT(type), &found, &raw, EXC));
+  return found ? ULL2NUM(raw) : Qnil;
+}
+static VALUE cri_add_request_service_context(VALUE self, VALUE id, VALUE data, VALUE replace) {
+  StringValue(data);
+  CHECK(rorb_cri_add_request_service_context(CRI(self), NUM2UINT(id),
+                                             (const uint8_t*)RSTRING_PTR(data),
+                                             (size_t)RSTRING_LEN(data), RTEST(replace), EXC));
+  RB_GC_GUARD(data);
+  return Qnil;
+}
+
+static VALUE sri_set_slot(VALUE self, VALUE id, VALUE any) {
+  CHECK(rorb_sri_set_slot(SRI(self), NUM2UINT(id), ANY(any), EXC));
+  return Qnil;
+}
+static VALUE sri_add_reply_service_context(VALUE self, VALUE id, VALUE data, VALUE replace) {
+  StringValue(data);
+  CHECK(rorb_sri_add_reply_service_context(SRI(self), NUM2UINT(id),
+                                           (const uint8_t*)RSTRING_PTR(data),
+                                           (size_t)RSTRING_LEN(data), RTEST(replace), EXC));
+  RB_GC_GUARD(data);
+  return Qnil;
+}
+static VALUE sri_sending_exception(VALUE self) {
+  rorb_any* a = NULL;
+  CHECK(rorb_sri_sending_exception(SRI(self), &a, EXC));
+  return W_ANY(a);
+}
+static VALUE sri_sending_exception_id(VALUE self) {
+  rorb_bytes b;
+  memset(&b, 0, sizeof b);
+  CHECK(rorb_sri_sending_exception_id(SRI(self), &b, EXC));
+  return utf8_bytes(b);
+}
+static VALUE sri_object_id(VALUE self) {
+  rorb_bytes b;
+  memset(&b, 0, sizeof b);
+  CHECK(rorb_sri_object_id(SRI(self), &b, EXC));
+  return bytes_str(b);
+}
+static VALUE sri_adapter_id(VALUE self) {
+  rorb_bytes b;
+  memset(&b, 0, sizeof b);
+  CHECK(rorb_sri_adapter_id(SRI(self), &b, EXC));
+  return bytes_str(b);
+}
+static VALUE sri_adapter_name(VALUE self) {
+  VALUE r = rb_ary_new();
+  CHECK(rorb_sri_adapter_name(SRI(self), &r, pi_each_string, EXC));
+  return r;
+}
+static VALUE sri_orb_id(VALUE self) {
+  size_t len = 0;
+  const char* s = rorb_sri_orb_id(SRI(self), &len);
+  return utf8(s, len);
+}
+static VALUE sri_server_id(VALUE self) {
+  size_t len = 0;
+  const char* s = rorb_sri_server_id(SRI(self), &len);
+  return utf8(s, len);
+}
+static VALUE sri_target_most_derived_interface(VALUE self) {
+  rorb_bytes b;
+  memset(&b, 0, sizeof b);
+  CHECK(rorb_sri_target_most_derived_interface(SRI(self), &b, EXC));
+  return utf8_bytes(b);
+}
+static VALUE sri_target_is_a(VALUE self, VALUE id) {
+  int32_t is_a = 0;
+  id = utf8_arg(id);
+  CHECK(rorb_sri_target_is_a(SRI(self), RSTRING_PTR(id), (size_t)RSTRING_LEN(id), &is_a, EXC));
+  RB_GC_GUARD(id);
+  return is_a ? Qtrue : Qfalse;
+}
+static VALUE sri_get_server_policy(VALUE self, VALUE type) {
+  uint64_t raw = 0;
+  CHECK(rorb_sri_get_server_policy(SRI(self), NUM2UINT(type), &raw, EXC));
+  return ULL2NUM(raw);
+}
+
+/* --- IORInfo ------------------------------------------------------------------------ */
+
+static VALUE iori_get_effective_policy(VALUE self, VALUE type) {
+  uint64_t raw = 0;
+  CHECK(rorb_ior_info_get_effective_policy(IORI(self), NUM2UINT(type), &raw, EXC));
+  return ULL2NUM(raw);
+}
+static VALUE iori_adapter_name(VALUE self) {
+  VALUE r = rb_ary_new();
+  rorb_ior_info_adapter_name(IORI(self), &r, pi_each_string);
+  return r;
+}
+static VALUE iori_add_ior_component(VALUE self, VALUE tag, VALUE data) {
+  StringValue(data);
+  rorb_ior_info_add_ior_component(IORI(self), NUM2UINT(tag), (const uint8_t*)RSTRING_PTR(data),
+                                  (size_t)RSTRING_LEN(data));
+  RB_GC_GUARD(data);
+  return Qnil;
+}
+static VALUE iori_add_ior_component_to_profile(VALUE self, VALUE tag, VALUE data, VALUE profile) {
+  StringValue(data);
+  CHECK(rorb_ior_info_add_ior_component_to_profile(IORI(self), NUM2UINT(tag),
+                                                   (const uint8_t*)RSTRING_PTR(data),
+                                                   (size_t)RSTRING_LEN(data), NUM2UINT(profile),
+                                                   EXC));
+  RB_GC_GUARD(data);
+  return Qnil;
+}
+
+/* --- ORBInitInfo ---------------------------------------------------------------------- */
+
+static VALUE initi_arguments(VALUE self) {
+  VALUE r = rb_ary_new();
+  rorb_init_info_arguments(INITI(self), &r, pi_each_string);
+  return r;
+}
+static VALUE initi_orb_id(VALUE self) {
+  size_t len = 0;
+  const char* s = rorb_init_info_orb_id(INITI(self), &len);
+  return utf8(s, len);
+}
+static VALUE initi_orb(VALUE self) { return W_ORB(rorb_init_info_orb(INITI(self))); }
+static VALUE initi_register_initial_reference(VALUE self, VALUE name, VALUE obj) {
+  name = utf8_arg(name);
+  CHECK(rorb_init_info_register_initial_reference(INITI(self), RSTRING_PTR(name),
+                                                  (size_t)RSTRING_LEN(name), unwrap_opt(obj, cRef),
+                                                  EXC));
+  RB_GC_GUARD(name);
+  return Qnil;
+}
+static VALUE initi_resolve_initial_references(VALUE self, VALUE name) {
+  rorb_object* o = NULL;
+  name = utf8_arg(name);
+  CHECK(rorb_init_info_resolve_initial_references(INITI(self), RSTRING_PTR(name),
+                                                  (size_t)RSTRING_LEN(name), &o, EXC));
+  RB_GC_GUARD(name);
+  return W_OBJ(o);
+}
+
+/* add_*_interceptor(name, obj): RORB_DUPLICATE_NAME raises the local
+   exception 22. */
+#define INIT_ADD(fn, cfn, vt)                                                                 \
+  static VALUE fn(VALUE self, VALUE name, VALUE obj) {                                       \
+    host* h;                                                                                 \
+    rorb_exception exc;                                                                      \
+    rorb_status st;                                                                          \
+    rorb_orb_init_info* info = INITI(self);                                                  \
+    name = utf8_arg(name);                                                                   \
+    h = host_retain(obj);                                                                    \
+    memset(&exc, 0, sizeof exc);                                                             \
+    st = cfn(info, RSTRING_PTR(name), (size_t)RSTRING_LEN(name), h, &vt, &exc);              \
+    host_release(h);                                                                         \
+    RB_GC_GUARD(name);                                                                       \
+    if (st != RORB_OK) raise_status(st, &exc);                                               \
+    return Qnil;                                                                             \
+  }
+INIT_ADD(initi_add_client_request_interceptor, rorb_init_info_add_client_request_interceptor,
+         client_interceptor_vtable)
+INIT_ADD(initi_add_server_request_interceptor, rorb_init_info_add_server_request_interceptor,
+         server_interceptor_vtable)
+INIT_ADD(initi_add_ior_interceptor, rorb_init_info_add_ior_interceptor, ior_interceptor_vtable)
+
+static VALUE initi_allocate_slot_id(VALUE self) {
+  return UINT2NUM(rorb_init_info_allocate_slot_id(INITI(self)));
+}
+static VALUE initi_pi_current(VALUE self) {
+  return wrap(cPICurrent, rorb_init_info_pi_current(INITI(self)), rel_pi_current);
+}
+static VALUE initi_create_codec(VALUE self, VALUE format, VALUE major, VALUE minor) {
+  rorb_codec* c = NULL;
+  CHECK(rorb_init_info_create_codec(INITI(self), (int16_t)NUM2INT(format), (uint8_t)NUM2UINT(major),
+                                    (uint8_t)NUM2UINT(minor), &c, EXC));
+  return wrap(cCodec, c, rel_codec);
+}
+
+/* --- PICurrent and the codecs --------------------------------------------------------- */
+
+static VALUE orb_pi_current(VALUE self) {
+  return wrap(cPICurrent, rorb_orb_pi_current(ORB(self)), rel_pi_current);
+}
+
+/* The slots are per thread: in an upcall, those of the thread rustorb runs
+   it on (at_home). */
+struct slot_call {
+  rorb_pi_current* current;
+  uint32_t id;
+  rorb_any* any;
+  int set;
+  rorb_status st;
+  rorb_exception exc;
+};
+static void* slot_nogvl(void* p) {
+  struct slot_call* c = p;
+  c->st = c->set ? rorb_pi_current_set_slot(c->current, c->id, c->any, &c->exc)
+                 : rorb_pi_current_get_slot(c->current, c->id, &c->any, &c->exc);
+  return NULL;
+}
+static VALUE picur_get_slot(VALUE self, VALUE id) {
+  struct slot_call c;
+  memset(&c, 0, sizeof c);
+  c.current = PICUR(self);
+  c.id = NUM2UINT(id);
+  at_home(slot_nogvl, &c);
+  if (c.st != RORB_OK) raise_status(c.st, &c.exc);
+  return W_ANY(c.any);
+}
+static VALUE picur_set_slot(VALUE self, VALUE id, VALUE any) {
+  struct slot_call c;
+  memset(&c, 0, sizeof c);
+  c.current = PICUR(self);
+  c.id = NUM2UINT(id);
+  c.any = ANY(any);
+  c.set = 1;
+  at_home(slot_nogvl, &c);
+  RB_GC_GUARD(any);
+  if (c.st != RORB_OK) raise_status(c.st, &c.exc);
+  return Qnil;
+}
+
+static VALUE orb_create_codec(VALUE self, VALUE format, VALUE major, VALUE minor) {
+  rorb_codec* c = NULL;
+  CHECK(rorb_orb_create_codec(ORB(self), (int16_t)NUM2INT(format), (uint8_t)NUM2UINT(major),
+                              (uint8_t)NUM2UINT(minor), &c, EXC));
+  return wrap(cCodec, c, rel_codec);
+}
+static VALUE codec_encode(VALUE self, VALUE any, VALUE value_only) {
+  rorb_bytes b;
+  memset(&b, 0, sizeof b);
+  CHECK(rorb_codec_encode(CODEC(self), ANY(any), RTEST(value_only), &b, EXC));
+  return bytes_str(b);
+}
+static VALUE codec_decode(VALUE self, VALUE data, VALUE tc) {
+  rorb_any* a = NULL;
+  StringValue(data);
+  CHECK(rorb_codec_decode(CODEC(self), (const uint8_t*)RSTRING_PTR(data), (size_t)RSTRING_LEN(data),
+                          NIL_P(tc) ? NULL : TC(tc), &a, EXC));
+  RB_GC_GUARD(data);
+  return W_ANY(a);
+}
+
+static VALUE pi_class(const char* name) {
+  VALUE k = rb_define_class_under(mNative, name, rb_cObject);
+  rb_undef_alloc_func(k);
+  return k;
+}
+
+static void init_pi(void) {
+  id_point = rb_intern("point");
+  id_destroy_interceptor = rb_intern("destroy_interceptor");
+  sym_system = ID2SYM(rb_intern("system"));
+  mPI = rb_define_module_under(mRustorb, "PI");
+  SDEF(mNative, "register_orb_initializer", native_register_orb_initializer, 1);
+  SDEF(mNative, "orb_init_pi", native_orb_init_pi, 3);
+  DEF(cORB, "pi_current", orb_pi_current, 0);
+  DEF(cORB, "create_codec", orb_create_codec, 3);
+
+#define RI_DEFS(k, P)                                                                    \
+  DEF(k, "request_id", P##_request_id, 0);                                               \
+  DEF(k, "operation", P##_operation, 0);                                                 \
+  DEF(k, "response_expected", P##_response_expected, 0);                                 \
+  DEF(k, "sync_scope", P##_sync_scope, 0);                                               \
+  DEF(k, "reply_status", P##_reply_status, 0);                                           \
+  DEF(k, "forward_reference", P##_forward_reference, 0);                                 \
+  DEF(k, "get_slot", P##_get_slot, 1);                                                   \
+  DEF(k, "get_request_service_context", P##_get_request_service_context, 1);             \
+  DEF(k, "get_reply_service_context", P##_get_reply_service_context, 1);                 \
+  DEF(k, "arguments", P##_arguments, 0);                                                 \
+  DEF(k, "exceptions", P##_exceptions, 0);                                               \
+  DEF(k, "result", P##_result, 0)
+  cCRInfo = pi_class("ClientRequestInfo");
+  RI_DEFS(cCRInfo, cri);
+  DEF(cCRInfo, "target", cri_target, 0);
+  DEF(cCRInfo, "effective_target", cri_effective_target, 0);
+  DEF(cCRInfo, "effective_profile", cri_effective_profile, 0);
+  DEF(cCRInfo, "received_exception", cri_received_exception, 0);
+  DEF(cCRInfo, "received_exception_id", cri_received_exception_id, 0);
+  DEF(cCRInfo, "get_effective_component", cri_get_effective_component, 1);
+  DEF(cCRInfo, "get_effective_components", cri_get_effective_components, 1);
+  DEF(cCRInfo, "get_request_policy", cri_get_request_policy, 1);
+  DEF(cCRInfo, "add_request_service_context", cri_add_request_service_context, 3);
+
+  cSRInfo = pi_class("ServerRequestInfo");
+  RI_DEFS(cSRInfo, sri);
+  DEF(cSRInfo, "set_slot", sri_set_slot, 2);
+  DEF(cSRInfo, "add_reply_service_context", sri_add_reply_service_context, 3);
+  DEF(cSRInfo, "sending_exception", sri_sending_exception, 0);
+  DEF(cSRInfo, "sending_exception_id", sri_sending_exception_id, 0);
+  DEF(cSRInfo, "object_id", sri_object_id, 0);
+  DEF(cSRInfo, "adapter_id", sri_adapter_id, 0);
+  DEF(cSRInfo, "adapter_name", sri_adapter_name, 0);
+  DEF(cSRInfo, "orb_id", sri_orb_id, 0);
+  DEF(cSRInfo, "server_id", sri_server_id, 0);
+  DEF(cSRInfo, "target_most_derived_interface", sri_target_most_derived_interface, 0);
+  DEF(cSRInfo, "target_is_a", sri_target_is_a, 1);
+  DEF(cSRInfo, "get_server_policy", sri_get_server_policy, 1);
+#undef RI_DEFS
+
+  cIORInfo = pi_class("IORInfo");
+  DEF(cIORInfo, "get_effective_policy", iori_get_effective_policy, 1);
+  DEF(cIORInfo, "adapter_name", iori_adapter_name, 0);
+  DEF(cIORInfo, "add_ior_component", iori_add_ior_component, 2);
+  DEF(cIORInfo, "add_ior_component_to_profile", iori_add_ior_component_to_profile, 3);
+
+  cInitInfo = pi_class("ORBInitInfo");
+  DEF(cInitInfo, "arguments", initi_arguments, 0);
+  DEF(cInitInfo, "orb_id", initi_orb_id, 0);
+  DEF(cInitInfo, "orb", initi_orb, 0);
+  DEF(cInitInfo, "register_initial_reference", initi_register_initial_reference, 2);
+  DEF(cInitInfo, "resolve_initial_references", initi_resolve_initial_references, 1);
+  DEF(cInitInfo, "add_client_request_interceptor", initi_add_client_request_interceptor, 2);
+  DEF(cInitInfo, "add_server_request_interceptor", initi_add_server_request_interceptor, 2);
+  DEF(cInitInfo, "add_ior_interceptor", initi_add_ior_interceptor, 2);
+  DEF(cInitInfo, "allocate_slot_id", initi_allocate_slot_id, 0);
+  DEF(cInitInfo, "pi_current", initi_pi_current, 0);
+  DEF(cInitInfo, "create_codec", initi_create_codec, 3);
+
+  cPICurrent = pi_class("PICurrent");
+  DEF(cPICurrent, "get_slot", picur_get_slot, 1);
+  DEF(cPICurrent, "set_slot", picur_set_slot, 2);
+
+  cCodec = pi_class("Codec");
+  DEF(cCodec, "encode", codec_encode, 2);
+  DEF(cCodec, "decode", codec_decode, 2);
 }
 
 /* Rustorb::Native.upcall_thread: an Integer that names the native thread
@@ -3124,6 +3777,7 @@ void Init_rustorb_ext(void) {
   init_dynany();
   init_dii();
   init_managers();
+  init_pi();
   main_pthread = pthread_self();
   rb_define_singleton_method(mNative, "upcall_thread", RUBY_METHOD_FUNC(native_upcall_thread), 0);
   rb_define_singleton_method(mNative, "main_thread", RUBY_METHOD_FUNC(native_main_thread), 0);

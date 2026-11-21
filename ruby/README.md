@@ -30,7 +30,7 @@ orb.run
 | Path | Contents |
 | --- | --- |
 | `ext/rustorb_ext/` | the extension: the ABI handles, the CDR streams, the GVL and the threads that serve requests |
-| `lib/rustorb/` | the mapping: exceptions, TypeCode, marshalling, Any, Object and stubs, ORB, PortableServer |
+| `lib/rustorb/` | the mapping: exceptions, TypeCode, marshalling, Any, Object and stubs, ORB, PortableServer, DynAny, the DII and DSI, valuetypes, AMI, Portable Interceptors |
 | `lib/CosNamingC.rb`, `lib/CosNamingS.rb` | CosNaming, generated (`rake cos_naming`) |
 | `test/` | the runtime, the mapping test on `cpp/tests/idl/CxxMapping.idl` and the interop cases against an in-process servant |
 

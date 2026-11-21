@@ -19,6 +19,7 @@ require "rustorb/dii"
 require "rustorb/servant_managers"
 require "rustorb/values"
 require "rustorb/messaging"
+require "rustorb/pi"
 
 module CORBA
   # The names RCLM gives the bases of generated structs and unions.
