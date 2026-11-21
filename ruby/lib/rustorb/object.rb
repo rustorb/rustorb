@@ -205,3 +205,74 @@ module CORBA
     end
   end
 end
+
+module Rustorb
+  # What a local interface module extends itself with: _narrow and friends.
+  module LocalInterfaceModule
+    def _narrow(obj)
+      return nil if obj.nil?
+      return obj if obj.is_a?(self)
+
+      raise CORBA::BAD_PARAM.new("the object is not a #{self::ID}", 0, CORBA::COMPLETED_NO)
+    end
+    alias _unchecked_narrow _narrow
+
+    def _tc
+      @_tc ||= CORBA::TypeCode.create_local_interface_tc(self::ID, name.split("::").last)
+    end
+  end
+end
+
+module CORBA
+  # The base of the implementations of local interfaces: a class derives
+  # from it and includes the interface's module.
+  #
+  #   class MyHook < CORBA::LocalObject
+  #     include App::Hook
+  #     def notify(text) = ...
+  #   end
+  #
+  # A local object is used in this process only: sending it in a call, or
+  # converting it to a string, is MARSHAL (minor 4).
+  class LocalObject < CORBA::Object
+    LOCAL_ID = "IDL:omg.org/CORBA/LocalObject:1.0"
+
+    def _native_ref
+      raise CORBA::MARSHAL.new("#{self.class} is a local object", 4, CORBA::COMPLETED_NO)
+    end
+
+    def _ids
+      ids = self.class.ancestors.filter_map { |k| k::ID if k.const_defined?(:ID, false) }
+      ids + [LOCAL_ID, "IDL:omg.org/CORBA/Object:1.0"]
+    end
+
+    def _is_a?(id) = _ids.include?(id)
+    alias _is_a _is_a?
+
+    def _non_existent? = false
+    alias _non_existent _non_existent?
+
+    def _validate_connection = true
+    def _is_equivalent?(other) = equal?(other)
+    alias _is_equivalent _is_equivalent?
+
+    def _hash(maximum = 2**31 - 1) = object_id % (maximum + 1)
+    def _repository_id = _ids.first
+    def _duplicate = self
+
+    def _call_timeout=(_seconds)
+      raise CORBA::NO_IMPLEMENT.new("a local object has no call timeout", 8, CORBA::COMPLETED_NO)
+    end
+
+    def _call_timeout = nil
+    def _request(_operation) = raise(CORBA::NO_IMPLEMENT.new("the DII on a local object", 4, CORBA::COMPLETED_NO))
+    alias _create_request _request
+
+    def ==(other) = equal?(other)
+    alias eql? ==
+    def hash = object_id.hash
+
+    def inspect = "#<#{self.class.name || 'CORBA::LocalObject'} #{_repository_id}>"
+    alias to_s inspect
+  end
+end

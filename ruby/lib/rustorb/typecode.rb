@@ -245,6 +245,10 @@ module CORBA
       new(Rustorb::Native::TC.interface(TK_OBJREF, id, name))
     end
 
+    def self.create_local_interface_tc(id, name)
+      new(Rustorb::Native::TC.interface(TK_LOCAL_INTERFACE, id, name))
+    end
+
     def self.create_struct_tc(id, name, members)
       make_struct(TK_STRUCT, id, name, members)
     end

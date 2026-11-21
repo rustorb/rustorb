@@ -134,6 +134,8 @@ module Rustorb
         bad("array of #{tc.length} elements expected, got #{n}") unless n == tc.length
         write_elements(out, tc.content_type, v)
       when CORBA::TK_ALIAS then write(out, tc.content_type, v)
+      when CORBA::TK_LOCAL_INTERFACE
+        raise CORBA::MARSHAL.new("#{tc.id} is a local interface", 4, CORBA::COMPLETED_NO)
       when CORBA::TK_OBJREF
         bad("an object reference expected, got #{v.inspect}") unless v.nil? || v.is_a?(CORBA::Object)
         out.write_object(v&._native_ref)
@@ -324,6 +326,8 @@ module Rustorb
       when CORBA::TK_ARRAY then read_elements(inp, tc.content_type, tc.length)
       when CORBA::TK_ALIAS then read(inp, tc.content_type)
       when CORBA::TK_OBJREF then CORBA::Object._from_ref(inp.read_object, tc)
+      when CORBA::TK_LOCAL_INTERFACE
+        raise CORBA::MARSHAL.new("#{tc.id} is a local interface", 4, CORBA::COMPLETED_NO)
       when CORBA::TK_TYPECODE then CORBA::TypeCode._wrap(inp.read_typecode)
       when CORBA::TK_ANY
         native = inp.read_any

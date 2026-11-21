@@ -101,6 +101,7 @@ hello.say("hi")
 - **ORB**：`CORBA.ORB_init(args)` は `-ORB` の引数を `args` から取り除く。ORB はプロセスに1つ。`RootPOA` と `POACurrent` は Ruby のラッパーを返す
 - **DynAny**：`orb.resolve_initial_references("DynAnyFactory")`。`DynamicAny::DynAny`・`DynStruct`・`DynUnion`・`DynEnum`・`DynFixed`・`DynSequence`・`DynArray`・`DynValue`・`DynValueBox` は操作を IDL の名前（`insert_long`、`get_members`、`current_component` など）で持つ。値は Ruby の値、any は `CORBA::Any`、TCKind は `CORBA::TK_` の Integer、`DynFixed#get_value` は String（`set_value` は BigDecimal も受ける）。例外は `DynamicAny::DynAny::InvalidValue`・`TypeMismatch`、`DynAnyFactory::InconsistentTypeCode`、`DynamicAny::MustTruncate`。中身は C 拡張の `Rustorb::Native::DynAny` が `rorb_dynany_*` を包み、値は any で受け渡す
 - **DII / DSI**：`CORBA::Request`（`obj._request(op)`、`_create_request`）・`NVList`・`NamedValue`・`ServerRequest` と `PortableServer::DynamicImplementation`。C 拡張の `Rustorb::Native::Request`・`ServerRequest` が `rorb_request_*`・`rorb_server_request_*` を包む。詳しくは [dii-dsi.md](dii-dsi.md)
+- **local インターフェース**：`-bruby` はモジュール（`ID`、`_tc` は tk_local_interface、入れ子の型と定数）だけを作り、スタブもスケルトンも作らない。実装は `CORBA::LocalObject` を継承してそのモジュールを include し、操作をメソッドで定義する。`_narrow` はそのモジュールを include したオブジェクトをそのまま返し、ほかは `BAD_PARAM`。`_is_a?` は祖先のモジュールの ID と `CORBA::LocalObject`・`CORBA::Object` に答える。呼び出しの引数や any に入れて送ろうとしたり `object_to_string` したりすると `MARSHAL`（minor 4、COMPLETED_NO）
 - **servant manager**：`PortableServer::ServantActivator`（`incarnate`・`etherealize`）、`ServantLocator`（`preinvoke` は `[servant, cookie]` かサーバントだけを返す。`postinvoke` はその cookie を受ける）、`AdapterActivator`（`unknown_adapter`）を継承し、`POA#set_servant_manager`・`the_activator=` で渡す。`PortableServer::ForwardRequest.new(ref)` で別のオブジェクトへ転送する。POA のアップコールのスレッドから GVL を取って呼ぶ。`interop/run-poa-probe.sh rustorbrb` の結果は rustorb のものと同じ
 - **rustorb の拡張**：`CORBA::ORB#call_timeout=`・`CORBA::Object#_call_timeout=`（秒）、`Rustorb::Native` の下の低水準の API
 
@@ -127,7 +128,6 @@ POA・POAManager・Current・ORB・TypeCode の例外は `PortableServer::POA::O
 次のものは [#188](https://github.com/rustorb/rustorb/issues/188) で足す。
 
 - valuetype と abstract interface
-- 生成する local インターフェース
 - Portable Interceptors
 - AMI（`-Wbami`）
 
@@ -139,6 +139,7 @@ POA・POAManager・Current・ORB・TypeCode の例外は `PortableServer::POA::O
   - `test_runtime`：手書きのスタブとスケルトン（`test/demo`）で、呼び出し、例外、any のいろいろな値、POA の操作と例外、Current、スレッドから並行の呼び出しを確かめる
   - `test_idl4`：`cpp/tests/idl/Idl4.idl` の int8・bitmask・bitset・`@default`・`@range` を ORB 越しに確かめる（any の中も）
   - `test_mapping`：他のバインディングと同じ `cpp/tests/idl/CxxMapping.idl` を ORB 越しに確かめる。定数、再帰型、すべての判別子の union、入れ子の型、キーワード、上限と不正な値、fixed と long double、多重継承、TypeCode と any
+  - `test_local`：`LocalTest.idl`（.NET のテストと同じ）の local インターフェースの実装、`_narrow`、TypeCode、送れないこと
   - `test_servant_managers`：servant activator（転送、例外、etherealize）、servant locator（cookie）、adapter activator
   - `test_interop`：相互接続の Ruby クライアントの79ケース（`interop/impls/rustorbrb/lib/cases.rb`）と any スイートのケース（`anytest.rb`）を、同じプロセスのサーバントに向けて流す
   - `test_dynany`：生成した型の DynAny、クラスと例外
