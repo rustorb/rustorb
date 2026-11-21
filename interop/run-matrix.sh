@@ -9,9 +9,9 @@
 # $SERVER_IMPLS. Both default to $IMPLS (omniorbpy, omniorb-cpp and, but for
 # --suite any, jacorb, in the image) plus rustorb, rustorbpy, rustorbcpp and
 # rustorbjava (the Rust, the Python, the C++ and the Java client and server of
-# rustorb) and, for the basic suite, rustorbcs (the .NET client and server)
-# and rustorbc (the C client and server),
-# which are built on the host. rustorbjava-portable (the Java client
+# rustorb) and, for the basic suite, rustorbcs (the .NET client and server),
+# rustorbc (the C client and server) and rustorbrb (the Ruby client and
+# server), which are built on the host (rustorbrb's extension in the image). rustorbjava-portable (the Java client
 # and server on rustorb with JacORB's generated stubs), rustorbpy-dii (the
 # Python client and server through the DII and the DSI), rustorbcpp-dii
 # (the C++ client and server through the DII and the DSI) and
@@ -129,10 +129,10 @@ else
   export INTEROP_UNIX= SERVER_HOSTNAME=server CLIENT_HOSTNAME=client
 fi
 rustorb_impls="rustorb rustorbpy rustorbcpp rustorbjava"
-# The .NET and C bindings have the basic suite only so far (rustorb#186,
-# rustorb#187).
+# The .NET, C and Ruby bindings have the basic suite only so far
+# (rustorb#186, rustorb#187, rustorb#188).
 if [ "$suite" = basic ]; then
-  rustorb_impls+=" rustorbcs rustorbc"
+  rustorb_impls+=" rustorbcs rustorbc rustorbrb"
 fi
 CLIENT_IMPLS="${CLIENT_IMPLS:-$IMPLS $rustorb_impls}"
 SERVER_IMPLS="${SERVER_IMPLS:-$IMPLS $rustorb_impls}"
@@ -212,6 +212,17 @@ for pair in "${pairs[@]}"; do
   case " ${pair%%:*} ${pair##*:} " in
     *" rustorbc "*)
       impls/rustorbc/build.sh
+      break
+      ;;
+  esac
+done
+
+# The rustorb Ruby client and server, with stubs from rustorb-idl -bruby and
+# the extension built in the image.
+for pair in "${pairs[@]}"; do
+  case " ${pair%%:*} ${pair##*:} " in
+    *" rustorbrb "*)
+      IMAGE="$IMAGE" impls/rustorbrb/build.sh
       break
       ;;
   esac

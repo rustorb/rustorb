@@ -50,7 +50,8 @@ jobs:
           java-version: "25"
       # The .NET SDK for the rustorb .NET client and server
       # (impls/rustorbcs/build.sh); the image runs them on its .NET 8
-      # runtime. -bcsharp and -bc (impls/rustorbc/build.sh) are not in a
+      # runtime. -bcsharp, -bc (impls/rustorbc/build.sh) and -bruby
+      # (impls/rustorbrb/build.sh) are not in a
       # release of rustorb-idl yet: the checkout of the commit that has them,
       # until rustorb-idl 0.5.0 (#189).
       - uses: actions/setup-dotnet@v4
@@ -59,7 +60,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: rustorb/rustorb-idl
-          ref: cedd0670c5f33f87ed136c267fdd81c502bcaa5e
+          ref: 456f4fef83df76b2f7a719585d30580c063716f9
           path: rustorb-idl
 
       # omniORB and omniORBpy are built from source; the GitHub Actions cache
@@ -85,6 +86,7 @@ jobs:
           IMAGE=rustorb-interop-omniorb:latest interop/impls/rustorbjava-portable/build.sh
           RUSTORB_IDL_DIR="$GITHUB_WORKSPACE/rustorb-idl" interop/impls/rustorbcs/build.sh
           RUSTORB_IDL_DIR="$GITHUB_WORKSPACE/rustorb-idl" interop/impls/rustorbc/build.sh
+          IMAGE=rustorb-interop-omniorb:latest RUSTORB_IDL_DIR="$GITHUB_WORKSPACE/rustorb-idl" interop/impls/rustorbrb/build.sh
           echo INTEROP_PREBUILT=1 >> "$GITHUB_ENV"
 
       - name: Run the client / server matrix

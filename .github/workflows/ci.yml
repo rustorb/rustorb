@@ -238,6 +238,40 @@ jobs:
       - run: cmake --build build/c
       - run: ctest --test-dir build/c --output-on-failure
 
+  ruby:
+    name: Ruby (the OMG Ruby mapping on rustorb-ffi and rustorb-idl -bruby)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, ruby: "3.0" }
+          - { os: ubuntu-latest, ruby: "3.4" }
+          - { os: macos-latest, ruby: "3.4" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # -bruby is not in a release of rustorb-idl yet: the commit that has it,
+      # until rustorb-idl 0.5.0 (#189) and tools/rustorb-idl.txt.
+      - run: >
+          pip install idl_parser==0.6.2
+          "rustorb-idl @ git+https://github.com/rustorb/rustorb-idl@456f4fef83df76b2f7a719585d30580c063716f9#subdirectory=python"
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Builds librustorb_ffi and the extension, generates the test code and
+      # runs ruby/test.
+      - run: rake
+        working-directory: ruby
+      - name: Check that the committed CosNaming code is up to date
+        if: runner.os == 'Linux' && matrix.ruby == '3.4'
+        run: rake cos_naming && git diff --exit-code -- lib
+        working-directory: ruby
+
   docs:
     name: rustdoc
     runs-on: ubuntu-latest

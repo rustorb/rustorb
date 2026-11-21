@@ -1,0 +1,52 @@
+# frozen_string_literal: true
+
+# rake compile: builds librustorb_ffi (cargo) and the rustorb_ext extension
+#   into lib/rustorb/.
+# rake gen: generates the code of the tests (test/gen) and CosNaming
+#   (lib/CosNamingC.rb, lib/CosNamingS.rb) with rustorb-idl -bruby
+#   (RUSTORB_IDL, default "rustorb-idl"; e.g. "python3 -m rustorb_idl").
+# rake test (the default): compile and gen, then the tests.
+
+require "rake/testtask"
+require "rbconfig"
+require "fileutils"
+
+ROOT = File.expand_path("..", __dir__)
+BUILD = File.join(__dir__, "tmp", "ext")
+EXT = File.join(__dir__, "lib", "rustorb", "rustorb_ext.#{RbConfig::CONFIG['DLEXT']}")
+IDL = ENV.fetch("RUSTORB_IDL", "rustorb-idl")
+
+task :cargo do
+  sh "cargo", "build", "--release", "--locked", "-p", "rustorb-ffi", "--manifest-path",
+     File.join(ROOT, "Cargo.toml")
+end
+
+task compile: :cargo do
+  FileUtils.mkdir_p(BUILD)
+  Dir.chdir(BUILD) do
+    ruby File.join(__dir__, "ext", "rustorb_ext", "extconf.rb")
+    sh "make"
+  end
+  FileUtils.cp(File.join(BUILD, "rustorb_ext.#{RbConfig::CONFIG['DLEXT']}"), EXT)
+end
+
+task :gen do
+  gen = File.join(__dir__, "test", "gen")
+  FileUtils.mkdir_p(gen)
+  sh "#{IDL} -bruby -C #{gen} -I#{ROOT}/interop/idl #{ROOT}/cpp/tests/idl/CxxMapping.idl " \
+     "#{ROOT}/interop/idl/InteropTest.idl"
+end
+
+# CosNaming as the gem has it (checked in; CI checks it is up to date).
+task :cos_naming do
+  sh "#{IDL} -bruby -C #{File.join(__dir__, 'lib')} #{ROOT}/tests/mapping/idl/CosNaming.idl"
+end
+
+Rake::TestTask.new(:run_tests) do |t|
+  t.libs = ["lib", "test"]
+  t.test_files = FileList["test/test_*.rb"]
+  t.warning = false
+end
+
+task test: %i[compile gen run_tests]
+task default: :test

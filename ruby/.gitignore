@@ -1,0 +1,4 @@
+/tmp/
+/test/gen/
+/lib/rustorb/rustorb_ext.so
+/lib/rustorb/rustorb_ext.bundle
