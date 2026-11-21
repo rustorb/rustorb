@@ -269,6 +269,25 @@ module CORBA
       Rustorb.register_tc(new(native, members: members, discriminator: discriminator))
     end
 
+    # members: [[name, TypeCode, visibility]] (CORBA::PRIVATE_MEMBER or
+    # PUBLIC_MEMBER); modifier CORBA::VM_NONE, VM_CUSTOM, VM_ABSTRACT or
+    # VM_TRUNCATABLE; base the concrete base type or nil.
+    def self.create_value_tc(id, name, modifier, base, members, kind: TK_VALUE)
+      native = Rustorb::Native::TC.value(kind, id, name, modifier, base&.resolve_for_build,
+                                         members.map(&:first), members.map { |m| m[1].resolve_for_build },
+                                         members.map { |m| m[2] })
+      Rustorb.register_tc(new(native, members: members.map { |m| m[0, 2] }))
+    end
+
+    def self.create_event_tc(id, name, modifier, base, members)
+      create_value_tc(id, name, modifier, base, members, kind: TK_EVENT)
+    end
+
+    def self.create_value_box_tc(id, name, boxed)
+      Rustorb.register_tc(new(Rustorb::Native::TC.alias(TK_VALUE_BOX, id, name, boxed.resolve_for_build),
+                              content: boxed))
+    end
+
     def self.create_enum_tc(id, name, names)
       Rustorb.register_tc(new(Rustorb::Native::TC.enum(id, name, names), members: names))
     end
@@ -306,6 +325,17 @@ module CORBA
 
   NULL_TC_KINDS.each do |name, kind|
     define_singleton_method("_tc_#{name}") { TypeCode.simple(kind) }
+  end
+
+  VM_NONE = 0
+  VM_CUSTOM = 1
+  VM_ABSTRACT = 2
+  VM_TRUNCATABLE = 3
+  PRIVATE_MEMBER = 0
+  PUBLIC_MEMBER = 1
+
+  def self._tc_Principal
+    TypeCode.simple(TK_PRINCIPAL)
   end
 
   def self._tc_int8

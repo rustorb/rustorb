@@ -134,6 +134,50 @@ module AnyCases
     "#{KIND_NAMES.fetch(tc.kind)} #{id}"
   end
 
+  # The get_/insert_ operations of the DynAnys without components, by kind.
+  DYN_BASIC = {
+    CORBA::TK_SHORT => "short", CORBA::TK_LONG => "long", CORBA::TK_USHORT => "ushort",
+    CORBA::TK_ULONG => "ulong", CORBA::TK_FLOAT => "float", CORBA::TK_DOUBLE => "double",
+    CORBA::TK_LONGDOUBLE => "longdouble", CORBA::TK_BOOLEAN => "boolean", CORBA::TK_CHAR => "char",
+    CORBA::TK_OCTET => "octet", CORBA::TK_TYPECODE => "typecode", CORBA::TK_OBJREF => "reference",
+    CORBA::TK_STRING => "string", CORBA::TK_LONGLONG => "longlong", CORBA::TK_ULONGLONG => "ulonglong",
+    CORBA::TK_WCHAR => "wchar", CORBA::TK_WSTRING => "wstring"
+  }.freeze
+
+  # The any a taken apart with a DynAny and built again in a DynAny made
+  # from its TypeCode alone, component by component.
+  def dyn_rebuild(factory, a)
+    src = factory.create_dyn_any(a)
+    dst = factory.create_dyn_any_from_type_code(a._tc)
+    dyn_copy(factory, src, dst)
+    rebuilt = dst.to_any
+    src.destroy
+    dst.destroy
+    rebuilt
+  end
+
+  def dyn_copy(factory, src, dst)
+    k = src.type.unaliased.kind
+    case k
+    when CORBA::TK_STRUCT, CORBA::TK_EXCEPT, CORBA::TK_SEQUENCE, CORBA::TK_ARRAY
+      dst.set_length(src.get_length) if k == CORBA::TK_SEQUENCE
+      src.component_count.times do |i|
+        src.seek(i)
+        dst.seek(i)
+        dyn_copy(factory, src.current_component, dst.current_component)
+      end
+    when CORBA::TK_UNION
+      dst.set_discriminator(src.get_discriminator)
+      dyn_copy(factory, src.member, dst.member) unless src.has_no_active_member
+    when CORBA::TK_ENUM then dst.set_as_ulong(src.get_as_ulong)
+    when CORBA::TK_FIXED then dst.set_value(src.get_value)
+    when CORBA::TK_ANY then dst.insert_any(dyn_rebuild(factory, src.get_any))
+    else
+      op = DYN_BASIC[k]
+      dst.public_send("insert_#{op}", src.public_send("get_#{op}")) if op
+    end
+  end
+
   def run(r, echo)
     expect = lambda do |name, got|
       want = value(name, echo)
@@ -166,6 +210,16 @@ module AnyCases
         got = echo.describe(value(n, echo))
         Cases.check(got == HIDDEN_DESCRIPTION[n], got)
       end
+    end
+    # The values taken apart and built again with DynAny, from their
+    # TypeCodes alone.
+    factory = CORBA.ORB_init([]).resolve_initial_references("DynAnyFactory")
+    NAMES.each do |n|
+      r.case("dyn_check[#{n}]") { Cases.check(echo.check(n, dyn_rebuild(factory, value(n, echo))) == true) }
+      r.case("dyn_make[#{n}]") { expect.call(n, dyn_rebuild(factory, echo.make(n))) }
+    end
+    HIDDEN.each do |n|
+      r.case("dyn_echo[#{n}]") { expect.call(n, echo.echo(dyn_rebuild(factory, value(n, echo)))) }
     end
     r.case("describe[long]") { Cases.check(echo.describe(value("long", echo)) == "long ") }
     r.case("describe[node]") do

@@ -37,6 +37,6 @@ class AnyTest_ < Minitest::Test
     r = Runner.new(out)
     AnyCases.run(r, echo)
     assert_empty r.failed, out.string
-    assert_equal 6 * AnyCases::NAMES.size + 3 + 1 + 2 * AnyCases::HIDDEN.size + 6, r.passed
+    assert_equal 8 * AnyCases::NAMES.size + 3 + 1 + 3 * AnyCases::HIDDEN.size + 6, r.passed
   end
 end

@@ -1066,6 +1066,40 @@ static VALUE tc_struct(VALUE klass, VALUE kind, VALUE id, VALUE name, VALUE name
   return W_TC(tc);
 }
 
+/* TC.value(kind, id, name, modifier, base, names, types, visibilities):
+   a valuetype (TK_VALUE) or eventtype (TK_EVENT); base nil for none. */
+static VALUE tc_value(int argc, VALUE* argv, VALUE klass) {
+  VALUE kind, id, name, modifier, base, names, types, vis;
+  rorb_typecode* tc = NULL;
+  size_t n, i;
+  const char** cn;
+  size_t* cl;
+  const rorb_typecode** ct;
+  int16_t* cv;
+  VALUE keep = rb_ary_new();
+  (void)klass;
+  rb_scan_args(argc, argv, "8", &kind, &id, &name, &modifier, &base, &names, &types, &vis);
+  Check_Type(names, T_ARRAY);
+  Check_Type(types, T_ARRAY);
+  Check_Type(vis, T_ARRAY);
+  n = (size_t)RARRAY_LEN(names);
+  if ((size_t)RARRAY_LEN(types) != n || (size_t)RARRAY_LEN(vis) != n)
+    rb_raise(rb_eArgError, "names, types and visibilities differ in length");
+  cn = ALLOCA_N(const char*, n + 1);
+  cl = ALLOCA_N(size_t, n + 1);
+  ct = ALLOCA_N(const rorb_typecode*, n + 1);
+  cv = ALLOCA_N(int16_t, n + 1);
+  member_arrays(names, types, n, cn, cl, ct, keep);
+  for (i = 0; i < n; i++) cv[i] = (int16_t)NUM2INT(rb_ary_entry(vis, (long)i));
+  id = utf8_arg(id);
+  name = utf8_arg(name);
+  CHECK(rorb_tc_value(NUM2UINT(kind), RSTRING_PTR(id), (size_t)RSTRING_LEN(id), RSTRING_PTR(name),
+                      (size_t)RSTRING_LEN(name), (int16_t)NUM2INT(modifier),
+                      NIL_P(base) ? NULL : TC(base), n, cn, cl, ct, cv, &tc, EXC));
+  RB_GC_GUARD(keep);
+  return W_TC(tc);
+}
+
 static VALUE tc_union(VALUE klass, VALUE id, VALUE name, VALUE disc, VALUE labels,
                       VALUE default_index, VALUE names, VALUE types) {
   rorb_typecode* tc = NULL;
@@ -1771,6 +1805,323 @@ static VALUE native_dispatchers(VALUE self) {
 static const rb_data_type_t registry_type = {
     "rustorb_registry", {registry_mark, NULL, NULL, NULL, {0}}, NULL, NULL, 0};
 
+/* --- DynamicAny ------------------------------------------------------------------------- */
+
+/* Rustorb::Native::DynAny: one rorb_dynany handle. Values go in and out as
+   Rustorb::Native::Any; DynamicAny.rb makes the IDL interfaces. */
+static VALUE cDynAny;
+static void rel_dyn(void* p) { rorb_dynany_release(p); }
+#define W_DYN(p) wrap(cDynAny, (p), rel_dyn)
+#define DYN(v) ((rorb_dynany*)unwrap((v), cDynAny))
+
+static VALUE dyn_create(VALUE klass, VALUE any, VALUE truncate) {
+  rorb_dynany* d = NULL;
+  (void)klass;
+  CHECK(rorb_dynany_create(ANY(any), RTEST(truncate) ? 1 : 0, &d, EXC));
+  return W_DYN(d);
+}
+static VALUE dyn_from_typecode(VALUE klass, VALUE tc) {
+  rorb_dynany* d = NULL;
+  (void)klass;
+  CHECK(rorb_dynany_from_typecode(TC(tc), &d, EXC));
+  return W_DYN(d);
+}
+static VALUE dyn_kind(VALUE self) { return UINT2NUM(rorb_dynany_kind(DYN(self))); }
+static VALUE dyn_same(VALUE self, VALUE other) {
+  return rorb_dynany_same(DYN(self), DYN(other)) ? Qtrue : Qfalse;
+}
+
+#define DYN_TC(name, fn)                       \
+  static VALUE name(VALUE self) {              \
+    rorb_typecode* t = NULL;                   \
+    CHECK(fn(DYN(self), &t, EXC));             \
+    return W_TC(t);                            \
+  }
+#define DYN_ANY(name, fn)                      \
+  static VALUE name(VALUE self) {              \
+    rorb_any* a = NULL;                        \
+    CHECK(fn(DYN(self), &a, EXC));             \
+    return W_ANY(a);                           \
+  }
+#define DYN_DYN(name, fn)                      \
+  static VALUE name(VALUE self) {              \
+    rorb_dynany* d = NULL;                     \
+    CHECK(fn(DYN(self), &d, EXC));             \
+    return W_DYN(d);                           \
+  }
+#define DYN_VOID(name, fn)                     \
+  static VALUE name(VALUE self) {              \
+    CHECK(fn(DYN(self), EXC));                 \
+    return Qnil;                               \
+  }
+#define DYN_BOOL(name, fn)                     \
+  static VALUE name(VALUE self) {              \
+    int32_t b = 0;                             \
+    CHECK(fn(DYN(self), &b, EXC));             \
+    return b ? Qtrue : Qfalse;                 \
+  }
+#define DYN_U32(name, fn)                      \
+  static VALUE name(VALUE self) {              \
+    uint32_t u = 0;                            \
+    CHECK(fn(DYN(self), &u, EXC));             \
+    return UINT2NUM(u);                        \
+  }
+#define DYN_STR(name, fn)                      \
+  static VALUE name(VALUE self) {              \
+    rorb_bytes b;                              \
+    VALUE s;                                   \
+    memset(&b, 0, sizeof b);                   \
+    CHECK(fn(DYN(self), &b, EXC));             \
+    s = utf8((const char*)b.data, b.len);      \
+    rorb_bytes_free(b);                        \
+    return s;                                  \
+  }
+#define DYN_SET_ANY(name, fn)                  \
+  static VALUE name(VALUE self, VALUE a) {     \
+    CHECK(fn(DYN(self), ANY(a), EXC));         \
+    return Qnil;                               \
+  }
+#define DYN_SET_DYN(name, fn)                  \
+  static VALUE name(VALUE self, VALUE d) {     \
+    CHECK(fn(DYN(self), DYN(d), EXC));         \
+    return Qnil;                               \
+  }
+
+DYN_TC(dyn_type, rorb_dynany_type)
+DYN_TC(dyn_target_type, rorb_dynany_target_type)
+DYN_SET_DYN(dyn_assign, rorb_dynany_assign)
+DYN_SET_ANY(dyn_from_any, rorb_dynany_from_any)
+DYN_ANY(dyn_to_any, rorb_dynany_to_any)
+DYN_VOID(dyn_destroy, rorb_dynany_destroy)
+DYN_DYN(dyn_copy, rorb_dynany_copy)
+DYN_SET_DYN(dyn_insert_dyn_any, rorb_dynany_insert_dyn_any)
+DYN_DYN(dyn_get_dyn_any, rorb_dynany_get_dyn_any)
+DYN_VOID(dyn_no_implement, rorb_dynany_no_implement)
+DYN_VOID(dyn_rewind, rorb_dynany_rewind)
+DYN_BOOL(dyn_next, rorb_dynany_next)
+DYN_U32(dyn_component_count, rorb_dynany_component_count)
+DYN_DYN(dyn_current_component, rorb_dynany_current_component)
+DYN_STR(dyn_get_fixed_value, rorb_dynany_get_fixed_value)
+DYN_STR(dyn_get_as_string, rorb_dynany_get_as_string)
+DYN_U32(dyn_get_as_ulong, rorb_dynany_get_as_ulong)
+DYN_STR(dyn_current_member_name, rorb_dynany_current_member_name)
+DYN_U32(dyn_current_member_kind, rorb_dynany_current_member_kind)
+DYN_U32(dyn_member_count, rorb_dynany_member_count)
+DYN_DYN(dyn_get_discriminator, rorb_dynany_get_discriminator)
+DYN_SET_DYN(dyn_set_discriminator, rorb_dynany_set_discriminator)
+DYN_VOID(dyn_set_to_default_member, rorb_dynany_set_to_default_member)
+DYN_VOID(dyn_set_to_no_active_member, rorb_dynany_set_to_no_active_member)
+DYN_BOOL(dyn_has_no_active_member, rorb_dynany_has_no_active_member)
+DYN_U32(dyn_discriminator_kind, rorb_dynany_discriminator_kind)
+DYN_DYN(dyn_member, rorb_dynany_member)
+DYN_STR(dyn_member_name, rorb_dynany_member_name)
+DYN_U32(dyn_member_kind, rorb_dynany_member_kind)
+DYN_U32(dyn_get_length, rorb_dynany_get_length)
+DYN_U32(dyn_element_count, rorb_dynany_element_count)
+DYN_BOOL(dyn_is_null, rorb_dynany_is_null)
+DYN_VOID(dyn_set_to_null, rorb_dynany_set_to_null)
+DYN_VOID(dyn_set_to_value, rorb_dynany_set_to_value)
+DYN_ANY(dyn_get_boxed_value, rorb_dynany_get_boxed_value)
+DYN_SET_ANY(dyn_set_boxed_value, rorb_dynany_set_boxed_value)
+DYN_DYN(dyn_get_boxed_value_as_dyn_any, rorb_dynany_get_boxed_value_as_dyn_any)
+DYN_SET_DYN(dyn_set_boxed_value_as_dyn_any, rorb_dynany_set_boxed_value_as_dyn_any)
+
+static VALUE dyn_equal(VALUE self, VALUE other) {
+  int32_t b = 0;
+  CHECK(rorb_dynany_equal(DYN(self), DYN(other), &b, EXC));
+  return b ? Qtrue : Qfalse;
+}
+static VALUE dyn_insert(VALUE self, VALUE kind, VALUE a) {
+  CHECK(rorb_dynany_insert(DYN(self), NUM2UINT(kind), ANY(a), EXC));
+  return Qnil;
+}
+static VALUE dyn_get(VALUE self, VALUE kind) {
+  rorb_any* a = NULL;
+  CHECK(rorb_dynany_get(DYN(self), NUM2UINT(kind), &a, EXC));
+  return W_ANY(a);
+}
+static VALUE dyn_insert_seq(VALUE self, VALUE kind, VALUE a) {
+  CHECK(rorb_dynany_insert_seq(DYN(self), NUM2UINT(kind), ANY(a), EXC));
+  return Qnil;
+}
+static VALUE dyn_get_seq(VALUE self, VALUE kind) {
+  rorb_any* a = NULL;
+  CHECK(rorb_dynany_get_seq(DYN(self), NUM2UINT(kind), &a, EXC));
+  return W_ANY(a);
+}
+static VALUE dyn_seek(VALUE self, VALUE index) {
+  int32_t b = 0;
+  CHECK(rorb_dynany_seek(DYN(self), NUM2INT(index), &b, EXC));
+  return b ? Qtrue : Qfalse;
+}
+static VALUE dyn_set_fixed_value(VALUE self, VALUE s) {
+  int32_t b = 0;
+  s = utf8_arg(s);
+  CHECK(rorb_dynany_set_fixed_value(DYN(self), RSTRING_PTR(s), (size_t)RSTRING_LEN(s), &b, EXC));
+  RB_GC_GUARD(s);
+  return b ? Qtrue : Qfalse;
+}
+static VALUE dyn_set_as_string(VALUE self, VALUE s) {
+  s = utf8_arg(s);
+  CHECK(rorb_dynany_set_as_string(DYN(self), RSTRING_PTR(s), (size_t)RSTRING_LEN(s), EXC));
+  RB_GC_GUARD(s);
+  return Qnil;
+}
+static VALUE dyn_set_as_ulong(VALUE self, VALUE u) {
+  CHECK(rorb_dynany_set_as_ulong(DYN(self), NUM2UINT(u), EXC));
+  return Qnil;
+}
+static VALUE dyn_set_length(VALUE self, VALUE n) {
+  CHECK(rorb_dynany_set_length(DYN(self), NUM2UINT(n), EXC));
+  return Qnil;
+}
+
+/* [name, DynAny] of member index. */
+static VALUE dyn_member_at(VALUE self, VALUE index) {
+  rorb_bytes b;
+  rorb_dynany* d = NULL;
+  VALUE name;
+  memset(&b, 0, sizeof b);
+  CHECK(rorb_dynany_member_at(DYN(self), NUM2UINT(index), &b, &d, EXC));
+  name = utf8((const char*)b.data, b.len);
+  rorb_bytes_free(b);
+  return rb_assoc_new(name, W_DYN(d));
+}
+static VALUE dyn_element_at(VALUE self, VALUE index) {
+  rorb_dynany* d = NULL;
+  CHECK(rorb_dynany_element_at(DYN(self), NUM2UINT(index), &d, EXC));
+  return W_DYN(d);
+}
+
+/* set_members / set_members_as_dyn_any: names (Strings) and values
+   (Native::Any, or Native::DynAny when dyn). */
+static VALUE dyn_set_members_common(VALUE self, VALUE names, VALUE values, int dyn) {
+  long n, i;
+  const char** cn;
+  size_t* cl;
+  const void** cv;
+  rorb_exception exc;
+  rorb_status st;
+  Check_Type(names, T_ARRAY);
+  Check_Type(values, T_ARRAY);
+  n = RARRAY_LEN(names);
+  if (RARRAY_LEN(values) != n) rb_raise(rb_eArgError, "names and values differ in length");
+  names = rb_ary_dup(names);
+  for (i = 0; i < n; i++) rb_ary_store(names, i, utf8_arg(rb_ary_entry(names, i)));
+  cn = ALLOCA_N(const char*, n ? n : 1);
+  cl = ALLOCA_N(size_t, n ? n : 1);
+  cv = ALLOCA_N(const void*, n ? n : 1);
+  for (i = 0; i < n; i++) {
+    VALUE s = rb_ary_entry(names, i);
+    cn[i] = RSTRING_PTR(s);
+    cl[i] = (size_t)RSTRING_LEN(s);
+    cv[i] = dyn ? (const void*)DYN(rb_ary_entry(values, i)) : (const void*)ANY(rb_ary_entry(values, i));
+  }
+  memset(&exc, 0, sizeof exc);
+  st = dyn ? rorb_dynany_set_members_as_dyn_any(DYN(self), (size_t)n, cn, cl,
+                                                (const rorb_dynany* const*)cv, &exc)
+           : rorb_dynany_set_members(DYN(self), (size_t)n, cn, cl, (const rorb_any* const*)cv, &exc);
+  RB_GC_GUARD(names);
+  RB_GC_GUARD(values);
+  if (st != RORB_OK) raise_status(st, &exc);
+  return Qnil;
+}
+static VALUE dyn_set_members(VALUE self, VALUE names, VALUE values) {
+  return dyn_set_members_common(self, names, values, 0);
+}
+static VALUE dyn_set_members_as_dyn_any(VALUE self, VALUE names, VALUE values) {
+  return dyn_set_members_common(self, names, values, 1);
+}
+
+static VALUE dyn_set_elements_common(VALUE self, VALUE values, int dyn) {
+  long n, i;
+  const void** cv;
+  rorb_exception exc;
+  rorb_status st;
+  Check_Type(values, T_ARRAY);
+  n = RARRAY_LEN(values);
+  cv = ALLOCA_N(const void*, n ? n : 1);
+  for (i = 0; i < n; i++)
+    cv[i] = dyn ? (const void*)DYN(rb_ary_entry(values, i)) : (const void*)ANY(rb_ary_entry(values, i));
+  memset(&exc, 0, sizeof exc);
+  st = dyn ? rorb_dynany_set_elements_as_dyn_any(DYN(self), (size_t)n, (const rorb_dynany* const*)cv, &exc)
+           : rorb_dynany_set_elements(DYN(self), (size_t)n, (const rorb_any* const*)cv, &exc);
+  RB_GC_GUARD(values);
+  if (st != RORB_OK) raise_status(st, &exc);
+  return Qnil;
+}
+static VALUE dyn_set_elements(VALUE self, VALUE values) {
+  return dyn_set_elements_common(self, values, 0);
+}
+static VALUE dyn_set_elements_as_dyn_any(VALUE self, VALUE values) {
+  return dyn_set_elements_common(self, values, 1);
+}
+
+static void init_dynany(void) {
+  cDynAny = rb_define_class_under(mNative, "DynAny", rb_cObject);
+  rb_undef_alloc_func(cDynAny);
+  rb_define_singleton_method(cDynAny, "create", RUBY_METHOD_FUNC(dyn_create), 2);
+  rb_define_singleton_method(cDynAny, "from_type_code", RUBY_METHOD_FUNC(dyn_from_typecode), 1);
+#define D(name, fn, n) rb_define_method(cDynAny, name, RUBY_METHOD_FUNC(fn), n)
+  D("kind", dyn_kind, 0);
+  D("same", dyn_same, 1);
+  D("type", dyn_type, 0);
+  D("target_type", dyn_target_type, 0);
+  D("assign", dyn_assign, 1);
+  D("from_any", dyn_from_any, 1);
+  D("to_any", dyn_to_any, 0);
+  D("equal", dyn_equal, 1);
+  D("destroy", dyn_destroy, 0);
+  D("copy", dyn_copy, 0);
+  D("insert", dyn_insert, 2);
+  D("get", dyn_get, 1);
+  D("insert_seq", dyn_insert_seq, 2);
+  D("get_seq", dyn_get_seq, 1);
+  D("insert_dyn_any", dyn_insert_dyn_any, 1);
+  D("get_dyn_any", dyn_get_dyn_any, 0);
+  D("no_implement", dyn_no_implement, 0);
+  D("seek", dyn_seek, 1);
+  D("rewind", dyn_rewind, 0);
+  D("next", dyn_next, 0);
+  D("component_count", dyn_component_count, 0);
+  D("current_component", dyn_current_component, 0);
+  D("get_fixed_value", dyn_get_fixed_value, 0);
+  D("set_fixed_value", dyn_set_fixed_value, 1);
+  D("get_as_string", dyn_get_as_string, 0);
+  D("set_as_string", dyn_set_as_string, 1);
+  D("get_as_ulong", dyn_get_as_ulong, 0);
+  D("set_as_ulong", dyn_set_as_ulong, 1);
+  D("current_member_name", dyn_current_member_name, 0);
+  D("current_member_kind", dyn_current_member_kind, 0);
+  D("member_count", dyn_member_count, 0);
+  D("member_at", dyn_member_at, 1);
+  D("set_members", dyn_set_members, 2);
+  D("set_members_as_dyn_any", dyn_set_members_as_dyn_any, 2);
+  D("get_discriminator", dyn_get_discriminator, 0);
+  D("set_discriminator", dyn_set_discriminator, 1);
+  D("set_to_default_member", dyn_set_to_default_member, 0);
+  D("set_to_no_active_member", dyn_set_to_no_active_member, 0);
+  D("has_no_active_member", dyn_has_no_active_member, 0);
+  D("discriminator_kind", dyn_discriminator_kind, 0);
+  D("member", dyn_member, 0);
+  D("member_name", dyn_member_name, 0);
+  D("member_kind", dyn_member_kind, 0);
+  D("get_length", dyn_get_length, 0);
+  D("set_length", dyn_set_length, 1);
+  D("element_count", dyn_element_count, 0);
+  D("element_at", dyn_element_at, 1);
+  D("set_elements", dyn_set_elements, 1);
+  D("set_elements_as_dyn_any", dyn_set_elements_as_dyn_any, 1);
+  D("is_null", dyn_is_null, 0);
+  D("set_to_null", dyn_set_to_null, 0);
+  D("set_to_value", dyn_set_to_value, 0);
+  D("get_boxed_value", dyn_get_boxed_value, 0);
+  D("set_boxed_value", dyn_set_boxed_value, 1);
+  D("get_boxed_value_as_dyn_any", dyn_get_boxed_value_as_dyn_any, 0);
+  D("set_boxed_value_as_dyn_any", dyn_set_boxed_value_as_dyn_any, 1);
+#undef D
+}
+
 #define DEF(klass, name, fn, n) rb_define_method(klass, name, RUBY_METHOD_FUNC(fn), n)
 #define SDEF(klass, name, fn, n) rb_define_singleton_method(klass, name, RUBY_METHOD_FUNC(fn), n)
 
@@ -1904,6 +2255,7 @@ void Init_rustorb_ext(void) {
   SDEF(cTC, "alias", tc_alias, 4);
   SDEF(cTC, "interface", tc_interface, 3);
   SDEF(cTC, "struct", tc_struct, 5);
+  SDEF(cTC, "value", tc_value, -1);
   SDEF(cTC, "union", tc_union, 7);
   SDEF(cTC, "enum", tc_enum, 3);
   SDEF(cTC, "recursive", tc_recursive, 1);
@@ -1975,4 +2327,6 @@ void Init_rustorb_ext(void) {
   DEF(cPOAManager, "state", mgr_state, 0);
   DEF(cPOAManager, "id", mgr_id, 0);
   DEF(cPOAManager, "equal", mgr_equal, 1);
+
+  init_dynany();
 }

@@ -46,12 +46,13 @@ module CORBA
       case name
       when "RootPOA" then PortableServer::POA._wrap(@native.root_poa)
       when "POACurrent" then PortableServer::Current.instance
+      when "DynAnyFactory" then DynamicAny::DynAnyFactory.instance
       else CORBA::Object._from_ref(@native.resolve_initial_references(name))
       end
     end
 
     def list_initial_services
-      (@native.list_initial_services + %w[RootPOA POACurrent]).uniq
+      (@native.list_initial_services + %w[RootPOA POACurrent DynAnyFactory]).uniq
     end
 
     def register_initial_reference(name, obj)
@@ -96,7 +97,7 @@ module CORBA
 
     %i[create_string_tc create_wstring_tc create_fixed_tc create_sequence_tc create_array_tc
        create_alias_tc create_interface_tc create_struct_tc create_exception_tc create_union_tc
-       create_enum_tc create_recursive_tc].each do |m|
+       create_enum_tc create_recursive_tc create_value_tc create_event_tc create_value_box_tc].each do |m|
       define_method(m) { |*a| CORBA::TypeCode.public_send(m, *a) }
     end
 

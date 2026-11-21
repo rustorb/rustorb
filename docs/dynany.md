@@ -19,8 +19,9 @@ Oct 29, 2026 · @ysuga · issue #40
 | `java/src/main/java/org/rustorb/Native.java`（`dyn*`）、`java/src/main/java/org/omg/DynamicAny/`、`org/rustorb/DynAnyImpl.java`・`DynAnyFactoryImpl.java` | Java の `org.omg.DynamicAny` と、C ABI の上の実装 |
 | `dotnet/src/Rustorb.Corba/DynamicAny/DynAny.cs` | .NET の `DynamicAny`（IDL4 to C#）と、C ABI の上の実装 |
 | `c/include/rustorb/dynany.h`、`c/src/dynany.c` | C の `DynamicAny`（C マッピングの名前。[c-binding.md](c-binding.md)）と、C ABI の上の実装 |
-| `cpp/tests/test_dynany.cc`、`java/src/test/java/org/rustorb/test/DynAnyTest.java`、`python/tests/test_dynany.py`、`dotnet/tests/Rustorb.Tests/DynAnyTests.cs` | 各バインディングのテスト |
-| `interop/impls/*/dynany_probe*`、`dynany-probe`、`DynAnyProbe.java`、`DynAnyProbe.cs` | omniORB C++・rustorb（Rust・Python・C++・Java・.NET・C）で同じケースを回すプローブ |
+| `ruby/ext/rustorb_ext/rustorb_ext.c`（`Rustorb::Native::DynAny`）、`ruby/lib/rustorb/dynamic_any.rb` | Ruby の `DynamicAny`（IDL の名前の操作。[ruby-binding.md](ruby-binding.md)）と、C ABI の上の実装 |
+| `cpp/tests/test_dynany.cc`、`java/src/test/java/org/rustorb/test/DynAnyTest.java`、`python/tests/test_dynany.py`、`dotnet/tests/Rustorb.Tests/DynAnyTests.cs`、`ruby/test/test_dynany.rb` | 各バインディングのテスト |
+| `interop/impls/*/dynany_probe*`、`dynany-probe`、`DynAnyProbe.java`、`DynAnyProbe.cs` | omniORB C++・rustorb（Rust・Python・C++・Java・.NET・C・Ruby）で同じケースを回すプローブ |
 | `interop/run-dynany-probe.sh`、`interop/expected/dynany-probe-*.txt` | プローブの実行と期待出力 |
 
 ## API
