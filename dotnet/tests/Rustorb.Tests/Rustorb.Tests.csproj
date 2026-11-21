@@ -43,6 +43,9 @@
     <TestIdl Include="$(RustorbRoot)/interop/idl/InteropTest.idl" />
     <TestIdl Include="$(RustorbRoot)/interop/idl/AnyTest.idl" />
     <TestIdl Include="$(RustorbRoot)/interop/idl/PoaProbe.idl" />
+    <TestIdl Include="$(RustorbRoot)/interop/idl/ValueTest.idl" />
+    <TestIdl Include="$(RustorbRoot)/interop/idl/CustomTest.idl" />
+    <TestIdl Include="$(RustorbRoot)/interop/idl/AbstractTest.idl" />
     <TestIdl Include="$(RustorbRoot)/cpp/tests/idl/CxxMapping.idl" />
   </ItemGroup>
 

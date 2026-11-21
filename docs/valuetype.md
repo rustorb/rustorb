@@ -131,6 +131,10 @@ Pair got = echo.echo_pair(new Pair(p, p));
 assert got.first == got.second;
 ```
 
+## .NET
+
+IDL4 to C# 7.6 の抽象クラス（状態メンバーはプロパティ）に、C++ に倣った `OBV_<Module>.V`、`Corba.IValueFactory.create_for_unmarshal`、プロパティ `value` を持つ value box のクラス、`Corba.ICustomMarshal` を足した（[csharp-binding.md](csharp-binding.md#valuetype-と-abstract-インターフェース)）。C ABI の使い方は Java と同じで、書き出しの `key` は `ConditionalWeakTable` で振った `1 << 62` 以上の番号、読み込みのインスタンスと any の中のインスタンスは Java の `Hosts` と同じ番号の表で持つ。型の問い合わせ（`rorb_set_value_type_resolver`）には、生成コードのモジュール初期化子が登録した TypeCode で答える。
+
 ## custom の値
 
 `custom valuetype` の状態は、アプリケーションの `marshal` / `unmarshal`（`CustomMarshal`）が `DataOutputStream` / `DataInputStream` で書き・読む。CDR では常にチャンク付きで、リポジトリ ID 1つ（`0x7fffff0a`）で書く（仕様の 9.3.4.5 と 9.3.4.6）。TypeCode の型修飾子は `VM_CUSTOM`。

@@ -41,6 +41,10 @@ namespace Interop
             {
                 return AnyServer(orb, opt);
             }
+            if (opt.Suite == "value" || opt.Suite == "custom" || opt.Suite == "abstract")
+            {
+                return ValueServer(orb, opt);
+            }
             PortableServer.POA poa = Common.PersistentPoa(orb, "InteropTest");
             byte[] oid = Common.Oid("Echo");
             var impl = new EchoImpl(orb);
@@ -83,6 +87,85 @@ namespace Interop
             return 0;
         }
 
+        /// <summary>The value, custom and abstract suites: ValueTest::ValueEcho,
+        /// CustomTest::CustomEcho or AbstractTest::AbstractEcho, which also
+        /// stops the server.</summary>
+        private static int ValueServer(Corba.ORB orb, Options opt)
+        {
+            string module;
+            string oidName;
+            PortableServer.Servant servant;
+            switch (opt.Suite)
+            {
+                case "value":
+                    ValueTests.RegisterFactories(orb);
+                    (module, oidName, servant) = ("ValueTest", "ValueEcho", new ValueTests.ValueEchoImpl(orb));
+                    break;
+                case "custom":
+                    CustomTests.RegisterFactories(orb);
+                    (module, oidName, servant) = ("CustomTest", "CustomEcho", new CustomTests.CustomEchoImpl(orb));
+                    break;
+                default:
+                    AbstractTests.RegisterFactories(orb);
+                    (module, oidName, servant) = ("AbstractTest", "AbstractEcho", new AbstractTests.AbstractEchoImpl(orb));
+                    break;
+            }
+            PortableServer.POA poa = Common.PersistentPoa(orb, module);
+            byte[] oid = Common.Oid(oidName);
+            poa.activate_object_with_id(oid, servant);
+            Common.BindName(Common.RootContext(orb, opt.Timeout), opt.Name, poa.id_to_reference(oid));
+            Console.WriteLine("server ready: " + opt.Name);
+            Console.Out.Flush();
+            orb.run();
+            orb.destroy();
+            Console.WriteLine("server stopped");
+            return 0;
+        }
+
+        /// <summary>The value, custom and abstract suites against the object at
+        /// opt.Name, which the client shuts down itself.</summary>
+        private static int ValueClient(Corba.ORB orb, Options opt)
+        {
+            // For the abstract suite: the Person the client sends is
+            // activated in the RootPOA (and the Counter of the value suite).
+            Common.PersistentPoa(orb, "InteropTestClient");
+            var root = Common.RootContext(orb, opt.Timeout);
+            Corba.IObject obj = Common.Retry("the " + opt.Suite + " server", () => Common.Resolve(root, opt.Name), opt.Timeout);
+            var r = new Runner();
+            switch (opt.Suite)
+            {
+                case "value":
+                {
+                    ValueTests.RegisterFactories(orb);
+                    ValueTest.IValueEcho echo = ValueTest.ValueEchoHelper.narrow(obj);
+                    Common.Retry("the ValueEcho server", echo._non_existent, opt.Timeout);
+                    ValueTests.Run(r, echo);
+                    if (opt.ShutdownServer) echo.shutdown();
+                    break;
+                }
+                case "custom":
+                {
+                    CustomTests.RegisterFactories(orb);
+                    CustomTest.ICustomEcho echo = CustomTest.CustomEchoHelper.narrow(obj);
+                    Common.Retry("the CustomEcho server", echo._non_existent, opt.Timeout);
+                    CustomTests.Run(r, echo);
+                    if (opt.ShutdownServer) echo.shutdown();
+                    break;
+                }
+                default:
+                {
+                    AbstractTests.RegisterFactories(orb);
+                    AbstractTest.IAbstractEcho echo = AbstractTest.AbstractEchoHelper.narrow(obj);
+                    Common.Retry("the AbstractEcho server", echo._non_existent, opt.Timeout);
+                    AbstractTests.Run(r, echo);
+                    if (opt.ShutdownServer) echo.shutdown();
+                    break;
+                }
+            }
+            r.Summary();
+            return r.Failed.Count == 0 ? 0 : 1;
+        }
+
         /// <summary>The stage 2 suite against the AnyEcho object at
         /// opt.Name; the server's Echo object is at opt.Name + "-Echo".</summary>
         private static int AnyClient(Corba.ORB orb, Options opt)
@@ -109,9 +192,9 @@ namespace Interop
             int status;
             try
             {
-                if (opt.Suite == "any")
+                if (opt.Suite != "basic")
                 {
-                    status = AnyClient(orb, opt);
+                    status = opt.Suite == "any" ? AnyClient(orb, opt) : ValueClient(orb, opt);
                     orb.destroy();
                     return status;
                 }

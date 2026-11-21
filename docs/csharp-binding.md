@@ -87,7 +87,7 @@ orb.run();
 - ファクトリは `orb.resolve_initial_references("DynAnyFactory")` を `DynAnyFactoryHelper.narrow` で得る。作られる DynAny は型の種類に合ったクラス（`DynStruct` など）で、`DynStructHelper.narrow` などで派生インターフェースにする
 - 例外は `DynAny.InvalidValue`・`DynAny.TypeMismatch`・`DynAnyFactory.InconsistentTypeCode`・`MustTruncate`
 - `insert_<型>_seq` / `get_<型>_seq` は `Omg.Types.ISequence<T>`、`get_members` などの列も `ISequence`
-- `insert_val` / `get_val` は valuetype の対応（#186 の後の段）までは `NO_IMPLEMENT`。値は `from_any` / `to_any` で扱える。`insert_abstract` / `get_abstract` は他のバインディングと同じく `NO_IMPLEMENT`
+- `insert_val` / `get_val` は値（`Corba.IValueBase`）を入れ、読む。値でないものは `TypeMismatch`。`insert_abstract` / `get_abstract` は他のバインディングと同じく `NO_IMPLEMENT`
 - `ORB` に `create_value_tc`・`create_value_box_tc`・`create_native_tc`・`create_abstract_interface_tc`・`create_local_interface_tc`、`Corba.ValueMember` と `Corba.Constants`（`VM_NONE` など）を足した
 
 ## servant manager と adapter activator
@@ -122,9 +122,30 @@ orb.run();
 - `post_init` で `RootPOA` を解決すると、RootPOA が IOR インターセプターの登録より前に作られ、そのコンポーネントが入らない（コアの順序のとおり）
 - `register_policy_factory` は `NO_IMPLEMENT`
 
+## valuetype と abstract インターフェース
+
+IDL4 to C# 7.6 が決めているのは、valuetype が抽象クラスになること（状態メンバーはプロパティで、private のものは `protected`、操作は抽象メソッド、初期化子は `[Omg.Types.Factory]` を付けた抽象の `void` メソッド）だけで、基底クラス、ファクトリ、value box、custom、abstract インターフェース、truncatable は決めていない。rustorb は C++ と Java のマッピングに倣って次のようにした。
+
+| IDL | C# |
+|---|---|
+| `valuetype V` | `abstract class V : Corba.ValueBase`（具象の基底があればそれを継承）。サポートするインターフェース `I` の `IIOperations` と、abstract の基底 valuetype・abstract インターフェースのインターフェースを実装する |
+| 操作も初期化子もサポートするインターフェースもない valuetype | 加えて `OBV_<Module>.V`（すべての状態メンバーを取るコンストラクタ付きの具象クラス。モジュール外なら `OBV_V`）。既定のファクトリはこれを作る |
+| `abstract valuetype A` | インターフェース `IA : Corba.IValueBase` |
+| `valuetype B long;`（value box） | `class B : Corba.ValueBase`。中身はプロパティ `value`（型によらず同じ形）。既定のファクトリがある |
+| `custom valuetype C` | `abstract class C : Corba.ValueBase, Corba.ICustomMarshal`。実装は `marshal(Corba.DataOutputStream)` と `unmarshal(Corba.DataInputStream)` を書き、ファクトリを登録する。値は常にチャンクで送る |
+| `abstract interface N` | インターフェース `IN`（操作）と、参照として受けたときのスタブ `N : Corba.Object, IN`。`NHelper.narrow(object)` は値ならそのまま、参照ならスタブにする。送るときは参照なら TRUE と参照、値なら FALSE と値（null は nil 参照） |
+| `interface I`（すべて） | タイ `IPOATie : IPOA`（`IIOperations` の実装に委ねる。サポートするインターフェースの valuetype をサーバントにするのに使う） |
+
+- ファクトリは `Corba.IValueFactory`（`create_for_unmarshal()`。C++ と同じく、ORB はできたインスタンスに状態を読み込む）。`new Corba.ValueFactory(() => new MyV())` で関数から作れる。`orb.register_value_factory(id, f)`（置き換えたものを返す）・`unregister_value_factory`・`lookup_value_factory` はプロセスで1つの表で、登録したものがなければ生成コードの既定のファクトリを返す
+- 初期化子のある valuetype は `lookup_value_factory(id).create_for_unmarshal()` で作ったインスタンスの初期化子（`init(...)` など）を呼ぶ
+- 生成コードはモジュール初期化子（`[ModuleInitializer]`）で既定のファクトリと valuetype の TypeCode を登録する。TypeCode は、基底の型として送られた派生の値を any の中で読むときにコアが使う
+- 同じメッセージで同じインスタンスを2度書くと間接参照になり、読む側でも1つのインスタンスになる（循環も保つ）。any に入れたインスタンスはその any から取り出すと同じインスタンスで、DII の引数のように複数の any に入れても1つのまま（Java の `Hosts` と同じ仕組み）
+- 受け取った値の型にファクトリがなければ（truncatable の基底のファクトリもなければ）`MARSHAL`
+- `Corba.Any` に `insert_Value(v, tc)` と `extract_Value()` を足した
+
 ## まだないもの
 
-valuetype、abstract / local インターフェース（IDL で定義したもの）、AMI、IDL 4 の bitmask / bitset は [#186](https://github.com/rustorb/rustorb/issues/186) で足す。`-bcsharp` はこれらの構文をエラーにする。
+local インターフェース（IDL で定義したもの）、AMI、IDL 4 の bitmask / bitset は [#186](https://github.com/rustorb/rustorb/issues/186) で足す。`-bcsharp` はこれらの構文をエラーにする。
 
 ## テスト
 
@@ -135,10 +156,11 @@ valuetype、abstract / local インターフェース（IDL で定義したも�
   - `ServantManagerTests`：servant activator（incarnate、例外、ForwardRequest、etherealize）、servant locator（cookie）、adapter activator
   - `DiiTests`：静的なサーバントと DSI のサーバントへの DII（`out`、同じ要求の再送、ユーザー例外とリストにないもの、deferred と `get_next_response`、oneway）、静的なスタブから DSI のサーバント、`NVList` と `ExceptionList`、`_create_request`
   - `PiTests`：初期化子（`pre_init` / `post_init`、`DuplicateName`、段階ごとの `resolve_initial_references`）、サービスコンテキストの往復と PICurrent のスロット、IOR インターセプターのコンポーネント、サーバーのインターセプターのシステム例外、`ForwardRequest`、DII の `arguments`、点の後の情報、`Codec`
+  - `ValueTests`：`ValueTest.idl`・`CustomTest.idl`・`AbstractTest.idl` の値（null、truncatable の派生、共有と循環、value box、ファクトリと初期化子、タイ、ファクトリのない型の `MARSHAL`、any の中の値と同一性、DynAny の `insert_val` / `get_val`）、custom の値、abstract インターフェース（参照と値）
   - `MappingTests`：C++・Java と同じ `cpp/tests/idl/CxxMapping.idl` の定数、再帰型、すべての判別子の union、入れ子の型、キーワード、fixed と long double、インターフェースの多重継承、オブジェクト参照の列、TypeCode と Any
 - rustorb-idl の `python/tests/test_csharp_backend.py`：生成物の形、`-Wbdotnet_naming`、対応しない構文のエラー、生成コードとランタイムのコンパイル（警告をエラーにする）。golden は `tests/golden/csharp`
 - CI（`ci.yml` の `dotnet`）：Linux、macOS、Windows で `dotnet test`。Linux では同梱の CosNaming のスタブが生成器の出力と、`Ffi.g.cs` が `rustorb.h` と一致することも確かめる
-- 相互接続（[#179](https://github.com/rustorb/rustorb/issues/179)）：`interop/run-matrix.sh` に `rustorbcs`（`interop/impls/rustorbcs`。ホストで `dotnet publish` し、イメージの .NET 8 ランタイムで動かす）を加えた。basic（InteropTest.idl）と any（AnyTest.idl。`interop/impls/rustorbcs/src/AnyTests.cs`）に入る。value・custom・abstract は valuetype の対応（#186）の後。ローカルで確認した結果は次のとおりで、失敗はすべて `known-failures.txt` の範囲
+- 相互接続（[#179](https://github.com/rustorb/rustorb/issues/179)）：`interop/run-matrix.sh` に `rustorbcs`（`interop/impls/rustorbcs`。ホストで `dotnet publish` し、イメージの .NET 8 ランタイムで動かす）を加えた。basic（InteropTest.idl）、any（AnyTest.idl。`interop/impls/rustorbcs/src/AnyTests.cs`）、value・custom・abstract（`ValueTests.cs`・`CustomTests.cs`・`AbstractTests.cs`）のすべてに入る。ローカルで確認した結果は次のとおりで、失敗はすべて `known-failures.txt` の範囲
   - basic（79ケース）：omniORBpy・omniORB C++・JacORB・rustorb の Rust・Python・C++・.NET 自身と両方向で通る。失敗は omniORBpy の wchar（3ケース）と JacORB の union の判別子（`echo_value[5]`）だけで、他の rustorb のバインディングと同じ
   - GIOP 1.1、`--fragment 1024`、`--ssl`、`--unix` でも omniORB・omniORBpy・自身との組（GIOP 1.1 と Fragment は JacORB とも）が同じ結果（GIOP 1.1 の omniORB 側の wchar / wstring は既知）
   - Java（`rustorbjava`）との組はローカルに Java 22 がなく CI（`interop.yml`）で確かめる
@@ -147,3 +169,4 @@ valuetype、abstract / local インターフェース（IDL で定義したも�
 - 相互接続：`interop/impls/rustorbcs-dii` は `rustorbcs` のクライアントとサーバーを、スタブの呼び出しを DII に、サーバントを DSI に差し替えて動かす（`interop/impls/rustorbcs/src/DiiAdapters.cs`、環境変数 `RUSTORB_DII=1`）。basic（GIOP 1.2 / 1.1）で、omniORBpy・omniORB C++・JacORB・rustorb（Rust、Python、C++、.NET、Python と C++ の DII）との組が両方向で `rustorbcs` と同じ結果になる（失敗は既知のものだけ）。CI（`interop.yml`）でも回す
 - PI プローブ（`run-pi-probe.sh`）：`rustorbcs`（`interop/impls/rustorbcs/src/PiProbeMain.cs`）が rustorb の Rust・Python・C++・.NET、JacORB、omniORBpy、omniORB C++ との組で GIOP 1.2 / 1.1 / 1.0 とも期待どおり（JacORB のクライアントは仕組みどおり 1.2 のみ）。Java との組は CI で確かめる
 - any（`run-matrix.sh --suite any`）：omniORBpy・omniORB C++・rustorb の Rust・Python・C++・.NET 自身と両方向で、失敗は `known-failures.txt` の long double だけ（omniORB 側のものと、.NET の `decimal` が double の 0.1 を28桁までしか持てず、値をビットで比べる Rust と合わないもの）。`fixed<31,4>` の値は `decimal` に収まらないので、表の値は `DynFixed` の文字列で作り、比べる
+  - value（26ケース）・abstract（12ケース）：omniORBpy・omniORB C++・JacORB・rustorb の Rust・Python・C++・.NET 自身と両方向で、失敗は `known-failures.txt` の JacORB のものだけ。custom（7ケース）：JacORB・rustorb の Rust・Python・C++・.NET 自身と両方向で、失敗は JacORB の既知のものだけ（custom のスイートはもともと omniORB と組まない）。value は GIOP 1.1 でも同じ結果

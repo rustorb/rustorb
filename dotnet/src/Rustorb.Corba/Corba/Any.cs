@@ -131,6 +131,22 @@ namespace Corba
         public Object? extract_object() =>
             Rustorb.Anys.ExtractKind(this, TCKind.tk_objref, i => i.read_Object());
 
+        /// <summary>A value with the TypeCode tc (of a valuetype or a value
+        /// box; insert_Value of the Java mapping).</summary>
+        public void insert_Value(IValueBase? value, TypeCode tc) => Rustorb.Anys.Insert(this, tc, o => o.write_value(value));
+
+        /// <summary>The value of an any of a valuetype or value box.</summary>
+        public IValueBase? extract_Value()
+        {
+            TCKind k = type.unaliased().kind();
+            if (k != TCKind.tk_value && k != TCKind.tk_value_box && k != TCKind.tk_event)
+            {
+                throw new BAD_OPERATION("the any does not hold a value", 0, CompletionStatus.COMPLETED_NO);
+            }
+            string id = type.unaliased().id();
+            return Rustorb.Anys.ExtractKind(this, k, i => i.read_value(id));
+        }
+
         /// <summary>A fixed with the TypeCode of its own digits and scale.</summary>
         public void insert_fixed(decimal value)
         {

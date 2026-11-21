@@ -3,7 +3,7 @@
 // This file is not covered by the license of rustorb-idl.
 
 #nullable enable
-#pragma warning disable CS0108, CS0114, CS1591, CS8981
+#pragma warning disable CS0108, CS0114, CS1591, CS8981, CA2255
 
 namespace CosNaming
 {
@@ -1404,6 +1404,53 @@ namespace CosNaming
         }
     }
 
+    /// <summary>The servant of NamingContext that delegates to an implementation of its operations.</summary>
+    public class NamingContextPOATie : NamingContextPOA
+    {
+        private global::CosNaming.INamingContextOperations __impl;
+
+        public NamingContextPOATie(global::CosNaming.INamingContextOperations impl)
+        {
+            __impl = impl;
+        }
+
+        public global::CosNaming.INamingContextOperations _delegate
+        {
+            get => __impl;
+            set => __impl = value;
+        }
+
+        public override void bind(global::Omg.Types.ISequence<global::CosNaming.NameComponent> n, global::Corba.IObject? obj) =>
+            __impl.bind(n, obj);
+
+        public override void rebind(global::Omg.Types.ISequence<global::CosNaming.NameComponent> n, global::Corba.IObject? obj) =>
+            __impl.rebind(n, obj);
+
+        public override void bind_context(global::Omg.Types.ISequence<global::CosNaming.NameComponent> n, global::CosNaming.INamingContext? nc) =>
+            __impl.bind_context(n, nc);
+
+        public override void rebind_context(global::Omg.Types.ISequence<global::CosNaming.NameComponent> n, global::CosNaming.INamingContext? nc) =>
+            __impl.rebind_context(n, nc);
+
+        public override global::Corba.IObject? resolve(global::Omg.Types.ISequence<global::CosNaming.NameComponent> n) =>
+            __impl.resolve(n);
+
+        public override void unbind(global::Omg.Types.ISequence<global::CosNaming.NameComponent> n) =>
+            __impl.unbind(n);
+
+        public override global::CosNaming.INamingContext? new_context() =>
+            __impl.new_context();
+
+        public override global::CosNaming.INamingContext? bind_new_context(global::Omg.Types.ISequence<global::CosNaming.NameComponent> n) =>
+            __impl.bind_new_context(n);
+
+        public override void destroy() =>
+            __impl.destroy();
+
+        public override void list(uint how_many, out global::Omg.Types.ISequence<global::CosNaming.Binding> bl, out global::CosNaming.IBindingIterator? bi) =>
+            __impl.list(how_many, out bl, out bi);
+    }
+
 }
 
 namespace CosNaming
@@ -1583,6 +1630,32 @@ namespace CosNaming
                     throw global::Rustorb.Servants.BadOperation();
             }
         }
+    }
+
+    /// <summary>The servant of BindingIterator that delegates to an implementation of its operations.</summary>
+    public class BindingIteratorPOATie : BindingIteratorPOA
+    {
+        private global::CosNaming.IBindingIteratorOperations __impl;
+
+        public BindingIteratorPOATie(global::CosNaming.IBindingIteratorOperations impl)
+        {
+            __impl = impl;
+        }
+
+        public global::CosNaming.IBindingIteratorOperations _delegate
+        {
+            get => __impl;
+            set => __impl = value;
+        }
+
+        public override bool next_one(out global::CosNaming.Binding b) =>
+            __impl.next_one(out b);
+
+        public override bool next_n(uint how_many, out global::Omg.Types.ISequence<global::CosNaming.Binding> bl) =>
+            __impl.next_n(how_many, out bl);
+
+        public override void destroy() =>
+            __impl.destroy();
     }
 
 }
@@ -2537,6 +2610,65 @@ namespace CosNaming
                     throw global::Rustorb.Servants.BadOperation();
             }
         }
+    }
+
+    /// <summary>The servant of NamingContextExt that delegates to an implementation of its operations.</summary>
+    public class NamingContextExtPOATie : NamingContextExtPOA
+    {
+        private global::CosNaming.INamingContextExtOperations __impl;
+
+        public NamingContextExtPOATie(global::CosNaming.INamingContextExtOperations impl)
+        {
+            __impl = impl;
+        }
+
+        public global::CosNaming.INamingContextExtOperations _delegate
+        {
+            get => __impl;
+            set => __impl = value;
+        }
+
+        public override string to_string(global::Omg.Types.ISequence<global::CosNaming.NameComponent> n) =>
+            __impl.to_string(n);
+
+        public override global::Omg.Types.ISequence<global::CosNaming.NameComponent> to_name(string sn) =>
+            __impl.to_name(sn);
+
+        public override string to_url(string addr, string sn) =>
+            __impl.to_url(addr, sn);
+
+        public override global::Corba.IObject? resolve_str(string n) =>
+            __impl.resolve_str(n);
+
+        public override void bind(global::Omg.Types.ISequence<global::CosNaming.NameComponent> n, global::Corba.IObject? obj) =>
+            __impl.bind(n, obj);
+
+        public override void rebind(global::Omg.Types.ISequence<global::CosNaming.NameComponent> n, global::Corba.IObject? obj) =>
+            __impl.rebind(n, obj);
+
+        public override void bind_context(global::Omg.Types.ISequence<global::CosNaming.NameComponent> n, global::CosNaming.INamingContext? nc) =>
+            __impl.bind_context(n, nc);
+
+        public override void rebind_context(global::Omg.Types.ISequence<global::CosNaming.NameComponent> n, global::CosNaming.INamingContext? nc) =>
+            __impl.rebind_context(n, nc);
+
+        public override global::Corba.IObject? resolve(global::Omg.Types.ISequence<global::CosNaming.NameComponent> n) =>
+            __impl.resolve(n);
+
+        public override void unbind(global::Omg.Types.ISequence<global::CosNaming.NameComponent> n) =>
+            __impl.unbind(n);
+
+        public override global::CosNaming.INamingContext? new_context() =>
+            __impl.new_context();
+
+        public override global::CosNaming.INamingContext? bind_new_context(global::Omg.Types.ISequence<global::CosNaming.NameComponent> n) =>
+            __impl.bind_new_context(n);
+
+        public override void destroy() =>
+            __impl.destroy();
+
+        public override void list(uint how_many, out global::Omg.Types.ISequence<global::CosNaming.Binding> bl, out global::CosNaming.IBindingIterator? bi) =>
+            __impl.list(how_many, out bl, out bi);
     }
 
 }

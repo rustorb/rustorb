@@ -693,15 +693,28 @@ namespace DynamicAny
 
         public IDynAny get_dyn_any() => NotNull(Ptr(&Ffi.rorb_dynany_get_dyn_any));
 
-        /// <summary>Valuetypes are not in the .NET binding yet: NO_IMPLEMENT
-        /// (from_any and to_any take values).</summary>
-        public void insert_val(object? value) =>
-            throw new Corba.NO_IMPLEMENT("insert_val: valuetypes are not in the .NET binding yet", 0,
-                Corba.CompletionStatus.COMPLETED_NO);
+        public void insert_val(object? value)
+        {
+            if (value != null && value is not Corba.IValueBase)
+            {
+                throw new TypeMismatch();
+            }
+            nint t;
+            RorbException exc;
+            Errors.Check(Ffi.rorb_dynany_target_type(H, &t, &exc), ref exc);
+            GC.KeepAlive(this);
+            var tc = new Corba.TypeCode(new TypeCodeHandle(t));
+            var a = new Corba.Any();
+            a.insert_Value((Corba.IValueBase?)value, tc);
+            Insert(Corba.TCKind.tk_value, a);
+        }
 
-        public object? get_val() =>
-            throw new Corba.NO_IMPLEMENT("get_val: valuetypes are not in the .NET binding yet", 0,
-                Corba.CompletionStatus.COMPLETED_NO);
+        public object? get_val()
+        {
+            Corba.Any a = Get(Corba.TCKind.tk_value);
+            string id = a.type.unaliased().id();
+            return Rustorb.Anys.ExtractKind(a, a.type.unaliased().kind(), i => i.read_value(id));
+        }
 
         /// <summary>Abstract interfaces are not supported: NO_IMPLEMENT.</summary>
         public void insert_abstract(object? value) => Do(&Ffi.rorb_dynany_no_implement);

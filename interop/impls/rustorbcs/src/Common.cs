@@ -46,11 +46,9 @@ namespace Interop
                     case "--shutdown-server": opt.ShutdownServer = true; break;
                     case "--suite":
                         opt.Suite = Value(argv, ++i, a);
-                        if (opt.Suite != "basic" && opt.Suite != "any")
+                        if (Array.IndexOf(new[] { "basic", "any", "value", "custom", "abstract" }, opt.Suite) < 0)
                         {
-                            // The value, custom and abstract suites need the
-                            // valuetypes of rustorb#186.
-                            Console.Error.WriteLine("suite " + opt.Suite + " is not supported by rustorbcs");
+                            Console.Error.WriteLine("unknown suite " + opt.Suite);
                             Environment.Exit(2);
                         }
                         break;
@@ -61,7 +59,7 @@ namespace Interop
             {
                 Console.Error.WriteLine("usage: " + prog
                     + " --naming CORBALOC --name PATH [--host H] [--port N] [--timeout S]"
-                    + " [--shutdown-server] [--suite basic] [ORB options]");
+                    + " [--shutdown-server] [--suite basic|any|value|custom|abstract] [ORB options]");
                 Environment.Exit(2);
             }
             return opt;

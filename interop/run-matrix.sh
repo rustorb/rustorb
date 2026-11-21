@@ -9,7 +9,7 @@
 # $SERVER_IMPLS. Both default to $IMPLS (omniorbpy, omniorb-cpp and, but for
 # --suite any, jacorb, in the image) plus rustorb, rustorbpy, rustorbcpp and
 # rustorbjava (the Rust, the Python, the C++ and the Java client and server of
-# rustorb) and, for the basic suite, rustorbcs (the .NET client and server),
+# rustorb), rustorbcs (the .NET client and server) and, for the basic suite,
 # rustorbc (the C client and server) and rustorbrb (the Ruby client and
 # server), which are built on the host (rustorbrb's extension in the
 # image). rustorbjava-portable (the Java client and server on rustorb with
@@ -130,11 +130,11 @@ else
   export INTEROP_UNIX= SERVER_HOSTNAME=server CLIENT_HOSTNAME=client
 fi
 rustorb_impls="rustorb rustorbpy rustorbcpp rustorbjava"
-# The .NET, C and Ruby bindings have the basic suite only so far
-# (rustorb#186, rustorb#187, rustorb#188), and .NET the any suite too.
+# The C and Ruby bindings have the basic suite only so far (rustorb#187,
+# rustorb#188); .NET has them all.
 if [ "$suite" = basic ]; then
   rustorb_impls+=" rustorbcs rustorbc rustorbrb"
-elif [ "$suite" = any ]; then
+else
   rustorb_impls+=" rustorbcs"
 fi
 CLIENT_IMPLS="${CLIENT_IMPLS:-$IMPLS $rustorb_impls}"

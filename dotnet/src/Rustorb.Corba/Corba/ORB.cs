@@ -445,6 +445,19 @@ namespace Corba
                 System.Array.ConvertAll(members, m => m.name), System.Array.ConvertAll(members, m => m.type),
                 System.Array.ConvertAll(members, m => m.access));
 
+        /// <summary>Registers the factory of the valuetype id for the process
+        /// (rustorb keeps one registry, shared by its ORBs); returns the
+        /// factory it replaces, or null.</summary>
+        public IValueFactory? register_value_factory(string id, IValueFactory factory) =>
+            Rustorb.Values.Register(id, factory);
+
+        public void unregister_value_factory(string id) => Rustorb.Values.Unregister(id);
+
+        /// <summary>The factory registered for id, else the default factory of
+        /// the generated code (valuetypes without operations, value boxes);
+        /// null if there is none.</summary>
+        public IValueFactory? lookup_value_factory(string id) => Rustorb.Values.Lookup(id);
+
         public TypeCode create_value_box_tc(string id, string name, TypeCode boxed_type) =>
             Rustorb.TypeCodes.ValueBox(id, name, boxed_type);
 
