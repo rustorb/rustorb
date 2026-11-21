@@ -20,7 +20,7 @@ module PortableServer
     module_function
 
     def servant(s, key = nil)
-      unless s.is_a?(Servant)
+      unless s.is_a?(ServantMethods)
         return [:system, CORBA::OBJ_ADAPTER::ID, 0, CORBA::COMPLETED_NO] if s.nil?
 
         return [:system, CORBA::BAD_PARAM::ID, 0, CORBA::COMPLETED_NO]

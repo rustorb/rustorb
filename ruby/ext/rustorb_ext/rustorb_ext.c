@@ -980,6 +980,195 @@ static VALUE in_fail(VALUE self) {
 }
 static VALUE in_failed(VALUE self) { return rorb_in_failed(IN(self)) ? Qtrue : Qfalse; }
 
+/* --- valuetypes ----------------------------------------------------------------- */
+
+/* The Ruby instances rustorb keeps (in the streams of one message, in the
+   core instances of anys): one host per instance, counted, released from
+   any thread. The GC marks (and pins) the instances while they are kept,
+   and the same instance always has the same host, whose address is the key
+   the core knows it by. */
+typedef struct host {
+  VALUE obj;
+  long count;
+  struct host* next;
+} host;
+
+#define HOST_BUCKETS 4096
+static host* host_buckets[HOST_BUCKETS];
+static pthread_mutex_t host_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static size_t host_bucket(VALUE obj) { return (size_t)(((uintptr_t)obj >> 3) % HOST_BUCKETS); }
+
+/* With the GVL. */
+static host* host_retain(VALUE obj) {
+  host* h;
+  size_t b = host_bucket(obj);
+  pthread_mutex_lock(&host_lock);
+  for (h = host_buckets[b]; h; h = h->next)
+    if (h->obj == obj) break;
+  if (!h) {
+    h = calloc(1, sizeof *h);
+    if (!h) {
+      pthread_mutex_unlock(&host_lock);
+      rb_raise(rb_eNoMemError, "rustorb: no memory for a value");
+    }
+    h->obj = obj;
+    h->next = host_buckets[b];
+    host_buckets[b] = h;
+  }
+  ++h->count;
+  pthread_mutex_unlock(&host_lock);
+  return h;
+}
+
+/* From any thread. */
+static void host_release(void* p) {
+  host* h = p;
+  host** link;
+  pthread_mutex_lock(&host_lock);
+  if (--h->count == 0) {
+    for (link = &host_buckets[host_bucket(h->obj)]; *link; link = &(*link)->next)
+      if (*link == h) {
+        *link = h->next;
+        break;
+      }
+    free(h);
+  }
+  pthread_mutex_unlock(&host_lock);
+}
+
+static void hosts_mark(void* unused) {
+  size_t b;
+  host* h;
+  (void)unused;
+  pthread_mutex_lock(&host_lock);
+  for (b = 0; b < HOST_BUCKETS; ++b)
+    for (h = host_buckets[b]; h; h = h->next) rb_gc_mark(h->obj);
+  pthread_mutex_unlock(&host_lock);
+}
+
+static const rb_data_type_t hosts_type = {
+    "rustorb_hosts", {hosts_mark, NULL, NULL, NULL, {0}}, NULL, NULL, 0};
+
+static VALUE native_kept_values(VALUE self) {
+  size_t b, n = 0;
+  host* h;
+  (void)self;
+  pthread_mutex_lock(&host_lock);
+  for (b = 0; b < HOST_BUCKETS; ++b)
+    for (h = host_buckets[b]; h; h = h->next) ++n;
+  pthread_mutex_unlock(&host_lock);
+  return SIZET2NUM(n);
+}
+
+static VALUE out_write_null_value(VALUE self) {
+  rorb_out_write_null_value(OUT(self));
+  return self;
+}
+
+/* begin_value(obj, ids, chunked): true when the caller now writes the
+   state (then end_value), false when an indirection was written. */
+static VALUE out_begin_value(VALUE self, VALUE obj, VALUE ids, VALUE chunked) {
+  rorb_out* out = OUT(self);
+  size_t n, i;
+  const char** cp;
+  size_t* cl;
+  int32_t r;
+  Check_Type(ids, T_ARRAY);
+  n = (size_t)RARRAY_LEN(ids);
+  cp = ALLOCA_N(const char*, n + 1);
+  cl = ALLOCA_N(size_t, n + 1);
+  ids = rb_ary_dup(ids);
+  for (i = 0; i < n; ++i) {
+    VALUE s = utf8_arg(rb_ary_entry(ids, (long)i));
+    rb_ary_store(ids, (long)i, s);
+    cp[i] = RSTRING_PTR(s);
+    cl[i] = (size_t)RSTRING_LEN(s);
+  }
+  if (rorb_out_keeps_hosts(out)) {
+    host* h = host_retain(obj);
+    r = rorb_out_begin_host_value(out, (uint64_t)(uintptr_t)h, h, host_release, n, cp, cl,
+                                  RTEST(chunked));
+  } else {
+    uint64_t key = ((uint64_t)1 << 62) | (NUM2ULL(rb_obj_id(obj)) & (((uint64_t)1 << 62) - 1));
+    r = rorb_out_begin_value(out, key, n, cp, cl, RTEST(chunked));
+  }
+  RB_GC_GUARD(ids);
+  return r ? Qtrue : Qfalse;
+}
+
+static VALUE out_end_value(VALUE self) {
+  rorb_out_end_value(OUT(self));
+  return self;
+}
+
+/* [kind, slot, ids]: kind 0 null, 1 an indirection (value_at(slot)), 2 a
+   new value (keep_value(slot, obj), read its state, end_value). */
+static VALUE in_read_value_header(VALUE self) {
+  rorb_in* in = IN(self);
+  size_t slot = 0, count = 0, i;
+  int32_t kind = rorb_in_read_value_header(in, &slot, &count);
+  VALUE ids = rb_ary_new();
+  for (i = 0; kind == RORB_VALUE_NEW && i < count; ++i) {
+    size_t len = 0;
+    const char* id = rorb_in_value_id(in, i, &len);
+    rb_ary_push(ids, utf8(id, len));
+  }
+  return rb_ary_new_from_args(3, INT2NUM(kind), SIZET2NUM(slot), ids);
+}
+
+static VALUE in_value_at(VALUE self, VALUE slot) {
+  host* h = rorb_in_get_value(IN(self), NUM2SIZET(slot));
+  return h ? h->obj : Qnil;
+}
+
+static VALUE in_keep_value(VALUE self, VALUE slot, VALUE obj) {
+  rorb_in* in = IN(self);
+  host* h = host_retain(obj);
+  if (rorb_in_keeps_hosts(in))
+    rorb_in_set_host_value(in, NUM2SIZET(slot), (uint64_t)(uintptr_t)h, h, host_release);
+  else
+    rorb_in_set_value(in, NUM2SIZET(slot), h, host_release);
+  return obj;
+}
+
+static VALUE in_end_value(VALUE self) {
+  rorb_in_end_value(IN(self));
+  return self;
+}
+
+/* The valuetypes the core reads in anys and does not know:
+   Rustorb.resolve_value_tc(id) gives their TypeCode. */
+struct resolve_call {
+  const char* id;
+  size_t len;
+  rorb_typecode* tc;
+};
+
+static VALUE resolve_body(VALUE p) {
+  struct resolve_call* c = (struct resolve_call*)p;
+  VALUE tc = rb_funcall(mRustorb, rb_intern("resolve_value_tc"), 1, utf8(c->id, c->len));
+  if (!NIL_P(tc)) c->tc = rorb_tc_clone(TC(tc));
+  return Qnil;
+}
+
+static void* resolve_gvl(void* p) {
+  int state = 0;
+  rb_protect(resolve_body, (VALUE)p, &state);
+  if (state) rb_set_errinfo(Qnil);
+  return NULL;
+}
+
+static rorb_typecode* resolve_value_type(void* context, const char* id, size_t len) {
+  struct resolve_call c;
+  (void)context;
+  c.id = id;
+  c.len = len;
+  c.tc = NULL;
+  with_gvl(resolve_gvl, &c);
+  return c.tc;
+}
+
 /* --- TypeCodes ------------------------------------------------------------------- */
 
 static VALUE tc_simple(VALUE klass, VALUE kind) {
@@ -1209,6 +1398,21 @@ static VALUE tc_length(VALUE self) {
 static VALUE tc_content_type(VALUE self) {
   rorb_typecode* tc = NULL;
   CHECK(rorb_tc_content_type(TC(self), &tc, EXC));
+  return W_TC(tc);
+}
+static VALUE tc_type_modifier(VALUE self) {
+  int16_t v = 0;
+  CHECK(rorb_tc_type_modifier(TC(self), &v, EXC));
+  return INT2NUM(v);
+}
+static VALUE tc_member_visibility(VALUE self, VALUE index) {
+  int16_t v = 0;
+  CHECK(rorb_tc_member_visibility(TC(self), NUM2UINT(index), &v, EXC));
+  return INT2NUM(v);
+}
+static VALUE tc_concrete_base_type(VALUE self) {
+  rorb_typecode* tc = NULL;
+  CHECK(rorb_tc_concrete_base_type(TC(self), &tc, EXC));
   return W_TC(tc);
 }
 static VALUE tc_fixed_digits(VALUE self) {
@@ -2544,6 +2748,9 @@ void Init_rustorb_ext(void) {
      pointer. */
   registry = TypedData_Wrap_Struct(rb_cObject, &registry_type, &peers);
   rb_gc_register_mark_object(registry);
+  rb_gc_register_mark_object(TypedData_Wrap_Struct(rb_cObject, &hosts_type, host_buckets));
+  rorb_set_value_type_resolver(resolve_value_type, NULL);
+  rb_define_module_function(mNative, "kept_values", native_kept_values, 0);
   rb_set_end_proc(at_exit_dispatchers, Qnil);
 
   SDEF(mNative, "orb_init", native_orb_init, 1);
@@ -2614,6 +2821,9 @@ void Init_rustorb_ext(void) {
   DEF(cOut, "write_array", out_write_array, 2);
   DEF(cOut, "failed?", out_failed, 0);
   DEF(cOut, "keeps_hosts?", out_keeps_hosts, 0);
+  DEF(cOut, "write_null_value", out_write_null_value, 0);
+  DEF(cOut, "begin_value", out_begin_value, 3);
+  DEF(cOut, "end_value", out_end_value, 0);
 
   cIn = handle_class("In");
   DEF(cIn, "read_boolean", in_read_boolean, 0);
@@ -2640,6 +2850,10 @@ void Init_rustorb_ext(void) {
   DEF(cIn, "read_length", in_read_length, 1);
   DEF(cIn, "fail", in_fail, 0);
   DEF(cIn, "failed?", in_failed, 0);
+  DEF(cIn, "read_value_header", in_read_value_header, 0);
+  DEF(cIn, "value_at", in_value_at, 1);
+  DEF(cIn, "keep_value", in_keep_value, 2);
+  DEF(cIn, "end_value", in_end_value, 0);
   (void)rel_in;
 
   cTC = handle_class("TC");
@@ -2667,6 +2881,9 @@ void Init_rustorb_ext(void) {
   DEF(cTC, "length", tc_length, 0);
   DEF(cTC, "content_type", tc_content_type, 0);
   DEF(cTC, "fixed_digits", tc_fixed_digits, 0);
+  DEF(cTC, "type_modifier", tc_type_modifier, 0);
+  DEF(cTC, "member_visibility", tc_member_visibility, 1);
+  DEF(cTC, "concrete_base_type", tc_concrete_base_type, 0);
   DEF(cTC, "fixed_scale", tc_fixed_scale, 0);
   DEF(cTC, "equal", tc_equal, 1);
   DEF(cTC, "equivalent", tc_equivalent, 1);

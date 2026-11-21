@@ -9,9 +9,9 @@
 # $SERVER_IMPLS. Both default to $IMPLS (omniorbpy, omniorb-cpp and, but for
 # --suite any, jacorb, in the image) plus rustorb, rustorbpy, rustorbcpp and
 # rustorbjava (the Rust, the Python, the C++ and the Java client and server of
-# rustorb), rustorbcs (the .NET client and server), for the basic and any
-# suites rustorbc (the C client and server) and rustorbrb (the Ruby client
-# and server), which are built on the host
+# rustorb), rustorbcs (the .NET client and server), rustorbrb (the Ruby
+# client and server) and, for the basic and any suites, rustorbc (the C
+# client and server), which are built on the host
 # (rustorbrb's extension in the image). rustorbjava-portable (the Java client and server on rustorb with
 # JacORB's generated stubs), rustorbpy-dii (the Python client and server
 # through the DII and the DSI), rustorbcpp-dii (the C++ client and server
@@ -134,14 +134,12 @@ else
   export INTEROP_UNIX= SERVER_HOSTNAME=server CLIENT_HOSTNAME=client
 fi
 rustorb_impls="rustorb rustorbpy rustorbcpp rustorbjava"
-# .NET has every suite; C the basic and any ones (the C mapping has no
-# valuetypes); Ruby the basic and any ones so far (rustorb#188).
-if [ "$suite" = basic ]; then
-  rustorb_impls+=" rustorbcs rustorbc rustorbrb"
-elif [ "$suite" = any ]; then
+# .NET and Ruby have every suite; C the basic and any ones (the C mapping
+# has no valuetypes).
+if [ "$suite" = basic ] || [ "$suite" = any ]; then
   rustorb_impls+=" rustorbcs rustorbc rustorbrb"
 else
-  rustorb_impls+=" rustorbcs"
+  rustorb_impls+=" rustorbcs rustorbrb"
 fi
 CLIENT_IMPLS="${CLIENT_IMPLS:-$IMPLS $rustorb_impls}"
 SERVER_IMPLS="${SERVER_IMPLS:-$IMPLS $rustorb_impls}"

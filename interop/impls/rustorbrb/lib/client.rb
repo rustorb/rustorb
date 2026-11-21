@@ -10,13 +10,30 @@ require_relative "common"
 require "cases"
 
 opts, orb_args = Interop.parse_args(ARGV, ["--shutdown-server"])
-abort "rustorbrb runs the basic and any suites (rustorb#188)" unless %w[basic any].include?(opts[:suite])
+SUITES = {
+  "value" => ["valuetest", "ValueCases", "ValueTest::ValueEcho", :register_factories],
+  "abstract" => ["abstracttest", "AbstractCases", "AbstractTest::AbstractEcho", :register],
+  "custom" => ["customtest", "CustomCases", "CustomTest::CustomEcho", :register]
+}.freeze
+abort "unknown suite #{opts[:suite]}" unless %w[basic any].include?(opts[:suite]) || SUITES.key?(opts[:suite])
 orb = Interop.orb_init(opts, orb_args)
 poa = Interop.persistent_poa(orb, "InteropTestClient")
 root = Interop.root_context(orb, opts[:timeout])
 name = Interop.to_name(opts[:name])
 r = Runner.new
-if opts[:suite] == "any"
+if SUITES.key?(opts[:suite])
+  # The valuetype suites against the echo object at the name, which also
+  # stops the server.
+  file, cases, iface, register = SUITES[opts[:suite]]
+  require file
+  mod = Object.const_get(cases)
+  mod.public_send(register, orb)
+  obj = Interop.retry_for("the #{iface} server", opts[:timeout]) { root.resolve(name) }
+  echo = Object.const_get(iface)._narrow(obj)
+  Interop.retry_for("the #{iface} server", opts[:timeout]) { echo._non_existent? }
+  mod.run(r, echo)
+  echo.shutdown if opts[:shutdown_server]
+elsif opts[:suite] == "any"
   # The stage 2 suite against the AnyEcho object at the name; the server's
   # Echo object is at the name + "-Echo".
   require "anytest"

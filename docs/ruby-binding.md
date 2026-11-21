@@ -102,6 +102,23 @@ hello.say("hi")
 - **DynAny**：`orb.resolve_initial_references("DynAnyFactory")`。`DynamicAny::DynAny`・`DynStruct`・`DynUnion`・`DynEnum`・`DynFixed`・`DynSequence`・`DynArray`・`DynValue`・`DynValueBox` は操作を IDL の名前（`insert_long`、`get_members`、`current_component` など）で持つ。値は Ruby の値、any は `CORBA::Any`、TCKind は `CORBA::TK_` の Integer、`DynFixed#get_value` は String（`set_value` は BigDecimal も受ける）。例外は `DynamicAny::DynAny::InvalidValue`・`TypeMismatch`、`DynAnyFactory::InconsistentTypeCode`、`DynamicAny::MustTruncate`。中身は C 拡張の `Rustorb::Native::DynAny` が `rorb_dynany_*` を包み、値は any で受け渡す
 - **DII / DSI**：`CORBA::Request`（`obj._request(op)`、`_create_request`）・`NVList`・`NamedValue`・`ServerRequest` と `PortableServer::DynamicImplementation`。C 拡張の `Rustorb::Native::Request`・`ServerRequest` が `rorb_request_*`・`rorb_server_request_*` を包む。詳しくは [dii-dsi.md](dii-dsi.md)
 - **local インターフェース**：`-bruby` はモジュール（`ID`、`_tc` は tk_local_interface、入れ子の型と定数）だけを作り、スタブもスケルトンも作らない。実装は `CORBA::LocalObject` を継承してそのモジュールを include し、操作をメソッドで定義する。`_narrow` はそのモジュールを include したオブジェクトをそのまま返し、ほかは `BAD_PARAM`。`_is_a?` は祖先のモジュールの ID と `CORBA::LocalObject`・`CORBA::Object` に答える。呼び出しの引数や any に入れて送ろうとしたり `object_to_string` したりすると `MARSHAL`（minor 4、COMPLETED_NO）
+- **valuetype**：生成コードの形は次のとおり（RCLM には valuetype の定めが少ないので、Python のマッピングと他のバインディングに合わせた）。中身は C 拡張が C ABI の `rorb_out_begin_value`・`rorb_in_read_value_header` などを包み、`Rustorb::Values` が状態を読み書きする。詳しくは [valuetype.md](valuetype.md)
+
+  | IDL | Ruby |
+  |---|---|
+  | `valuetype V` | `class V`（`include ::CORBA::ValueBase`。具象の基底があれば `class V < Base`）。`ID`・`TRUNCATABLE_IDS`・`MEMBERS`、状態メンバーごとの `attr_accessor`（private も）、`_tc`。`V.new(...)` は基底のものから順に状態メンバーを取る |
+  | 操作・初期化子・サポートするインターフェースのない valuetype | そのクラスがファクトリ（`Rustorb::Values.register(V, default: true)`） |
+  | 操作か初期化子のある valuetype | アプリケーションがサブクラスで操作を書き、`orb.register_value_factory(V::ID, Impl)` で登録する（クラス、`create_for_unmarshal` を持つオブジェクト、ブロックのどれでもよい。クラスなら `allocate` で作って状態を読む）。初期化子はそのサブクラスの `new` で書く |
+  | `valuetype T supports I` | 加えて `include ::PortableServer::ServantMethods`、`IDS`・`_operations`。実装のインスタンスは `I` のサーバントでもある（`t._this`） |
+  | `abstract valuetype A` | `module A`（`include ::CORBA::ValueBase`）。派生のクラスが include する |
+  | `custom valuetype C` | 加えて `include ::CORBA::CustomMarshal`。実装は `marshal(os)`・`unmarshal(is)`（`CORBA::DataOutputStream`・`DataInputStream` の `write_long`・`read_Value`・`write_long_array(seq, offset, length)` など）を書いてファクトリを登録する。値は常にチャンクで送る |
+  | `valuetype B long;`（value box） | 値は中身そのもの（null は nil）。`module B` は型の名前と `_tc` だけ |
+  | `abstract interface N` | インターフェースと同じモジュールとスタブ（`extend ::Rustorb::AbstractInterfaceModule`、`_tc` は tk_abstract_interface）。`N._narrow` は値ならそのまま、参照ならスタブにする。送るときは参照（nil を含む）なら TRUE と参照、値なら FALSE と値。valuetype が `supports N` なら N を include し、N の操作は実装が書く |
+
+  - 同じメッセージで同じインスタンスを2度書くと間接参照になり、受ける側でも1つのインスタンスになる（循環も保つ）。any に入れたインスタンスはその any から取り出すと同じインスタンスで、複数の any に入れても1つのまま。ストリームと any のコアのインスタンスが持つ Ruby のオブジェクトは C 拡張の表が GC から守り、手放されると外す（`Rustorb::Native.kept_values` がその数）
+  - 受けた値の型にファクトリがなければ（truncatable の基底のファクトリもなければ）`MARSHAL`。truncatable の値を基底のファクトリで受けると、基底の状態だけを読んで残りを飛ばす
+  - any の中で基底の型として届いた派生の値を読めるように、コアが知らない valuetype の TypeCode は生成コードの登録から渡す（`rorb_set_value_type_resolver`）
+  - `orb.lookup_value_factory(id)`・`unregister_value_factory(id)`（登録がなければ `BAD_PARAM`）
 - **servant manager**：`PortableServer::ServantActivator`（`incarnate`・`etherealize`）、`ServantLocator`（`preinvoke` は `[servant, cookie]` かサーバントだけを返す。`postinvoke` はその cookie を受ける）、`AdapterActivator`（`unknown_adapter`）を継承し、`POA#set_servant_manager`・`the_activator=` で渡す。`PortableServer::ForwardRequest.new(ref)` で別のオブジェクトへ転送する。POA のアップコールのスレッドから GVL を取って呼ぶ。`interop/run-poa-probe.sh rustorbrb` の結果は rustorb のものと同じ
 - **rustorb の拡張**：`CORBA::ORB#call_timeout=`・`CORBA::Object#_call_timeout=`（秒）、`Rustorb::Native` の下の低水準の API
 
@@ -127,7 +144,6 @@ POA・POAManager・Current・ORB・TypeCode の例外は `PortableServer::POA::O
 
 次のものは [#188](https://github.com/rustorb/rustorb/issues/188) で足す。
 
-- valuetype と abstract interface
 - Portable Interceptors
 - AMI（`-Wbami`）
 
@@ -140,8 +156,9 @@ POA・POAManager・Current・ORB・TypeCode の例外は `PortableServer::POA::O
   - `test_idl4`：`cpp/tests/idl/Idl4.idl` の int8・bitmask・bitset・`@default`・`@range` を ORB 越しに確かめる（any の中も）
   - `test_mapping`：他のバインディングと同じ `cpp/tests/idl/CxxMapping.idl` を ORB 越しに確かめる。定数、再帰型、すべての判別子の union、入れ子の型、キーワード、上限と不正な値、fixed と long double、多重継承、TypeCode と any
   - `test_local`：`LocalTest.idl`（.NET のテストと同じ）の local インターフェースの実装、`_narrow`、TypeCode、送れないこと
+  - `test_values`：値のファクトリの登録と探索、ファクトリがないときの `MARSHAL`、TypeCode の問い合わせ、any の中のインスタンス、ストリームが持ったものを手放すこと
   - `test_servant_managers`：servant activator（転送、例外、etherealize）、servant locator（cookie）、adapter activator
-  - `test_interop`：相互接続の Ruby クライアントの79ケース（`interop/impls/rustorbrb/lib/cases.rb`）と any スイートのケース（`anytest.rb`）を、同じプロセスのサーバントに向けて流す
+  - `test_interop`：相互接続の Ruby クライアントの79ケース（`interop/impls/rustorbrb/lib/cases.rb`）、any スイートのケース（`anytest.rb`）、value・abstract・custom スイートのケース（`valuetest.rb`・`abstracttest.rb`・`customtest.rb`）を、同じプロセスのサーバントに向けて流す
   - `test_dynany`：生成した型の DynAny、クラスと例外
   - `test_dii`：DII と DSI
 - rustorb-idl の `python/tests/test_ruby_backend.py`：生成物の形、名前の規則、include、対応しない構文のエラー、`ruby -wc`。golden は `tests/golden/ruby`

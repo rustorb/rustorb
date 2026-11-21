@@ -9,10 +9,16 @@ require_relative "common"
 require "echo_servant"
 
 opts, orb_args = Interop.parse_args(ARGV)
-abort "rustorbrb runs the basic and any suites (rustorb#188)" unless %w[basic any].include?(opts[:suite])
+SUITES = {
+  "value" => ["valuetest", "ValueCases", "ValueEchoServant", :register_factories, "ValueTest", "ValueEcho"],
+  "abstract" => ["abstracttest", "AbstractCases", "AbstractEchoServant", :register, "AbstractTest", "AbstractEcho"],
+  "custom" => ["customtest", "CustomCases", "CustomEchoServant", :register, "CustomTest", "CustomEcho"]
+}.freeze
+abort "unknown suite #{opts[:suite]}" unless %w[basic any].include?(opts[:suite]) || SUITES.key?(opts[:suite])
 orb = Interop.orb_init(opts, orb_args)
 any_suite = opts[:suite] == "any"
-poa = Interop.persistent_poa(orb, any_suite ? "AnyTest" : "InteropTest")
+value_suite = SUITES[opts[:suite]]
+poa = Interop.persistent_poa(orb, value_suite ? value_suite[4] : (any_suite ? "AnyTest" : "InteropTest"))
 poa.activate_object_with_id("Echo".b, EchoServant.new(orb))
 obj = poa.id_to_reference("Echo".b)
 
@@ -30,7 +36,16 @@ def bind(root, path, obj)
 end
 
 root = Interop.root_context(orb, opts[:timeout])
-if any_suite
+if value_suite
+  # The valuetype suites: the echo object at the name, which also stops the
+  # server.
+  file, cases, servant, register, _, oid = value_suite
+  require file
+  mod = Object.const_get(cases)
+  mod.public_send(register, orb)
+  poa.activate_object_with_id(oid.b, mod.const_get(servant).new(orb))
+  bind(root, opts[:name], poa.id_to_reference(oid.b))
+elsif any_suite
   # The stage 2 suite: AnyEcho at the name, with the Echo object next to it
   # (at the name + "-Echo") for the client to shut the server down.
   require "anytest"

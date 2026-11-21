@@ -76,3 +76,37 @@ class DiiInterop_ < Minitest::Test
     assert_equal 0, m[4].to_i, out
   end
 end
+
+# The valuetype, abstract interface and custom valuetype suites
+# (ValueTest.idl, AbstractTest.idl, CustomTest.idl) against servants in
+# this process.
+require "valuetest"
+require "abstracttest"
+require "customtest"
+
+class ValueSuites_ < Minitest::Test
+  def run_suite(mod, servant, iface)
+    echo = TestORB.ref(servant, iface)
+    out = StringIO.new
+    r = Runner.new(out)
+    mod.run(r, echo)
+    assert_empty r.failed, out.string
+    r.passed
+  end
+
+  def test_value
+    ValueCases.register_factories(TestORB.orb)
+    assert_equal 26, run_suite(ValueCases, ValueCases::ValueEchoServant.new(TestORB.orb), ValueTest::ValueEcho)
+  end
+
+  def test_abstract
+    AbstractCases.register(TestORB.orb)
+    assert_equal 13, run_suite(AbstractCases, AbstractCases::AbstractEchoServant.new(TestORB.orb),
+                               AbstractTest::AbstractEcho)
+  end
+
+  def test_custom
+    CustomCases.register(TestORB.orb)
+    assert_equal 7, run_suite(CustomCases, CustomCases::CustomEchoServant.new(TestORB.orb), CustomTest::CustomEcho)
+  end
+end

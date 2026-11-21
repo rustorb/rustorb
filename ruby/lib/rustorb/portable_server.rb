@@ -324,7 +324,12 @@ module PortableServer
   class Servant
     IDS = [].freeze
     OPERATIONS = {}.freeze
+  end
 
+  # What a servant is made of, for Servant and the valuetypes that support
+  # an interface (an instance is activated like a servant). The class has
+  # IDS and _operations.
+  module ServantMethods
     def _default_POA
       PortableServer::POA.new(Rustorb::Native.default_root_poa)
     end
@@ -440,5 +445,9 @@ module PortableServer
       reply.system_exception(exc._id, exc.minor, exc.completed)
       false
     end
+  end
+
+  class Servant
+    include ServantMethods
   end
 end

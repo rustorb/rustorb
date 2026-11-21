@@ -147,6 +147,21 @@ module CORBA
       @content ||= TypeCode._wrap(native.content_type)
     end
 
+    # The concrete base valuetype of a valuetype (nil without one).
+    def concrete_base_type
+      return @concrete_base if defined?(@concrete_base)
+
+      @concrete_base = TypeCode._wrap(native.concrete_base_type)
+    end
+
+    def type_modifier
+      @type_modifier ||= native.type_modifier
+    end
+
+    def member_visibility(index)
+      native.member_visibility(index)
+    end
+
     def fixed_digits
       @fixed_digits ||= native.fixed_digits
     end
@@ -245,6 +260,10 @@ module CORBA
       new(Rustorb::Native::TC.interface(TK_OBJREF, id, name))
     end
 
+    def self.create_abstract_interface_tc(id, name)
+      new(Rustorb::Native::TC.interface(TK_ABSTRACT_INTERFACE, id, name))
+    end
+
     def self.create_local_interface_tc(id, name)
       new(Rustorb::Native::TC.interface(TK_LOCAL_INTERFACE, id, name))
     end
@@ -280,7 +299,9 @@ module CORBA
       native = Rustorb::Native::TC.value(kind, id, name, modifier, base&.resolve_for_build,
                                          members.map(&:first), members.map { |m| m[1].resolve_for_build },
                                          members.map { |m| m[2] })
-      Rustorb.register_tc(new(native, members: members.map { |m| m[0, 2] }))
+      tc = new(native, members: members.map { |m| m[0, 2] })
+      tc.instance_variable_set(:@concrete_base, base)
+      Rustorb.register_tc(tc)
     end
 
     def self.create_event_tc(id, name, modifier, base, members)
