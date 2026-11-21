@@ -7,8 +7,8 @@
 # --update   rewrites the expected files with the current output
 #
 # SERVER is omniorb-cpp, omniorbpy, rustorb (Rust), rustorbpy (Python),
-# rustorbcpp (C++), rustorbjava (Java) or rustorbcs (.NET) (default: all of
-# them). The rustorb
+# rustorbcpp (C++), rustorbjava (Java), rustorbcs (.NET) or rustorbc (C)
+# (default: all of them). The rustorb
 # servers are built on the host and mounted into the container, as in
 # run-matrix.sh; the bindings run on the same core, so they all compare with
 # expected/wire-probe-rustorb.txt.
@@ -24,11 +24,11 @@ if [ "${1:-}" = "--update" ]; then
   shift
 fi
 servers=("$@")
-[ ${#servers[@]} -eq 0 ] && servers=(omniorb-cpp omniorbpy rustorb rustorbpy rustorbcpp rustorbjava rustorbcs)
+[ ${#servers[@]} -eq 0 ] && servers=(omniorb-cpp omniorbpy rustorb rustorbpy rustorbcpp rustorbjava rustorbcs rustorbc)
 
 expected_name() {
   case "$1" in
-    rustorbpy | rustorbcpp | rustorbjava | rustorbcs) echo rustorb ;;
+    rustorbpy | rustorbcpp | rustorbjava | rustorbcs | rustorbc) echo rustorb ;;
     *) echo "$1" ;;
   esac
 }
@@ -41,7 +41,7 @@ for server in "${servers[@]}"; do
       mkdir -p impls/rustorb/bin
       cp ../target/release/rustorb-interop-server impls/rustorb/bin/
       ;;
-    rustorbpy | rustorbcpp | rustorbjava | rustorbcs) "impls/$server/build.sh" ;;
+    rustorbpy | rustorbcpp | rustorbjava | rustorbcs | rustorbc) "impls/$server/build.sh" ;;
     *) echo "unknown server: $server" >&2; exit 2 ;;
   esac
 done
