@@ -50,7 +50,8 @@ static const char* const kind_ids[] = {
     "IDL:omg.org/DynamicAny/DynStruct:1.0",   /* tk_struct, tk_except */
     "IDL:omg.org/DynamicAny/DynUnion:1.0",    "IDL:omg.org/DynamicAny/DynEnum:1.0",
     "IDL:omg.org/DynamicAny/DynSequence:1.0", "IDL:omg.org/DynamicAny/DynArray:1.0",
-    "IDL:omg.org/DynamicAny/DynFixed:1.0",
+    "IDL:omg.org/DynamicAny/DynFixed:1.0",    "IDL:omg.org/DynamicAny/DynValue:1.0",
+    "IDL:omg.org/DynamicAny/DynValueBox:1.0",
 };
 
 int rustorb_c_dynany_is_a(CORBA_Object obj, const char* id) {
@@ -64,8 +65,11 @@ int rustorb_c_dynany_is_a(CORBA_Object obj, const char* id) {
     case CORBA_tk_sequence: i = 3; break;
     case CORBA_tk_array: i = 4; break;
     case CORBA_tk_fixed: i = 5; break;
+    case CORBA_tk_value: i = 6; break;
+    case CORBA_tk_value_box: i = 7; break;
     default: break;
   }
+  if (i >= 6 && strcmp(id, "IDL:omg.org/DynamicAny/DynValueCommon:1.0") == 0) return 1;
   return i >= 0 && strcmp(id, kind_ids[i]) == 0;
 }
 
@@ -953,4 +957,192 @@ void DynamicAny_DynArray_set_elements_as_dyn_any(DynamicAny_DynArray _obj,
                                                  const DynamicAny_DynAnySeq* value,
                                                  CORBA_Environment* ev) {
   set_elements_as_dyn_any(_obj, value, ev);
+}
+
+/* --- insert_<type>_seq, get_<type>_seq ------------------------------------------- */
+
+/* The values as an any of an unbounded sequence of the element type. */
+static void insert_seq(DynamicAny_DynAny obj, uint32_t kind, const rustorb_c_type* seq_desc,
+                       const void* value, CORBA_Environment* ev) {
+  const rorb_dynany* d = dyn_of(obj, ev);
+  rustorb_c_err err = {NULL, 0};
+  CORBA_any a;
+  rorb_any* raw;
+  rorb_exception exc;
+  NO_EXC(exc);
+  if (!d) return;
+  if (!value) {
+    rustorb_c_ev_system(ev, ex_CORBA_BAD_PARAM, 0, CORBA_COMPLETED_NO);
+    return;
+  }
+  memset(&a, 0, sizeof a);
+  a._type = rustorb_c_type_tc(seq_desc, NULL);
+  a._value = (void*)value;
+  raw = rustorb_c_any_to_raw(&a, &err);
+  if (raw_failed(ev, raw, &err)) return;
+  rustorb_c_failed(ev, rorb_dynany_insert_seq(d, kind, raw, &exc), &exc);
+  rorb_any_release(raw);
+}
+
+static void* get_seq(DynamicAny_DynAny obj, uint32_t kind, const rustorb_c_type* seq_desc,
+                     CORBA_Environment* ev) {
+  const rorb_dynany* d = dyn_of(obj, ev);
+  rorb_any* raw = NULL;
+  rorb_exception exc;
+  void* r;
+  NO_EXC(exc);
+  if (!d || rustorb_c_failed(ev, rorb_dynany_get_seq(d, kind, &raw, &exc), &exc)) return NULL;
+  r = rustorb_c_sequence_alloc();
+  if (r && rustorb_c_raw_value(raw, seq_desc, r)) {
+    CORBA_free(r);
+    r = NULL;
+    rustorb_c_ev_system(ev, ex_CORBA_MARSHAL, 0, CORBA_COMPLETED_NO);
+  }
+  rorb_any_release(raw);
+  return r;
+}
+
+#define DYN_SEQ(name, cap, elem, tk)                                                        \
+  static rustorb_c_cache name##_seq_cache;                                                  \
+  static const rustorb_c_type name##_seq_desc = {CORBA_tk_sequence,                        \
+                                                 sizeof(CORBA_sequence_octet),             \
+                                                 NULL,                                     \
+                                                 NULL,                                     \
+                                                 &elem##__desc,                            \
+                                                 0,                                        \
+                                                 0,                                        \
+                                                 NULL,                                     \
+                                                 NULL,                                     \
+                                                 -1,                                       \
+                                                 0,                                        \
+                                                 0,                                        \
+                                                 &name##_seq_cache};                       \
+  void DynamicAny_DynAny_insert_##name##_seq(DynamicAny_DynAny _obj,                       \
+                                             const CORBA_##cap##Seq* value,                \
+                                             CORBA_Environment* ev) {                      \
+    insert_seq(_obj, tk, &name##_seq_desc, value, ev);                                      \
+  }                                                                                         \
+  CORBA_##cap##Seq* DynamicAny_DynAny_get_##name##_seq(DynamicAny_DynAny _obj,             \
+                                                       CORBA_Environment* ev) {            \
+    return (CORBA_##cap##Seq*)get_seq(_obj, tk, &name##_seq_desc, ev);                      \
+  }
+DYN_SEQ(boolean, Boolean, CORBA_boolean, CORBA_tk_boolean)
+DYN_SEQ(octet, Octet, CORBA_octet, CORBA_tk_octet)
+DYN_SEQ(char, Char, CORBA_char, CORBA_tk_char)
+DYN_SEQ(wchar, WChar, CORBA_wchar, CORBA_tk_wchar)
+DYN_SEQ(short, Short, CORBA_short, CORBA_tk_short)
+DYN_SEQ(ushort, UShort, CORBA_unsigned_short, CORBA_tk_ushort)
+DYN_SEQ(long, Long, CORBA_long, CORBA_tk_long)
+DYN_SEQ(ulong, ULong, CORBA_unsigned_long, CORBA_tk_ulong)
+DYN_SEQ(longlong, LongLong, CORBA_long_long, CORBA_tk_longlong)
+DYN_SEQ(ulonglong, ULongLong, CORBA_unsigned_long_long, CORBA_tk_ulonglong)
+DYN_SEQ(float, Float, CORBA_float, CORBA_tk_float)
+DYN_SEQ(double, Double, CORBA_double, CORBA_tk_double)
+DYN_SEQ(longdouble, LongDouble, CORBA_long_double, CORBA_tk_longdouble)
+
+/* --- DynValueCommon, DynValue, DynValueBox ---------------------------------------- */
+
+CORBA_boolean DynamicAny_DynValueCommon_is_null(DynamicAny_DynValueCommon _obj,
+                                                CORBA_Environment* ev) {
+  const rorb_dynany* d = dyn_of(_obj, ev);
+  int32_t r = 0;
+  rorb_exception exc;
+  NO_EXC(exc);
+  if (!d || rustorb_c_failed(ev, rorb_dynany_is_null(d, &r, &exc), &exc)) return CORBA_FALSE;
+  return r ? CORBA_TRUE : CORBA_FALSE;
+}
+
+void DynamicAny_DynValueCommon_set_to_null(DynamicAny_DynValueCommon _obj, CORBA_Environment* ev) {
+  const rorb_dynany* d = dyn_of(_obj, ev);
+  rorb_exception exc;
+  NO_EXC(exc);
+  if (d) rustorb_c_failed(ev, rorb_dynany_set_to_null(d, &exc), &exc);
+}
+
+void DynamicAny_DynValueCommon_set_to_value(DynamicAny_DynValueCommon _obj,
+                                            CORBA_Environment* ev) {
+  const rorb_dynany* d = dyn_of(_obj, ev);
+  rorb_exception exc;
+  NO_EXC(exc);
+  if (d) rustorb_c_failed(ev, rorb_dynany_set_to_value(d, &exc), &exc);
+}
+
+/* The member operations of DynValue are those of DynStruct, on the core
+   DynAny of a valuetype. */
+DynamicAny_FieldName DynamicAny_DynValue_current_member_name(DynamicAny_DynValue _obj,
+                                                             CORBA_Environment* ev) {
+  return DynamicAny_DynStruct_current_member_name(_obj, ev);
+}
+
+CORBA_TCKind DynamicAny_DynValue_current_member_kind(DynamicAny_DynValue _obj,
+                                                     CORBA_Environment* ev) {
+  return DynamicAny_DynStruct_current_member_kind(_obj, ev);
+}
+
+DynamicAny_NameValuePairSeq* DynamicAny_DynValue_get_members(DynamicAny_DynValue _obj,
+                                                             CORBA_Environment* ev) {
+  return DynamicAny_DynStruct_get_members(_obj, ev);
+}
+
+void DynamicAny_DynValue_set_members(DynamicAny_DynValue _obj,
+                                     const DynamicAny_NameValuePairSeq* value,
+                                     CORBA_Environment* ev) {
+  DynamicAny_DynStruct_set_members(_obj, value, ev);
+}
+
+DynamicAny_NameDynAnyPairSeq* DynamicAny_DynValue_get_members_as_dyn_any(
+    DynamicAny_DynValue _obj, CORBA_Environment* ev) {
+  return DynamicAny_DynStruct_get_members_as_dyn_any(_obj, ev);
+}
+
+void DynamicAny_DynValue_set_members_as_dyn_any(DynamicAny_DynValue _obj,
+                                                const DynamicAny_NameDynAnyPairSeq* value,
+                                                CORBA_Environment* ev) {
+  DynamicAny_DynStruct_set_members_as_dyn_any(_obj, value, ev);
+}
+
+CORBA_any* DynamicAny_DynValueBox_get_boxed_value(DynamicAny_DynValueBox _obj,
+                                                  CORBA_Environment* ev) {
+  const rorb_dynany* d = dyn_of(_obj, ev);
+  rorb_any* raw = NULL;
+  rorb_exception exc;
+  NO_EXC(exc);
+  if (!d || rustorb_c_failed(ev, rorb_dynany_get_boxed_value(d, &raw, &exc), &exc)) return NULL;
+  return any_of_raw(raw, ev);
+}
+
+void DynamicAny_DynValueBox_set_boxed_value(DynamicAny_DynValueBox _obj, const CORBA_any* boxed,
+                                            CORBA_Environment* ev) {
+  const rorb_dynany* d = dyn_of(_obj, ev);
+  rustorb_c_err err = {NULL, 0};
+  rorb_any* raw;
+  rorb_exception exc;
+  NO_EXC(exc);
+  if (!d) return;
+  raw = rustorb_c_any_to_raw(boxed, &err);
+  if (raw_failed(ev, raw, &err)) return;
+  rustorb_c_failed(ev, rorb_dynany_set_boxed_value(d, raw, &exc), &exc);
+  rorb_any_release(raw);
+}
+
+DynamicAny_DynAny DynamicAny_DynValueBox_get_boxed_value_as_dyn_any(DynamicAny_DynValueBox _obj,
+                                                                   CORBA_Environment* ev) {
+  const rorb_dynany* d = dyn_of(_obj, ev);
+  rorb_dynany* r = NULL;
+  rorb_exception exc;
+  NO_EXC(exc);
+  if (!d || rustorb_c_failed(ev, rorb_dynany_get_boxed_value_as_dyn_any(d, &r, &exc), &exc))
+    return NULL;
+  return wrap(r);
+}
+
+void DynamicAny_DynValueBox_set_boxed_value_as_dyn_any(DynamicAny_DynValueBox _obj,
+                                                       DynamicAny_DynAny boxed,
+                                                       CORBA_Environment* ev) {
+  const rorb_dynany* d = dyn_of(_obj, ev);
+  const rorb_dynany* o;
+  rorb_exception exc;
+  NO_EXC(exc);
+  if (!d || !(o = other_of(boxed, ev))) return;
+  rustorb_c_failed(ev, rorb_dynany_set_boxed_value_as_dyn_any(d, o, &exc), &exc);
 }

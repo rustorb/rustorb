@@ -357,6 +357,108 @@ static void test_copy_equal_multiple(DynamicAny_DynAnyFactory f) {
   CHECK(d == CORBA_OBJECT_NIL);
 }
 
+/* TypeCode factories, DynValue, DynValueBox and insert_<type>_seq, every
+   result released (the probe checks the behaviour; this the memory). */
+static void test_factories_values(CORBA_ORB orb, DynamicAny_DynAnyFactory f) {
+  CORBA_Environment ev = {CORBA_NO_EXCEPTION, NULL, NULL};
+  CORBA_long one = 1, three = 3;
+  CORBA_octet zero = 0;
+  CORBA_UnionMember um[2];
+  CORBA_UnionMemberSeq useq = {2, 2, NULL, CORBA_FALSE};
+  CORBA_StructMemberSeq* sseq = CORBA_StructMemberSeq__alloc();
+  CORBA_ValueMember vm[1];
+  CORBA_ValueMemberSeq vseq = {1, 1, NULL, CORBA_FALSE};
+  CORBA_TypeCode u, st, v, box, lseq;
+  DynamicAny_DynAny d, c;
+  CORBA_LongSeq in = {2, 2, NULL, CORBA_FALSE};
+  CORBA_LongSeq* got;
+  CORBA_long vals[2] = {7, 8};
+  DynamicAny_NameValuePairSeq* m;
+  CORBA_any a, *back;
+
+  memset(um, 0, sizeof um);
+  um[0].name = "x";
+  um[0].label._type = TC_long;
+  um[0].label._value = &one;
+  um[0].type = TC_long;
+  um[1].name = "z";
+  um[1].label._type = TC_octet;
+  um[1].label._value = &zero;
+  um[1].type = TC_string;
+  useq._buffer = um;
+  u = CORBA_ORB_create_union_tc(orb, "IDL:T/U:1.0", "U", TC_long, &useq, &ev);
+  CHECK(OK(&ev) && CORBA_TypeCode_default_index(u, &ev) == 1);
+  /* Two default labels. */
+  um[0].label._type = TC_octet;
+  CHECK(CORBA_ORB_create_union_tc(orb, "IDL:T/U:1.0", "U", TC_long, &useq, &ev) == NULL &&
+        ev._major == CORBA_SYSTEM_EXCEPTION);
+  CORBA_exception_free(&ev);
+
+  /* A struct of the union, from an allocated member sequence. */
+  sseq->_buffer = CORBA_StructMemberSeq_allocbuf(1);
+  sseq->_length = sseq->_maximum = 1;
+  sseq->_release = CORBA_TRUE;
+  sseq->_buffer[0].name = CORBA_string_dup("u");
+  sseq->_buffer[0].type = (CORBA_TypeCode)CORBA_Object_duplicate((CORBA_Object)u, &ev);
+  st = CORBA_ORB_create_struct_tc(orb, "IDL:T/S:1.0", "S", sseq, &ev);
+  CHECK(OK(&ev) && CORBA_TypeCode_member_count(st, &ev) == 1);
+  CORBA_free(sseq);
+  d = DynamicAny_DynAnyFactory_create_dyn_any_from_type_code(f, st, &ev);
+  CHECK(OK(&ev) && DynamicAny_DynAny_component_count(d, &ev) == 1);
+  CORBA_Object_release(d, &ev);
+
+  memset(vm, 0, sizeof vm);
+  vm[0].name = "n";
+  vm[0].type = TC_long;
+  vm[0].access = CORBA_PUBLIC_MEMBER;
+  vseq._buffer = vm;
+  v = CORBA_ORB_create_value_tc(orb, "IDL:T/V:1.0", "V", CORBA_VM_NONE, NULL, &vseq, &ev);
+  CHECK(OK(&ev) && CORBA_TypeCode_kind(v, &ev) == CORBA_tk_value);
+  d = DynamicAny_DynAnyFactory_create_dyn_any_from_type_code(f, v, &ev);
+  CHECK(OK(&ev) && CORBA_Object_is_a(d, "IDL:omg.org/DynamicAny/DynValue:1.0", &ev) &&
+        CORBA_Object_is_a(d, "IDL:omg.org/DynamicAny/DynValueCommon:1.0", &ev));
+  CHECK(DynamicAny_DynValue_is_null(d, &ev) && OK(&ev));
+  DynamicAny_DynValue_set_to_value(d, &ev);
+  c = DynamicAny_DynAny_current_component(d, &ev);
+  DynamicAny_DynAny_insert_long(c, 3, &ev);
+  CORBA_Object_release(c, &ev);
+  m = DynamicAny_DynValue_get_members(d, &ev);
+  CHECK(OK(&ev) && m && m->_length == 1 && strcmp(m->_buffer[0].id, "n") == 0 &&
+        *(CORBA_long*)m->_buffer[0].value._value == 3);
+  CORBA_free(m);
+  back = DynamicAny_DynAny_to_any(d, &ev);
+  CHECK(OK(&ev) && back);
+  CORBA_free(back);
+  CORBA_Object_release(d, &ev);
+
+  box = CORBA_ORB_create_value_box_tc(orb, "IDL:T/B:1.0", "B", TC_long, &ev);
+  d = DynamicAny_DynAnyFactory_create_dyn_any_from_type_code(f, box, &ev);
+  a._type = TC_long;
+  a._value = &three;
+  a._release = CORBA_FALSE;
+  a._rustorb = NULL;
+  DynamicAny_DynValueBox_set_boxed_value(d, &a, &ev);
+  back = DynamicAny_DynValueBox_get_boxed_value(d, &ev);
+  CHECK(OK(&ev) && back && *(CORBA_long*)back->_value == 3);
+  CORBA_free(back);
+  CORBA_Object_release(d, &ev);
+
+  lseq = CORBA_ORB_create_sequence_tc(orb, 0, TC_long, &ev);
+  d = DynamicAny_DynAnyFactory_create_dyn_any_from_type_code(f, lseq, &ev);
+  in._buffer = vals;
+  DynamicAny_DynAny_insert_long_seq(d, &in, &ev);
+  got = DynamicAny_DynAny_get_long_seq(d, &ev);
+  CHECK(OK(&ev) && got && got->_length == 2 && got->_buffer[0] == 7 && got->_buffer[1] == 8);
+  CORBA_free(got);
+  CORBA_Object_release(d, &ev);
+
+  CORBA_Object_release((CORBA_Object)lseq, &ev);
+  CORBA_Object_release((CORBA_Object)box, &ev);
+  CORBA_Object_release((CORBA_Object)v, &ev);
+  CORBA_Object_release((CORBA_Object)st, &ev);
+  CORBA_Object_release((CORBA_Object)u, &ev);
+}
+
 int main(int argc, char** argv) {
   CORBA_Environment ev = {CORBA_NO_EXCEPTION, NULL, NULL};
   CORBA_ORB orb = CORBA_ORB_init(&argc, argv, "", &ev);
@@ -378,6 +480,7 @@ int main(int argc, char** argv) {
   test_union_enum(f);
   test_sequence_array_fixed(f);
   test_copy_equal_multiple(f);
+  test_factories_values(orb, f);
   CORBA_Object_release(f, &ev);
   CORBA_ORB_destroy(orb, &ev);
   CORBA_Object_release(orb, &ev);

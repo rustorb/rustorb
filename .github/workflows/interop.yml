@@ -267,20 +267,20 @@ jobs:
         run: interop/run-bidir-probe.sh
 
       # Service contexts and IOR components through the interceptors of
-      # rustorb (Rust, Python, C++, Java, .NET), JacORB, omniORBpy and omniORB C++,
+      # rustorb (Rust, Python, C++, Java, .NET, C), JacORB, omniORBpy and omniORB C++,
       # on GIOP 1.2, 1.1 and 1.0.
       - name: Probe Portable Interceptors between rustorb, omniORB and JacORB
         run: interop/run-pi-probe.sh
 
       # Callback AMI (sendc_ and AMI_EchoHandler) from the rustorb Python,
-      # C++, Java and .NET clients to omniORB C++, omniORBpy, JacORB and rustorb.
+      # C++, Java, .NET and C clients to omniORB C++, omniORBpy, JacORB and rustorb.
       - name: Probe callback AMI from rustorb to omniORB and JacORB
         run: interop/run-ami-probe.sh
 
       - name: Probe the remaining ORB operations of omniORBpy and rustorbpy
         run: interop/run-orb-ops-probe.sh
 
-      - name: Probe DynAny on omniORB C++ and rustorb (Rust, Python, C++, Java)
+      - name: Probe DynAny on omniORB C++ and rustorb (Rust, Python, C++, Java, .NET, C)
         run: interop/run-dynany-probe.sh
 
       - name: Compare the generated Python code with omniidl -bpython

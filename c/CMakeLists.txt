@@ -225,3 +225,14 @@ target_include_directories(test_idl4 PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl")
 target_link_libraries(test_idl4 PRIVATE rustorb_c)
 target_compile_options(test_idl4 PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME idl4 COMMAND test_idl4)
+
+# The DynAny probe of run-dynany-probe.sh (TypeCode factories, DynValue,
+# DynValueBox, insert_<type>_seq), compared with the rustorb expected output.
+add_executable(dynany_probe "${RUSTORBC}/dynany_probe.c")
+target_link_libraries(dynany_probe PRIVATE rustorb_c)
+target_compile_options(dynany_probe PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME dynany_probe
+         COMMAND sh -c "\"$<TARGET_FILE:dynany_probe>\" > dynany-probe.txt && \"${CMAKE_COMMAND}\" -E compare_files dynany-probe.txt \"${RUSTORB_ROOT}/interop/expected/dynany-probe-rustorb.txt\"")
+# The probe does not release its DynAnys and TypeCodes (as the other
+# probes); the unit tests check for leaks.
+set_tests_properties(dynany_probe PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0")

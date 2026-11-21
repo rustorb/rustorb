@@ -135,7 +135,10 @@ CORBA_any* a = DynamicAny_DynAny_to_any(d, &ev);
 
 - DynAny は `CORBA_Object` で、`CORBA_Object_is_a` は種類ごとのインターフェース（`IDL:omg.org/DynamicAny/DynStruct:1.0` など）に答える。種類に合わない派生の操作は `BAD_OPERATION`
 - 値は `CORBA_any` で出入りする（`from_any`・`to_any`・`get_members` など）。生成コードの登録表にない型の値は、他の `any` と同じくバイト列のまま持つ
-- C マッピングに valuetype がないので `DynValue` はない。DynAny のプローブ（`run-dynany-probe.sh`）は valuetype の TypeCode を使うので C では動かさず、`c/tests/test_dynany.c` と any スイートの `dyn_*` のケースで確かめる
+- `insert_<型>_seq` / `get_<型>_seq` は CORBA モジュールの列（`CORBA_LongSeq` は `CORBA_sequence_long` など。生成コードと同じ `#ifndef` で守って `<rustorb/dynany.h>` が宣言する）
+- C マッピングに valuetype の型はないので `insert_val` / `get_val` はない。`DynamicAny_DynValue`・`DynValueBox`（と `DynValueCommon` の `is_null`・`set_to_null`・`set_to_value`。派生の名前でも呼べる）は TypeCode が表す値（`CORBA_ORB_create_value_tc` で作ったものや線から読んだ any）を、メンバーを any か DynAny で扱う
+- TypeCode の生成は `CORBA_ORB_create_struct_tc`・`exception_tc`・`union_tc`・`enum_tc`・`value_tc`・`value_box_tc`・`recursive_tc` もある。メンバーは `CORBA_StructMemberSeq`・`CORBA_UnionMemberSeq`（`label` は判別子の型の any、default は octet の 0）・`CORBA_EnumMemberSeq`・`CORBA_ValueMemberSeq` で、`type_def`（インターフェースリポジトリ）は使わない
+- DynAny のプローブ（`run-dynany-probe.sh`、`interop/impls/rustorbc/src/dynany_probe.c`）は rustorb の期待出力と一致する。ctest の `dynany_probe` でも比べる
 
 ## DII と DSI
 
@@ -236,7 +239,7 @@ valuetype と abstract interface は C マッピングにないので `-bc` は�
   - `test_interop dii` と `test_interop deferred`：同じ79ケースを、DII（`interop/impls/rustorbc/src/dii_adapters.c`：生成スタブの呼び出しをオペレーションの型から作った `CORBA_Request` で送る）から DSI のサーバント（静的なサーバントのスケルトンを呼ぶ `PortableServer_DynamicImpl`）へ、また `CORBA_Request_send` と `get_response` で静的なサーバントへ流す
   - `test_dii`：NVList、in の複製、ORB が確保する out と結果、inout、`send` / `poll_response` / `get_response`、oneway、リストの中と外のユーザー例外、システム例外、引数の誤り、手で書いた `PortableServer_DynamicImpl`
   - `test_local`：.NET のテストと同じ `LocalTest.idl` の local インターフェース（実装の構造体と `__create`、属性、out、ユーザー例外、継承した操作、`is_a` などの参照の操作、引数と結果の local オブジェクト、送れないこと）
-  - `test_dynany`：DynAny の基本の型、`any` の中の `any`、struct（メンバー、`get_members_as_dyn_any` の共有、`seek` / `next`）、union、enum、sequence と array、fixed、`equal`・`copy`・`destroy`、例外（`TypeMismatch`・`InvalidValue`・`BAD_OPERATION`）
+  - `test_dynany`：DynAny の基本の型、TypeCode の生成、DynValue と DynValueBox、`insert_long_seq` / `get_long_seq`、`any` の中の `any`、struct（メンバー、`get_members_as_dyn_any` の共有、`seek` / `next`）、union、enum、sequence と array、fixed、`equal`・`copy`・`destroy`、例外（`TypeMismatch`・`InvalidValue`・`BAD_OPERATION`）
   - `test_ami`：AMI のプローブと同じケース（`interop/impls/rustorbc/src/ami_cases.c`）を同じプロセスの Echo サーバントに向けて流し、`interop/expected/ami-probe.txt` と比べる。`ExceptionHolder` の読めない中身、知らない例外、`raise_exception_with_list`
   - `test_pi`：初期化子（ORB id、引数、`DuplicateName`、種類の違う参照、`pre_init` の `resolve_initial_references`）、両方向のサービスコンテキストと重複、PICurrent のスロットが要求のスコープに写ること、IOR のタグ付きコンポーネント、`get_effective_policy`、`InvalidSlot`、静的なスタブの `NO_RESOURCES`、ユーザー例外、`receive_request` からのシステム例外、`send_request` からの `ForwardRequest`、`Codec`、ORB の破棄での `destroy`
   - `test_exception`：`CORBA_exception_as_any` のユーザー例外（メンバーのあるもの、ないもの、記述子のないもの）、システム例外、疑似オブジェクトの例外。どれも `IOP_Codec` で往復させる

@@ -388,6 +388,77 @@ CORBA_TypeCode CORBA_ORB_create_interface_tc(CORBA_ORB orb, const CORBA_char* id
 CORBA_TypeCode CORBA_ORB_create_fixed_tc(CORBA_ORB orb, CORBA_unsigned_short digits,
                                          CORBA_short scale, CORBA_Environment* ev);
 
+/* The members of the TypeCode factories (CORBA module). type_def (the
+   interface repository) is not used. */
+typedef CORBA_Object CORBA_IDLType;
+typedef CORBA_char* CORBA_VersionSpec;
+typedef struct CORBA_StructMember {
+  CORBA_Identifier name;
+  CORBA_TypeCode type;
+  CORBA_IDLType type_def;
+} CORBA_StructMember;
+RUSTORB_C_SEQUENCE(CORBA_StructMemberSeq, CORBA_StructMember);
+/* label: a value of the discriminator type; the octet 0 marks the default
+   member. */
+typedef struct CORBA_UnionMember {
+  CORBA_Identifier name;
+  CORBA_any label;
+  CORBA_TypeCode type;
+  CORBA_IDLType type_def;
+} CORBA_UnionMember;
+RUSTORB_C_SEQUENCE(CORBA_UnionMemberSeq, CORBA_UnionMember);
+typedef CORBA_sequence_string CORBA_EnumMemberSeq;
+typedef CORBA_short CORBA_ValueModifier;
+#define CORBA_VM_NONE ((CORBA_ValueModifier)0)
+#define CORBA_VM_CUSTOM ((CORBA_ValueModifier)1)
+#define CORBA_VM_ABSTRACT ((CORBA_ValueModifier)2)
+#define CORBA_VM_TRUNCATABLE ((CORBA_ValueModifier)3)
+typedef CORBA_short CORBA_Visibility;
+#define CORBA_PRIVATE_MEMBER ((CORBA_Visibility)0)
+#define CORBA_PUBLIC_MEMBER ((CORBA_Visibility)1)
+typedef struct CORBA_ValueMember {
+  CORBA_Identifier name;
+  CORBA_RepositoryId id;
+  CORBA_RepositoryId defined_in;
+  CORBA_VersionSpec version;
+  CORBA_TypeCode type;
+  CORBA_IDLType type_def;
+  CORBA_Visibility access;
+} CORBA_ValueMember;
+RUSTORB_C_SEQUENCE(CORBA_ValueMemberSeq, CORBA_ValueMember);
+CORBA_StructMemberSeq* CORBA_StructMemberSeq__alloc(void);
+CORBA_StructMember* CORBA_StructMemberSeq_allocbuf(CORBA_unsigned_long len);
+CORBA_UnionMemberSeq* CORBA_UnionMemberSeq__alloc(void);
+CORBA_UnionMember* CORBA_UnionMemberSeq_allocbuf(CORBA_unsigned_long len);
+CORBA_ValueMemberSeq* CORBA_ValueMemberSeq__alloc(void);
+CORBA_ValueMember* CORBA_ValueMemberSeq_allocbuf(CORBA_unsigned_long len);
+
+CORBA_TypeCode CORBA_ORB_create_struct_tc(CORBA_ORB orb, const CORBA_char* id,
+                                          const CORBA_char* name,
+                                          const CORBA_StructMemberSeq* members,
+                                          CORBA_Environment* ev);
+CORBA_TypeCode CORBA_ORB_create_exception_tc(CORBA_ORB orb, const CORBA_char* id,
+                                             const CORBA_char* name,
+                                             const CORBA_StructMemberSeq* members,
+                                             CORBA_Environment* ev);
+CORBA_TypeCode CORBA_ORB_create_union_tc(CORBA_ORB orb, const CORBA_char* id,
+                                         const CORBA_char* name, CORBA_TypeCode discriminator_type,
+                                         const CORBA_UnionMemberSeq* members,
+                                         CORBA_Environment* ev);
+CORBA_TypeCode CORBA_ORB_create_enum_tc(CORBA_ORB orb, const CORBA_char* id,
+                                        const CORBA_char* name, const CORBA_EnumMemberSeq* members,
+                                        CORBA_Environment* ev);
+CORBA_TypeCode CORBA_ORB_create_value_tc(CORBA_ORB orb, const CORBA_char* id,
+                                         const CORBA_char* name, CORBA_ValueModifier type_modifier,
+                                         CORBA_TypeCode concrete_base,
+                                         const CORBA_ValueMemberSeq* members,
+                                         CORBA_Environment* ev);
+CORBA_TypeCode CORBA_ORB_create_value_box_tc(CORBA_ORB orb, const CORBA_char* id,
+                                             const CORBA_char* name, CORBA_TypeCode boxed_type,
+                                             CORBA_Environment* ev);
+CORBA_TypeCode CORBA_ORB_create_recursive_tc(CORBA_ORB orb, const CORBA_char* id,
+                                             CORBA_Environment* ev);
+
 /* rustorb: client call timeouts in microseconds (0: no limit). */
 void rustorb_ORB_set_call_timeout(CORBA_ORB orb, CORBA_long_long us);
 void rustorb_Object_set_call_timeout(CORBA_Object obj, CORBA_long_long us);
