@@ -160,6 +160,84 @@ jobs:
         if: runner.os == 'Linux'
         run: java/generate-stubs.sh && git diff --exit-code -- java
 
+  dotnet:
+    name: .NET (the IDL4 to C# mapping on rustorb-ffi and rustorb-idl -bcsharp)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # -bcsharp is not in a release of rustorb-idl yet: the commit that has
+      # it, until rustorb-idl 0.5.0 (#189) and tools/rustorb-idl.txt.
+      - run: >
+          pip install idl_parser==0.6.2
+          "rustorb-idl @ git+https://github.com/rustorb/rustorb-idl@4cab5f25d3292874f6486c37741faa21f04adcef#subdirectory=python"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: dotnet build -c Release dotnet/src/Rustorb.Corba
+      - run: dotnet test dotnet/tests/Rustorb.Tests -p:Python=python
+      - name: Check that Ffi.g.cs is up to date with rustorb.h
+        run: python dotnet/tools/gen-pinvoke.py --check
+      - name: Check that the committed CosNaming stubs are up to date
+        if: runner.os == 'Linux'
+        run: dotnet/generate-stubs.sh && git diff --exit-code -- dotnet
+
+  c:
+    name: C (the OMG C mapping on rustorb-ffi and rustorb-idl -bc)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, cc: gcc }
+          - { os: ubuntu-latest, cc: clang }
+          - { os: macos-latest, cc: clang }
+    runs-on: ${{ matrix.os }}
+    env:
+      CC: ${{ matrix.cc }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # -bc is not in a release of rustorb-idl yet: the commit that has it,
+      # until rustorb-idl 0.5.0 (#189) and tools/rustorb-idl.txt.
+      - run: >
+          pip install idl_parser==0.6.2
+          "rustorb-idl @ git+https://github.com/rustorb/rustorb-idl@4cab5f25d3292874f6486c37741faa21f04adcef#subdirectory=python"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cmake -S c -B build/c
+      - run: cmake --build build/c
+      - run: ctest --test-dir build/c --output-on-failure
+      - name: Check that the committed CosNaming stubs are up to date
+        if: runner.os == 'Linux' && matrix.cc == 'gcc'
+        run: c/generate-stubs.sh && git diff --exit-code -- c
+
+  c-sanitize:
+    name: C with AddressSanitizer and LeakSanitizer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: >
+          pip install idl_parser==0.6.2
+          "rustorb-idl @ git+https://github.com/rustorb/rustorb-idl@4cab5f25d3292874f6486c37741faa21f04adcef#subdirectory=python"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cmake -S c -B build/c -DCMAKE_C_COMPILER=gcc -DRUSTORB_SANITIZE=address
+      - run: cmake --build build/c
+      - run: ctest --test-dir build/c --output-on-failure
+
   docs:
     name: rustdoc
     runs-on: ubuntu-latest

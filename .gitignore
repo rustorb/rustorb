@@ -10,6 +10,9 @@ __pycache__/
 /python/omniorb-compat/*.egg-info
 # Maven output of java/
 /java/target
+# dotnet build output
+/dotnet/**/bin
+/dotnet/**/obj
 /dist
 # The examples (examples/run-all.sh builds into build/examples)
 /examples/rust/target

@@ -151,7 +151,7 @@ FROM ubuntu:${UBUNTU_VERSION}
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       python3 libstdc++6 libuuid1 libssl3t64 tcpdump iproute2 openjdk-17-jre-headless \
-      openjdk-25-jre-headless \
+      openjdk-25-jre-headless dotnet-runtime-8.0 \
  && rm -rf /var/lib/apt/lists/* \
  && arch="$(dpkg --print-architecture)" \
  && ln -s "/usr/lib/jvm/java-25-openjdk-$arch" /usr/lib/jvm/java-25 \
@@ -168,6 +168,8 @@ COPY --from=jacorb-build /src/jacorb-gen /opt/interop/impls/jacorb/gen
 COPY impls/jacorb/client impls/jacorb/server impls/jacorb/pi-probe /opt/interop/impls/jacorb/
 COPY scripts /opt/interop/scripts
 
+# dotnet-runtime-8.0 runs the rustorb .NET client and server
+# (impls/rustorbcs, built on the host).
 # java is Java 17, for JacORB; the rustorb Java binding (impls/rustorbjava*)
 # needs Java 22 or later, for the FFM API.
 ENV PATH=/opt/omniorb/bin:/opt/interop/scripts:$PATH \
