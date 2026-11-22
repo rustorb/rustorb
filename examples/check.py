@@ -77,7 +77,8 @@ def main():
                         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                         timeout=args.timeout, env=env,
                     )
-                    lang = {"rust": "Rust", "python": "Python", "cpp": "C++", "java": "Java"}.get(cname, cname)
+                    lang = {"rust": "Rust", "python": "Python", "cpp": "C++", "java": "Java", "csharp": "C#", "c": "C",
+                            "ruby": "Ruby"}.get(cname, cname)
                     ok = r.returncode == 0 and ("client: hello from %s" % lang) in r.stdout
                     print("%-6s server, %-6s client: %s" % (sname, cname, "ok" if ok else "FAILED"))
                     if not ok:

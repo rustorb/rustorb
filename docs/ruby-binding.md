@@ -31,7 +31,9 @@ rake compile                                # cargo で librustorb_ffi を作り
 rustorb-idl -bruby -C gen Example.idl       # gen/ExampleC.rb, gen/ExampleS.rb
 ```
 
-拡張は `librustorb_ffi.a` を静的にリンクする。ライブラリは既定でチェックアウトの `target/release/librustorb_ffi.a` を使い、`RUSTORB_FFI_LIBRARY` で変えられる。ヘッダは `RUSTORB_FFI_INCLUDE` で変えられる。Ruby 3.0 以降、Linux と macOS。
+リリースからは `gem install rustorb` で入る（0.7.0 から）。gem は Linux x86_64 / aarch64 と macOS arm64 の `librustorb_ffi.a` を `vendor/` に持ち、拡張は入れるときにビルドする（Ruby のヘッダと C コンパイラが要る）。
+
+拡張は `librustorb_ffi.a` を静的にリンクする。ライブラリは既定で gem の `vendor/<環境>/librustorb_ffi.a`、なければチェックアウトの `target/release/librustorb_ffi.a` を使い、`RUSTORB_FFI_LIBRARY` で変えられる。ヘッダは `RUSTORB_FFI_INCLUDE` で変えられる。Ruby 3.0 以降、Linux と macOS。
 
 ```ruby
 require "corba"

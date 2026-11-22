@@ -11,13 +11,16 @@ the server. Every server works with every client.
 | Python | [python/server.py](python/server.py) | [python/client.py](python/client.py) | `rustorb-idl -bpython` |
 | C++ | [cpp/server.cc](cpp/server.cc) | [cpp/client.cc](cpp/client.cc) | CMake, `find_package(rustorb)` |
 | Java | [java/Server.java](java/Server.java) | [java/Client.java](java/Client.java) | `rustorb-idl -bjava`, `javac` |
+| C# | [csharp/server/Program.cs](csharp/server/Program.cs) | [csharp/client/Program.cs](csharp/client/Program.cs) | `rustorb-idl -bcsharp`, `dotnet build` |
+| C | [c/server.c](c/server.c) | [c/client.c](c/client.c) | `rustorb-idl -bc`, `cc` with `librustorb_c` |
+| Ruby | [ruby/server.rb](ruby/server.rb) | [ruby/client.rb](ruby/client.rb) | `rustorb-idl -bruby` |
 
 The [getting started guide](../docs/getting-started.md) explains them step by
-step. To build all four and run every server with every client against a
+step. To build them all and run every server with every client against a
 fresh `rustorb-names`:
 
 ```sh
-examples/run-all.sh                        # cargo, cmake, a C++ compiler, Python 3.9+, Java 22+ and Maven
+examples/run-all.sh                        # cargo, cmake, C and C++ compilers, Python 3.9+, Java 22+ and Maven, .NET 8, Ruby 3.0+
 EXAMPLES="rust python cpp" examples/run-all.sh
 ```
 

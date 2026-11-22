@@ -295,14 +295,26 @@ jobs:
         with:
           distribution: temurin
           java-version: "25"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             .
             examples/rust
-      # rustorb-idl and idl_parser from PyPI, as a user's install would.
+      # rustorb-idl and idl_parser from PyPI, as a user's install would; but
+      # -bcsharp, -bc and -bruby are not in a release of rustorb-idl yet: the
+      # commit that has them, until rustorb-idl 0.5.0 (#189).
       - run: examples/run-all.sh
+        env:
+          RUSTORB_IDL_PIP: >-
+            idl_parser==0.6.2
+            rustorb-idl@git+https://github.com/rustorb/rustorb-idl@bfe7e91ad77f9488eda903c65d0e770b40e90204#subdirectory=python
 
   msrv:
     runs-on: ubuntu-latest

@@ -5,7 +5,7 @@
     <AssemblyName>Rustorb.Corba</AssemblyName>
     <RootNamespace>Rustorb</RootNamespace>
     <PackageId>Rustorb</PackageId>
-    <Version>0.6.0</Version>
+    <Version>0.7.0</Version>
     <Authors>rustorb contributors</Authors>
     <Description>CORBA for .NET on rustorb: the IDL4 to C# mapping (formal/21-07-01) with the ORB, the POA and CosNaming.</Description>
     <PackageLicenseExpression>MIT OR Apache-2.0</PackageLicenseExpression>
@@ -19,6 +19,14 @@
          the .NET naming rules, by the mapping's design. -->
     <NoWarn>$(NoWarn);CS1591;CS8981</NoWarn>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <!-- The release workflow puts librustorb_ffi of each platform into
+       runtimes/<rid>/native here before dotnet pack. -->
+  <ItemGroup>
+    <None Include="runtimes/**" Pack="true" PackagePath="runtimes" />
+    <None Include="../../README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
 
 </Project>

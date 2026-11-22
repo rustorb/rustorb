@@ -20,6 +20,8 @@ rustorb の .NET バインディングの構成をまとめる。C++・Java と�
 
 ## 使い方
 
+リリースからは `dotnet add package Rustorb` で入る（0.7.0 から）。パッケージは linux-x64、linux-arm64、osx-arm64、win-x64 の共有ライブラリを `runtimes/<rid>/native` に持つ。ソースからは次のとおり。
+
 ```sh
 rustorb-idl -bcsharp -C gen Example.idl         # gen/Example.cs
 cargo build --release -p rustorb-ffi            # target/release/librustorb_ffi.so

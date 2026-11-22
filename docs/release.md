@@ -4,7 +4,7 @@ Oct 31, 2026 · [#83](https://github.com/rustorb/rustorb/issues/83)
 
 IDL コード生成器（`rustorb-idl` と `rustorb-codegen`）は 0.2.0 の後に [rustorb/rustorb-idl](https://github.com/rustorb/rustorb-idl) に分け、そちらから別の版でリリースする（#118）。rustorb は `tools/rustorb-idl.txt` で生成器の版を固定する。
 
-rustorb のリリースで何を出すか、どう作るか、公開をどう行うかをまとめる。`.github/workflows/release.yml` がタグから成果物をビルドして確かめ、GitHub Release の下書きに付けたあと、crates.io と PyPI に公開し、Release を公開する。公開は取り消せないので、すべてのビルドと確認が通ったときだけ行い、公開のジョブは `release` 環境で動かす（環境の保護ルールで承認を必須にできる）。
+rustorb のリリースで何を出すか、どう作るか、公開をどう行うかをまとめる。`.github/workflows/release.yml` がタグから成果物をビルドして確かめ、GitHub Release の下書きに付けたあと、crates.io、PyPI、NuGet、RubyGems に公開し、Release を公開する。公開は取り消せないので、すべてのビルドと確認が通ったときだけ行い、公開のジョブは `release` 環境で動かす（環境の保護ルールで承認を必須にできる）。
 
 ## 出すもの
 
@@ -16,15 +16,18 @@ rustorb のリリースで何を出すか、どう作るか、公開をどう行
 | `rustorb-native-<版>-<環境>` | `librustorb_ffi`（静的と共有）、C++ のヘッダ、CMake のパッケージ（`find_package(rustorb)`）、ネーミングサービス `rustorb-names`（`bin/`）。Linux x86_64 / aarch64、macOS arm64、Windows x86_64 | GitHub Release |
 | `rustorb-names-<版>-<環境>` | ネーミングサービス `rustorb-names` の実行ファイルだけ（`cargo install rustorb-naming` の代わり）。環境は上と同じ | GitHub Release |
 | `rustorb-<版>.jar` | Java のマッピング。共有ライブラリは上の `rustorb-native` から使う | GitHub Release |
+| `rustorb-c-<版>-<環境>.tar.gz` | C のマッピング：`include/rustorb/` のヘッダ、`lib/` の `librustorb_c.a` と `librustorb_ffi.a`。Linux x86_64 / aarch64、macOS arm64 | GitHub Release |
+| `Rustorb.<版>.nupkg` | .NET のマッピング（.NET 8 以降）。`runtimes/<rid>/native` に `librustorb_ffi` の共有ライブラリ（linux-x64、linux-arm64、osx-arm64、win-x64） | NuGet（と GitHub Release） |
+| `rustorb-<版>.gem` | Ruby のマッピング（Ruby 3.0 以降）。`vendor/<環境>/librustorb_ffi.a`（Linux x86_64 / aarch64、macOS arm64）を持ち、拡張は gem を入れるときにビルドする | RubyGems（と GitHub Release） |
 
 `rustorb-python`（wheel の中身）と `rustorb-interop`（相互接続テスト）は crates.io に出さない（`publish = false`）。
 
 ## バージョン
 
-バージョンは Cargo のワークスペース、2つの `pyproject.toml`、`java/pom.xml`、`cpp/CMakeLists.txt` に書いてあり、すべて同じにする。
+バージョンは Cargo のワークスペース、2つの `pyproject.toml`、`java/pom.xml`、`cpp/CMakeLists.txt`、`c/CMakeLists.txt`、`dotnet/src/Rustorb.Corba/Rustorb.Corba.csproj`、`ruby/lib/rustorb/version.rb` に書いてあり、すべて同じにする。
 
 ```sh
-tools/set-version.py 0.6.0          # まとめて書き換える
+tools/set-version.py 0.7.0          # まとめて書き換える
 cargo update --workspace            # Cargo.lock を合わせる（--locked のビルドのため）
 tools/set-version.py --check        # そろっているか（CI とリリースのワークフローでも確かめる）
 ```
@@ -40,11 +43,15 @@ tools/set-version.py --check        # そろっているか（CI とリリース
    - `cargo publish --workspace --dry-run`（依存の順にパッケージにし、パッケージどうしでビルドする）と `.crate` の作成
    - wheel（各環境で入れて import する）、sdist、純 Python のパッケージ（`rustorb-omniorb-compat`）
    - `rustorb-native`（CMake で入れ、`cpp/tests/consumer` を `find_package` でビルドして動かす）、jar
+   - `rustorb-c`（入れたファイルで `tools/release-check/orb.c` をビルドして動かす）
+   - NuGet パッケージ（`rustorb-native` の共有ライブラリを入れて `dotnet pack` し、そのパッケージで `tools/release-check` の C# のプログラムを動かす）
+   - gem（`rustorb-c` の `librustorb_ffi.a` を `vendor/` に入れて `gem build` し、入れて `require` する）
    - Release `vx.y.z` の下書きに成果物、`SHA256SUMS`、`CHANGELOG.md` のその版の節を付ける
    - crates.io に依存の順（cdr → typesupport → giop → core → ffi → naming）で公開する（`crates-io` ジョブ）
    - PyPI に `rustorb`（wheel と sdist）と `rustorb-omniorb-compat` を公開する（`pypi` ジョブ）
-   - 両方が終わったら Release を公開する（`publish-release` ジョブ）
-4. 公開のジョブが途中で失敗したら、原因を直してから、失敗したジョブを Actions の画面で再実行する。公開済みのクレートとファイルは飛ばす（クレートは crates.io にその版があるか確かめ、PyPI は `skip-existing`）
+   - NuGet に `Rustorb` を（`nuget-org` ジョブ）、RubyGems に `rustorb` を公開する（`rubygems` ジョブ）
+   - すべて終わったら Release を公開する（`publish-release` ジョブ）
+4. 公開のジョブが途中で失敗したら、原因を直してから、失敗したジョブを Actions の画面で再実行する。公開済みのクレートとファイルは飛ばす（クレートは crates.io にその版があるか確かめ、PyPI は `skip-existing`、NuGet は `--skip-duplicate`、RubyGems はその版があるか確かめる）
 5. 何も公開する前に失敗し、直すのにワークフローかソースの変更が要るときは（再実行はタグのコミットのワークフローで走るので）、直したものを main に入れてから、Release とタグ `vx.y.z` を消し（Release の画面の Delete と、Tags の画面のタグの Delete）、main の上に作り直す
 
 タグは GitHub のウェブからも打てる。[新しい Release](https://github.com/rustorb/rustorb/releases/new) でタグ `vx.y.z` を main に作り「Publish release」を押すと、タグの push と同じくワークフローが走り、成果物とノートがその Release に付く（その間、Release は成果物なしで見える）。「Save draft」ではタグができないのでワークフローは走らない。
@@ -66,6 +73,9 @@ tools/set-version.py --check        # そろっているか（CI とリリース
 
   トークンを使うなら、代わりに各環境のシークレット `PYPI_API_TOKEN` に入れる。`rustorb-idl` の trusted publisher と環境 `release-rustorb-idl` は、rustorb-idl のリポジトリに移したので不要になった
 
+- **NuGet**：nuget.org の [API Keys](https://www.nuget.org/account/apikeys) で、Push のスコープ（新しいパッケージも）、Glob pattern `Rustorb` のキーを作り、環境 `release` のシークレット `NUGET_API_KEY` に入れる
+- **RubyGems**：rubygems.org の [API keys](https://rubygems.org/profile/api_keys) で Push rubygem のスコープのキーを作り、環境 `release` のシークレット `RUBYGEMS_API_KEY` に入れる。アカウントで MFA を必須にしているなら、キーは MFA なしで push できるものにする
+
 公開した版は取り消せない（crates.io は yank、PyPI は yank か削除しても同じ版は二度と上げられない）。間違えたら次のパッチ版を出す。
 
 手で公開するときは、Release から成果物を落として（`gh release download vx.y.z -D dist`、`sha256sum -c SHA256SUMS`）、タグのコミットで `cargo publish --workspace --locked --exclude rustorb-python --exclude rustorb-interop` と `python -m twine upload dist/*.whl dist/rustorb-x.y.z.tar.gz dist/rustorb_idl-* dist/rustorb_omniorb_compat-*` を行う。
@@ -75,7 +85,7 @@ tools/set-version.py --check        # そろっているか（CI とリリース
 **C++**：`rustorb-native` を展開した場所を `CMAKE_PREFIX_PATH` に入れる。IDL からのコード生成には `pip install rustorb-idl` で入る `rustorb-idl` を使う（PATH にあるか、`RUSTORB_IDL` で指定する）。
 
 ```cmake
-find_package(rustorb 0.6 REQUIRED)
+find_package(rustorb 0.7 REQUIRED)
 rustorb_idl_generate(SOURCES Echo.idl)   # build/idl/Echo.hh、Echo.cc
 add_executable(app main.cc ${SOURCES})
 target_include_directories(app PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl")
@@ -83,6 +93,12 @@ target_link_libraries(app PRIVATE rustorb::rustorb)
 ```
 
 ソースツリーからも入れられる：`cmake -S cpp -B build -DRUSTORB_BUILD_TESTS=OFF && cmake --build build && cmake --install build --prefix PREFIX`（cargo で `librustorb_ffi` をビルドする）。例は `cpp/tests/consumer`。
+
+**C**：`rustorb-c` を展開し、`-I<展開先>/include` と `<展開先>/lib/librustorb_c.a <展開先>/lib/librustorb_ffi.a -lpthread -ldl -lm`（macOS では `-framework CoreFoundation -framework Security -lpthread -lm`）でビルドする（[c-binding.md](c-binding.md)）。
+
+**.NET**：`dotnet add package Rustorb`。共有ライブラリはパッケージから読まれる（`RUSTORB_FFI_LIBRARY` で別のものを指定できる。[csharp-binding.md](csharp-binding.md)）。
+
+**Ruby**：`gem install rustorb`（Ruby のヘッダと C コンパイラが要る。[ruby-binding.md](ruby-binding.md)）。
 
 **Java**：jar をクラスパスに入れ、`rustorb-native` の共有ライブラリ（`lib/librustorb_ffi.so`、`lib/librustorb_ffi.dylib`、`bin/rustorb_ffi.dll`）を `-Drustorb.ffi.library=PATH` か `java.library.path` で渡す（[java-binding.md](java-binding.md)）。Java 22 以降で `--enable-native-access=ALL-UNNAMED` を付ける。
 

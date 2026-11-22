@@ -17,3 +17,9 @@ __pycache__/
 # The examples (examples/run-all.sh builds into build/examples)
 /examples/rust/target
 /examples/rust/Cargo.lock
+/examples/csharp/gen
+/examples/csharp/*/bin
+/examples/csharp/*/obj
+/ruby/vendor
+/dotnet/src/Rustorb.Corba/runtimes
+/ruby/*.gem

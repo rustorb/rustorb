@@ -15,7 +15,10 @@ Gem::Specification.new do |s|
   s.licenses = ["MIT", "Apache-2.0"]
   s.authors = ["rustorb contributors"]
   s.required_ruby_version = ">= 3.0"
-  s.files = Dir["lib/**/*.rb", "ext/rustorb_ext/*.{c,rb}", "README.md"]
+  # vendor/: librustorb_ffi.a per platform and rustorb.h, which the release
+  # workflow puts there before gem build.
+  s.files = Dir["lib/**/*.rb", "ext/rustorb_ext/*.{c,rb}", "vendor/*/librustorb_ffi.a",
+                "vendor/include/rustorb/rustorb.h", "README.md"]
   s.extensions = ["ext/rustorb_ext/extconf.rb"]
   s.require_paths = ["lib"]
   s.add_dependency "bigdecimal"
