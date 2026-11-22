@@ -172,11 +172,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      # -bcsharp is not in a release of rustorb-idl yet: the commit that has
-      # it, until rustorb-idl 0.5.0 (#189) and tools/rustorb-idl.txt.
-      - run: >
-          pip install idl_parser==0.6.2
-          "rustorb-idl @ git+https://github.com/rustorb/rustorb-idl@bfe7e91ad77f9488eda903c65d0e770b40e90204#subdirectory=python"
+      - run: pip install -r tools/rustorb-idl.txt
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
@@ -207,11 +203,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      # -bc is not in a release of rustorb-idl yet: the commit that has it,
-      # until rustorb-idl 0.5.0 (#189) and tools/rustorb-idl.txt.
-      - run: >
-          pip install idl_parser==0.6.2
-          "rustorb-idl @ git+https://github.com/rustorb/rustorb-idl@bfe7e91ad77f9488eda903c65d0e770b40e90204#subdirectory=python"
+      - run: pip install -r tools/rustorb-idl.txt
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cmake -S c -B build/c
@@ -229,9 +221,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: >
-          pip install idl_parser==0.6.2
-          "rustorb-idl @ git+https://github.com/rustorb/rustorb-idl@bfe7e91ad77f9488eda903c65d0e770b40e90204#subdirectory=python"
+      - run: pip install -r tools/rustorb-idl.txt
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cmake -S c -B build/c -DCMAKE_C_COMPILER=gcc -DRUSTORB_SANITIZE=address
@@ -253,11 +243,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      # -bruby is not in a release of rustorb-idl yet: the commit that has it,
-      # until rustorb-idl 0.5.0 (#189) and tools/rustorb-idl.txt.
-      - run: >
-          pip install idl_parser==0.6.2
-          "rustorb-idl @ git+https://github.com/rustorb/rustorb-idl@bfe7e91ad77f9488eda903c65d0e770b40e90204#subdirectory=python"
+      - run: pip install -r tools/rustorb-idl.txt
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
@@ -307,14 +293,9 @@ jobs:
           workspaces: |
             .
             examples/rust
-      # rustorb-idl and idl_parser from PyPI, as a user's install would; but
-      # -bcsharp, -bc and -bruby are not in a release of rustorb-idl yet: the
-      # commit that has them, until rustorb-idl 0.5.0 (#189).
+      # rustorb-idl and idl_parser from PyPI (tools/rustorb-idl.txt), as a
+      # user's install would.
       - run: examples/run-all.sh
-        env:
-          RUSTORB_IDL_PIP: >-
-            idl_parser==0.6.2
-            rustorb-idl@git+https://github.com/rustorb/rustorb-idl@bfe7e91ad77f9488eda903c65d0e770b40e90204#subdirectory=python
 
   msrv:
     runs-on: ubuntu-latest
