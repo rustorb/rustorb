@@ -1,0 +1,4 @@
+#!/bin/sh
+# rustorb .NET DynAny probe (run-dynany-probe.sh), on the host.
+here="$(dirname "$0")"
+exec dotnet "$here/out/rustorbcs.dll" dynany-probe "$@"

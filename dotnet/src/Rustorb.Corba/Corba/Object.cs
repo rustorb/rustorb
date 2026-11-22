@@ -135,6 +135,26 @@ namespace Corba
             }
         }
 
+        // --- the DII ---------------------------------------------------------------
+
+        /// <summary>A request for operation with no arguments and a void result.</summary>
+        public Request _request(string operation) => new Request(this, operation, null, null, null);
+
+        /// <summary>A request with the given arguments and result (ctx must be
+        /// null: contexts are not supported).</summary>
+        public Request _create_request(object? ctx, string operation, NVList? arg_list, NamedValue? result) =>
+            _create_request(ctx, operation, arg_list, result, null, null);
+
+        public Request _create_request(object? ctx, string operation, NVList? arg_list, NamedValue? result,
+            ExceptionList? exclist, object? ctxlist)
+        {
+            if (ctx != null || ctxlist != null)
+            {
+                throw new NO_IMPLEMENT("contexts are not supported", 0, CompletionStatus.COMPLETED_NO);
+            }
+            return new Request(this, operation, arg_list, result, exclist);
+        }
+
         public override string ToString()
         {
             try
@@ -160,7 +180,7 @@ namespace Corba
             logical_type_id == "IDL:omg.org/CORBA/Object:1.0" || Array.IndexOf(_ids(), logical_type_id) >= 0;
 
         public bool _non_existent() => false;
-        public bool _is_equivalent(IObject? other_object) => ReferenceEquals(this, other_object);
+        public virtual bool _is_equivalent(IObject? other_object) => ReferenceEquals(this, other_object);
         public uint _hash(uint maximum) => maximum == 0 ? 0 : (uint)GetHashCode() % maximum;
         public virtual ORB _get_orb() => throw new NO_IMPLEMENT("_get_orb of a local object", 0, CompletionStatus.COMPLETED_NO);
     }

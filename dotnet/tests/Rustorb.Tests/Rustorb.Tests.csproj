@@ -43,7 +43,12 @@
     <TestIdl Include="$(RustorbRoot)/interop/idl/InteropTest.idl" />
     <TestIdl Include="$(RustorbRoot)/interop/idl/AnyTest.idl" />
     <TestIdl Include="$(RustorbRoot)/interop/idl/PoaProbe.idl" />
+    <TestIdl Include="$(RustorbRoot)/interop/idl/ValueTest.idl" />
+    <TestIdl Include="$(RustorbRoot)/interop/idl/CustomTest.idl" />
+    <TestIdl Include="$(RustorbRoot)/interop/idl/AbstractTest.idl" />
     <TestIdl Include="$(RustorbRoot)/cpp/tests/idl/CxxMapping.idl" />
+    <TestIdl Include="$(RustorbRoot)/cpp/tests/idl/Idl4.idl" />
+    <TestIdl Include="idl/LocalTest.idl" />
   </ItemGroup>
 
   <!-- librustorb_ffi, for the tests. -->
@@ -55,7 +60,7 @@
   <!-- The stubs and skeletons of the test IDLs. -->
   <Target Name="RustorbIdl" BeforeTargets="CoreCompile" Inputs="@(TestIdl)" Outputs="$(IdlOut)stamp">
     <RemoveDir Directories="$(IdlOut)" />
-    <Exec Command="&quot;$(Python)&quot; -m rustorb_idl -bcsharp -I &quot;$(RustorbRoot)/interop/idl&quot; -C &quot;$(IdlOut)&quot; @(TestIdl->'&quot;%(FullPath)&quot;', ' ')"
+    <Exec Command="&quot;$(Python)&quot; -m rustorb_idl -bcsharp -Wbami -I &quot;$(RustorbRoot)/interop/idl&quot; -C &quot;$(IdlOut)&quot; @(TestIdl->'&quot;%(FullPath)&quot;', ' ')"
           EnvironmentVariables="PYTHONPATH=$(IdlPythonPath)" />
     <Touch Files="$(IdlOut)stamp" AlwaysCreate="true" />
   </Target>

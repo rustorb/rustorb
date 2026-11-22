@@ -7,10 +7,11 @@
 # --update   rewrites the expected files with the current output
 #
 # SERVER is omniorbpy, omniorb-cpp, rustorb (Rust), rustorbpy (Python),
-# rustorbcpp (C++) or rustorbjava (Java) (default: all of them). The rustorb
+# rustorbcpp (C++), rustorbjava (Java), rustorbcs (.NET), rustorbc (C) or rustorbrb (Ruby)
+# (default: all of them). The rustorb
 # servers are built on the host and mounted into the container, like in
 # run-matrix.sh; the Python, C++ and Java ones run on the same core as the
-# Rust one and are compared with its expected file. Each server is started
+# Rust one and are compared with its expected file (.NET too). Each server is started
 # three times: once to record the object keys, once after a restart to check
 # which keys survive it and to run the probe (the last stage shuts the ORB
 # down), and once more for ORB::shutdown(false) called inside an upcall.
@@ -25,7 +26,7 @@ if [ "${1:-}" = "--update" ]; then
   shift
 fi
 servers=("$@")
-[ ${#servers[@]} -eq 0 ] && servers=(omniorbpy omniorb-cpp rustorb rustorbpy rustorbcpp rustorbjava)
+[ ${#servers[@]} -eq 0 ] && servers=(omniorbpy omniorb-cpp rustorb rustorbpy rustorbcpp rustorbjava rustorbcs rustorbc rustorbrb)
 image=${SERVER_IMAGE:-rustorb-interop-omniorb:latest}
 network=interop-poa-probe
 
@@ -37,6 +38,9 @@ server_cmd() {
     rustorbpy) echo impls/rustorbpy/poa-probe-server ;;
     rustorbcpp) echo impls/rustorbcpp/poa-probe-server ;;
     rustorbjava) echo impls/rustorbjava/poa-probe-server ;;
+    rustorbcs) echo impls/rustorbcs/poa-probe-server ;;
+    rustorbc) echo impls/rustorbc/poa-probe-server ;;
+    rustorbrb) echo impls/rustorbrb/poa-probe-server ;;
     *) echo "unknown server: $1" >&2; exit 2 ;;
   esac
 }
@@ -44,7 +48,7 @@ server_cmd() {
 # The expected output: the bindings of the rustorb core share one.
 expected_name() {
   case "$1" in
-    rustorbpy | rustorbcpp | rustorbjava) echo rustorb ;;
+    rustorbpy | rustorbcpp | rustorbjava | rustorbcs | rustorbc | rustorbrb) echo rustorb ;;
     *) echo "$1" ;;
   esac
 }
@@ -63,7 +67,10 @@ start_server() {
     -v "$PWD/out:/out" -v "$PWD/impls/rustorb:/opt/interop/impls/rustorb:ro" \
     -v "$PWD/impls/rustorbpy:/opt/interop/impls/rustorbpy:ro" \
     -v "$PWD/impls/rustorbcpp:/opt/interop/impls/rustorbcpp:ro" \
-    -v "$PWD/impls/rustorbjava:/opt/interop/impls/rustorbjava:ro" "$image" \
+    -v "$PWD/impls/rustorbjava:/opt/interop/impls/rustorbjava:ro" \
+    -v "$PWD/impls/rustorbcs:/opt/interop/impls/rustorbcs:ro" \
+    -v "$PWD/impls/rustorbc:/opt/interop/impls/rustorbc:ro" \
+    -v "$PWD/impls/rustorbrb:/opt/interop/impls/rustorbrb:ro" "$image" \
     "$cmd" --host server --port 2820 --ior-file "/out/${dir#out/}/control.ior" >/dev/null
   for _ in $(seq 100); do
     [ -f "$dir/control.ior" ] && return 0
@@ -88,7 +95,8 @@ for server in "${servers[@]}"; do
       mkdir -p impls/rustorb/bin
       cp ../target/release/rustorb-poa-probe-server impls/rustorb/bin/
       ;;
-    rustorbpy | rustorbcpp | rustorbjava) "impls/$server/build.sh" ;;
+    rustorbpy | rustorbcpp | rustorbjava | rustorbcs | rustorbc) "impls/$server/build.sh" ;;
+    rustorbrb) IMAGE="$image" impls/rustorbrb/build.sh ;;
   esac
 done
 

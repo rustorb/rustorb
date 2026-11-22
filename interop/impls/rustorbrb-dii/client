@@ -1,0 +1,4 @@
+#!/bin/sh
+# The rustorb Ruby client (impls/rustorbrb) with every call of the basic and
+# any suites made through the DII (impls/rustorbrb/lib/dii_adapters.rb).
+RUSTORB_DII=1 exec "$(dirname "$0")/../rustorbrb/client" "$@"

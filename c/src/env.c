@@ -19,8 +19,11 @@ void* CORBA_exception_value(CORBA_Environment* ev) {
   return ev && ev->_major != CORBA_NO_EXCEPTION ? ev->_params : NULL;
 }
 
+static void drop_anys(CORBA_Environment* ev);
+
 void CORBA_exception_free(CORBA_Environment* ev) {
   if (!ev) return;
+  drop_anys(ev);
   CORBA_free(ev->_params);
   CORBA_free(ev->_id);
   ev->_major = CORBA_NO_EXCEPTION;
@@ -111,16 +114,18 @@ static const char* const local_ids[] = {
 static const rustorb_c_member invalid_policy_members[] = {
     {"index", &CORBA_unsigned_short__desc, offsetof(PortableServer_POA_InvalidPolicy, index), 0},
 };
+static rustorb_c_cache invalid_policy_cache;
 static const rustorb_c_type invalid_policy_desc = {
     CORBA_tk_except, sizeof(PortableServer_POA_InvalidPolicy),
     "IDL:omg.org/PortableServer/POA/InvalidPolicy:1.0", "InvalidPolicy", NULL, 0, 1,
-    invalid_policy_members, NULL, -1, 0, 0, NULL};
+    invalid_policy_members, NULL, -1, 0, 0, &invalid_policy_cache};
 static const rustorb_c_member policy_error_members[] = {
     {"reason", &CORBA_short__desc, offsetof(CORBA_PolicyError, reason), 0},
 };
+static rustorb_c_cache policy_error_cache;
 static const rustorb_c_type policy_error_desc = {
     CORBA_tk_except, sizeof(CORBA_PolicyError), "IDL:omg.org/CORBA/PolicyError:1.0",
-    "PolicyError", NULL, 0, 1, policy_error_members, NULL, -1, 0, 0, NULL};
+    "PolicyError", NULL, 0, 1, policy_error_members, NULL, -1, 0, 0, &policy_error_cache};
 
 void rustorb_c_ev_status(CORBA_Environment* ev, rorb_status status, rorb_exception* exc) {
   switch (status) {
@@ -163,4 +168,176 @@ int rustorb_c_failed(CORBA_Environment* ev, rorb_status status, rorb_exception* 
   if (status == RORB_OK) return 0;
   rustorb_c_ev_status(ev, status, exc);
   return 1;
+}
+
+/* --- CORBA_exception_as_any (1.22) ----------------------------------------------- */
+
+/* The CORBA_any of an Environment stays valid until CORBA_exception_free
+   (the mapping: the caller does not own it). CORBA_Environment has only
+   _major, _id and _params, so the anys are kept here, by the Environment
+   and the _id they were made for. */
+typedef struct held_any {
+  CORBA_Environment* ev;
+  const CORBA_char* id;
+  CORBA_any* any;
+  struct held_any* next;
+} held_any;
+static held_any* held;
+
+/* Descriptors made for exceptions: the system exceptions (minor and
+   completed) and user exceptions without members that no generated code
+   describes (those of the pseudo objects). Kept for the life of the
+   program. */
+typedef struct made_except {
+  rustorb_c_type type;
+  rustorb_c_cache cache;
+  struct made_except* next;
+} made_except;
+static made_except* made_excepts;
+
+static const char* const completion_names[] = {"COMPLETED_YES", "COMPLETED_NO",
+                                               "COMPLETED_MAYBE"};
+static rustorb_c_cache completion_cache;
+static const rustorb_c_type completion_desc = {
+    CORBA_tk_enum, sizeof(CORBA_completion_status), "IDL:omg.org/CORBA/CompletionStatus:1.0",
+    "CompletionStatus", NULL, 0, 3, NULL, completion_names, -1, 0, 0, &completion_cache};
+static const rustorb_c_member system_members[] = {
+    {"minor", &CORBA_unsigned_long__desc, offsetof(CORBA_SystemException, minor), 0},
+    {"completed", &completion_desc, offsetof(CORBA_SystemException, completed), 0},
+};
+
+/* The simple name of a repository id: IDL:omg.org/CORBA/BAD_PARAM:1.0 ->
+   BAD_PARAM. */
+static char* simple_name(const char* id) {
+  const char* start = strrchr(id, '/');
+  const char* end;
+  char* r;
+  size_t n;
+  start = start ? start + 1 : (strncmp(id, "IDL:", 4) == 0 ? id + 4 : id);
+  end = strrchr(start, ':');
+  n = end ? (size_t)(end - start) : strlen(start);
+  r = (char*)malloc(n + 1);
+  if (!r) return NULL;
+  memcpy(r, start, n);
+  r[n] = 0;
+  return r;
+}
+
+/* Under the lock. */
+static const rustorb_c_type* except_desc(const char* id, int system) {
+  made_except* m;
+  char* name;
+  char* rid;
+  for (m = made_excepts; m; m = m->next)
+    if (strcmp(m->type.id, id) == 0 && (m->type.count == 2) == (system != 0)) return &m->type;
+  m = (made_except*)calloc(1, sizeof *m);
+  name = simple_name(id);
+  rid = (char*)malloc(strlen(id) + 1);
+  if (!m || !name || !rid) {
+    free(m);
+    free(name);
+    free(rid);
+    return NULL;
+  }
+  strcpy(rid, id);
+  m->type.kind = CORBA_tk_except;
+  m->type.id = rid;
+  m->type.name = name;
+  m->type.default_index = -1;
+  m->type.cache = &m->cache;
+  if (system) {
+    m->type.size = sizeof(CORBA_SystemException);
+    m->type.count = 2;
+    m->type.members = system_members;
+  } else {
+    m->type.size = 1;
+  }
+  m->next = made_excepts;
+  made_excepts = m;
+  return &m->type;
+}
+
+static const rustorb_c_type* desc_of_exception(CORBA_Environment* ev) {
+  const rustorb_c_type* t = NULL;
+  if (ev->_major == CORBA_SYSTEM_EXCEPTION) {
+    rustorb_c_lock();
+    t = except_desc(ev->_id, 1);
+    rustorb_c_unlock();
+    return t;
+  }
+  if (strcmp(ev->_id, invalid_policy_desc.id) == 0) return &invalid_policy_desc;
+  if (strcmp(ev->_id, policy_error_desc.id) == 0) return &policy_error_desc;
+  t = rustorb_c_desc_for_id(ev->_id);
+  if (t) return t->kind == CORBA_tk_except ? t : NULL;
+  /* An exception no generated code describes: only one without members
+     (no _params) can be put in an any. */
+  if (ev->_params) return NULL;
+  rustorb_c_lock();
+  t = except_desc(ev->_id, 0);
+  rustorb_c_unlock();
+  return t;
+}
+
+CORBA_any* CORBA_exception_as_any(CORBA_Environment* ev) {
+  static CORBA_octet no_members;
+  const rustorb_c_type* t;
+  held_any* h;
+  CORBA_any* any;
+  CORBA_TypeCode tc;
+  if (!ev || ev->_major == CORBA_NO_EXCEPTION || !ev->_id) return NULL;
+  rustorb_c_lock();
+  for (h = held; h; h = h->next)
+    if (h->ev == ev && h->id == ev->_id) break;
+  rustorb_c_unlock();
+  if (h) return h->any;
+  t = desc_of_exception(ev);
+  if (!t) return NULL;
+  tc = rustorb_c_type_tc(t, NULL);
+  any = CORBA_any__alloc();
+  h = (held_any*)calloc(1, sizeof *h);
+  if (!tc || !any || !h) {
+    CORBA_free(any);
+    free(h);
+    return NULL;
+  }
+  any->_type = tc;
+  /* The value stays the Environment's. */
+  any->_value = ev->_params ? ev->_params : (t->count == 0 ? (void*)&no_members : NULL);
+  any->_release = CORBA_FALSE;
+  if (!any->_value) {
+    CORBA_free(any);
+    free(h);
+    return NULL;
+  }
+  h->ev = ev;
+  h->id = ev->_id;
+  h->any = any;
+  rustorb_c_lock();
+  h->next = held;
+  held = h;
+  rustorb_c_unlock();
+  return any;
+}
+
+static void drop_anys(CORBA_Environment* ev) {
+  held_any** p;
+  held_any* gone = NULL;
+  rustorb_c_lock();
+  for (p = &held; *p;) {
+    held_any* h = *p;
+    if (h->ev == ev) {
+      *p = h->next;
+      h->next = gone;
+      gone = h;
+    } else {
+      p = &h->next;
+    }
+  }
+  rustorb_c_unlock();
+  while (gone) {
+    held_any* h = gone;
+    gone = h->next;
+    CORBA_free(h->any);
+    free(h);
+  }
 }

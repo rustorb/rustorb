@@ -4,13 +4,15 @@
 # component from the server's IOR interceptor and IOP::Codec data, with
 # impls/rustorb/src/pi_probe.rs, impls/rustorbpy/pi_probe.py,
 # impls/rustorbcpp/pi_probe.cc, impls/rustorbjava/probe/interop/PiProbe.java,
+# impls/rustorbcs/src/PiProbeMain.cs, impls/rustorbc/src/pi_probe.c,
+# impls/rustorbrb/lib/pi_probe.rb,
 # impls/jacorb/pi/PiProbe.java, impls/omniorbpy/pi_probe.py and (a client
 # only) impls/omniorb-cpp/pi_probe.cc.
 #
 #   ./run-pi-probe.sh [CLIENT:SERVER ...]
 #
-# CLIENT and SERVER are rustorb, rustorbpy, rustorbcpp, rustorbjava, jacorb
-# or omniorbpy, and CLIENT also omniorbcpp (default: every pair). The server prints its IOR and serves; the client calls echo once
+# CLIENT and SERVER are rustorb, rustorbpy, rustorbcpp, rustorbjava,
+# rustorbcs, rustorbc, rustorbrb, jacorb or omniorbpy, and CLIENT also omniorbcpp (default: every pair). The server prints its IOR and serves; the client calls echo once
 # and prints the reply context, the component and the result, which must
 # read
 #
@@ -50,7 +52,7 @@ cd "$(dirname "$0")"
 image=${IMAGE:-rustorb-interop-omniorb:latest}
 pairs=("$@")
 if [ ${#pairs[@]} -eq 0 ]; then
-  all="rustorb rustorbpy rustorbcpp rustorbjava jacorb omniorbpy"
+  all="rustorb rustorbpy rustorbcpp rustorbjava rustorbcs rustorbc rustorbrb jacorb omniorbpy"
   for c in $all omniorbcpp; do
     for s in $all; do pairs+=("$c:$s"); done
   done
@@ -62,6 +64,9 @@ cp ../target/release/rustorb-pi-probe impls/rustorb/bin/
 impls/rustorbpy/build.sh
 impls/rustorbcpp/build.sh > /dev/null
 impls/rustorbjava/build.sh > /dev/null
+impls/rustorbcs/build.sh > /dev/null
+impls/rustorbc/build.sh > /dev/null
+IMAGE="$image" impls/rustorbrb/build.sh > /dev/null
 
 failed=0
 for giop in ${GIOP_VERSIONS:-1.2 1.1 1.0}; do
@@ -90,6 +95,9 @@ for pair in "${pairs[@]}"; do
       -v "$PWD/impls/rustorbpy:/opt/interop/impls/rustorbpy:ro" \
       -v "$PWD/impls/rustorbcpp:/opt/interop/impls/rustorbcpp:ro" \
       -v "$PWD/impls/rustorbjava:/opt/interop/impls/rustorbjava:ro" \
+      -v "$PWD/impls/rustorbcs:/opt/interop/impls/rustorbcs:ro" \
+      -v "$PWD/impls/rustorbc:/opt/interop/impls/rustorbc:ro" \
+      -v "$PWD/impls/rustorbrb:/opt/interop/impls/rustorbrb:ro" \
       "$image" bash -c '
         client=$1 giop=$3
         probe() {
@@ -98,6 +106,9 @@ for pair in "${pairs[@]}"; do
             rustorbpy) shift; impls/rustorbpy/pi-probe "$@" ;;
             rustorbcpp) shift; impls/rustorbcpp/pi-probe "$@" ;;
             rustorbjava) shift; impls/rustorbjava/pi-probe "$@" ;;
+            rustorbcs) shift; impls/rustorbcs/pi-probe "$@" ;;
+            rustorbc) shift; impls/rustorbc/pi-probe "$@" ;;
+            rustorbrb) shift; impls/rustorbrb/pi-probe "$@" ;;
             jacorb) shift; impls/jacorb/pi-probe "$@" ;;
             omniorbpy) shift; impls/omniorbpy/pi-probe "$@" ;;
             omniorbcpp) shift; impls/omniorb-cpp/pi_probe "$@" ;;

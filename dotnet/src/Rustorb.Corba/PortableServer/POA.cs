@@ -436,6 +436,79 @@ namespace PortableServer
             Call(p_servant, (s, e) => Ffi.rorb_poa_set_servant(Raw, s, (RorbException*)e));
         }
 
+        /// <summary>The servant manager (USE_SERVANT_MANAGER), null if none.</summary>
+        public IServantManager? get_servant_manager()
+        {
+            int kind;
+            void* self;
+            RorbException exc;
+            Errors.Check(Ffi.rorb_poa_get_servant_manager(Raw, &kind, &self, &exc), ref exc);
+            GC.KeepAlive(this);
+            return (IServantManager?)ManagerPeer.Take((nint)self);
+        }
+
+        /// <summary>A ServantActivator for a POA with RETAIN, a ServantLocator
+        /// for one with NON_RETAIN (else OBJ_ADAPTER); WrongPolicy without
+        /// USE_SERVANT_MANAGER, BAD_INV_ORDER when one is already set.</summary>
+        public void set_servant_manager(IServantManager imgr)
+        {
+            switch (imgr)
+            {
+                case IServantActivator:
+                    ManagerPeer.Set(imgr, orb, self =>
+                    {
+                        RorbException exc;
+                        Errors.Check(Ffi.rorb_poa_set_servant_activator(Raw, self, ManagerPeer.ActivatorVtable, &exc),
+                            ref exc);
+                        return 0;
+                    });
+                    break;
+                case IServantLocator:
+                    ManagerPeer.Set(imgr, orb, self =>
+                    {
+                        RorbException exc;
+                        Errors.Check(Ffi.rorb_poa_set_servant_locator(Raw, self, ManagerPeer.LocatorVtable, &exc),
+                            ref exc);
+                        return 0;
+                    });
+                    break;
+                default:
+                    throw new Corba.OBJ_ADAPTER(imgr == null ? "a null servant manager"
+                        : "neither a ServantActivator nor a ServantLocator", 4, Corba.CompletionStatus.COMPLETED_NO);
+            }
+            GC.KeepAlive(this);
+        }
+
+        /// <summary>The adapter activator, null for none.</summary>
+        public IAdapterActivator? the_activator
+        {
+            get
+            {
+                nint self = Ffi.rorb_poa_the_activator(Raw);
+                GC.KeepAlive(this);
+                return (IAdapterActivator?)ManagerPeer.Take(self);
+            }
+            set
+            {
+                if (value == null)
+                {
+                    RorbException exc;
+                    Errors.Check(Ffi.rorb_poa_set_the_activator(Raw, 0, null, &exc), ref exc);
+                }
+                else
+                {
+                    ManagerPeer.Set(value, orb, self =>
+                    {
+                        RorbException exc;
+                        Errors.Check(Ffi.rorb_poa_set_the_activator(Raw, self, ManagerPeer.AdapterActivatorVtable,
+                            &exc), ref exc);
+                        return 0;
+                    });
+                }
+                GC.KeepAlive(this);
+            }
+        }
+
         /// <summary>The ids of the POA's seven policies (rustorb), in the order
         /// of the policy types.</summary>
         internal RorbPolicy[] policies()

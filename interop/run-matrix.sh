@@ -9,14 +9,19 @@
 # $SERVER_IMPLS. Both default to $IMPLS (omniorbpy, omniorb-cpp and, but for
 # --suite any, jacorb, in the image) plus rustorb, rustorbpy, rustorbcpp and
 # rustorbjava (the Rust, the Python, the C++ and the Java client and server of
-# rustorb) and, for the basic suite, rustorbcs (the .NET client and server)
-# and rustorbc (the C client and server),
-# which are built on the host. rustorbjava-portable (the Java client
-# and server on rustorb with JacORB's generated stubs), rustorbpy-dii (the
-# Python client and server through the DII and the DSI), rustorbcpp-dii
-# (the C++ client and server through the DII and the DSI) and
-# rustorbjava-dii (the Java client and server through the DII and the DSI)
-# run only when named in a pair.
+# rustorb), rustorbcs (the .NET client and server), rustorbrb (the Ruby
+# client and server) and, for the basic and any suites, rustorbc (the C
+# client and server), which are built on the host
+# (rustorbrb's extension in the image). rustorbjava-portable (the Java client and server on rustorb with
+# JacORB's generated stubs), rustorbpy-dii (the Python client and server
+# through the DII and the DSI), rustorbcpp-dii (the C++ client and server
+# through the DII and the DSI), rustorbjava-dii (the Java client and server
+# through the DII and the DSI), rustorbcs-dii (the .NET client and server
+# through the DII and the DSI, basic suite), rustorbc-dii (the C client
+# and server through the DII and the DSI, basic and any suites) and
+# rustorbrb-dii (the Ruby client and server through the DII and the DSI,
+# basic and any suites) run only
+# when named in a pair.
 # --build    builds the omniORB image first
 # --capture  captures each client's traffic and splits it into GIOP messages
 # --fragment N  the rustorb clients and servers split GIOP 1.2 messages
@@ -129,10 +134,12 @@ else
   export INTEROP_UNIX= SERVER_HOSTNAME=server CLIENT_HOSTNAME=client
 fi
 rustorb_impls="rustorb rustorbpy rustorbcpp rustorbjava"
-# The .NET and C bindings have the basic suite only so far (rustorb#186,
-# rustorb#187).
-if [ "$suite" = basic ]; then
-  rustorb_impls+=" rustorbcs rustorbc"
+# .NET and Ruby have every suite; C the basic and any ones (the C mapping
+# has no valuetypes).
+if [ "$suite" = basic ] || [ "$suite" = any ]; then
+  rustorb_impls+=" rustorbcs rustorbc rustorbrb"
+else
+  rustorb_impls+=" rustorbcs rustorbrb"
 fi
 CLIENT_IMPLS="${CLIENT_IMPLS:-$IMPLS $rustorb_impls}"
 SERVER_IMPLS="${SERVER_IMPLS:-$IMPLS $rustorb_impls}"
@@ -210,8 +217,19 @@ done
 # The rustorb C client and server, with stubs from rustorb-idl -bc.
 for pair in "${pairs[@]}"; do
   case " ${pair%%:*} ${pair##*:} " in
-    *" rustorbc "*)
+    *" rustorbc "*|*" rustorbc-dii "*)
       impls/rustorbc/build.sh
+      break
+      ;;
+  esac
+done
+
+# The rustorb Ruby client and server, with stubs from rustorb-idl -bruby and
+# the extension built in the image.
+for pair in "${pairs[@]}"; do
+  case " ${pair%%:*} ${pair##*:} " in
+    *" rustorbrb "*|*" rustorbrb-dii "*)
+      IMAGE="$IMAGE" impls/rustorbrb/build.sh
       break
       ;;
   esac
@@ -220,7 +238,7 @@ done
 # The rustorb .NET client and server, with stubs from rustorb-idl -bcsharp.
 for pair in "${pairs[@]}"; do
   case " ${pair%%:*} ${pair##*:} " in
-    *" rustorbcs "*)
+    *" rustorbcs "*|*" rustorbcs-dii "*)
       impls/rustorbcs/build.sh
       break
       ;;

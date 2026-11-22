@@ -82,6 +82,7 @@ extern const rustorb_c_type CORBA_boolean__desc;
 extern const rustorb_c_type CORBA_char__desc;
 extern const rustorb_c_type CORBA_wchar__desc;
 extern const rustorb_c_type CORBA_octet__desc;
+extern const rustorb_c_type CORBA_int8__desc;
 extern const rustorb_c_type CORBA_string__desc;
 extern const rustorb_c_type CORBA_wstring__desc;
 extern const rustorb_c_type CORBA_any__desc;
@@ -154,6 +155,17 @@ typedef struct rustorb_c_operation {
 void rustorb_c_invoke(CORBA_Object obj, const rustorb_c_operation* op, void** args, void* result,
                       CORBA_Environment* ev);
 
+/* rustorb_c_invoke without the hook. */
+void rustorb_c_invoke_static(CORBA_Object obj, const rustorb_c_operation* op, void** args,
+                             void* result, CORBA_Environment* ev);
+/* A function rustorb_c_invoke calls first (NULL for none): when it returns
+   nonzero, it has made the call. For tests that send the calls of
+   generated stubs another way (the DII adapter of
+   interop/impls/rustorbc); not thread-safe to change during calls. */
+typedef int (*rustorb_c_invoke_hook)(CORBA_Object obj, const rustorb_c_operation* op,
+                                     void** args, void* result, CORBA_Environment* ev);
+void rustorb_c_set_invoke_hook(rustorb_c_invoke_hook hook);
+
 typedef struct rustorb_c_entry {
   const rustorb_c_operation* op;
   rustorb_c_skel skel;
@@ -173,6 +185,18 @@ typedef struct rustorb_c_class {
 void rustorb_c_servant_init(PortableServer_Servant servant, const rustorb_c_class* cls,
                             CORBA_Environment* ev);
 void rustorb_c_servant_fini(PortableServer_Servant servant, CORBA_Environment* ev);
+/* POA_<Local>__init of a local interface: the implementation of local
+   objects (no servant of the ORB; __fini is rustorb_c_servant_fini). */
+void rustorb_c_local_init(PortableServer_Servant servant, const rustorb_c_class* cls,
+                          CORBA_Environment* ev);
+/* <Local>__create: a local object whose operations call impl (borrowed:
+   it must outlive the object's references). BAD_PARAM for an impl not
+   initialised by rustorb_c_local_init. */
+CORBA_Object rustorb_c_local_object(PortableServer_Servant impl, CORBA_Environment* ev);
+
+/* The class of a servant initialised with POA_<Interface>__init (NULL for
+   others, a PortableServer_DynamicImpl say). */
+const rustorb_c_class* rustorb_c_servant_class(PortableServer_Servant servant);
 
 #ifdef __cplusplus
 }

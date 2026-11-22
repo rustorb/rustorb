@@ -1,0 +1,19 @@
+// Local interfaces for the .NET tests (LocalTests.cs), a copy of
+// rustorb-idl's tests/idl/LocalTest.idl: nested types and constants,
+// attributes, out parameters, user exceptions, local and unconstrained
+// bases, and a local interface as a parameter.
+module LocalTest {
+  interface Remote { long id(); };
+  local interface Greeter {
+    const long N = 3;
+    struct Msg { string text; };
+    exception Busy { string why; };
+    string greet(in string who) raises (Busy);
+    attribute long count;
+    readonly attribute Remote target;
+    Msg make(out long n);
+  };
+  local interface Loud : Greeter { void shout(); };
+  local interface Both : Remote { void more(); };
+  local interface Factory { Greeter make_greeter(in Loud like); };
+};

@@ -110,8 +110,21 @@ static void clear_outs(call* c) {
   }
 }
 
+static void local_call(CORBA_Object obj, const rustorb_c_operation* op, void** args, void* result,
+                       CORBA_Environment* ev);
+
+static rustorb_c_invoke_hook invoke_hook;
+
+void rustorb_c_set_invoke_hook(rustorb_c_invoke_hook hook) { invoke_hook = hook; }
+
 void rustorb_c_invoke(CORBA_Object obj, const rustorb_c_operation* op, void** args, void* result,
                       CORBA_Environment* ev) {
+  if (invoke_hook && invoke_hook(obj, op, args, result, ev)) return;
+  rustorb_c_invoke_static(obj, op, args, result, ev);
+}
+
+void rustorb_c_invoke_static(CORBA_Object obj, const rustorb_c_operation* op, void** args,
+                             void* result, CORBA_Environment* ev) {
   call c;
   rorb_invocation inv;
   rorb_exception exc;
@@ -136,6 +149,10 @@ void rustorb_c_invoke(CORBA_Object obj, const rustorb_c_operation* op, void** ar
   }
   if (!obj) {
     rustorb_c_ev_system(ev, ex_CORBA_INV_OBJREF, 0, CORBA_COMPLETED_NO);
+    return;
+  }
+  if (obj->kind == OBJ_LOCAL) {
+    local_call(obj, op, args, result, ev);
     return;
   }
   if (obj->kind != OBJ_REF) {
@@ -178,7 +195,9 @@ void rustorb_c_invoke(CORBA_Object obj, const rustorb_c_operation* op, void** ar
 
 typedef struct servant_private {
   uint32_t magic;
+  /* NULL for a PortableServer_DynamicImpl, whose id is primary. */
   const rustorb_c_class* cls;
+  char* primary;
   rorb_servant* handle;
 } servant_private;
 
@@ -192,6 +211,21 @@ static servant_private* private_of(PortableServer_Servant servant) {
 rorb_servant* rustorb_c_servant_handle(PortableServer_Servant servant) {
   servant_private* p = private_of(servant);
   return p ? p->handle : NULL;
+}
+
+static const rorb_servant_vtable vtable;
+
+rorb_servant* rustorb_c_servant_ref(PortableServer_Servant servant) {
+  servant_private* p = private_of(servant);
+  const char* id;
+  if (!p || !p->handle) return NULL;
+  id = p->cls ? p->cls->ids[0] : p->primary;
+  return rorb_servant_get(servant, id, strlen(id), &vtable);
+}
+
+const rustorb_c_class* rustorb_c_servant_class(PortableServer_Servant servant) {
+  servant_private* p = private_of(servant);
+  return p ? p->cls : NULL;
 }
 
 static void reply_system(rorb_server_reply* reply, const char* id, CORBA_unsigned_long minor,
@@ -215,6 +249,7 @@ static rorb_status dispatch(void* self, const char* name, size_t name_len, rorb_
     reply_system(reply, ex_CORBA_OBJ_ADAPTER, 0, CORBA_COMPLETED_NO);
     return RORB_SYSTEM_EXCEPTION;
   }
+  if (!priv->cls) return rustorb_c_dsi_dispatch(self, name, name_len, in, reply);
   for (i = 0; i < priv->cls->entry_count; i++) {
     const char* e = priv->cls->entries[i].op->name;
     if (strlen(e) == name_len && memcmp(e, name, name_len) == 0) {
@@ -328,11 +363,74 @@ static int32_t is_a(void* self, const char* id, size_t len) {
   CORBA_unsigned_long i;
   if (len == 28 && memcmp(id, "IDL:omg.org/CORBA/Object:1.0", 28) == 0) return 1;
   if (!priv) return 0;
+  if (!priv->cls) return strlen(priv->primary) == len && memcmp(priv->primary, id, len) == 0;
   for (i = 0; i < priv->cls->id_count; i++) {
     const char* e = priv->cls->ids[i];
     if (strlen(e) == len && memcmp(e, id, len) == 0) return 1;
   }
   return 0;
+}
+
+/* --- local objects ----------------------------------------------------------- */
+
+void rustorb_c_local_init(PortableServer_Servant servant, const rustorb_c_class* cls,
+                          CORBA_Environment* ev) {
+  servant_private* p;
+  rustorb_c_ev_clear(ev);
+  RUSTORB_C_ARG_CHECK(ev, servant && cls, ex_CORBA_BAD_PARAM);
+  rustorb_c_register_module(cls->module);
+  p = (servant_private*)calloc(1, sizeof *p);
+  if (!p) {
+    rustorb_c_ev_system(ev, ex_CORBA_NO_MEMORY, 0, CORBA_COMPLETED_NO);
+    return;
+  }
+  p->magic = SERVANT_MAGIC;
+  p->cls = cls;
+  ((PortableServer_ServantBase*)servant)->_private = p;
+}
+
+CORBA_Object rustorb_c_local_object(PortableServer_Servant impl, CORBA_Environment* ev) {
+  servant_private* p = private_of(impl);
+  rustorb_c_ev_clear(ev);
+  if (!p || !p->cls || p->handle) {
+    rustorb_c_ev_system(ev, ex_CORBA_BAD_PARAM, 0, CORBA_COMPLETED_NO);
+    return CORBA_OBJECT_NIL;
+  }
+  return rustorb_c_wrap(OBJ_LOCAL, impl);
+}
+
+int rustorb_c_local_is_a(CORBA_Object obj, const char* id) {
+  servant_private* p = private_of(obj->handle);
+  CORBA_unsigned_long i;
+  if (!p || !p->cls) return 0;
+  for (i = 0; i < p->cls->id_count; i++)
+    if (strcmp(p->cls->ids[i], id) == 0) return 1;
+  return 0;
+}
+
+const char* rustorb_c_local_id(CORBA_Object obj) {
+  servant_private* p = private_of(obj->handle);
+  return p && p->cls ? p->cls->ids[0] : "IDL:omg.org/CORBA/LocalObject:1.0";
+}
+
+/* The operation on the implementation, without marshalling: the stub's
+   argument cells are those its skeleton takes. */
+static void local_call(CORBA_Object obj, const rustorb_c_operation* op, void** args, void* result,
+                       CORBA_Environment* ev) {
+  servant_private* p = private_of(obj->handle);
+  CORBA_unsigned_long i;
+  if (!p || !p->cls) {
+    rustorb_c_ev_system(ev, ex_CORBA_OBJECT_NOT_EXIST, 0, CORBA_COMPLETED_NO);
+    return;
+  }
+  for (i = 0; i < p->cls->entry_count; i++) {
+    const rustorb_c_entry* e = &p->cls->entries[i];
+    if (e->op == op || strcmp(e->op->name, op->name) == 0) {
+      e->skel(obj->handle, args, result, ev);
+      return;
+    }
+  }
+  rustorb_c_ev_system(ev, ex_CORBA_BAD_OPERATION, 0, CORBA_COMPLETED_NO);
 }
 
 /* The ORB keeps the servant only while the POA holds it; the servant
@@ -366,12 +464,26 @@ void rustorb_c_servant_init(PortableServer_Servant servant, const rustorb_c_clas
   p->handle = rorb_servant_get(servant, cls->ids[0], strlen(cls->ids[0]), &vtable);
 }
 
+void rustorb_c_servant_init_dynamic(PortableServer_Servant servant, const char* primary,
+                                    CORBA_Environment* ev) {
+  servant_private* p = (servant_private*)calloc(1, sizeof *p);
+  if (!p || !(p->primary = rustorb_c_strndup(primary, strlen(primary)))) {
+    free(p);
+    rustorb_c_ev_system(ev, ex_CORBA_NO_MEMORY, 0, CORBA_COMPLETED_NO);
+    return;
+  }
+  p->magic = SERVANT_MAGIC;
+  ((PortableServer_ServantBase*)servant)->_private = p;
+  p->handle = rorb_servant_get(servant, p->primary, strlen(p->primary), &vtable);
+}
+
 void rustorb_c_servant_fini(PortableServer_Servant servant, CORBA_Environment* ev) {
   servant_private* p = private_of(servant);
   rustorb_c_ev_clear(ev);
   if (!p) return;
-  rorb_servant_release(p->handle);
+  if (p->handle) rorb_servant_release(p->handle);
   p->magic = 0;
+  CORBA_free(p->primary);
   free(p);
   ((PortableServer_ServantBase*)servant)->_private = NULL;
 }

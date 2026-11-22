@@ -20,6 +20,7 @@ BASIC(CORBA_boolean, CORBA_boolean, CORBA_tk_boolean);
 BASIC(CORBA_char, CORBA_char, CORBA_tk_char);
 BASIC(CORBA_wchar, CORBA_wchar, CORBA_tk_wchar);
 BASIC(CORBA_octet, CORBA_octet, CORBA_tk_octet);
+BASIC(CORBA_int8, CORBA_int8, CORBA_tk_octet);
 BASIC(CORBA_string, CORBA_char*, CORBA_tk_string);
 BASIC(CORBA_wstring, CORBA_wchar*, CORBA_tk_wstring);
 BASIC(CORBA_any, CORBA_any, CORBA_tk_any);
@@ -64,7 +65,8 @@ static const rustorb_c_type* basic_desc(uint32_t kind) {
 
 CORBA_Object rustorb_c_wrap(int kind, void* handle) {
   CORBA_Object o;
-  if (!handle && kind != OBJ_CURRENT && kind != OBJ_POLICY) return CORBA_OBJECT_NIL;
+  if (!handle && kind != OBJ_CURRENT && kind != OBJ_POLICY && kind != OBJ_DYNANY_FACTORY)
+    return CORBA_OBJECT_NIL;
   o = (CORBA_Object)calloc(1, sizeof *o);
   if (!o) return CORBA_OBJECT_NIL;
   o->kind = kind;
@@ -122,6 +124,15 @@ static const rustorb_c_type* lookup(const char* id, size_t len) {
   return NULL;
 }
 
+const rustorb_c_type* rustorb_c_desc_for_id(const char* id) {
+  const rustorb_c_type* t;
+  if (!id) return NULL;
+  rustorb_c_lock();
+  t = lookup(id, strlen(id));
+  rustorb_c_unlock();
+  return t;
+}
+
 /* --- TypeCodes of descriptors -------------------------------------------------------- */
 
 typedef struct building {
@@ -161,6 +172,12 @@ static rorb_typecode* build_members(const rustorb_c_type* t, const building* up)
       rorb_tc_union(t->id, strlen(t->id), t->name, strlen(t->name), d, n, labels,
                     t->default_index, names, lens, (const rorb_typecode* const*)types, &r, &exc);
     rorb_tc_release(d);
+  } else if (t->kind == CORBA_tk_value) {
+    int16_t* vis = (int16_t*)calloc(n ? n : 1, sizeof *vis);
+    if (vis)
+      rorb_tc_value(CORBA_tk_value, t->id, strlen(t->id), t->name, strlen(t->name), 0, NULL, n,
+                    names, lens, (const rorb_typecode* const*)types, vis, &r, &exc);
+    free(vis);
   } else {
     rorb_tc_struct(t->kind, t->id, strlen(t->id), t->name, strlen(t->name), n, names, lens,
                    (const rorb_typecode* const*)types, &r, &exc);
@@ -222,6 +239,7 @@ static rorb_typecode* build(const rustorb_c_type* t, const building* up) {
     case CORBA_tk_except:
     case CORBA_tk_union:
     case CORBA_tk_enum:
+    case CORBA_tk_value:
       r = build_members(t, up);
       break;
     case CORBA_tk_fixed:
@@ -360,6 +378,7 @@ static const rustorb_c_type* desc_for(const rorb_typecode* tc) {
     case CORBA_tk_enum:
     case CORBA_tk_except:
     case CORBA_tk_alias:
+    case CORBA_tk_value:
       if (rorb_tc_id(tc, &id, &len, &exc) != RORB_OK) break;
       t = lookup(id, len);
       if (!t && kind == CORBA_tk_alias) {

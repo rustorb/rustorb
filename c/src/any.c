@@ -70,3 +70,52 @@ CORBA_boolean CORBA_any_equal(const CORBA_any* a, const CORBA_any* b) {
   rorb_any_release(rb);
   return r;
 }
+
+typedef struct read_ctx {
+  const rustorb_c_type* type;
+  void* value;
+} read_ctx;
+
+static rorb_status read_value(void* context, rorb_in* in) {
+  read_ctx* c = (read_ctx*)context;
+  rustorb_c_read(in, c->type, c->value);
+  return rorb_in_failed(in) ? RORB_CALLBACK_FAILED : RORB_OK;
+}
+
+int rustorb_c_raw_value(const rorb_any* raw, const rustorb_c_type* type, void* value) {
+  read_ctx c;
+  rorb_exception exc;
+  rorb_status st;
+  c.type = type;
+  c.value = value;
+  memset(&exc, 0, sizeof exc);
+  st = rorb_any_extract(raw, read_value, &c, &exc);
+  rorb_exception_clear(&exc);
+  if (st != RORB_OK) {
+    rustorb_c_free_value(type, value);
+    return -1;
+  }
+  return 0;
+}
+
+int rustorb_c_any_from_raw(const rorb_any* raw, CORBA_any* any) {
+  rorb_typecode* tc = rorb_any_type(raw);
+  uint32_t kind = rorb_tc_kind(tc);
+  const rustorb_c_type* t =
+      (kind == CORBA_tk_null || kind == CORBA_tk_void) ? NULL : rustorb_c_desc_for_tc(tc);
+  memset(any, 0, sizeof *any);
+  any->_type = rustorb_c_wrap_tc(tc, t);
+  any->_release = CORBA_TRUE;
+  if (kind == CORBA_tk_null || kind == CORBA_tk_void) return 0;
+  if (!t) {
+    /* A type the program has no descriptor for: kept as it is. */
+    any->_rustorb = rorb_any_clone(raw);
+    return 0;
+  }
+  any->_value = rustorb_c_alloc(t, 1);
+  if (!any->_value || rustorb_c_raw_value(raw, t, any->_value)) {
+    rustorb_c_free_value(&CORBA_any__desc, any);
+    return -1;
+  }
+  return 0;
+}

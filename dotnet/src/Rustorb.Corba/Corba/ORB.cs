@@ -35,7 +35,23 @@ namespace Corba
 
         /// <summary>ORB_init that also gives the arguments that are not ORB
         /// options.</summary>
-        public static ORB init(string[] args, out string[] rest)
+        public static ORB init(string[] args, out string[] rest) => Init(args, null, null, out rest);
+
+        /// <summary>ORB_init with the ORB id (which -ORBid overrides) and the
+        /// initializers of this ORB only, run after the ones of
+        /// PortableInterceptor.ORBInitializerRegistry. A failing initializer
+        /// fails the ORB with its exception.</summary>
+        public static ORB init(string[] args, string orb_id, params PortableInterceptor.IORBInitializer[] initializers) =>
+            Init(args, orb_id ?? "", initializers ?? System.Array.Empty<PortableInterceptor.IORBInitializer>(), out _);
+
+        private struct InitializerEntry
+        {
+            public nint self;
+            public void* vtable;
+        }
+
+        private static ORB Init(string[] args, string? orbId, PortableInterceptor.IORBInitializer[]? inits,
+            out string[] rest)
         {
             Library.Check();
             args ??= System.Array.Empty<string>();
@@ -55,11 +71,42 @@ namespace Corba
                     argv[i] = (byte*)pins[i].AddrOfPinnedObject();
                 }
                 int argc = all.Length;
-                nint orb;
-                RorbException exc;
+                nint orb = 0;
+                RorbException exc = default;
                 fixed (byte** pv = argv)
                 {
-                    Errors.Check(Ffi.rorb_orb_init(&argc, pv, &orb, &exc), ref exc);
+                    if (orbId == null)
+                    {
+                        Errors.Check(Ffi.rorb_orb_init(&argc, pv, &orb, &exc), ref exc);
+                    }
+                    else
+                    {
+                        var entries = new InitializerEntry[inits!.Length];
+                        byte[] id = Strings.ToUtf8(orbId);
+                        ManagerPeer[] held = ManagerPeer.Hold(inits);
+                        try
+                        {
+                            for (int i = 0; i < held.Length; i++)
+                            {
+                                entries[i] = new InitializerEntry
+                                {
+                                    self = held[i].Self, vtable = PortableInterceptor.PiCallbacks.InitializerVtable,
+                                };
+                            }
+                            int st;
+                            fixed (byte* ip = id)
+                            fixed (InitializerEntry* ep = entries)
+                            {
+                                st = Ffi.rorb_orb_init_pi(&argc, pv, ip, (nuint)id.Length, ep, (nuint)entries.Length,
+                                    &orb, &exc);
+                            }
+                            Errors.Check(st, ref exc);
+                        }
+                        finally
+                        {
+                            ManagerPeer.Release(held);
+                        }
+                    }
                     rest = new string[Math.Max(argc - 1, 0)];
                     for (int i = 1; i < argc; i++)
                     {
@@ -126,6 +173,22 @@ namespace Corba
             {
                 return new PortableServer.Current(this);
             }
+            if (identifier == "DynAnyFactory")
+            {
+                return DynamicAny.DynAnyFactory.Instance;
+            }
+            if (identifier == "PICurrent")
+            {
+                var c = new PortableInterceptor.Current(new PiCurrentHandle(Ffi.rorb_orb_pi_current(Raw)));
+                GC.KeepAlive(this);
+                return c;
+            }
+            if (identifier == "CodecFactory")
+            {
+                var f = new IOP.CodecFactory(new OrbHandle(Ffi.rorb_orb_clone(Raw)));
+                GC.KeepAlive(this);
+                return f;
+            }
             byte[] b = Strings.ToUtf8(identifier);
             nint obj;
             RorbException exc;
@@ -180,9 +243,12 @@ namespace Corba
             {
                 list.Add("RootPOA");
             }
-            if (!list.Contains("POACurrent"))
+            foreach (string local in new[] { "POACurrent", "DynAnyFactory", "PICurrent", "CodecFactory" })
             {
-                list.Add("POACurrent");
+                if (!list.Contains(local))
+                {
+                    list.Add(local);
+                }
             }
             return list.ToArray();
         }
@@ -240,6 +306,118 @@ namespace Corba
             set => Ffi.rorb_set_thread_call_timeout(value);
         }
 
+        // --- the DII ---------------------------------------------------------------
+
+        public NVList create_list(int count) => new NVList();
+
+        public NamedValue create_named_value(string name, Any value, uint flags) => new NamedValue(name, value, flags);
+
+        public ExceptionList create_exception_list() => new ExceptionList();
+
+        public Environment create_environment() => new Environment();
+
+        /// <summary>Contexts are not supported: NO_IMPLEMENT.</summary>
+        public object get_default_context() =>
+            throw new NO_IMPLEMENT("contexts are not supported", 0, CompletionStatus.COMPLETED_NO);
+
+        private static readonly List<Request> deferred = new();
+
+        internal static void Deferred(Request r, bool add)
+        {
+            lock (deferred)
+            {
+                if (add)
+                {
+                    deferred.Add(r);
+                }
+                else
+                {
+                    deferred.Remove(r);
+                }
+            }
+        }
+
+        public void send_multiple_requests_oneway(Request[] req)
+        {
+            foreach (Request r in req)
+            {
+                r.send_oneway();
+            }
+        }
+
+        public void send_multiple_requests_deferred(Request[] req)
+        {
+            foreach (Request r in req)
+            {
+                r.send_deferred();
+            }
+        }
+
+        /// <summary>Whether a request sent deferred has its response
+        /// (BAD_INV_ORDER when none is outstanding).</summary>
+        public bool poll_next_response()
+        {
+            Request[] all;
+            lock (deferred)
+            {
+                all = deferred.ToArray();
+            }
+            if (all.Length == 0)
+            {
+                throw new BAD_INV_ORDER("no deferred request is outstanding", 11, CompletionStatus.COMPLETED_NO);
+            }
+            foreach (Request r in all)
+            {
+                if (r.Pending && r.poll_response())
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>The next request sent deferred whose response has come,
+        /// after get_response (it looks every millisecond; BAD_INV_ORDER when
+        /// none is outstanding).</summary>
+        public Request get_next_response()
+        {
+            while (true)
+            {
+                Request[] all;
+                lock (deferred)
+                {
+                    all = deferred.ToArray();
+                }
+                if (all.Length == 0)
+                {
+                    throw new BAD_INV_ORDER("no deferred request is outstanding", 11, CompletionStatus.COMPLETED_NO);
+                }
+                foreach (Request r in all)
+                {
+                    bool ready;
+                    try
+                    {
+                        ready = r.Pending && r.poll_response();
+                    }
+                    catch (BAD_INV_ORDER)
+                    {
+                        continue;
+                    }
+                    if (ready)
+                    {
+                        try
+                        {
+                            r.get_response();
+                        }
+                        catch (UnknownUserException) { }
+                        catch (SystemException) { }
+                        return r;
+                    }
+                }
+                System.Threading.Thread.Sleep(1);
+            }
+        }
+
         public Any create_any() => new Any();
 
         public TypeCode get_primitive_tc(TCKind kind) => Rustorb.TypeCodes.Simple(kind);
@@ -260,6 +438,36 @@ namespace Corba
         public TypeCode create_exception_tc(string id, string name, StructMember[] members) =>
             Rustorb.TypeCodes.Exception(id, name, System.Array.ConvertAll(members, m => m.name),
                 System.Array.ConvertAll(members, m => m.type));
+
+        public TypeCode create_value_tc(string id, string name, short type_modifier, TypeCode? concrete_base,
+            ValueMember[] members) =>
+            Rustorb.TypeCodes.Value(TCKind.tk_value, id, name, type_modifier, concrete_base,
+                System.Array.ConvertAll(members, m => m.name), System.Array.ConvertAll(members, m => m.type),
+                System.Array.ConvertAll(members, m => m.access));
+
+        /// <summary>Registers the factory of the valuetype id for the process
+        /// (rustorb keeps one registry, shared by its ORBs); returns the
+        /// factory it replaces, or null.</summary>
+        public IValueFactory? register_value_factory(string id, IValueFactory factory) =>
+            Rustorb.Values.Register(id, factory);
+
+        public void unregister_value_factory(string id) => Rustorb.Values.Unregister(id);
+
+        /// <summary>The factory registered for id, else the default factory of
+        /// the generated code (valuetypes without operations, value boxes);
+        /// null if there is none.</summary>
+        public IValueFactory? lookup_value_factory(string id) => Rustorb.Values.Lookup(id);
+
+        public TypeCode create_value_box_tc(string id, string name, TypeCode boxed_type) =>
+            Rustorb.TypeCodes.ValueBox(id, name, boxed_type);
+
+        public TypeCode create_native_tc(string id, string name) => Rustorb.TypeCodes.Interface(TCKind.tk_native, id, name);
+
+        public TypeCode create_abstract_interface_tc(string id, string name) =>
+            Rustorb.TypeCodes.Interface(TCKind.tk_abstract_interface, id, name);
+
+        public TypeCode create_local_interface_tc(string id, string name) =>
+            Rustorb.TypeCodes.Interface(TCKind.tk_local_interface, id, name);
 
         /// <summary>The default member, if any, has the octet 0 as its label.</summary>
         public TypeCode create_union_tc(string id, string name, TypeCode discriminator_type, UnionMember[] members)
@@ -296,6 +504,33 @@ namespace Corba
         public TypeCode type { get; set; } = Rustorb.TypeCodes.Simple(TCKind.tk_null);
         public StructMember() { }
         public StructMember(string name, TypeCode type) { this.name = name; this.type = type; }
+    }
+
+    /// <summary>CORBA::ValueMember (id, defined_in, version and type_def are
+    /// not kept: there is no interface repository).</summary>
+    public class ValueMember
+    {
+        public string name { get; set; } = "";
+        public string id { get; set; } = "";
+        public string defined_in { get; set; } = "";
+        public string version { get; set; } = "";
+        public TypeCode type { get; set; } = Rustorb.TypeCodes.Simple(TCKind.tk_null);
+        /// <summary>Constants.PRIVATE_MEMBER or Constants.PUBLIC_MEMBER.</summary>
+        public short access { get; set; }
+        public ValueMember() { }
+        public ValueMember(string name, TypeCode type, short access) { this.name = name; this.type = type; this.access = access; }
+    }
+
+    /// <summary>The constants of the CORBA module (IDL4 to C#: a Constants
+    /// class per namespace) that the runtime uses.</summary>
+    public static partial class Constants
+    {
+        public const short VM_NONE = 0;
+        public const short VM_CUSTOM = 1;
+        public const short VM_ABSTRACT = 2;
+        public const short VM_TRUNCATABLE = 3;
+        public const short PRIVATE_MEMBER = 0;
+        public const short PUBLIC_MEMBER = 1;
     }
 
     /// <summary>CORBA::UnionMember.</summary>

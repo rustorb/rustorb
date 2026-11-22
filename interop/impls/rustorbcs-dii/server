@@ -1,0 +1,4 @@
+#!/bin/sh
+# The rustorb .NET server (impls/rustorbcs) with its servant run through the
+# DSI (impls/rustorbcs/src/DiiAdapters.cs).
+RUSTORB_DII=1 exec "$(dirname "$0")/../rustorbcs/server" "$@"

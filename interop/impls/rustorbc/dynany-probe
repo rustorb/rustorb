@@ -1,0 +1,4 @@
+#!/bin/sh
+# rustorb C side of run-dynany-probe.sh (src/dynany_probe.c), built by
+# build.sh.
+exec "$(dirname "$0")/bin/dynany_probe" "$@"

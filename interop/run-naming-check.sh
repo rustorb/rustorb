@@ -8,7 +8,7 @@
 #                 omniorbpy client
 # --client IMPL   runs only this client (omniorbpy, rustorb (Rust), rustorbpy
 #                 (Python), rustorbcpp (C++), rustorbjava (Java), rustorbcs
-#                 (.NET) or rustorbc (C)); may be
+#                 (.NET), rustorbc (C) or rustorbrb (Ruby)); may be
 #                 repeated. Default: CLIENT_IMPLS, or all of them
 # --naming IMPL   the naming service: omninames (default) or rustorb. The
 #                 output of each must match the same expected file. With
@@ -37,7 +37,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 if [ ${#clients[@]} -eq 0 ]; then
-  read -r -a clients <<< "${CLIENT_IMPLS:-omniorbpy rustorb rustorbpy rustorbcpp rustorbjava rustorbcs rustorbc}"
+  read -r -a clients <<< "${CLIENT_IMPLS:-omniorbpy rustorb rustorbpy rustorbcpp rustorbjava rustorbcs rustorbc rustorbrb}"
 fi
 if [ $update -eq 1 ]; then
   clients=(omniorbpy)
@@ -64,7 +64,7 @@ for client in "${clients[@]}"; do
       mkdir -p impls/rustorb/bin
       cp ../target/release/rustorb-naming-check impls/rustorb/bin/
       ;;
-    rustorbpy | rustorbcpp | rustorbjava | rustorbcs | rustorbc) "impls/$client/build.sh" ;;
+    rustorbpy | rustorbcpp | rustorbjava | rustorbcs | rustorbc | rustorbrb) "impls/$client/build.sh" ;;
   esac
 done
 

@@ -222,7 +222,17 @@ static InteropTest_StringSeq* posted(PortableServer_Servant servant, CORBA_Envir
 /* --- object references ------------------------------------------------------------------------ */
 
 static InteropTest_Echo self_ref(PortableServer_Servant servant, CORBA_Environment* ev) {
-  return PortableServer_ServantBase__this(servant, ev);
+  EchoImpl* e = (EchoImpl*)servant;
+  PortableServer_Current current;
+  CORBA_Object r = PortableServer_ServantBase__this(servant, ev);
+  if (r || ev->_major != CORBA_NO_EXCEPTION) return r;
+  /* Run by a DSI servant (rustorbc-dii), the request is that servant's:
+     the target from the POA Current. */
+  current = CORBA_ORB_resolve_initial_references(e->orb, "POACurrent", ev);
+  if (ev->_major != CORBA_NO_EXCEPTION) return CORBA_OBJECT_NIL;
+  r = PortableServer_Current_get_reference(current, ev);
+  CORBA_Object_release(current, ev);
+  return r;
 }
 
 static InteropTest_Echo echo_ref(PortableServer_Servant servant, InteropTest_Echo other,

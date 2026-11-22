@@ -50,7 +50,8 @@ jobs:
           java-version: "25"
       # The .NET SDK for the rustorb .NET client and server
       # (impls/rustorbcs/build.sh); the image runs them on its .NET 8
-      # runtime. -bcsharp and -bc (impls/rustorbc/build.sh) are not in a
+      # runtime. -bcsharp, -bc (impls/rustorbc/build.sh) and -bruby
+      # (impls/rustorbrb/build.sh) are not in a
       # release of rustorb-idl yet: the checkout of the commit that has them,
       # until rustorb-idl 0.5.0 (#189).
       - uses: actions/setup-dotnet@v4
@@ -59,7 +60,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: rustorb/rustorb-idl
-          ref: cedd0670c5f33f87ed136c267fdd81c502bcaa5e
+          ref: bfe7e91ad77f9488eda903c65d0e770b40e90204
           path: rustorb-idl
 
       # omniORB and omniORBpy are built from source; the GitHub Actions cache
@@ -85,6 +86,7 @@ jobs:
           IMAGE=rustorb-interop-omniorb:latest interop/impls/rustorbjava-portable/build.sh
           RUSTORB_IDL_DIR="$GITHUB_WORKSPACE/rustorb-idl" interop/impls/rustorbcs/build.sh
           RUSTORB_IDL_DIR="$GITHUB_WORKSPACE/rustorb-idl" interop/impls/rustorbc/build.sh
+          IMAGE=rustorb-interop-omniorb:latest RUSTORB_IDL_DIR="$GITHUB_WORKSPACE/rustorb-idl" interop/impls/rustorbrb/build.sh
           echo INTEROP_PREBUILT=1 >> "$GITHUB_ENV"
 
       - name: Run the client / server matrix
@@ -206,6 +208,55 @@ jobs:
           interop/run-matrix.sh --suite any $any
           interop/run-matrix.sh --suite value $pairs
 
+      # The .NET client calling through Corba.Request and the .NET server
+      # answering through PortableServer.DynamicImplementation, on the
+      # basic suite (the one rustorbcs runs).
+      - name: Run the matrix with the .NET DII client and DSI server
+        run: |
+          p=rustorbcs-dii
+          pairs="$p:$p"
+          for x in omniorbpy omniorb-cpp jacorb rustorb rustorbpy rustorbcpp rustorbcs rustorbpy-dii rustorbcpp-dii; do
+            pairs="$pairs $p:$x $x:$p"
+          done
+          interop/run-matrix.sh $pairs
+          interop/run-matrix.sh --giop 1.1 $pairs
+
+      # The C client calling through CORBA_Request and the C server
+      # answering through PortableServer_DynamicImpl (#187), on the basic
+      # and any suites (the ones rustorbc runs).
+      - name: Run the matrix with the C DII client and DSI server
+        run: |
+          p=rustorbc-dii
+          pairs="$p:$p"
+          for x in omniorbpy omniorb-cpp jacorb rustorb rustorbpy rustorbcpp rustorbc rustorbpy-dii rustorbcpp-dii; do
+            pairs="$pairs $p:$x $x:$p"
+          done
+          interop/run-matrix.sh $pairs
+          interop/run-matrix.sh --giop 1.1 $pairs
+          any="$p:$p"
+          for x in omniorbpy omniorb-cpp rustorb rustorbpy rustorbcpp rustorbc rustorbpy-dii rustorbcpp-dii; do
+            any="$any $p:$x $x:$p"
+          done
+          interop/run-matrix.sh --suite any $any
+
+      # The Ruby client calling through CORBA::Request and the Ruby server
+      # answering through PortableServer::DynamicImplementation (#188), on
+      # the basic and any suites (the ones rustorbrb runs).
+      - name: Run the matrix with the Ruby DII client and DSI server
+        run: |
+          p=rustorbrb-dii
+          pairs="$p:$p"
+          for x in omniorbpy omniorb-cpp jacorb rustorb rustorbpy rustorbcpp rustorbrb rustorbpy-dii rustorbc-dii; do
+            pairs="$pairs $p:$x $x:$p"
+          done
+          interop/run-matrix.sh $pairs
+          interop/run-matrix.sh --giop 1.1 $pairs
+          any="$p:$p"
+          for x in omniorbpy omniorb-cpp rustorb rustorbpy rustorbcpp rustorbrb rustorbpy-dii rustorbc-dii; do
+            any="$any $p:$x $x:$p"
+          done
+          interop/run-matrix.sh --suite any $any
+
       # omniORBpy and the rustorb clients (Rust, Python, C++, Java).
       - name: Run the naming service check
         run: interop/run-naming-check.sh
@@ -234,20 +285,20 @@ jobs:
         run: interop/run-bidir-probe.sh
 
       # Service contexts and IOR components through the interceptors of
-      # rustorb (Rust, Python, C++, Java), JacORB, omniORBpy and omniORB C++,
+      # rustorb (Rust, Python, C++, Java, .NET, C, Ruby), JacORB, omniORBpy and omniORB C++,
       # on GIOP 1.2, 1.1 and 1.0.
       - name: Probe Portable Interceptors between rustorb, omniORB and JacORB
         run: interop/run-pi-probe.sh
 
       # Callback AMI (sendc_ and AMI_EchoHandler) from the rustorb Python,
-      # C++ and Java clients to omniORB C++, omniORBpy, JacORB and rustorb.
+      # C++, Java, .NET and C clients to omniORB C++, omniORBpy, JacORB and rustorb.
       - name: Probe callback AMI from rustorb to omniORB and JacORB
         run: interop/run-ami-probe.sh
 
       - name: Probe the remaining ORB operations of omniORBpy and rustorbpy
         run: interop/run-orb-ops-probe.sh
 
-      - name: Probe DynAny on omniORB C++ and rustorb (Rust, Python, C++, Java)
+      - name: Probe DynAny on omniORB C++ and rustorb (Rust, Python, C++, Java, .NET, C, Ruby)
         run: interop/run-dynany-probe.sh
 
       - name: Compare the generated Python code with omniidl -bpython

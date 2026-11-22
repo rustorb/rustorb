@@ -42,6 +42,8 @@ typedef char CORBA_char;
 typedef uint16_t CORBA_wchar;
 typedef unsigned char CORBA_boolean;
 typedef unsigned char CORBA_octet;
+/* IDL 4 int8 (rustorb): sent and typed as an octet. */
+typedef signed char CORBA_int8;
 typedef CORBA_unsigned_long CORBA_enum;
 
 #define CORBA_FALSE 0
@@ -281,10 +283,17 @@ typedef struct CORBA_any {
 
 CORBA_any* CORBA_any__alloc(void);
 #define CORBA_any_alloc CORBA_any__alloc
+
 void CORBA_any_set_release(CORBA_any* any, CORBA_boolean release);
 CORBA_boolean CORBA_any_get_release(CORBA_any* any);
 /* rustorb: whether the anys hold equal values of equal types. */
 CORBA_boolean CORBA_any_equal(const CORBA_any* a, const CORBA_any* b);
+
+/* The exception as an any (NULL for none). The Environment keeps it: it
+   stays valid until CORBA_exception_free, and the caller does not free
+   it. A user exception of a type no generated code in the program
+   describes gives NULL, unless it has no members. */
+CORBA_any* CORBA_exception_as_any(CORBA_Environment* ev);
 
 /* --- fixed (1.14) ------------------------------------------------------------- */
 
@@ -297,6 +306,31 @@ CORBA_boolean CORBA_any_equal(const CORBA_any* a, const CORBA_any* b);
     CORBA_short _scale;                                 \
     CORBA_octet _value[((d) + 2) / 2];                  \
   } CORBA_fixed_##d##_##s
+
+/* Any fixed up to 31 digits (CORBA_fixed_alloc). */
+typedef struct CORBA_fixed_d_s {
+  CORBA_unsigned_short _digits;
+  CORBA_short _scale;
+  CORBA_octet _value[16];
+} CORBA_fixed_d_s;
+
+/* The functions take any CORBA_fixed_D_S as void*; _digits and _scale of
+   every operand and of the result must be set. The exact result is made
+   to fit *rp: the digits below its _scale are truncated toward zero and
+   those above its _digits dropped. Division by zero gives 0. */
+CORBA_long CORBA_fixed_integer_part(const void* fp);
+/* The fraction as an integer of min(_scale, 9) digits, with the sign of
+   the value: 12.345 (scale 3) gives 345, -1.5 gives -5. */
+CORBA_long CORBA_fixed_fraction_part(const void* fp);
+/* *rp = i + f / 10^min(_scale, 9). */
+void CORBA_fixed_set(void* rp, const CORBA_long i, const CORBA_long f);
+void CORBA_fixed_add(void* rp, const void* f1p, const void* f2p);
+void CORBA_fixed_sub(void* rp, const void* f1p, const void* f2p);
+void CORBA_fixed_mul(void* rp, const void* f1p, const void* f2p);
+void CORBA_fixed_div(void* rp, const void* f1p, const void* f2p);
+/* A fixed of d digits (31 at most) and scale 0, value 0, freed with
+   CORBA_free; set _scale before use. */
+CORBA_fixed_d_s* CORBA_fixed_alloc(CORBA_unsigned_short d);
 
 /* --- Object (1.29) -------------------------------------------------------------- */
 
@@ -353,6 +387,77 @@ CORBA_TypeCode CORBA_ORB_create_interface_tc(CORBA_ORB orb, const CORBA_char* id
                                              const CORBA_char* name, CORBA_Environment* ev);
 CORBA_TypeCode CORBA_ORB_create_fixed_tc(CORBA_ORB orb, CORBA_unsigned_short digits,
                                          CORBA_short scale, CORBA_Environment* ev);
+
+/* The members of the TypeCode factories (CORBA module). type_def (the
+   interface repository) is not used. */
+typedef CORBA_Object CORBA_IDLType;
+typedef CORBA_char* CORBA_VersionSpec;
+typedef struct CORBA_StructMember {
+  CORBA_Identifier name;
+  CORBA_TypeCode type;
+  CORBA_IDLType type_def;
+} CORBA_StructMember;
+RUSTORB_C_SEQUENCE(CORBA_StructMemberSeq, CORBA_StructMember);
+/* label: a value of the discriminator type; the octet 0 marks the default
+   member. */
+typedef struct CORBA_UnionMember {
+  CORBA_Identifier name;
+  CORBA_any label;
+  CORBA_TypeCode type;
+  CORBA_IDLType type_def;
+} CORBA_UnionMember;
+RUSTORB_C_SEQUENCE(CORBA_UnionMemberSeq, CORBA_UnionMember);
+typedef CORBA_sequence_string CORBA_EnumMemberSeq;
+typedef CORBA_short CORBA_ValueModifier;
+#define CORBA_VM_NONE ((CORBA_ValueModifier)0)
+#define CORBA_VM_CUSTOM ((CORBA_ValueModifier)1)
+#define CORBA_VM_ABSTRACT ((CORBA_ValueModifier)2)
+#define CORBA_VM_TRUNCATABLE ((CORBA_ValueModifier)3)
+typedef CORBA_short CORBA_Visibility;
+#define CORBA_PRIVATE_MEMBER ((CORBA_Visibility)0)
+#define CORBA_PUBLIC_MEMBER ((CORBA_Visibility)1)
+typedef struct CORBA_ValueMember {
+  CORBA_Identifier name;
+  CORBA_RepositoryId id;
+  CORBA_RepositoryId defined_in;
+  CORBA_VersionSpec version;
+  CORBA_TypeCode type;
+  CORBA_IDLType type_def;
+  CORBA_Visibility access;
+} CORBA_ValueMember;
+RUSTORB_C_SEQUENCE(CORBA_ValueMemberSeq, CORBA_ValueMember);
+CORBA_StructMemberSeq* CORBA_StructMemberSeq__alloc(void);
+CORBA_StructMember* CORBA_StructMemberSeq_allocbuf(CORBA_unsigned_long len);
+CORBA_UnionMemberSeq* CORBA_UnionMemberSeq__alloc(void);
+CORBA_UnionMember* CORBA_UnionMemberSeq_allocbuf(CORBA_unsigned_long len);
+CORBA_ValueMemberSeq* CORBA_ValueMemberSeq__alloc(void);
+CORBA_ValueMember* CORBA_ValueMemberSeq_allocbuf(CORBA_unsigned_long len);
+
+CORBA_TypeCode CORBA_ORB_create_struct_tc(CORBA_ORB orb, const CORBA_char* id,
+                                          const CORBA_char* name,
+                                          const CORBA_StructMemberSeq* members,
+                                          CORBA_Environment* ev);
+CORBA_TypeCode CORBA_ORB_create_exception_tc(CORBA_ORB orb, const CORBA_char* id,
+                                             const CORBA_char* name,
+                                             const CORBA_StructMemberSeq* members,
+                                             CORBA_Environment* ev);
+CORBA_TypeCode CORBA_ORB_create_union_tc(CORBA_ORB orb, const CORBA_char* id,
+                                         const CORBA_char* name, CORBA_TypeCode discriminator_type,
+                                         const CORBA_UnionMemberSeq* members,
+                                         CORBA_Environment* ev);
+CORBA_TypeCode CORBA_ORB_create_enum_tc(CORBA_ORB orb, const CORBA_char* id,
+                                        const CORBA_char* name, const CORBA_EnumMemberSeq* members,
+                                        CORBA_Environment* ev);
+CORBA_TypeCode CORBA_ORB_create_value_tc(CORBA_ORB orb, const CORBA_char* id,
+                                         const CORBA_char* name, CORBA_ValueModifier type_modifier,
+                                         CORBA_TypeCode concrete_base,
+                                         const CORBA_ValueMemberSeq* members,
+                                         CORBA_Environment* ev);
+CORBA_TypeCode CORBA_ORB_create_value_box_tc(CORBA_ORB orb, const CORBA_char* id,
+                                             const CORBA_char* name, CORBA_TypeCode boxed_type,
+                                             CORBA_Environment* ev);
+CORBA_TypeCode CORBA_ORB_create_recursive_tc(CORBA_ORB orb, const CORBA_char* id,
+                                             CORBA_Environment* ev);
 
 /* rustorb: client call timeouts in microseconds (0: no limit). */
 void rustorb_ORB_set_call_timeout(CORBA_ORB orb, CORBA_long_long us);

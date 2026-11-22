@@ -1,0 +1,4 @@
+#!/bin/sh
+# The rustorb Ruby server (impls/rustorbrb) with every servant run through
+# the DSI (impls/rustorbrb/lib/dii_adapters.rb).
+RUSTORB_DII=1 exec "$(dirname "$0")/../rustorbrb/server" "$@"

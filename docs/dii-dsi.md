@@ -113,6 +113,25 @@ IDL to C++11 マッピングの DII / DSI。
 - コンテキスト（`ctx` が null でない、または空でない `ctxlist` の `_create_request`、`Request.ctx()`、`ServerRequest.ctx()`）と `get_default_context`、`create_operation_list` は `NO_IMPLEMENT`
 - valuetype：C++ と同じく、Any は値を参照で持ち、引数どうしの共有が保たれる（[#164](https://github.com/rustorb/rustorb/issues/164)）
 
+## .NET（`Corba`・`PortableServer`）
+
+[#186](https://github.com/rustorb/rustorb/issues/186)。IDL4 to C# の DII / DSI を C ABI の上に載せた（[csharp-binding.md](csharp-binding.md)）。名前と形は Java と同じで、違いは次のとおり。
+
+- 呼び出しの例外は投げる（C# の他の呼び出しと同じ）。`env.exception` にも入る
+- DSI のサーバントは `_primary_interface(oid, poa)` を書く（`_all_interfaces` はその1つを返す）。`invoke` から `UnknownUserException` を投げてもユーザー例外の応答になる
+- `Request` を送るたびに C ABI の要求を作る、`out` と `inout` の Any を同じオブジェクトのまま置き換える、`get_next_response` が1ミリ秒ごとに見て回る（空なら `BAD_INV_ORDER`）、値を入れていない `out` は `BAD_PARAM`、は Java と同じ
+- valuetype はまだない（#186 の後の段）
+
+## Ruby（`CORBA`・`PortableServer`）
+
+[#188](https://github.com/rustorb/rustorb/issues/188)。`ruby/lib/rustorb/dii.rb` が C ABI の要求（拡張の `Rustorb::Native::Request`・`ServerRequest`）の上に載る（[ruby-binding.md](ruby-binding.md)）。形は Python と同じで、違いは次のとおり。
+
+- `obj._request(op)`、`obj._create_request(ctx, op, arg_list, result, exceptions = [])`、`orb.create_list`。値は `CORBA::Any`、モードは `CORBA::ARG_IN`・`ARG_OUT`・`ARG_INOUT`。`NVList` は Enumerable で、`item(i)` の範囲外は `CORBA::Bounds`
+- リストにあるユーザー例外は `invoke`（と `get_response`）から投げる。Ruby のクラスがないユーザー例外は `UNKNOWN`（minor 0x4f4d0001、COMPLETED_YES）
+- DSI のサーバントは `PortableServer::DynamicImplementation` を継承して `invoke(request)` と `_primary_interface(oid, poa)` を書く。ORB の `_is_a` には、最初に活性化するときの `_primary_interface(nil, nil)`（クラスに `IDS` があればそれ）で答える。`invoke` が投げたシステム例外はそのまま応答、その他の例外は `UNKNOWN`（COMPLETED_MAYBE）
+- `ServerRequest#arguments(nvlist)` のあと、`out` と `inout` の項目の `argument` を新しい Any に置き換え、`set_result` か `set_exception` を呼ぶ。置き換えなかった `out` は応答で `BAD_PARAM`
+- コンテキスト（`ctx`）は `NO_IMPLEMENT`。valuetype はまだない
+
 ## テスト
 
 - `crates/rustorb-core/tests/dii.rs`：DSI のサーバントと静的なサーバントを、DII（同期・async・deferred・oneway）で TCP 越しと同一 ORB 内で呼ぶ。`ServerRequest` の呼び出し順の検査
@@ -122,3 +141,7 @@ IDL to C++11 マッピングの DII / DSI。
 - 相互接続：`interop/impls/rustorbcpp-dii` は `rustorbcpp` のクライアントとサーバーを、スタブの呼び出しを DII に、サーバントを DSI に差し替えて動かす（`dii_adapters.h`、環境変数 `RUSTORB_DII=1`）。basic（GIOP 1.2 / 1.1）・any・value で、omniORB C++・omniORBpy・`rustorbpy-dii` との組が両方向で `rustorbcpp` と同じ結果になる（失敗は `long double` と omniORBpy の wchar の既知のものだけ）。CI でも回す
 - `java/src/test/java/org/rustorb/test/DiiTest.java`：basic・any・value の相互接続の項目（`interop/impls/java/interop/DiiAdapters.java`）を、Java の DII → DSI、DII → 静的なサーバント、静的なスタブ → DSI の3通りで回す。API の項目：アクセサーと同じ要求の再送、`_create_request` と例外リスト、システム例外とリストにないユーザー例外、NVList などの `Bounds`、deferred と `get_next_response`、`send_multiple_requests_*`、`ServerRequest` の呼び出し順、値のない `out`、ローカルなオブジェクト、同一 ORB 内。`DiiPiTest.java`：インターセプターの `arguments`・`result`・`exceptions`
 - 相互接続：`interop/impls/rustorbjava-dii` は `rustorbjava` のクライアントとサーバーを、スタブの呼び出しを DII に、サーバントを DSI に差し替えて動かす（`interop/impls/java/interop/DiiAdapters.java`、環境変数 `RUSTORB_DII=1`）。basic（GIOP 1.2 / 1.1）・any・value で、omniORB C++・omniORBpy・JacORB・rustorb の各実装との組が両方向で `rustorbjava` と同じ結果になる（失敗は既知のものだけ）。CI でも回す
+- `dotnet/tests/Rustorb.Tests/DiiTests.cs`：.NET の DII → 静的なサーバントと DSI、静的なスタブ → DSI、deferred と `get_next_response`、`NVList` と `ExceptionList`、oneway
+- `ruby/test/test_dii.rb`：Ruby の DII → 静的なサーバント（out、ユーザー例外、リストにない例外、`_create_request`、deferred、システム例外）と静的なスタブ → DSI。`test_interop.rb` は相互接続の basic と any の項目を、子プロセスで DII と DSI に差し替えて流す
+- 相互接続：`interop/impls/rustorbrb-dii`（`interop/impls/rustorbrb/lib/dii_adapters.rb`、環境変数 `RUSTORB_DII=1`）。basic（GIOP 1.2 / 1.1）と any で、omniORB C++・omniORBpy・JacORB・rustorb の各実装との組が両方向で `rustorbrb` と同じ結果になる（失敗は既知のものだけ）。CI でも回す
+- 相互接続：`interop/impls/rustorbcs-dii`（`interop/impls/rustorbcs/src/DiiAdapters.cs`、環境変数 `RUSTORB_DII=1`）。basic（GIOP 1.2 / 1.1）で omniORB C++・omniORBpy・JacORB・rustorb の各実装との組が両方向で `rustorbcs` と同じ結果になる。CI でも回す

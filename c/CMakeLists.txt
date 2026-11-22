@@ -60,7 +60,7 @@ else()
 endif()
 
 set(RUSTORB_C_SOURCES
-  src/any.c src/env.c src/invoke.c src/marshal.c src/memory.c src/orb.c src/poa.c
+  src/any.c src/dii.c src/dynany.c src/env.c src/fixed.c src/invoke.c src/managers.c src/marshal.c src/messaging.c src/pi.c src/memory.c src/orb.c src/poa.c
   src/types.c src/CosNaming.c)
 add_library(rustorb_c STATIC ${RUSTORB_C_SOURCES})
 add_dependencies(rustorb_c rustorb_ffi_build)
@@ -135,11 +135,21 @@ enable_testing()
 set(RUSTORBC "${RUSTORB_ROOT}/interop/impls/rustorbc/src")
 rustorb_idl_generate(INTEROP_SOURCES "${RUSTORB_ROOT}/interop/idl/InteropTest.idl")
 add_executable(test_interop tests/test_interop.c "${RUSTORBC}/cases.c" "${RUSTORBC}/echo_impl.c"
-               ${INTEROP_SOURCES})
+               "${RUSTORBC}/dii_adapters.c" ${INTEROP_SOURCES})
 target_include_directories(test_interop PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl" "${RUSTORBC}")
 target_link_libraries(test_interop PRIVATE rustorb_c)
 target_compile_options(test_interop PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME interop COMMAND test_interop)
+# The same through the DII and the DSI (<rustorb/dii.h>).
+add_test(NAME interop_dii COMMAND test_interop dii)
+add_test(NAME interop_deferred COMMAND test_interop deferred)
+
+# The DII and the DSI against the Echo servant and a DynamicImpl.
+add_executable(test_dii tests/test_dii.c "${RUSTORBC}/echo_impl.c" ${INTEROP_SOURCES})
+target_include_directories(test_dii PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl" "${RUSTORBC}")
+target_link_libraries(test_dii PRIVATE rustorb_c)
+target_compile_options(test_dii PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME dii COMMAND test_dii)
 
 # The C++ mapping test IDL (constants, recursion, every discriminator,
 # nested types, keywords, fixed, long double, inheritance) and the any and
@@ -151,3 +161,78 @@ target_include_directories(test_mapping PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl
 target_link_libraries(test_mapping PRIVATE rustorb_c)
 target_compile_options(test_mapping PRIVATE ${RUSTORB_WARNINGS})
 add_test(NAME mapping COMMAND test_mapping)
+
+# Local interfaces (LocalTest.idl, the one of the .NET tests).
+rustorb_idl_generate(LOCAL_SOURCES "${RUSTORB_ROOT}/dotnet/tests/Rustorb.Tests/idl/LocalTest.idl")
+add_executable(test_local tests/test_local.c ${LOCAL_SOURCES})
+target_include_directories(test_local PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl")
+target_link_libraries(test_local PRIVATE rustorb_c)
+target_compile_options(test_local PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME local COMMAND test_local)
+
+# DynamicAny (<rustorb/dynany.h>) on the types of AnyTest.idl.
+add_executable(test_dynany tests/test_dynany.c "${CMAKE_CURRENT_BINARY_DIR}/idl/AnyTest.c")
+target_include_directories(test_dynany PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl")
+target_link_libraries(test_dynany PRIVATE rustorb_c)
+target_compile_options(test_dynany PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME dynany COMMAND test_dynany)
+
+# Callback AMI (<rustorb/messaging.h>, rustorb-idl -Wbami): the cases of
+# run-ami-probe.sh against the Echo servant in this process.
+set(AMI_OUT "${CMAKE_CURRENT_BINARY_DIR}/idl-ami")
+add_custom_command(
+  OUTPUT "${AMI_OUT}/InteropTest.h" "${AMI_OUT}/InteropTest.c"
+  COMMAND "${CMAKE_COMMAND}" -E env "PYTHONPATH=${RUSTORB_IDL_PYTHONPATH}"
+          "${Python3_EXECUTABLE}" -m rustorb_idl -bc -Wbami -C "${AMI_OUT}"
+          "${RUSTORB_ROOT}/interop/idl/InteropTest.idl"
+  DEPENDS "${RUSTORB_ROOT}/interop/idl/InteropTest.idl" ${RUSTORB_IDL_GENERATOR}
+  COMMENT "rustorb-idl -bc -Wbami InteropTest.idl"
+  VERBATIM)
+add_executable(test_ami tests/test_ami.c "${RUSTORBC}/ami_cases.c" "${RUSTORBC}/echo_impl.c"
+               "${AMI_OUT}/InteropTest.c")
+target_include_directories(test_ami PRIVATE "${AMI_OUT}" "${RUSTORBC}")
+target_link_libraries(test_ami PRIVATE rustorb_c)
+target_compile_options(test_ami PRIVATE ${RUSTORB_WARNINGS})
+target_compile_definitions(test_ami PRIVATE
+  "AMI_EXPECTED=\"${RUSTORB_ROOT}/interop/expected/ami-probe.txt\"")
+add_test(NAME ami COMMAND test_ami)
+
+# Portable Interceptors and IOP::Codec (<rustorb/pi.h>) around the Echo
+# servant in this process.
+add_executable(test_pi tests/test_pi.c "${RUSTORBC}/echo_impl.c" ${INTEROP_SOURCES})
+target_include_directories(test_pi PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl" "${RUSTORBC}")
+target_link_libraries(test_pi PRIVATE rustorb_c)
+target_compile_options(test_pi PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME pi COMMAND test_pi)
+
+# CORBA_exception_as_any.
+add_executable(test_exception tests/test_exception.c ${INTEROP_SOURCES})
+target_include_directories(test_exception PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl")
+target_link_libraries(test_exception PRIVATE rustorb_c)
+target_compile_options(test_exception PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME exception COMMAND test_exception)
+
+# The fixed functions.
+add_executable(test_fixed tests/test_fixed.c)
+target_link_libraries(test_fixed PRIVATE rustorb_c)
+target_compile_options(test_fixed PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME fixed COMMAND test_fixed)
+
+# The IDL 4 types (int8, bitmask, bitset) of the C++ test IDL.
+rustorb_idl_generate(IDL4_SOURCES "${RUSTORB_ROOT}/cpp/tests/idl/Idl4.idl")
+add_executable(test_idl4 tests/test_idl4.c ${IDL4_SOURCES})
+target_include_directories(test_idl4 PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl")
+target_link_libraries(test_idl4 PRIVATE rustorb_c)
+target_compile_options(test_idl4 PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME idl4 COMMAND test_idl4)
+
+# The DynAny probe of run-dynany-probe.sh (TypeCode factories, DynValue,
+# DynValueBox, insert_<type>_seq), compared with the rustorb expected output.
+add_executable(dynany_probe "${RUSTORBC}/dynany_probe.c")
+target_link_libraries(dynany_probe PRIVATE rustorb_c)
+target_compile_options(dynany_probe PRIVATE ${RUSTORB_WARNINGS})
+add_test(NAME dynany_probe
+         COMMAND sh -c "\"$<TARGET_FILE:dynany_probe>\" > dynany-probe.txt && \"${CMAKE_COMMAND}\" -E compare_files dynany-probe.txt \"${RUSTORB_ROOT}/interop/expected/dynany-probe-rustorb.txt\"")
+# The probe does not release its DynAnys and TypeCodes (as the other
+# probes); the unit tests check for leaks.
+set_tests_properties(dynany_probe PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0")

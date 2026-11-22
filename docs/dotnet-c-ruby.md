@@ -152,6 +152,8 @@ C ABI は既存のもので足りる見込みで、足りないものが出た�
 - **`fixed`**：仕様は「対応しない」とする。rustorb は `BigDecimal` で扱う（拡張。Python・Java と同じく丸めない）
 - **システム例外の `completed`**：仕様に値がないので `CORBA::COMPLETED_YES` / `COMPLETED_NO` / `COMPLETED_MAYBE` の定数を置く
 
+実装の結果は [ruby-binding.md](ruby-binding.md)。生成コードはどの名前も `::` から書くので、組み込みクラスと同じ名前（`String` など）は `R_` を付けずにそのまま使う。DSI は #188 に回した。
+
 ## 範囲
 
 最初の段（各言語の3つの sub-issue）で入れるもの：

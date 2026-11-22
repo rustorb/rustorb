@@ -1,0 +1,2 @@
+#!/bin/sh
+exec "${RUSTORB_RUBY:-ruby}" "$(dirname "$0")/lib/dynany_probe.rb" "$@"

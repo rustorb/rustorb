@@ -1,0 +1,4 @@
+#!/bin/sh
+# rustorb .NET side of run-pi-probe.sh (src/PiProbeMain.cs), built by build.sh.
+here="$(dirname "$0")"
+exec dotnet "$here/out/rustorbcs.dll" pi-probe "$@"

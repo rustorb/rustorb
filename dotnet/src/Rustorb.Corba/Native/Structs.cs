@@ -82,6 +82,16 @@ internal static class Local
     public const uint TC_BAD_KIND = 14;
     public const uint TC_BOUNDS = 15;
     public const uint POLICY_ERROR = 16;
+    public const uint DYN_INVALID_VALUE = 17;
+    public const uint DYN_TYPE_MISMATCH = 18;
+    public const uint DYN_INCONSISTENT_TYPECODE = 19;
+    public const uint DYN_MUST_TRUNCATE = 20;
+    public const uint INVALID_SLOT = 21;
+    public const uint DUPLICATE_NAME = 22;
+    public const uint UNKNOWN_ENCODING = 23;
+    public const uint CODEC_INVALID_TYPE_FOR_ENCODING = 24;
+    public const uint CODEC_FORMAT_MISMATCH = 25;
+    public const uint CODEC_TYPE_MISMATCH = 26;
     public const uint MANAGER_ALREADY_EXISTS = 27;
 }
 

@@ -1,0 +1,4 @@
+#!/bin/sh
+# The rustorb .NET client (impls/rustorbcs) with every call of the basic
+# suite made through the DII (impls/rustorbcs/src/DiiAdapters.cs).
+RUSTORB_DII=1 exec "$(dirname "$0")/../rustorbcs/client" "$@"

@@ -111,7 +111,11 @@ namespace Interop
         }
 
         // --- object references ---
-        public override IEcho self_ref() => EchoHelper.narrow(_this_object());
+        /// <summary>The reference self_ref returns, when the servant is run
+        /// behind the DSI (DiiAdapters.cs), else _this.</summary>
+        public System.Func<IEcho> Self { get; set; }
+
+        public override IEcho self_ref() => Self != null ? Self() : EchoHelper.narrow(_this_object());
         public override IEcho echo_ref(IEcho other) => other ?? self_ref();
         public override bool is_nil(IEcho other) => other == null;
 

@@ -119,6 +119,13 @@ namespace Rustorb
             GC.KeepAlive(v);
         }
 
+        /// <summary>A value (null, an instance written before in the message
+        /// as an indirection, or the state of the instance).</summary>
+        public void write_value(Corba.IValueBase? v) => Values.Write(this, v);
+
+        /// <summary>An abstract interface: an object reference or a value.</summary>
+        public void write_abstract(object? v) => Values.WriteAbstract(this, v);
+
         /// <summary>A fixed&lt;digits, scale&gt;: a value with more fraction digits than
         /// scale (not zeros) or more integer digits than digits - scale is
         /// BAD_PARAM (it is not rounded).</summary>
@@ -249,6 +256,15 @@ namespace Rustorb
             nint h = Ffi.rorb_in_read_any(ptr);
             return h == 0 ? new Corba.Any() : new Corba.Any(new AnyHandle(h));
         }
+
+        /// <summary>A value: null, an instance read before in the message, or
+        /// a new instance made by the value factory of its repository id
+        /// (of expected when the value is sent without one).</summary>
+        public Corba.IValueBase? read_value(string? expected) => Values.Read(this, expected);
+
+        /// <summary>An abstract interface: an object reference (Corba.Object)
+        /// or a value.</summary>
+        public object? read_abstract() => Values.ReadAbstract(this);
 
         public decimal read_fixed(ushort digits, short scale)
         {

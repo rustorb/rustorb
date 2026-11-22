@@ -1,0 +1,5 @@
+#!/bin/sh
+# rustorb Ruby side of run-pi-probe.sh (lib/pi_probe.rb). run-pi-probe.sh
+# builds the runtime (build.sh) and mounts this directory into the
+# container.
+exec "${RUSTORB_RUBY:-ruby}" "$(dirname "$0")/lib/pi_probe.rb" "$@"

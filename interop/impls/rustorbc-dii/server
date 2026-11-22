@@ -1,0 +1,4 @@
+#!/bin/sh
+# The rustorb C server (impls/rustorbc) with the servants of the basic and
+# any suites run through the DSI (impls/rustorbc/src/dii_adapters.c).
+RUSTORB_DII=1 exec "$(dirname "$0")/../rustorbc/bin/server" "$@"

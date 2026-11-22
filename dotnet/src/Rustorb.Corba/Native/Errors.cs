@@ -71,6 +71,16 @@ internal static unsafe class Errors
             case Local.TC_BAD_KIND: return new Corba.TypeCode.BadKind();
             case Local.TC_BOUNDS: return new Corba.TypeCode.Bounds();
             case Local.POLICY_ERROR: return new Corba.PolicyError((short)index);
+            case Local.DYN_INVALID_VALUE: return new DynamicAny.DynAny.InvalidValue();
+            case Local.DYN_TYPE_MISMATCH: return new DynamicAny.DynAny.TypeMismatch();
+            case Local.DYN_INCONSISTENT_TYPECODE: return new DynamicAny.DynAnyFactory.InconsistentTypeCode();
+            case Local.DYN_MUST_TRUNCATE: return new DynamicAny.MustTruncate();
+            case Local.INVALID_SLOT: return new PortableInterceptor.InvalidSlot();
+            case Local.DUPLICATE_NAME: return new PortableInterceptor.ORBInitInfo.DuplicateName();
+            case Local.UNKNOWN_ENCODING: return new IOP.CodecFactory.UnknownEncoding();
+            case Local.CODEC_INVALID_TYPE_FOR_ENCODING: return new IOP.Codec.InvalidTypeForEncoding();
+            case Local.CODEC_FORMAT_MISMATCH: return new IOP.Codec.FormatMismatch();
+            case Local.CODEC_TYPE_MISMATCH: return new IOP.Codec.TypeMismatch();
             case Local.MANAGER_ALREADY_EXISTS: return new PortableServer.POAManagerFactory.ManagerAlreadyExists();
             default:
                 return new Corba.INTERNAL($"unknown local exception {local} from librustorb_ffi", 0,

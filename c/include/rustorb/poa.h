@@ -38,7 +38,7 @@ typedef void* PortableServer_Servant;
 
 typedef struct PortableServer_ServantBase__epv {
   void* _private;
-  /* Not called by rustorb (there are no servant managers yet). */
+  /* Not called by rustorb. */
   void (*finalize)(PortableServer_Servant servant, CORBA_Environment* ev);
   /* NULL for the RootPOA. */
   PortableServer_POA (*default_POA)(PortableServer_Servant servant, CORBA_Environment* ev);
@@ -256,6 +256,160 @@ PortableServer_Servant PortableServer_POA_id_to_servant(PortableServer_POA poa,
 CORBA_Object PortableServer_POA_id_to_reference(PortableServer_POA poa,
                                                 const PortableServer_ObjectId* oid,
                                                 CORBA_Environment* ev);
+
+/* --- servant managers and adapter activators ------------------------------------------ */
+
+/* PortableServer::ServantActivator, ServantLocator and AdapterActivator
+   are local interfaces: implemented, as the local interfaces of -bc, by
+   a struct of the POA_ form (_private, vepv) initialised with its __init,
+   whose local object __create makes (the struct must outlive the POAs that
+   use it). incarnate and preinvoke raise ForwardRequest with
+   CORBA_exception_set(ev, CORBA_USER_EXCEPTION,
+   ex_PortableServer_ForwardRequest, a PortableServer_ForwardRequest*), or
+   a system exception; etherealize, postinvoke and unknown_adapter cannot
+   raise. A servant they return is initialised (POA_<I>__init or
+   PortableServer_DynamicImpl__init). */
+
+typedef CORBA_Object PortableServer_ServantManager;
+typedef CORBA_Object PortableServer_ServantActivator;
+typedef CORBA_Object PortableServer_ServantLocator;
+typedef CORBA_Object PortableServer_AdapterActivator;
+typedef void* PortableServer_ServantLocator_Cookie;
+
+typedef struct PortableServer_ForwardRequest {
+  CORBA_Object forward_reference;
+} PortableServer_ForwardRequest;
+PortableServer_ForwardRequest* PortableServer_ForwardRequest__alloc(void);
+
+typedef struct POA_PortableServer_ServantManager__epv {
+  void* _private;
+} POA_PortableServer_ServantManager__epv;
+
+typedef struct POA_PortableServer_ServantActivator__epv {
+  void* _private;
+  PortableServer_Servant (*incarnate)(PortableServer_Servant _servant,
+                                      const PortableServer_ObjectId* oid,
+                                      PortableServer_POA adapter, CORBA_Environment* ev);
+  void (*etherealize)(PortableServer_Servant _servant, const PortableServer_ObjectId* oid,
+                      PortableServer_POA adapter, PortableServer_Servant serv,
+                      CORBA_boolean cleanup_in_progress, CORBA_boolean remaining_activations,
+                      CORBA_Environment* ev);
+} POA_PortableServer_ServantActivator__epv;
+
+typedef struct POA_PortableServer_ServantActivator__vepv {
+  PortableServer_ServantBase__epv* _base_epv;
+  POA_PortableServer_ServantManager__epv* PortableServer_ServantManager_epv;
+  POA_PortableServer_ServantActivator__epv* PortableServer_ServantActivator_epv;
+} POA_PortableServer_ServantActivator__vepv;
+
+typedef struct POA_PortableServer_ServantActivator {
+  void* _private;
+  POA_PortableServer_ServantActivator__vepv* vepv;
+} POA_PortableServer_ServantActivator;
+
+typedef struct POA_PortableServer_ServantLocator__epv {
+  void* _private;
+  /* *the_cookie is given to postinvoke as it is. */
+  PortableServer_Servant (*preinvoke)(PortableServer_Servant _servant,
+                                      const PortableServer_ObjectId* oid,
+                                      PortableServer_POA adapter, const CORBA_char* operation,
+                                      PortableServer_ServantLocator_Cookie* the_cookie,
+                                      CORBA_Environment* ev);
+  void (*postinvoke)(PortableServer_Servant _servant, const PortableServer_ObjectId* oid,
+                     PortableServer_POA adapter, const CORBA_char* operation,
+                     PortableServer_ServantLocator_Cookie the_cookie,
+                     PortableServer_Servant the_servant, CORBA_Environment* ev);
+} POA_PortableServer_ServantLocator__epv;
+
+typedef struct POA_PortableServer_ServantLocator__vepv {
+  PortableServer_ServantBase__epv* _base_epv;
+  POA_PortableServer_ServantManager__epv* PortableServer_ServantManager_epv;
+  POA_PortableServer_ServantLocator__epv* PortableServer_ServantLocator_epv;
+} POA_PortableServer_ServantLocator__vepv;
+
+typedef struct POA_PortableServer_ServantLocator {
+  void* _private;
+  POA_PortableServer_ServantLocator__vepv* vepv;
+} POA_PortableServer_ServantLocator;
+
+typedef struct POA_PortableServer_AdapterActivator__epv {
+  void* _private;
+  /* Creates the child name of parent (create_POA) and returns TRUE, or
+     returns FALSE. */
+  CORBA_boolean (*unknown_adapter)(PortableServer_Servant _servant, PortableServer_POA parent,
+                                   const CORBA_char* name, CORBA_Environment* ev);
+} POA_PortableServer_AdapterActivator__epv;
+
+typedef struct POA_PortableServer_AdapterActivator__vepv {
+  PortableServer_ServantBase__epv* _base_epv;
+  POA_PortableServer_AdapterActivator__epv* PortableServer_AdapterActivator_epv;
+} POA_PortableServer_AdapterActivator__vepv;
+
+typedef struct POA_PortableServer_AdapterActivator {
+  void* _private;
+  POA_PortableServer_AdapterActivator__vepv* vepv;
+} POA_PortableServer_AdapterActivator;
+
+void POA_PortableServer_ServantActivator__init(PortableServer_Servant servant,
+                                               CORBA_Environment* ev);
+void POA_PortableServer_ServantActivator__fini(PortableServer_Servant servant,
+                                               CORBA_Environment* ev);
+PortableServer_ServantActivator PortableServer_ServantActivator__create(
+    PortableServer_Servant impl, CORBA_Environment* ev);
+void POA_PortableServer_ServantLocator__init(PortableServer_Servant servant,
+                                             CORBA_Environment* ev);
+void POA_PortableServer_ServantLocator__fini(PortableServer_Servant servant,
+                                             CORBA_Environment* ev);
+PortableServer_ServantLocator PortableServer_ServantLocator__create(PortableServer_Servant impl,
+                                                                    CORBA_Environment* ev);
+void POA_PortableServer_AdapterActivator__init(PortableServer_Servant servant,
+                                               CORBA_Environment* ev);
+void POA_PortableServer_AdapterActivator__fini(PortableServer_Servant servant,
+                                               CORBA_Environment* ev);
+PortableServer_AdapterActivator PortableServer_AdapterActivator__create(
+    PortableServer_Servant impl, CORBA_Environment* ev);
+
+/* The operations, called as the POA calls them. */
+PortableServer_Servant PortableServer_ServantActivator_incarnate(
+    PortableServer_ServantActivator obj, const PortableServer_ObjectId* oid,
+    PortableServer_POA adapter, CORBA_Environment* ev);
+void PortableServer_ServantActivator_etherealize(PortableServer_ServantActivator obj,
+                                                 const PortableServer_ObjectId* oid,
+                                                 PortableServer_POA adapter,
+                                                 PortableServer_Servant serv,
+                                                 CORBA_boolean cleanup_in_progress,
+                                                 CORBA_boolean remaining_activations,
+                                                 CORBA_Environment* ev);
+PortableServer_Servant PortableServer_ServantLocator_preinvoke(
+    PortableServer_ServantLocator obj, const PortableServer_ObjectId* oid,
+    PortableServer_POA adapter, const CORBA_char* operation,
+    PortableServer_ServantLocator_Cookie* the_cookie, CORBA_Environment* ev);
+void PortableServer_ServantLocator_postinvoke(PortableServer_ServantLocator obj,
+                                              const PortableServer_ObjectId* oid,
+                                              PortableServer_POA adapter,
+                                              const CORBA_char* operation,
+                                              PortableServer_ServantLocator_Cookie the_cookie,
+                                              PortableServer_Servant the_servant,
+                                              CORBA_Environment* ev);
+CORBA_boolean PortableServer_AdapterActivator_unknown_adapter(PortableServer_AdapterActivator obj,
+                                                              PortableServer_POA parent,
+                                                              const CORBA_char* name,
+                                                              CORBA_Environment* ev);
+
+/* USE_SERVANT_MANAGER: an activator with RETAIN, a locator with NON_RETAIN
+   (else WrongPolicy); once (BAD_INV_ORDER). */
+void PortableServer_POA_set_servant_manager(PortableServer_POA poa,
+                                            PortableServer_ServantManager imgr,
+                                            CORBA_Environment* ev);
+/* Nil when there is none. */
+PortableServer_ServantManager PortableServer_POA_get_servant_manager(PortableServer_POA poa,
+                                                                     CORBA_Environment* ev);
+/* Nil removes it. */
+void PortableServer_POA__set_the_activator(PortableServer_POA poa,
+                                           PortableServer_AdapterActivator activator,
+                                           CORBA_Environment* ev);
+PortableServer_AdapterActivator PortableServer_POA__get_the_activator(PortableServer_POA poa,
+                                                                      CORBA_Environment* ev);
 
 /* --- Current ------------------------------------------------------------------------- */
 
