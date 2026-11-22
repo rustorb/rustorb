@@ -7,7 +7,7 @@ break the API).
 
 ## [Unreleased]
 
-## [0.7.0] - unreleased
+## [0.7.0] - 2026-11-22
 
 Three new language bindings: .NET (C#), C and Ruby (plan #176). The Rust,
 Python, C++ and Java APIs are unchanged. The C ABI version stays 3, and
