@@ -21,3 +21,5 @@ __pycache__/
 /examples/csharp/*/bin
 /examples/csharp/*/obj
 /ruby/vendor
+/dotnet/src/Rustorb.Corba/runtimes
+/ruby/*.gem

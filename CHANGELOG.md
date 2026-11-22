@@ -7,6 +7,39 @@ break the API).
 
 ## [Unreleased]
 
+## [0.7.0] - unreleased
+
+Three new language bindings: .NET (C#), C and Ruby (plan #176). The Rust,
+Python, C++ and Java APIs are unchanged. The C ABI version stays 3, and
+`rustorb.h` is the same as in 0.6.0. The pinned IDL compiler becomes
+rustorb-idl 0.5.0, which adds `-bcsharp`, `-bc` and `-bruby`.
+
+### Added
+
+- .NET: the IDL4 to C# mapping (formal/21-07-01) for .NET 8 or later, as
+  the NuGet package `Rustorb` with `librustorb_ffi` for Linux x64 / arm64,
+  macOS arm64 and Windows x64 in `runtimes/<rid>/native`. It covers the ORB,
+  the POA with servant managers, CosNaming, valuetypes, DynAny, the DII and
+  DSI, callback AMI, Portable Interceptors and local interfaces
+  (docs/csharp-binding.md).
+- C: the OMG C Language Mapping 1.0 in C99 (`librustorb_c`), released as
+  `rustorb-c-<version>-<platform>.tar.gz` for Linux x86_64 / aarch64 and
+  macOS arm64: the headers under `include/rustorb/` and `librustorb_c.a`
+  with `librustorb_ffi.a` in `lib/`. Besides the mapping it has DynAny, the
+  DII and DSI, servant managers, callback AMI (`rustorb/messaging.h`) and
+  Portable Interceptors (`rustorb/pi.h`) (docs/c-binding.md).
+- Ruby: the OMG Ruby Language Mapping 1.2 for Ruby 3.0 or later, as the gem
+  `rustorb`. It carries `librustorb_ffi.a` for Linux x86_64 / aarch64 and
+  macOS arm64, and its C extension is built when the gem is installed (Ruby's
+  headers and a C compiler are needed). It has the same features as the .NET
+  binding (docs/ruby-binding.md).
+- The interop suites, the wire and PI probes and the naming check run the
+  three new bindings (`rustorbcs`, `rustorbc`, `rustorbrb`) against
+  omniORB, omniORBpy, JacORB and the other rustorb bindings.
+- `examples/` has the Echo server and client in C#, C and Ruby, and
+  `examples/run-all.sh` runs every server with every client of the seven
+  languages.
+
 ### Fixed
 
 - A callback request (AMI) to an object of the same ORB ignored the call

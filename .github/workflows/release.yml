@@ -5,12 +5,14 @@ name: Release
 # - a tag v0.1.0 (the version of tools/set-version.py --check): builds and
 #   checks everything, attaches it to a draft GitHub Release v0.1.0,
 #   publishes the crates to crates.io and the Python packages to PyPI, and
-#   then publishes the GitHub Release. The publishing jobs run in the
-#   `release` environment (the PyPI upload of rustorb-omniorb-compat in
-#   release-rustorb-omniorb-compat; their protection rules can require an
-#   approval) and need the CARGO_REGISTRY_TOKEN secret and PyPI trusted
-#   publishers (or the PYPI_API_TOKEN secret). Run again after a failure, they skip
-#   what is already published.
+#   publishes the crates to crates.io, the Python packages to PyPI, the .NET
+#   package to NuGet and the gem to RubyGems, and then publishes the GitHub
+#   Release. The publishing jobs run in the `release` environment (the PyPI
+#   upload of rustorb-omniorb-compat in release-rustorb-omniorb-compat;
+#   their protection rules can require an approval) and need the
+#   CARGO_REGISTRY_TOKEN, NUGET_API_KEY and RUBYGEMS_API_KEY secrets and PyPI
+#   trusted publishers (or the PYPI_API_TOKEN secret). Run again after a
+#   failure, they skip what is already published.
 # - Run workflow (workflow_dispatch), or a pull request that changes the
 #   packaging: only builds, the artifacts stay on the run
 
@@ -29,6 +31,11 @@ on:
       - "cpp/tests/consumer/**"
       - "**/pyproject.toml"
       - java/pom.xml
+      - c/CMakeLists.txt
+      - dotnet/src/Rustorb.Corba/Rustorb.Corba.csproj
+      - ruby/rustorb.gemspec
+      - ruby/ext/rustorb_ext/extconf.rb
+      - "tools/release-check/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -237,9 +244,136 @@ jobs:
           name: java
           path: java/target/rustorb-*.jar
 
+  # The C binding: librustorb_c and librustorb_ffi (static) with the
+  # headers. The gem takes its librustorb_ffi.a from these archives.
+  c:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, name: linux-x86_64 }
+          - { os: ubuntu-24.04-arm, name: linux-aarch64 }
+          - { os: macos-latest, name: macos-aarch64 }
+    runs-on: ${{ matrix.os }}
+    env:
+      ARCHIVE: rustorb-c-${{ needs.version.outputs.version }}-${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cmake -S c -B build/c -DRUSTORB_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build/c
+      - run: cmake --install build/c --prefix "dist/$ARCHIVE"
+      - name: Build and run a program against the installed files
+        shell: bash
+        run: |
+          cp LICENSE-MIT LICENSE-APACHE "dist/$ARCHIVE/"
+          d="dist/$ARCHIVE"
+          libs=(-lpthread -ldl -lm)
+          if [[ "$RUNNER_OS" == macOS ]]; then libs=(-framework CoreFoundation -framework Security -lpthread -lm); fi
+          cc -std=c99 -Wall -Wextra -Werror -I"$d/include" tools/release-check/orb.c \
+            "$d/lib/librustorb_c.a" "$d/lib/librustorb_ffi.a" "${libs[@]}" -o orb-check
+          ./orb-check
+      - name: Archive
+        run: cd dist && tar czf "$ARCHIVE.tar.gz" "$ARCHIVE"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: c-${{ matrix.name }}
+          path: dist/${{ env.ARCHIVE }}.tar.gz
+          if-no-files-found: error
+
+  # The NuGet package Rustorb, with the shared librustorb_ffi of every
+  # platform of the rustorb-native archives in runtimes/<rid>/native.
+  nuget:
+    needs: [version, native]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: native
+          merge-multiple: true
+      - name: Put the native libraries into runtimes/<rid>/native
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          r=dotnet/src/Rustorb.Corba/runtimes
+          take() { # archive, file in it, rid
+            mkdir -p "$r/$3/native" x
+            case "$1" in
+              *.zip) unzip -q -o "native/$1" -d x ;;
+              *) tar xzf "native/$1" -C x ;;
+            esac
+            d="${1%.tar.gz}"
+            cp "x/${d%.zip}/$2" "$r/$3/native/"
+          }
+          take "rustorb-native-$VERSION-linux-x86_64.tar.gz" lib/librustorb_ffi.so linux-x64
+          take "rustorb-native-$VERSION-linux-aarch64.tar.gz" lib/librustorb_ffi.so linux-arm64
+          take "rustorb-native-$VERSION-macos-aarch64.tar.gz" lib/librustorb_ffi.dylib osx-arm64
+          take "rustorb-native-$VERSION-windows-x86_64.zip" bin/rustorb_ffi.dll win-x64
+          find "$r" -type f
+      - run: dotnet pack -c Release -o dist dotnet/src/Rustorb.Corba
+      - name: Build and run a program against the package
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          mkdir check && cp tools/release-check/Program.cs tools/release-check/check.csproj check/
+          cd check
+          dotnet restore -p:RustorbVersion="$VERSION" -s "$GITHUB_WORKSPACE/dist" -s https://api.nuget.org/v3/index.json
+          dotnet run --no-restore -p:RustorbVersion="$VERSION"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuget
+          path: dist/*.nupkg
+          if-no-files-found: error
+
+  # The gem rustorb, with librustorb_ffi.a of each platform of the
+  # rustorb-c archives in vendor/<platform>; its extension is built when
+  # it is installed.
+  gem:
+    needs: [version, c]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: c-*
+          path: c
+          merge-multiple: true
+      - name: Put librustorb_ffi.a and rustorb.h into vendor/
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          for p in linux-x86_64 linux-aarch64 macos-aarch64; do
+            a="rustorb-c-$VERSION-$p"
+            tar xzf "c/$a.tar.gz" -C c
+            mkdir -p "ruby/vendor/$p"
+            cp "c/$a/lib/librustorb_ffi.a" "ruby/vendor/$p/"
+          done
+          mkdir -p ruby/vendor/include/rustorb
+          cp crates/rustorb-ffi/include/rustorb/rustorb.h ruby/vendor/include/rustorb/
+          find ruby/vendor -type f
+      - run: cd ruby && gem build rustorb.gemspec && mkdir -p ../dist && mv rustorb-*.gem ../dist/
+      - name: Install the gem and use it
+        run: |
+          gem install --local dist/rustorb-*.gem
+          cd "$RUNNER_TEMP" && ruby -e 'require "rustorb"; o = CORBA.ORB_init([]); o.resolve_initial_references("RootPOA"); o.destroy; puts "rustorb: ok"'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gem
+          path: dist/*.gem
+          if-no-files-found: error
+
   # Also runs without a tag, to check the notes and SHA256SUMS
   draft:
-    needs: [version, crates, wheels, python-sdist, native, java]
+    needs: [version, crates, wheels, python-sdist, native, java, c, nuget, gem]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -343,9 +477,63 @@ jobs:
           password: ${{ secrets.PYPI_API_TOKEN }}
           skip-existing: true
 
+  nuget-org:
+    if: github.ref_type == 'tag'
+    needs: [version, draft]
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - uses: actions/download-artifact@v4
+        with:
+          name: nuget
+          path: dist
+      - name: Push the package to nuget.org
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [ -z "$NUGET_API_KEY" ]; then
+            echo "::error::the NUGET_API_KEY secret is not set (docs/release.md)"
+            exit 1
+          fi
+          dotnet nuget push dist/*.nupkg --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+  rubygems:
+    if: github.ref_type == 'tag'
+    needs: [version, draft]
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+      - uses: actions/download-artifact@v4
+        with:
+          name: gem
+          path: dist
+      - name: Push the gem to RubyGems
+        env:
+          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          if [ -z "$GEM_HOST_API_KEY" ]; then
+            echo "::error::the RUBYGEMS_API_KEY secret is not set (docs/release.md)"
+            exit 1
+          fi
+          status=$(curl -s -o /dev/null -w '%{http_code}' \
+            "https://rubygems.org/api/v2/rubygems/rustorb/versions/$VERSION.json")
+          if [ "$status" = 200 ]; then
+            echo "rustorb $VERSION is already on RubyGems"
+          else
+            gem push dist/rustorb-*.gem
+          fi
+
   publish-release:
     if: github.ref_type == 'tag'
-    needs: [crates-io, pypi]
+    needs: [crates-io, pypi, nuget-org, rubygems]
     runs-on: ubuntu-latest
     permissions:
       contents: write

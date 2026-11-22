@@ -12,7 +12,7 @@
 # CMAKE_INSTALL_PREFIX.
 
 cmake_minimum_required(VERSION 3.16)
-project(rustorb_c VERSION 0.6.0 LANGUAGES C)
+project(rustorb_c VERSION 0.7.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
