@@ -25,6 +25,16 @@ break the API).
   publishing (OpenID Connect); the NUGET_API_KEY and RUBYGEMS_API_KEY
   secrets are still used when set.
 
+### Fixed
+
+- Ruby: on Ruby 3.0, a program that required `minitest/autorun` before
+  `corba` hung at its first upcall: the extension stopped its dispatcher
+  threads from an end proc, which ran before minitest ran the tests. The
+  dispatchers now end when Ruby kills them at exit (their job answered, the
+  queued ones failed after the last one), and what is left stops at the
+  VM's end (`ruby_vm_at_exit`). The test helper requires `minitest/autorun`
+  first, so that the suite checks it.
+
 ## [0.7.0] - 2026-11-22
 
 Three new language bindings: .NET (C#), C and Ruby (plan #176). The Rust,
