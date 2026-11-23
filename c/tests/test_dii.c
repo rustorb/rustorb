@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include <rustorb/dii.h>
 
@@ -82,7 +83,7 @@ static void test_requests(CORBA_ORB orb, CORBA_Object echo) {
   CORBA_NVList list;
   CORBA_long a = 7, b = 2, rem = 0, quotient = 0;
   CORBA_char* s = (CORBA_char*)"hello";
-  int polls;
+  time_t deadline;
 
   /* Arguments from a list; the result into the caller's storage. */
   CORBA_ORB_create_list(orb, 3, &list, &ev);
@@ -114,7 +115,10 @@ static void test_requests(CORBA_ORB orb, CORBA_Object echo) {
   OK(&ev);
   CORBA_Request_send(req, 0, &ev);
   RAISED(&ev, ex_CORBA_BAD_INV_ORDER);
-  for (polls = 0; polls < 100000 && !CORBA_Request_poll_response(req, &ev); polls++) OK(&ev);
+  /* Until the reply is in, by time rather than by a count of polls, which a
+     slow runner can use up first. */
+  deadline = time(NULL) + 30;
+  while (!CORBA_Request_poll_response(req, &ev) && time(NULL) < deadline) OK(&ev);
   CORBA_Request_get_response(req, CORBA_RESP_NO_WAIT, &ev);
   {
     CORBA_NamedValue* r = CORBA_Request_result(req, &ev);
