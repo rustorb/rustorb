@@ -12,7 +12,8 @@ rustorb の .NET バインディングの構成をまとめる。C++・Java と�
 | --- | --- | --- |
 | `crates/rustorb-ffi` | C ABI の共有ライブラリ（`librustorb_ffi.so` / `.dylib` / `rustorb_ffi.dll`）。C++・Java と共通 | MIT OR Apache-2.0 |
 | `dotnet/src/Rustorb.Corba/Native` | C ABI の関数の宣言（`Ffi.g.cs`。`dotnet/tools/gen-pinvoke.py` が `rustorb.h` から生成し、CI で `--check`）、ハンドル（`SafeHandle`）、コールバック、エラーの変換、ライブラリの探索 | MIT OR Apache-2.0 |
-| `dotnet/src/Rustorb.Corba/Corba`・`PortableServer`・`Omg` | 標準の API（`Corba.ORB`・`Object`・`TypeCode`・`Any`・システム例外40種、`PortableServer.POA`・`POAManager`・`Current`・`Servant`、`Omg.Types.ISequence<T>`） | MIT OR Apache-2.0 |
+| `dotnet/src/Rustorb.Corba/Corba`・`PortableServer` | 標準の API（`Corba.ORB`・`Object`・`TypeCode`・`Any`・システム例外40種、`PortableServer.POA`・`POAManager`・`Current`・`Servant`） | MIT OR Apache-2.0 |
+| `dotnet/src/Rustorb.Types` | `Omg.Types`（`ISequence<T>`、`Sequence<T>`、マッピングの属性）。ORB を含まない別のパッケージ `Rustorb.Types` で、`Rustorb` はこれに依存する。rustorb-dds の .NET バインディング（`Rustorb.Dds`）の生成コードもこれだけを使う。`Rustorb.Corba` は 0.7.0 で入っていたこれらの型を `TypeForwardedTo` で転送する | MIT OR Apache-2.0 |
 | `dotnet/src/Rustorb.Corba/Rustorb` | 生成コードとの取り決め（`CdrOutput` / `CdrInput`、`Stubs`、`Anys`、`TypeCodes`、`Seq`、`ServerReply`） | MIT OR Apache-2.0 |
 | `dotnet/src/Rustorb.Corba/CosNaming` | `rustorb-idl -bcsharp` で生成した CosNaming（`dotnet/generate-stubs.sh`） | MIT OR Apache-2.0 |
 | rustorb-idl の `python/rustorb_idl/csharp_backend.py` | `rustorb-idl -bcsharp` | GPL-3.0-or-later（生成物は対象外） |

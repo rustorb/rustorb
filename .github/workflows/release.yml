@@ -40,6 +40,7 @@ on:
       - java/pom.xml
       - c/CMakeLists.txt
       - dotnet/src/Rustorb.Corba/Rustorb.Corba.csproj
+      - dotnet/src/Rustorb.Types/Rustorb.Types.csproj
       - ruby/rustorb.gemspec
       - ruby/ext/rustorb_ext/extconf.rb
       - "tools/release-check/**"
@@ -341,7 +342,8 @@ jobs:
           if-no-files-found: error
 
   # The NuGet package Rustorb, with the shared librustorb_ffi of every
-  # platform of the rustorb-native archives in runtimes/<rid>/native.
+  # platform of the rustorb-native archives in runtimes/<rid>/native, and
+  # Rustorb.Types (Omg.Types), which it depends on.
   nuget:
     needs: [version, native]
     runs-on: ubuntu-latest
@@ -374,6 +376,7 @@ jobs:
           take "rustorb-native-$VERSION-macos-aarch64.tar.gz" lib/librustorb_ffi.dylib osx-arm64
           take "rustorb-native-$VERSION-windows-x86_64.zip" bin/rustorb_ffi.dll win-x64
           find "$r" -type f
+      - run: dotnet pack -c Release -o dist dotnet/src/Rustorb.Types
       - run: dotnet pack -c Release -o dist dotnet/src/Rustorb.Corba
       - name: Build and run a program against the package
         env:

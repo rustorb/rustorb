@@ -18,13 +18,14 @@ rustorb のリリースで何を出すか、どう作るか、公開をどう行
 | `rustorb-<版>.jar` | Java のマッピング。共有ライブラリは上の `rustorb-native` から使う | GitHub Release |
 | `rustorb-c-<版>-<環境>.tar.gz` | C のマッピング：`include/rustorb/` のヘッダ、`lib/` の `librustorb_c.a` と `librustorb_ffi.a`。Linux x86_64 / aarch64、macOS arm64。Windows x64 は `rustorb-c-<版>-windows-x86_64.zip`（`rustorb_c.lib` と `rustorb_ffi.lib`、MSVC） | GitHub Release |
 | `Rustorb.<版>.nupkg` | .NET のマッピング（.NET 8 以降）。`runtimes/<rid>/native` に `librustorb_ffi` の共有ライブラリ（linux-x64、linux-arm64、osx-arm64、win-x64） | NuGet（と GitHub Release） |
+| `Rustorb.Types.<版>.nupkg` | `Omg.Types`（IDL の列と属性）だけのパッケージ。`Rustorb` と rustorb-dds の `Rustorb.Dds` の生成コードが使う | NuGet（と GitHub Release） |
 | `rustorb-<版>.gem` | Ruby のマッピング（Ruby 3.0 以降）。`vendor/<環境>/librustorb_ffi.a`（Linux x86_64 / aarch64、macOS arm64）を持ち、拡張は gem を入れるときにビルドする | RubyGems（と GitHub Release） |
 
 `rustorb-python`（wheel の中身）と `rustorb-interop`（相互接続テスト）は crates.io に出さない（`publish = false`）。
 
 ## バージョン
 
-バージョンは Cargo のワークスペース、2つの `pyproject.toml`、`java/pom.xml`、`cpp/CMakeLists.txt`、`c/CMakeLists.txt`、`dotnet/src/Rustorb.Corba/Rustorb.Corba.csproj`、`ruby/lib/rustorb/version.rb` に書いてあり、すべて同じにする。
+バージョンは Cargo のワークスペース、2つの `pyproject.toml`、`java/pom.xml`、`cpp/CMakeLists.txt`、`c/CMakeLists.txt`、`dotnet/src/Rustorb.Corba/Rustorb.Corba.csproj`、`dotnet/src/Rustorb.Types/Rustorb.Types.csproj`、`ruby/lib/rustorb/version.rb` に書いてあり、すべて同じにする。
 
 ```sh
 tools/set-version.py 0.7.0          # まとめて書き換える

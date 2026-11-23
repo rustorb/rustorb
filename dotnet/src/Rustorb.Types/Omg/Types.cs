@@ -1,6 +1,8 @@
 // The Omg.Types namespace of the IDL4 to C# mapping: the sequence interface
 // (7.2.4.2.1) with rustorb's implementation, and the attributes the mapping
-// uses.
+// uses. In a package of its own (Rustorb.Types) so that code generated for
+// DDS (rustorb-dds's Rustorb.Dds) can use it without the ORB; Rustorb.Corba
+// forwards these types here.
 //
 // Licensed under MIT OR Apache-2.0, like the rest of the rustorb core.
 
@@ -63,9 +65,65 @@ namespace Omg.Types
         public Sequence(int capacity) : base(capacity) { }
         public Sequence(IEnumerable<T> collection) : base(collection) { }
 
-        public bool Equals(Sequence<T>? other) => Rustorb.Seq.Equal(this, other);
-        public override bool Equals(object? obj) => obj is IList<T> l && Rustorb.Seq.Equal(this, l);
-        public override int GetHashCode() => Rustorb.Seq.Hash(this);
+        public bool Equals(Sequence<T>? other) => Elements.Equal(this, other);
+        public override bool Equals(object? obj) => obj is IList<T> l && Elements.Equal(this, l);
+        public override int GetHashCode() => Elements.Hash(this);
+    }
+
+    /// <summary>Equality and hashes by the elements, nested sequences and
+    /// arrays included (as Rustorb.Seq in Rustorb.Corba).</summary>
+    internal static class Elements
+    {
+        internal static bool Equal<T>(IList<T>? a, IList<T>? b)
+        {
+            if (ReferenceEquals(a, b))
+            {
+                return true;
+            }
+            if (a == null || b == null || a.Count != b.Count)
+            {
+                return false;
+            }
+            var cmp = EqualityComparer<T>.Default;
+            for (int i = 0; i < a.Count; i++)
+            {
+                if (!ElementEqual(a[i], b[i], cmp))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private static bool ElementEqual<TE>(TE x, TE y, IEqualityComparer<TE> cmp)
+        {
+            if (x is System.Collections.IList lx && y is System.Collections.IList ly && x is not string)
+            {
+                if (lx.Count != ly.Count)
+                {
+                    return false;
+                }
+                for (int i = 0; i < lx.Count; i++)
+                {
+                    if (!ElementEqual(lx[i], ly[i], EqualityComparer<object?>.Default))
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            return cmp.Equals(x, y);
+        }
+
+        internal static int Hash(System.Collections.IEnumerable e)
+        {
+            var h = new HashCode();
+            foreach (object? o in e)
+            {
+                h.Add(o is System.Collections.IEnumerable inner and not string ? Hash(inner) : o?.GetHashCode() ?? 0);
+            }
+            return h.ToHashCode();
+        }
     }
 
     /// <summary>Marks the factory operations of a value type (IDL4 to C# 7.6).</summary>

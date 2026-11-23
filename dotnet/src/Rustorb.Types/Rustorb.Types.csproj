@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Omg.Types of the IDL4 to C# mapping (ISequence<T>, Sequence<T> and
+       the mapping's attributes) without the ORB: the package Rustorb
+       depends on it, and the DDS type support of rustorb-idl -bcsharp
+       -Wbdds_only (rustorb-dds's Rustorb.Dds) uses it alone. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>Rustorb.Types</AssemblyName>
+    <RootNamespace>Omg.Types</RootNamespace>
+    <PackageId>Rustorb.Types</PackageId>
+    <Version>0.7.0</Version>
+    <Authors>rustorb contributors</Authors>
+    <Description>The Omg.Types namespace of the IDL4 to C# mapping (formal/21-07-01): the IDL sequence ISequence&lt;T&gt; with its implementation Sequence&lt;T&gt;, and the mapping's attributes. Used by the code rustorb-idl -bcsharp writes, for CORBA (the package Rustorb) and DDS (Rustorb.Dds).</Description>
+    <PackageLicenseExpression>MIT OR Apache-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/rustorb/rustorb</PackageProjectUrl>
+    <Nullable>enable</Nullable>
+    <LangVersion>12</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>
