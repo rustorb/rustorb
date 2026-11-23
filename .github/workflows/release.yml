@@ -15,11 +15,18 @@ name: Release
 #   failure, they skip what is already published.
 # - Run workflow (workflow_dispatch), or a pull request that changes the
 #   packaging: only builds, the artifacts stay on the run
+# - Run workflow with check-publishing: only logs in to nuget.org and
+#   RubyGems with trusted publishing, to check the setup; publishes nothing
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      check-publishing:
+        description: "Only log in to nuget.org and RubyGems with trusted publishing (publishes nothing)"
+        type: boolean
+        default: false
   pull_request:
     paths:
       - .github/workflows/release.yml
@@ -48,7 +55,40 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Gets a short-lived key from nuget.org and RubyGems (trusted publishing)
+  # and pushes nothing.
+  check-publishing:
+    if: github.event_name == 'workflow_dispatch' && inputs.check-publishing
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - name: Check the nuget.org user
+        env:
+          NUGET_USER: ${{ secrets.NUGET_USER }}
+        run: |
+          if [ -z "$NUGET_USER" ]; then
+            echo "::error::set the NUGET_USER secret (docs/release.md)"
+            exit 1
+          fi
+      - name: Log in to nuget.org
+        id: nuget
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+      - name: Log in to RubyGems
+        uses: rubygems/configure-rubygems-credentials@v2.1.0
+      - name: Check the keys
+        env:
+          NUGET_API_KEY: ${{ steps.nuget.outputs.NUGET_API_KEY }}
+        run: |
+          [ -n "$NUGET_API_KEY" ] || { echo "::error::no key from nuget.org"; exit 1; }
+          [ -n "$GEM_HOST_API_KEY" ] || { echo "::error::no key from RubyGems"; exit 1; }
+          echo "nuget.org and RubyGems trusted publishing work"
+
   version:
+    if: ${{ !inputs.check-publishing }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}

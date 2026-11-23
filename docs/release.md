@@ -76,6 +76,8 @@ tools/set-version.py --check        # そろっているか（CI とリリース
 - **NuGet**：trusted publishing を使う。nuget.org でユーザー名のメニューから Trusted Publishing を開き、Repository Owner `rustorb`、Repository `rustorb`、Workflow File `release.yml`、Environment `release` で登録する。あわせて、nuget.org のユーザー名（プロフィール名で、メールアドレスではない）を環境 `release` のシークレット `NUGET_USER` に入れる（`NuGet/login` がこのユーザーの短命なキーを受け取る）。キーを使うなら、代わりに [API Keys](https://www.nuget.org/account/apikeys) で Push のスコープ（新しいパッケージも）、Glob pattern `Rustorb` のキーを作り、環境 `release` のシークレット `NUGET_API_KEY` に入れる（入っていればそちらを使う）
 - **RubyGems**：trusted publishing を使う。rubygems.org で gem `rustorb` のページの Trusted publishers（まだ公開していない gem なら、プロフィールの Trusted publishers から pending trusted publisher）に、GitHub Actions、Repository owner `rustorb`、Repository name `rustorb`、Workflow filename `release.yml`、Environment `release` で登録する。キーを使うなら、代わりに [API keys](https://rubygems.org/profile/api_keys) で Push rubygem のスコープのキーを作り、環境 `release` のシークレット `RUBYGEMS_API_KEY` に入れる（入っていればそちらを使う）。アカウントで MFA を必須にしているなら、キーは MFA なしで push できるものにする
 
+設定を確かめるには、Actions の Release で Run workflow を押し、`check-publishing` に印を付けて実行する。`check-publishing` のジョブだけが動き、nuget.org と RubyGems から trusted publishing の短命なキーを受け取れるかを確かめる（何も公開しない）。
+
 公開した版は取り消せない（crates.io は yank、PyPI は yank か削除しても同じ版は二度と上げられない）。間違えたら次のパッチ版を出す。
 
 手で公開するときは、Release から成果物を落として（`gh release download vx.y.z -D dist`、`sha256sum -c SHA256SUMS`）、タグのコミットで `cargo publish --workspace --locked --exclude rustorb-python --exclude rustorb-interop` と `python -m twine upload dist/*.whl dist/rustorb-x.y.z.tar.gz dist/rustorb_idl-* dist/rustorb_omniorb_compat-*` を行う。
