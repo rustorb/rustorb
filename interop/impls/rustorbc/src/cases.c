@@ -7,11 +7,12 @@
 #include "cases.h"
 
 #include <float.h>
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+#include "posix_compat.h"
 
 typedef const char* (*case_fn)(InteropTest_Echo echo, size_t arg);
 

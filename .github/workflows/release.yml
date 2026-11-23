@@ -285,7 +285,8 @@ jobs:
           path: java/target/rustorb-*.jar
 
   # The C binding: librustorb_c and librustorb_ffi (static) with the
-  # headers. The gem takes its librustorb_ffi.a from these archives.
+  # headers, a .tar.gz (a .zip on Windows, built with MSVC). The gem takes
+  # its librustorb_ffi.a from these archives.
   c:
     needs: version
     strategy:
@@ -295,6 +296,7 @@ jobs:
           - { os: ubuntu-24.04, name: linux-x86_64 }
           - { os: ubuntu-24.04-arm, name: linux-aarch64 }
           - { os: macos-latest, name: macos-aarch64 }
+          - { os: windows-latest, name: windows-x86_64 }
     runs-on: ${{ matrix.os }}
     env:
       ARCHIVE: rustorb-c-${{ needs.version.outputs.version }}-${{ matrix.name }}
@@ -302,24 +304,40 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cmake -S c -B build/c -DRUSTORB_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
-      - run: cmake --build build/c
-      - run: cmake --install build/c --prefix "dist/$ARCHIVE"
+      # --config: the Visual Studio generator (Windows) builds Debug by default
+      - run: cmake --build build/c --config Release
+      - run: cmake --install build/c --config Release --prefix "dist/${{ env.ARCHIVE }}"
+      - run: cp LICENSE-MIT LICENSE-APACHE "dist/$ARCHIVE/"
+        shell: bash
       - name: Build and run a program against the installed files
+        if: runner.os != 'Windows'
         shell: bash
         run: |
-          cp LICENSE-MIT LICENSE-APACHE "dist/$ARCHIVE/"
           d="dist/$ARCHIVE"
           libs=(-lpthread -ldl -lm)
           if [[ "$RUNNER_OS" == macOS ]]; then libs=(-framework CoreFoundation -framework Security -lpthread -lm); fi
           cc -std=c99 -Wall -Wextra -Werror -I"$d/include" tools/release-check/orb.c \
             "$d/lib/librustorb_c.a" "$d/lib/librustorb_ffi.a" "${libs[@]}" -o orb-check
           ./orb-check
+      # MSVC is not on the PATH of a plain shell: CMake finds it.
+      - name: Build and run a program against the installed files (MSVC)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cmake -S tools/release-check -B build/orb-check "-DRUSTORB_C_PREFIX=$PWD/dist/$ARCHIVE"
+          cmake --build build/orb-check --config Release
+          build/orb-check/Release/orb-check.exe
       - name: Archive
-        run: cd dist && tar czf "$ARCHIVE.tar.gz" "$ARCHIVE"
+        shell: bash
+        run: |
+          cd dist
+          if [[ "$RUNNER_OS" == Windows ]]; then 7z a "$ARCHIVE.zip" "$ARCHIVE"; else tar czf "$ARCHIVE.tar.gz" "$ARCHIVE"; fi
       - uses: actions/upload-artifact@v4
         with:
           name: c-${{ matrix.name }}
-          path: dist/${{ env.ARCHIVE }}.tar.gz
+          path: |
+            dist/${{ env.ARCHIVE }}.tar.gz
+            dist/${{ env.ARCHIVE }}.zip
           if-no-files-found: error
 
   # The NuGet package Rustorb, with the shared librustorb_ffi of every

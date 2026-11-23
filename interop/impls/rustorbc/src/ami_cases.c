@@ -7,12 +7,13 @@
 #include "ami_cases.h"
 
 #include <errno.h>
-#include <pthread.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+#include "posix_compat.h"
 
 #define WAIT_S 10
 

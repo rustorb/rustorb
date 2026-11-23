@@ -16,7 +16,7 @@ rustorb のリリースで何を出すか、どう作るか、公開をどう行
 | `rustorb-native-<版>-<環境>` | `librustorb_ffi`（静的と共有）、C++ のヘッダ、CMake のパッケージ（`find_package(rustorb)`）、ネーミングサービス `rustorb-names`（`bin/`）。Linux x86_64 / aarch64、macOS arm64、Windows x86_64 | GitHub Release |
 | `rustorb-names-<版>-<環境>` | ネーミングサービス `rustorb-names` の実行ファイルだけ（`cargo install rustorb-naming` の代わり）。環境は上と同じ | GitHub Release |
 | `rustorb-<版>.jar` | Java のマッピング。共有ライブラリは上の `rustorb-native` から使う | GitHub Release |
-| `rustorb-c-<版>-<環境>.tar.gz` | C のマッピング：`include/rustorb/` のヘッダ、`lib/` の `librustorb_c.a` と `librustorb_ffi.a`。Linux x86_64 / aarch64、macOS arm64 | GitHub Release |
+| `rustorb-c-<版>-<環境>.tar.gz` | C のマッピング：`include/rustorb/` のヘッダ、`lib/` の `librustorb_c.a` と `librustorb_ffi.a`。Linux x86_64 / aarch64、macOS arm64。Windows x64 は `rustorb-c-<版>-windows-x86_64.zip`（`rustorb_c.lib` と `rustorb_ffi.lib`、MSVC） | GitHub Release |
 | `Rustorb.<版>.nupkg` | .NET のマッピング（.NET 8 以降）。`runtimes/<rid>/native` に `librustorb_ffi` の共有ライブラリ（linux-x64、linux-arm64、osx-arm64、win-x64） | NuGet（と GitHub Release） |
 | `rustorb-<版>.gem` | Ruby のマッピング（Ruby 3.0 以降）。`vendor/<環境>/librustorb_ffi.a`（Linux x86_64 / aarch64、macOS arm64）を持ち、拡張は gem を入れるときにビルドする | RubyGems（と GitHub Release） |
 
