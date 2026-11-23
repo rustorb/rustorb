@@ -40,6 +40,13 @@ static char* read_file(const char* path) {
   buf = (char*)calloc(1, (size_t)n + 1);
   if (buf && fread(buf, 1, (size_t)n, f) != (size_t)n) buf[0] = 0;
   fclose(f);
+  if (buf) { /* drop the CRs of a Windows checkout (core.autocrlf) */
+    char* w = buf;
+    const char* r;
+    for (r = buf; *r; r++)
+      if (*r != '\r') *w++ = *r;
+    *w = 0;
+  }
   return buf;
 }
 
