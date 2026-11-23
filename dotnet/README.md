@@ -14,6 +14,7 @@ dotnet test dotnet/tests/Rustorb.Tests     # runs cargo and rustorb-idl itself
 | Path | Contents |
 | --- | --- |
 | `src/Rustorb.Corba` | the runtime (NuGet package `Rustorb`) |
+| `src/Rustorb.Types` | `Omg.Types` alone (NuGet package `Rustorb.Types`, which `Rustorb` depends on), also used by rustorb-dds's DDS type support |
 | `tests/Rustorb.Tests` | xUnit tests on the code generated from `interop/idl` and `cpp/tests/idl/CxxMapping.idl` |
 | `tools/gen-pinvoke.py` | writes `src/Rustorb.Corba/Native/Ffi.g.cs` from `rustorb.h` (`--check` in CI) |
 | `generate-stubs.sh` | regenerates the CosNaming stubs of the runtime |

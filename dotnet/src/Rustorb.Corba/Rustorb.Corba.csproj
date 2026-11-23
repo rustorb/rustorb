@@ -22,6 +22,12 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
+  <!-- Omg.Types, in a package of its own (Rustorb.Types); the package
+       Rustorb depends on it. -->
+  <ItemGroup>
+    <ProjectReference Include="../Rustorb.Types/Rustorb.Types.csproj" />
+  </ItemGroup>
+
   <!-- The release workflow puts librustorb_ffi of each platform into
        runtimes/<rid>/native here before dotnet pack. -->
   <ItemGroup>

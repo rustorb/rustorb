@@ -28,6 +28,7 @@ PLACES = [
     ("cpp/CMakeLists.txt", rf"(?m)^project\(rustorb_cpp VERSION ({VERSION}) LANGUAGES CXX\)$", 1),
     ("c/CMakeLists.txt", rf"(?m)^project\(rustorb_c VERSION ({VERSION}) LANGUAGES C\)$", 1),
     ("dotnet/src/Rustorb.Corba/Rustorb.Corba.csproj", rf"(?m)^    <Version>({VERSION})</Version>$", 1),
+    ("dotnet/src/Rustorb.Types/Rustorb.Types.csproj", rf"(?m)^    <Version>({VERSION})</Version>$", 1),
     ("ruby/lib/rustorb/version.rb", rf'(?m)^  VERSION = "({VERSION})"$', 1),
 ]
 

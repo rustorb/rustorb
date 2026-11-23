@@ -9,6 +9,12 @@ break the API).
 
 ### Added
 
+- .NET: `Omg.Types` (`ISequence<T>`, `Sequence<T>` and the mapping's
+  attributes) is in a package of its own, `Rustorb.Types`
+  (`dotnet/src/Rustorb.Types`), which `Rustorb` depends on, so that the
+  DDS type support of `rustorb-idl -bcsharp -Wbdds_only` (rustorb-dds's
+  `Rustorb.Dds`) can use it without the ORB. `Rustorb.Corba` forwards the
+  types (`TypeForwardedTo`), so code built against 0.7.0 still runs.
 - C: the release also has `rustorb-c-<version>-windows-x86_64.zip`, the
   headers with `rustorb_c.lib` and `rustorb_ffi.lib` built with MSVC. The
   C tests run on Windows (MSVC) in CI.
