@@ -7,6 +7,12 @@ break the API).
 
 ## [Unreleased]
 
+### Added
+
+- C: the release also has `rustorb-c-<version>-windows-x86_64.zip`, the
+  headers with `rustorb_c.lib` and `rustorb_ffi.lib` built with MSVC. The
+  C tests run on Windows (MSVC) in CI.
+
 ### Changed
 
 - The release workflow publishes to NuGet and RubyGems with trusted

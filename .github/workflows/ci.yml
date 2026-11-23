@@ -195,6 +195,7 @@ jobs:
           - { os: ubuntu-latest, cc: gcc }
           - { os: ubuntu-latest, cc: clang }
           - { os: macos-latest, cc: clang }
+          - { os: windows-latest, cc: cl }
     runs-on: ${{ matrix.os }}
     env:
       CC: ${{ matrix.cc }}
@@ -207,8 +208,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cmake -S c -B build/c
-      - run: cmake --build build/c
-      - run: ctest --test-dir build/c --output-on-failure
+      # --config and -C pick Release with the Visual Studio generator
+      # (Windows): librustorb_ffi is built with cargo --release, against the
+      # release C runtime
+      - run: cmake --build build/c --config Release
+      - run: ctest --test-dir build/c -C Release --output-on-failure
       - name: Check that the committed CosNaming stubs are up to date
         if: runner.os == 'Linux' && matrix.cc == 'gcc'
         run: c/generate-stubs.sh && git diff --exit-code -- c

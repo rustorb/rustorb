@@ -4,10 +4,11 @@
 
 #include "echo_impl.h"
 
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "posix_compat.h"
 
 typedef struct EchoImpl {
   POA_InteropTest_Echo base;

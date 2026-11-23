@@ -23,7 +23,9 @@ ctest --test-dir build/c       # -DRUSTORB_SANITIZE=address for ASan/LSan
 
 Link `librustorb_c.a` and `librustorb_ffi.a` with the system libraries
 (`-lpthread -ldl -lm` on Linux; `-framework CoreFoundation -framework
-Security` on macOS). See [docs/c-binding.md](../docs/c-binding.md)
+Security` on macOS). With MSVC on Windows, link `rustorb_c.lib` and
+`rustorb_ffi.lib` with `ws2_32.lib userenv.lib ntdll.lib bcrypt.lib`, and
+compile with `/MD` (the C runtime of `rustorb_ffi.lib`). See [docs/c-binding.md](../docs/c-binding.md)
 (Japanese).
 
 Licensed under MIT OR Apache-2.0, like the rest of the rustorb core.

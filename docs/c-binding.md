@@ -23,14 +23,14 @@ rustorb の C バインディングの構成をまとめる。C++・Java・.NET 
 
 ## 使い方
 
-リリースには `rustorb-c-<版>-<環境>.tar.gz`（Linux x86_64 / aarch64、macOS arm64）がある（0.7.0 から）。`include/rustorb/` のヘッダと、`lib/` の `librustorb_c.a`・`librustorb_ffi.a` が入っている。ソースからは次のとおり。
+リリースには `rustorb-c-<版>-<環境>.tar.gz`（Linux x86_64 / aarch64、macOS arm64。0.7.0 から）と `rustorb-c-<版>-windows-x86_64.zip`（Windows x64、MSVC。0.7.0 の次の版から）がある。`include/rustorb/` のヘッダと、`lib/` の `librustorb_c.a`・`librustorb_ffi.a`（Windows は `rustorb_c.lib`・`rustorb_ffi.lib`）が入っている。ソースからは次のとおり。
 
 ```sh
 rustorb-idl -bc -C gen Example.idl                 # gen/Example.h, gen/Example.c
 cmake -S c -B build/c && cmake --build build/c     # cargo で librustorb_ffi も作る
 ```
 
-CMake の外で使うときは `c/include` と `crates/rustorb-ffi/include` をインクルードパスに入れ、`librustorb_c.a`・`librustorb_ffi.a` とシステムのライブラリ（Linux は `-lpthread -ldl -lm`、macOS は `-framework CoreFoundation -framework Security`）をリンクする。`cmake --install` はヘッダと2つのライブラリを入れる。
+CMake の外で使うときは `c/include` と `crates/rustorb-ffi/include` をインクルードパスに入れ、`librustorb_c.a`・`librustorb_ffi.a` とシステムのライブラリ（Linux は `-lpthread -ldl -lm`、macOS は `-framework CoreFoundation -framework Security`）をリンクする。Windows（MSVC）では `rustorb_c.lib`・`rustorb_ffi.lib` と `ws2_32.lib userenv.lib ntdll.lib bcrypt.lib` をリンクし、`rustorb_ffi.lib` に合わせて C ランタイムは `/MD` にする（`cl` の既定は `/MT`、CMake の既定は `/MD`）。`cmake --install` はヘッダと2つのライブラリを入れる。
 
 ```c
 #include "Example.h"   /* <rustorb/orb.h>・<rustorb/poa.h> を含む */
@@ -231,7 +231,7 @@ static void my_send_request(PortableServer_Servant s, PortableInterceptor_Client
 
 ## まだないもの
 
-valuetype と abstract interface は C マッピングにないので `-bc` はエラーにする（AMI の `ExceptionHolder` だけは上のとおり）。共有ライブラリ版と Windows（MSVC）の CI もまだない。
+valuetype と abstract interface は C マッピングにないので `-bc` はエラーにする（AMI の `ExceptionHolder` だけは上のとおり）。共有ライブラリ版はまだない。
 
 ## テスト
 
@@ -249,7 +249,7 @@ valuetype と abstract interface は C マッピングにないので `-bc` は�
   - `test_idl4`：C++・Java・.NET と同じ `cpp/tests/idl/Idl4.idl` の int8・bitmask・bitset（定数、フィールドのマクロと符号、同じプロセスのサーバントへの呼び出し、any の TypeCode、`IOP_Codec` での線上の形）
   - `-DRUSTORB_SANITIZE=address` で AddressSanitizer と LeakSanitizer。どのテストもリークなし
 - rustorb-idl の `python/tests/test_c_backend.py`：生成物の形、対応しない構文のエラー、生成コードの C99（警告をエラーにする）と、ヘッダの C++ としてのコンパイル。golden は `tests/golden/c`
-- CI（`ci.yml` の `c` と `c-sanitize`）：Linux の gcc と clang、macOS の clang で `ctest`、Linux の gcc で ASan。Linux では同梱の CosNaming のスタブが生成器の出力と一致することも確かめる
+- CI（`ci.yml` の `c` と `c-sanitize`）：Linux の gcc と clang、macOS の clang、Windows の MSVC で `ctest`、Linux の gcc で ASan。Windows ではテストの pthread とクロックを `interop/impls/rustorbc/src/posix_compat.h` が SRW ロックと条件変数で置き換える。Linux では同梱の CosNaming のスタブが生成器の出力と一致することも確かめる
 - 相互接続（[#182](https://github.com/rustorb/rustorb/issues/182)）：`interop/run-matrix.sh` に `rustorbc`（`interop/impls/rustorbc`。ホストで CMake と cc でビルドし、静的にリンクした `bin/client`・`bin/server`・`bin/naming_check` を相互接続のイメージで動かす）を加えた。basic（InteropTest.idl）と any（AnyTest.idl）のスイートに入る。valuetype がないので value・custom・abstract には入らない。ローカルで確認した結果は次のとおりで、失敗はすべて `known-failures.txt` の範囲
   - basic（79ケース）：omniORBpy・omniORB C++・JacORB・rustorb の Rust・Python・C++・.NET・C 自身と両方向で通る。失敗は omniORBpy の wchar（3ケース）と JacORB の union の判別子（`echo_value[5]`）だけで、他の rustorb のバインディングと同じ
   - GIOP 1.1、`--fragment 1024`、`--ssl`、`--unix` でも omniORB・omniORBpy・自身との組（GIOP 1.1 と Fragment は JacORB とも）が同じ結果（GIOP 1.1 の omniORB 側の wchar / wstring は既知）
