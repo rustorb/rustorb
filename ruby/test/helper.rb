@@ -8,11 +8,12 @@ $LOAD_PATH.unshift(File.expand_path("gen", __dir__))
 $LOAD_PATH.unshift(File.expand_path("../../interop/impls/rustorbrb/lib", __dir__))
 $LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
 
-# corba first: at_exit handlers run in reverse order, and the tests (which
-# minitest/autorun runs at exit) need the dispatcher threads that rustorb's
-# own exit handler stops.
-require "corba"
+# minitest/autorun first, so that the tests (which it runs at exit) run
+# before anything corba registers at exit: the dispatcher threads must still
+# serve them, whatever the order of the requires (Ruby 3.0 hung here when
+# rustorb stopped its dispatchers from an end proc).
 require "minitest/autorun"
+require "corba"
 
 module TestORB
   def self.orb
