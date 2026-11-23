@@ -73,8 +73,8 @@ tools/set-version.py --check        # そろっているか（CI とリリース
 
   トークンを使うなら、代わりに各環境のシークレット `PYPI_API_TOKEN` に入れる。`rustorb-idl` の trusted publisher と環境 `release-rustorb-idl` は、rustorb-idl のリポジトリに移したので不要になった
 
-- **NuGet**：nuget.org の [API Keys](https://www.nuget.org/account/apikeys) で、Push のスコープ（新しいパッケージも）、Glob pattern `Rustorb` のキーを作り、環境 `release` のシークレット `NUGET_API_KEY` に入れる
-- **RubyGems**：rubygems.org の [API keys](https://rubygems.org/profile/api_keys) で Push rubygem のスコープのキーを作り、環境 `release` のシークレット `RUBYGEMS_API_KEY` に入れる。アカウントで MFA を必須にしているなら、キーは MFA なしで push できるものにする
+- **NuGet**：trusted publishing を使う。nuget.org でユーザー名のメニューから Trusted Publishing を開き、Repository Owner `rustorb`、Repository `rustorb`、Workflow File `release.yml`、Environment `release` で登録する。あわせて、nuget.org のユーザー名（プロフィール名で、メールアドレスではない）を環境 `release` のシークレット `NUGET_USER` に入れる（`NuGet/login` がこのユーザーの短命なキーを受け取る）。キーを使うなら、代わりに [API Keys](https://www.nuget.org/account/apikeys) で Push のスコープ（新しいパッケージも）、Glob pattern `Rustorb` のキーを作り、環境 `release` のシークレット `NUGET_API_KEY` に入れる（入っていればそちらを使う）
+- **RubyGems**：trusted publishing を使う。rubygems.org で gem `rustorb` のページの Trusted publishers（まだ公開していない gem なら、プロフィールの Trusted publishers から pending trusted publisher）に、GitHub Actions、Repository owner `rustorb`、Repository name `rustorb`、Workflow filename `release.yml`、Environment `release` で登録する。キーを使うなら、代わりに [API keys](https://rubygems.org/profile/api_keys) で Push rubygem のスコープのキーを作り、環境 `release` のシークレット `RUBYGEMS_API_KEY` に入れる（入っていればそちらを使う）。アカウントで MFA を必須にしているなら、キーは MFA なしで push できるものにする
 
 公開した版は取り消せない（crates.io は yank、PyPI は yank か削除しても同じ版は二度と上げられない）。間違えたら次のパッチ版を出す。
 

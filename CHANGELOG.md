@@ -7,6 +7,12 @@ break the API).
 
 ## [Unreleased]
 
+### Changed
+
+- The release workflow publishes to NuGet and RubyGems with trusted
+  publishing (OpenID Connect); the NUGET_API_KEY and RUBYGEMS_API_KEY
+  secrets are still used when set.
+
 ## [0.7.0] - 2026-11-22
 
 Three new language bindings: .NET (C#), C and Ruby (plan #176). The Rust,
