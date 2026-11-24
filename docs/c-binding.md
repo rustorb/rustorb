@@ -23,7 +23,7 @@ rustorb の C バインディングの構成をまとめる。C++・Java・.NET 
 
 ## 使い方
 
-リリースには `rustorb-c-<版>-<環境>.tar.gz`（Linux x86_64 / aarch64、macOS arm64。0.7.0 から）と `rustorb-c-<版>-windows-x86_64.zip`（Windows x64、MSVC。0.7.0 の次の版から）がある。`include/rustorb/` のヘッダと、`lib/` の `librustorb_c.a`・`librustorb_ffi.a`（Windows は `rustorb_c.lib`・`rustorb_ffi.lib`）が入っている。ソースからは次のとおり。
+リリースには `rustorb-c-<版>-<環境>.tar.gz`（Linux x86_64 / aarch64、macOS arm64。0.7.0 から）と `rustorb-c-<版>-windows-x86_64.zip`（Windows x64、MSVC。0.7.1 から）がある。`include/rustorb/` のヘッダと、`lib/` の `librustorb_c.a`・`librustorb_ffi.a`（Windows は `rustorb_c.lib`・`rustorb_ffi.lib`）が入っている。ソースからは次のとおり。
 
 ```sh
 rustorb-idl -bc -C gen Example.idl                 # gen/Example.h, gen/Example.c

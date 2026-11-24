@@ -7,6 +7,12 @@ break the API).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-24
+
+A patch release: the C mapping for Windows, the .NET types in a package of
+their own, trusted publishing and a Ruby 3.0 fix. The C ABI version stays 3,
+and the Rust, Python, C++ and Java APIs are unchanged.
+
 ### Added
 
 - .NET: `Omg.Types` (`ISequence<T>`, `Sequence<T>` and the mapping's
@@ -506,7 +512,9 @@ omniORBpy, and valuetypes in JacORB on Java 17).
   cycles; Java relies on the GC) (#85)
 - On Windows the read path of #66 / #67 falls back to the I/O task (#86)
 
-[Unreleased]: https://github.com/rustorb/rustorb/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/rustorb/rustorb/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/rustorb/rustorb/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/rustorb/rustorb/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/rustorb/rustorb/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/rustorb/rustorb/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/rustorb/rustorb/compare/v0.3.0...v0.4.0
