@@ -1,0 +1,17 @@
+<!-- The .NET program of the comparison benchmark. run-bench.py copies it
+     next to the generated Bench.cs and builds it there with
+     -p:RustorbRoot=the repository. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <LangVersion>12</LangVersion>
+    <AssemblyName>bench</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <TieredPGO>true</TieredPGO>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(RustorbRoot)/dotnet/src/Rustorb.Corba/Rustorb.Corba.csproj" />
+  </ItemGroup>
+</Project>

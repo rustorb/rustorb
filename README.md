@@ -117,6 +117,7 @@ service; the code is in [examples/](examples/), and
   [ORB operations](docs/orb-operations.md), [tracing](docs/tracing.md),
   [async API](docs/async-api.md), [load testing](docs/load-testing.md),
   [CORBA compliance](docs/corba-compliance.md),
+  [comparison with omniORB](docs/omniorb-comparison.md) (features and benchmarks),
   [unsupported CORBA features](docs/unsupported-features.md)
 - Interoperability tests: [interop/](interop/README.md)
 

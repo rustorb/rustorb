@@ -36,6 +36,10 @@ name = "rustorb-load-client"
 path = "src/load_client.rs"
 
 [[bin]]
+name = "rustorb-bench"
+path = "src/bench.rs"
+
+[[bin]]
 name = "rustorb-naming-check"
 path = "src/naming_check.rs"
 

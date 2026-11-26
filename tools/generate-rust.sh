@@ -24,6 +24,7 @@ idl -C "$root/crates/rustorb-naming/src/idl" "$mapping/idl/CosNaming.idl"
 for f in InteropTest AnyTest ValueTest PoaProbe AbstractTest; do
   idl -I "$root/interop/idl" -C "$root/interop/impls/rustorb/src/idl" "$root/interop/idl/$f.idl"
 done
+idl -C "$root/interop/impls/rustorb/src/idl" "$root/interop/bench/Bench.idl"
 idl -I "$root/interop/idl" -C "$root/interop/impls/rustorb/src/idl" \
   -Wbextern=AnyTest=crate::idl::any_test "$root/interop/idl/AnyTestHidden.idl"
 idl -I "$root/interop/idl" -C "$root/interop/impls/rustorb/src/idl" \
