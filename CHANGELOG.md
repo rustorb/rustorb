@@ -7,6 +7,14 @@ break the API).
 
 ## [Unreleased]
 
+### Changed
+
+- `rustorb-typesupport`: an array of a primitive type (`Array<D, N>`) is
+  written and read as a sequence's elements are, so an `octet` array is
+  copied in one go instead of an octet at a time; the octets on the wire
+  are the same. Decoding a 1 MiB `octet` array took about 3 ms
+  (rustorb-dds#112).
+
 ## [0.7.1] - 2026-11-24
 
 A patch release: the C mapping for Windows, the .NET types in a package of

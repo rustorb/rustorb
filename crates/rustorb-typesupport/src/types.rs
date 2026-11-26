@@ -407,15 +407,25 @@ impl<D: TypeSupport, const N: usize> TypeSupport for Array<D, N> {
     }
 
     fn write_in_array(v: &[D::Rust; N], enc: &mut Encoder, key: bool) -> Result<()> {
+        if D::PRIMITIVE && !key {
+            // Written as a sequence's elements are: `octet` in one go.
+            return D::write_slice(v, enc);
+        }
         v.iter()
             .try_for_each(|item| D::write_in_array(item, enc, key))
     }
 
     fn read_in_array(dec: &mut Decoder<'_>) -> Result<[D::Rust; N]> {
-        let mut items = Vec::with_capacity(N);
-        for _ in 0..N {
-            items.push(D::read_in_array(dec)?);
-        }
+        let items = if D::PRIMITIVE {
+            // Read as a sequence's elements are: `octet` in one go.
+            D::read_vec(N, dec)?
+        } else {
+            let mut items = Vec::with_capacity(N);
+            for _ in 0..N {
+                items.push(D::read_in_array(dec)?);
+            }
+            items
+        };
         Ok(items
             .try_into()
             .unwrap_or_else(|_| unreachable!("N elements were read")))
@@ -450,5 +460,55 @@ impl<D: TypeSupport> TypeSupport for External<D> {
 
     fn max_key_end(offset: usize) -> Option<usize> {
         D::max_key_end(offset)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rustorb_cdr::ByteOrder;
+
+    use super::*;
+
+    fn encode<D: TypeSupport>(v: &D::Rust, encoding: Encoding) -> Vec<u8> {
+        let mut enc = Encoder::new(ByteOrder::Little, encoding);
+        // An octet first, so that the elements need aligning.
+        enc.write_octet(7);
+        D::write(v, &mut enc).unwrap();
+        enc.into_bytes()
+    }
+
+    fn decode<D: TypeSupport>(buf: &[u8], encoding: Encoding) -> D::Rust {
+        let mut dec = Decoder::new(buf, ByteOrder::Little, encoding);
+        assert_eq!(dec.read_octet().unwrap(), 7);
+        D::read(&mut dec).unwrap()
+    }
+
+    /// Arrays of primitives are written and read in one go as sequence
+    /// elements are, with the octets of one element at a time.
+    #[test]
+    fn arrays_of_primitives() {
+        for encoding in [Encoding::Xcdr1, Encoding::Xcdr2] {
+            let octets = [1u8, 2, 3, 4, 5];
+            let buf = encode::<Array<u8, 5>>(&octets, encoding);
+            assert_eq!(buf, [7, 1, 2, 3, 4, 5]);
+            assert_eq!(decode::<Array<u8, 5>>(&buf, encoding), octets);
+
+            let longs = [1i32, -2, 3];
+            let buf = encode::<Array<i32, 3>>(&longs, encoding);
+            assert_eq!(
+                buf,
+                [7, 0, 0, 0, 1, 0, 0, 0, 254, 255, 255, 255, 3, 0, 0, 0]
+            );
+            assert_eq!(decode::<Array<i32, 3>>(&buf, encoding), longs);
+
+            let nested = [[1u8, 2], [3, 4], [5, 6]];
+            let buf = encode::<Array<Array<u8, 2>, 3>>(&nested, encoding);
+            assert_eq!(buf, [7, 1, 2, 3, 4, 5, 6]);
+            assert_eq!(decode::<Array<Array<u8, 2>, 3>>(&buf, encoding), nested);
+
+            // Too short.
+            let mut dec = Decoder::new(&[1, 2, 3], ByteOrder::Little, encoding);
+            assert!(<Array<u8, 5>>::read(&mut dec).is_err());
+        }
     }
 }
