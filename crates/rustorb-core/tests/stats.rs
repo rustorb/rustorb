@@ -110,13 +110,17 @@ fn counts_the_paths_of_calls_once_enabled() {
 
     // Unix: a thread that takes the reading takes it off the runtime's
     // poller, so data arriving meanwhile does not wake the I/O task (an
-    // event the poller had already seen may still get through).
+    // event the poller had already seen may still get through). The
+    // server's following thread keeps it off while it handles a request,
+    // so it takes it off once, when the I/O task leaves the reading to it.
     #[cfg(unix)]
     {
         assert!(used.get(Counter::claims) > 0, "{used}");
-        assert_eq!(
-            used.get(Counter::unwatches),
-            used.get(Counter::claims),
+        assert!(used.get(Counter::follow_pauses) >= 1, "{used}");
+        assert!(
+            used.get(Counter::unwatches)
+                <= used.get(Counter::claims) - used.get(Counter::follow_requests)
+                    + used.get(Counter::follow_pauses),
             "{used}"
         );
         assert!(used.get(Counter::task_wakeups_thread_reads) <= 2, "{used}");

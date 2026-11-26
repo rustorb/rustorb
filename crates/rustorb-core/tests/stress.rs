@@ -412,6 +412,59 @@ fn many_threads_share_one_connection() {
     server.destroy().unwrap();
 }
 
+/// While an upcall thread runs a request, it keeps the reading of its
+/// connection for afterwards and nobody reads the connection: the requests
+/// that follow it need no hand-over. One that comes while the thread is in
+/// a long upcall is read once the thread has been busy for the follow
+/// linger (1 ms) and runs on another thread, instead of waiting for the
+/// long one to end (docs/read-ownership.md).
+#[test]
+fn a_long_call_does_not_hold_up_the_calls_behind_it() {
+    let server = Orb::with_options(server_options(0)).unwrap();
+    let servant = Arc::new(LoadServant::default());
+    let obj = serve(&server, servant.clone());
+    let client = Orb::with_options(client_options()).unwrap();
+    let obj = remote(&client, &server, &obj);
+    for i in 0..100 {
+        assert_eq!(echo_long(&obj, i).unwrap(), i);
+    }
+    for round in 0..3 {
+        let long = {
+            let obj = obj.clone();
+            thread::spawn(move || {
+                obj.request("sleep")
+                    .args(|out| {
+                        out.write_u32(1000);
+                        Ok(())
+                    })
+                    .invoke()
+                    .unwrap();
+            })
+        };
+        // Let the long call reach its servant.
+        thread::sleep(Duration::from_millis(100));
+        let start = Instant::now();
+        assert_eq!(echo_long(&obj, round).unwrap(), round);
+        // Also oneway requests, which nobody waits for.
+        obj.request("post")
+            .args(|out| {
+                out.write_u32(0);
+                Ok(())
+            })
+            .send_oneway()
+            .unwrap();
+        assert_eq!(echo_long(&obj, round).unwrap(), round);
+        let took = start.elapsed();
+        assert!(
+            took < Duration::from_millis(500),
+            "calls behind a long one took {took:?}"
+        );
+        long.join().unwrap();
+    }
+    client.destroy().unwrap();
+    server.destroy().unwrap();
+}
+
 #[test]
 fn large_messages_in_both_directions() {
     let server = Orb::with_options(server_options(0)).unwrap();

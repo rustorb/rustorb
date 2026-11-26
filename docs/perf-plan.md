@@ -113,6 +113,7 @@ run-bench.py が記録するもの（`--quick` でなくても）：
 | `hand_backs` | スレッドが、読み残しがあって読む役をタスクに返した（タスクを起こす） |
 | `follows`・`follow_requests` | サーバー：アップコールのスレッドが要求の後に接続を読み始めた回数、そうして読んだ要求 |
 | `follow_stops_queued`・`follow_stops_limit` | サーバー：follow を、プールに仕事が待っていてやめた・`-ORBfollowLimit` に達してやめた |
+| `follow_pauses`・`follow_overdue` | サーバー：I/O タスクが要求を渡したスレッドに読みを譲った（#206）・そのスレッドの処理が `-ORBfollowLinger` より長引いてタスクに戻した |
 | `replies_read_here`・`replies_from_task` | クライアント：返事を呼び出したスレッドが自分で読んだ・I/O タスクから受け取った |
 | `pool_jobs`・`pool_wakes`・`pool_spawns`・`pool_queued`・`pool_sleeps` | アップコールのプール：渡した仕事、それで起こしたスレッド、新しく作ったスレッド、空きがなく待たせた仕事、仕事がなくて眠ったスレッド |
 | `outbox_direct`・`outbox_queued` | サーバー：返事を作ったスレッドがそのまま書けた・書き込みタスクに回した |
