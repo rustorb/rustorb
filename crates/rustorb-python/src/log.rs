@@ -119,21 +119,24 @@ fn deliver(py: Python<'_>, entries: Vec<Entry>) {
     }
 }
 
-/// Hands queued entries to the sink as they come.
+/// Hands queued entries to the sink as they come, until the exit hook.
 fn drain() {
     loop {
-        let entries = {
+        {
             let mut queue = QUEUE.entries.lock().unwrap();
             while queue.is_empty() {
                 queue = QUEUE.ready.wait(queue).unwrap();
             }
-            queue.drain(..).collect::<Vec<_>>()
-        };
+        }
+        // The entries are taken only while delivering, so that the exit
+        // hook, which waits for a delivery under way, finds every entry
+        // not delivered still queued.
         let _delivering = DELIVERING.lock().unwrap();
         if STOPPED.load(Ordering::SeqCst) {
-            // After the exit hook: the entries are dropped.
-            continue;
+            // After the exit hook, which delivered what was queued.
+            return;
         }
+        let entries = take_all();
         let _ = Python::try_attach(|py| deliver(py, entries));
     }
 }
