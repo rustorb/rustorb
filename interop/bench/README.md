@@ -82,4 +82,5 @@ In pairs mode run-bench.py runs one client process per case and records the
 CPU time of the client (wait4, less the CPU time of a client process that runs
 no case) and of the server (/proc, over the client's run), divided by
 `total_calls`, and the server's resident memory after it printed its IOR and
-at its peak (VmHWM).
+at its peak (VmHWM). macOS has no /proc: there the server's CPU time comes from
+`ps` (10 ms steps) and only the memory after start is recorded.

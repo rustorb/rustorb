@@ -1,6 +1,6 @@
 # omniORB との比較（機能と速度）
 
-Nov 26, 2026 · @ysuga · 0.7.1 の後（33fe439 に `interop/bench` を足した時点）
+Nov 26, 2026 · @ysuga · 0.7.1 の後（33fe439 に `interop/bench` を足した時点）。実機（macOS、Apple M5 Max）の結果は 23ae7e3 で測って足した
 
 rustorb と omniORB（C++ と omniORBpy）を、機能と速度で比べる。速度は、同じ IDL と同じ呼び方のベンチマークを両方の ORB と rustorb の全言語で書き（[interop/bench](../interop/bench/README.md)）、同一プロセス、別プロセス、rustorb と omniORB の相互接続、omniORB どうし、言語ごと、データの大きさ、速い周期、oneway、並行、接続の確立、CPU とメモリを測った。
 
@@ -17,6 +17,8 @@ omniORB はバイナリとしてだけ使った（[clean-room 方針](clean-room
 - **rustorb が速いところ**：プロセスの起動から 1 回目の返事まで（Rust 2.6 ms、omniORB C++ 6.4 ms）、最初の呼び出し（接続の確立込みで 289 µs と 437 µs）、起動時のメモリ（4.6 MiB と 8.2 MiB）。rustorb のクライアントから omniORB C++ に oneway を送ると、omniORB C++ のクライアントより速く送れる（18〜23 万回と 13 万回）
 - **言語ごと**：rustorb の C++・Java・C#・C・Python は小さな呼び出しでは Rust とほぼ同じ（Python のサーバーは GIL で遅い）。大きな octet 列は C（1 MiB 185 MB/s）と Ruby（10 MB/s、受け取りが Integer の Array）が遅い。Java はプロセスの起動と最初の呼び出しが遅い（417 ms、6.6 ms）
 - **giop:unix** は omniORB C++ では TCP より速い（23 µs）が、rustorb では TCP より遅い（60 µs）
+
+ここまではクラウドの 4 コアの仮想マシンでの数字。実機（MacBook Pro、Apple M5 Max、macOS）で同じベンチを回した結果は「[実機での結果](#実機での結果macosapple-m5-max)」にある。小さな呼び出しの比（rustorb どうしが omniORB C++ どうしの 1.7 倍）と CPU の比はほぼ同じで、大きなデータは順位が入れ替わり（rustorb どうし 8.6 GB/s、omniORB C++ どうし 3.0 GB/s）、4 スレッドの差は 7 倍から 2.2 倍に縮んだ。
 
 差の原因の見立てと改善の候補は「[差の見立てと改善の候補](#差の見立てと改善の候補)」にまとめた。どれもまだ確かめていない見立てで、直すかどうかは別に決める。
 
@@ -62,7 +64,7 @@ rustorb の対応状況の詳細は [corba-compliance.md](corba-compliance.md)�
 
 ### 環境
 
-開発用のクラウドのサンドボックス（共有の仮想マシン）。実機の結果ではない。
+開発用のクラウドのサンドボックス（共有の仮想マシン）。実機の結果ではない（実機は「[環境（実機）](#環境実機)」）。
 
 - Intel Xeon Processor @ 2.10GHz、論理 CPU 4、メモリ 16 GiB、Linux 6.18（Ubuntu 24.04）
 - rustc 1.97.0（release ビルド）、Python 3.13.18、OpenJDK 25、.NET 8、Ruby 3.3.6、g++ 13
@@ -324,6 +326,239 @@ omniORB C++ の往復は Unix ソケットで TCP より 2 割速くなるが、
 - rustorb のサーバーの oneway 1 回は 28 µs で、omniORB C++ の 3 倍。oneway の上限（毎秒 5.8 万回）はこれで決まる
 - メモリは、起動時は rustorb (Rust) の方が小さいが、大きなデータを扱ったあとの最大は omniORB の 1.7 倍。Java・C#・Ruby の最大はランタイムのヒープによる
 
+## 実機での結果（macOS、Apple M5 Max）
+
+上と同じプログラムと同じ測り方を、ふだん使っている Mac で回した結果。クラウドの数字と同じ見方で並べ、ちがいを最後にまとめた。Java・C#・C・Ruby は今回は測っていない（下の「環境」）。
+
+### まとめ（実機）
+
+- **小さな呼び出しの往復**は、omniORB どうし 12.5 µs に対し rustorb どうし 21.4 µs（1.7 倍）。rustorb と omniORB を組むと 18 µs 前後で、rustorb の側ごとに 5 µs 前後延びる。どちらもクラウドの 2.2〜2.4 倍速く、比はクラウド（1.6 倍）とほぼ同じ
+- **同一プロセス**は rustorb 1.29 µs、omniORB C++ 0.04 µs（30 倍）
+- **大きなデータ**（1 MiB の echo）は、クラウドと逆に rustorb どうし（8.6 GB/s）が omniORB C++ どうし（3.0 GB/s）より速い。omniORB C++ のサーバーは 1 MiB の echo 1 回に CPU 490 µs かかり、相手が誰でも 3 GB/s で頭打ち。omniORBpy どうしは 14.3 GB/s でいちばん速く、omniORBpy のサーバーに対しても rustorb のクライアントは 10.1 GB/s と omniORB のクライアント（14.3 GB/s）の 7 割
+- **oneway**は、サーバーが rustorb だと毎秒 19 万回前後（相手を問わず）、omniORB C++ だと 29〜65 万回。サーバーの 1 回あたりの CPU が 17 µs と 2〜3 µs
+- **一つの参照を 4 スレッドから**は rustorb どうし 9.4 万回、omniORB C++ どうし 20.5 万回（2.2 倍）。コアが多いのでクラウド（7 倍）より差が小さい。4 プロセスからでは 10.0 万回と 21.0 万回
+- **CPU**は 1 回の ping でクライアント 12.5 µs・サーバー 12.2 µs（omniORB C++ は 4.1 µs・4.3 µs、3 倍）
+- **rustorb が速いところ**はクラウドと同じ：最初の呼び出し（136 µs と 378 µs）、プロセスの起動から終わり（2.7 ms と 5.1 ms）、起動時のメモリ（2.8 MiB と 3.5 MiB）。これに大きなデータ（上）が加わる。一方、クラウドで rustorb のクライアントの方が速かった omniORB C++ への oneway は、この Mac では omniORB C++ のクライアントの半分（33 万回と 65 万回）
+- **giop:unix** は、rustorb も omniORB も小さな呼び出しで TCP より速い（rustorb 15.8 µs、omniORB C++ 6.1 µs）。クラウドで rustorb だけ遅くなったのは、この Mac では起きなかった。代わりに 1 MiB の octet 列はどれも TCP の 1〜4 割に落ちる
+
+### 環境（実機）
+
+- MacBook Pro（Mac17,7）、Apple M5 Max（18 コア：Super 6・Performance 12）、メモリ 128 GiB、macOS 26.5.2、AC 電源
+- rustc 1.97.0（Homebrew、release ビルド）、Python 3.14.6（Homebrew）、Apple clang 21
+- omniORB 4.3.4 / omniORBpy 4.3.4 をクラウドと同じ配布物（tar.bz2、SourceForge の MD5 と一致）からビルドして `~/.local/omniorb-4.3.4` に入れた。omniORBpy は Python 3.14 向け
+- クライアントとサーバーは同じマシンで、ループバックの TCP（`giop:tcp:127.0.0.1:`）。ほかの作業はできるだけ止めて回した
+- 測ったのは rustorb (Rust)・rustorb C++・rustorbpy・omniORB C++・omniORBpy。Java と .NET はこの Mac に入っておらず、C は CMake がなく、Ruby は macOS 付属の 2.6 で bench.rb が動かない（3.x の文法）ので測っていない
+- 各ケース 0.3 秒の慣らしのあと 2 秒、3 回の中央値（クラウドと同じ）。3 回の幅は相互接続の 25 組で中央値の 1.5%（全ケースの中央）、99% のケースが 25% 以内で、クラウドよりずっと揃っている。外れたのは rustorb どうしの最初の呼び出し（幅 57%）と rustorb C++ どうしの 8 MiB（35%）
+- CPU 時間とサーバーのメモリは、macOS には `/proc` がないので `ps` で取った（CPU は 10 ms 単位、メモリは起動時の常駐だけで最大は取れない）。CPU の表はケースを ping・1 MiB・any・oneway に絞って全組を回し直した値
+
+### 同一プロセス（実機）
+
+| | rustorb (Rust) | rustorb C++ | rustorbpy | omniORB C++ | omniORBpy |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| ping（µs） | 1.29 | 1.29 | 2.00 | 0.04 | 0.17 |
+| echo_long（µs） | 1.33 | 1.33 | 2.17 | 0.04 | 0.21 |
+| any（µs） | 3.71 | 4.08 | 22.7 | 0.12 | 0.92 |
+| struct 100 個（µs） | 18.8 | 18.8 | 86.4 | 1.71 | 25.4 |
+| octet 1 KiB（µs） | 1.58 | 1.67 | 2.63 | 0.38 | 0.25 |
+| octet 1 MiB（µs） | 106 | 126 | 115 | 326 | 0.25 |
+| octet 8 MiB（MB/s） | 22,239 | 20,268 | 19,308 | 6,433 | — |
+| oneway（回/s） | 821,803 | 827,315 | 494,652 | 66,334,581 | 4,572,551 |
+| 4 スレッド（回/s） | 375,542 | 412,305 | 83,822 | 3,618,251 | 362,238 |
+| CPU / ping（µs） | 1.31 | 1.34 | 2.13 | 0.04 | 0.23 |
+
+- omniORB C++ の 1 MiB の echo（326 µs）は、返り値の列のコピーの分。この Mac ではこのコピーが rustorb の 1 回（106 µs）より遅い。rustorb の 256 KiB 以上の跳ね上がり（クラウドで 386 µs）は、この Mac では見えない（256 KiB で 26 µs）
+
+### 別プロセス：同じ実装どうし（実機）
+
+| 組 | ping p50（µs） | ping p99（µs） | any（µs） | struct 100（µs） | 1 MiB（MB/s） | 8 MiB（MB/s） | oneway（回/s） | 4 スレッド（回/s） | 4 プロセス（回/s） |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| rustorb (Rust) | 21.4 | 28.4 | 26.5 | 47.6 | 8,635 | 7,007 | 192,050 | 93,912 | 100,175 |
+| rustorb C++ | 21.9 | 30.3 | 27.4 | 48.0 | 8,336 | 6,079 | 187,972 | 91,836 | 99,480 |
+| rustorbpy | 29.8 | 36.7 | 56.2 | 123 | 8,792 | 8,652 | 82,858 | 71,133 | 69,483 |
+| omniORB C++ | 12.5 | 18.8 | 14.9 | 22.3 | 3,026 | 2,974 | 654,499 | 204,560 | 209,580 |
+| omniORBpy | 13.5 | 19.3 | 16.5 | 87.4 | 14,320 | 15,814 | 571,422 | 145,407 | 151,101 |
+
+### 相互接続（実機）
+
+行がクライアント、列がサーバー。
+
+ping の往復（p50、µs）
+
+| クライアント＼サーバー | rustorb (Rust) | rustorb C++ | rustorbpy | omniORB C++ | omniORBpy |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| rustorb (Rust) | 21.4 | 21.2 | 29.1 | 17.7 | 18.7 |
+| rustorb C++ | 21.5 | 21.9 | 29.1 | 18.0 | 18.9 |
+| rustorbpy | 22.4 | 22.7 | 29.8 | 19.4 | 20.2 |
+| omniORB C++ | 18.1 | 18.0 | 25.7 | 12.5 | 13.2 |
+| omniORBpy | 18.4 | 18.5 | 25.4 | 13.3 | 13.5 |
+
+ping の往復（p99、µs）
+
+| クライアント＼サーバー | rustorb (Rust) | rustorb C++ | rustorbpy | omniORB C++ | omniORBpy |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| rustorb (Rust) | 28.4 | 28.1 | 35.6 | 26.8 | 26.4 |
+| rustorb C++ | 28.2 | 30.3 | 35.5 | 26.2 | 26.5 |
+| rustorbpy | 28.9 | 29.4 | 36.7 | 26.8 | 27.5 |
+| omniORB C++ | 24.6 | 24.5 | 35.7 | 18.8 | 19.3 |
+| omniORBpy | 24.9 | 25.0 | 34.7 | 19.1 | 19.3 |
+
+any の往復（p50、µs）
+
+| クライアント＼サーバー | rustorb (Rust) | rustorb C++ | rustorbpy | omniORB C++ | omniORBpy |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| rustorb (Rust) | 26.5 | 26.8 | 43.1 | 22.2 | 23.5 |
+| rustorb C++ | 26.7 | 27.4 | 43.0 | 22.5 | 23.8 |
+| rustorbpy | 46.3 | 46.2 | 56.2 | 39.3 | 41.2 |
+| omniORB C++ | 20.8 | 21.3 | 39.7 | 14.9 | 16.5 |
+| omniORBpy | 22.5 | 22.5 | 39.6 | 17.0 | 16.5 |
+
+1 MiB の octet 列の echo（MB/s、往復の合計）
+
+| クライアント＼サーバー | rustorb (Rust) | rustorb C++ | rustorbpy | omniORB C++ | omniORBpy |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| rustorb (Rust) | 8,635 | 8,379 | 8,813 | 3,055 | 10,119 |
+| rustorb C++ | 8,518 | 8,336 | 8,640 | 3,062 | 9,935 |
+| rustorbpy | 8,555 | 8,306 | 8,792 | 2,967 | 10,052 |
+| omniORB C++ | 9,497 | 9,102 | 9,800 | 3,026 | 14,374 |
+| omniORBpy | 9,441 | 8,939 | 9,798 | 3,342 | 14,320 |
+
+1 MiB を送るだけ（`put`）／受け取るだけ（`get`）（MB/s）
+
+| クライアント＼サーバー | rustorb (Rust) | rustorbpy | omniORB C++ | omniORBpy |
+| --- | ---: | ---: | ---: | ---: |
+| rustorb (Rust) | 8,312 ／ 7,709 | 7,904 ／ 7,296 | 10,181 ／ 7,726 | 10,129 ／ 7,808 |
+| rustorbpy | 8,145 ／ 7,686 | 7,703 ／ 7,114 | 10,094 ／ 7,712 | 10,119 ／ 7,739 |
+| omniORB C++ | 8,386 ／ 9,723 | 7,942 ／ 8,994 | 13,726 ／ 11,889 | 13,544 ／ 11,833 |
+| omniORBpy | 8,220 ／ 9,631 | 7,850 ／ 8,929 | 13,270 ／ 11,825 | 12,989 ／ 11,625 |
+
+oneway（毎秒の回数、全部届くまで）
+
+| クライアント＼サーバー | rustorb (Rust) | rustorb C++ | rustorbpy | omniORB C++ | omniORBpy |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| rustorb (Rust) | 192,050 | 191,639 | 84,582 | 327,536 | 398,386 |
+| rustorb C++ | 193,840 | 187,972 | 84,192 | 321,054 | 394,874 |
+| rustorbpy | 189,592 | 187,786 | 82,858 | 288,935 | 304,009 |
+| omniORB C++ | 194,789 | 191,938 | 85,004 | 654,499 | 561,015 |
+| omniORBpy | 191,428 | 190,780 | 85,492 | 579,985 | 571,422 |
+
+一つの参照を 4 スレッドから（毎秒の回数）
+
+| クライアント＼サーバー | rustorb (Rust) | rustorb C++ | rustorbpy | omniORB C++ | omniORBpy |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| rustorb (Rust) | 93,912 | 91,342 | 72,382 | 114,952 | 110,136 |
+| rustorb C++ | 93,342 | 91,836 | 73,610 | 115,148 | 111,531 |
+| rustorbpy | 89,995 | 88,800 | 71,133 | 110,078 | 106,610 |
+| omniORB C++ | 146,510 | 146,864 | 79,374 | 204,560 | 147,081 |
+| omniORBpy | 138,533 | 137,550 | 81,885 | 186,533 | 145,407 |
+
+4 プロセスから同時に（毎秒の回数の合計）
+
+| クライアント＼サーバー | rustorb (Rust) | rustorb C++ | rustorbpy | omniORB C++ | omniORBpy |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| rustorb (Rust) | 100,175 | 99,923 | 70,723 | 143,723 | 120,004 |
+| rustorb C++ | 100,718 | 99,480 | 71,089 | 143,258 | 121,291 |
+| rustorbpy | 98,346 | 96,860 | 69,483 | 137,198 | 117,824 |
+| omniORB C++ | 146,622 | 146,454 | 81,030 | 209,580 | 149,168 |
+| omniORBpy | 143,359 | 144,420 | 84,097 | 201,030 | 151,101 |
+
+- 小さな呼び出しでは、rustorb の側ごとに 5 µs 前後延びる（クラウドでは 9 µs）。比はクラウドとほぼ同じ
+- 大きなデータは、サーバーで速さが決まる。omniORB C++ のサーバーは相手を問わず 3 GB/s、rustorb と rustorbpy のサーバーは 8〜10 GB/s、omniORBpy のサーバーは 10〜14 GB/s。`put` は omniORB C++ のサーバーでも速い（10〜14 GB/s）ので、omniORB C++ の遅さは echo で列を返すときのコピー（同一プロセスの 326 µs と同じもの）と見ている
+- クライアントとしては、rustorb は omniORB の 6〜7 割（omniORBpy のサーバーに 10.1 GB/s と 14.3 GB/s、`get` で 7.7 GB/s と 11.8 GB/s）。クラウドの「半分以下」より差は小さい
+- oneway は、rustorb のサーバーが相手を問わず 19 万回で頭打ち。rustorb のクライアントから omniORB C++ へは 33 万回で、omniORB C++ のクライアント（65 万回）の半分。クラウドでは rustorb のクライアントの方が速かったが、この Mac では逆になった
+- 4 スレッド・4 プロセスでは、omniORB C++ のクライアントは rustorb のサーバーに 14.7 万回出る。rustorb のクライアントは omniORB C++ のサーバーに 11.5 万回（4 スレッド）と 14.4 万回（4 プロセス）で、1 本の接続への多重化の差はクラウドより小さい
+
+### 大きさごと（実機）
+
+| クライアント → サーバー（µs） | 64 B | 1 KiB | 16 KiB | 256 KiB | 1 MiB | 8 MiB |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| rustorb (Rust) → rustorb (Rust) | 22.0 | 22.6 | 46.3 | 102 | 242 | 1,818 |
+| omniORB C++ → omniORB C++ | 13.0 | 13.5 | 25.5 | 160 | 699 | 5,636 |
+| omniORBpy → omniORBpy | 13.8 | 14.3 | 20.9 | 59.4 | 146 | 1,059 |
+| rustorb (Rust) → omniORB C++ | 18.7 | 19.8 | 40.8 | 168 | 702 | 5,433 |
+| omniORB C++ → rustorb (Rust) | 18.2 | 19.0 | 35.4 | 82.5 | 220 | 1,533 |
+| rustorb (Rust) → omniORBpy | 19.6 | 20.3 | 37.1 | 82.4 | 207 | 1,318 |
+| omniORBpy → rustorb (Rust) | 18.7 | 18.9 | 35.6 | 81.9 | 222 | 1,552 |
+
+| クライアント → サーバー（MB/s） | 64 B | 1 KiB | 16 KiB | 256 KiB | 1 MiB | 8 MiB |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| rustorb (Rust) → rustorb (Rust) | 5.79 | 90.2 | 700 | 5,118 | 8,635 | 7,007 |
+| omniORB C++ → omniORB C++ | 9.59 | 151 | 1,261 | 3,262 | 3,026 | 2,974 |
+| omniORBpy → omniORBpy | 9.18 | 142 | 1,503 | 8,822 | 14,320 | 15,814 |
+| rustorb (Rust) → omniORB C++ | 6.64 | 102 | 795 | 3,122 | 3,055 | 3,085 |
+| omniORB C++ → rustorb (Rust) | 6.95 | 107 | 903 | 6,370 | 9,497 | 8,711 |
+| rustorb (Rust) → omniORBpy | 6.43 | 98.8 | 873 | 6,449 | 10,119 | 12,727 |
+| omniORBpy → rustorb (Rust) | 6.78 | 107 | 896 | 6,376 | 9,441 | 8,532 |
+
+- 小さい側の差（64 B で 22 µs と 13 µs）は ping と同じ。256 KiB 以上では rustorb どうしの方が omniORB C++ どうしより速い（omniORB C++ のサーバーのコピーのため）
+- クラウドで見えた「16 KiB で差が開き始める」は、この Mac では 16 KiB で 46 µs と 26 µs（1.8 倍）で、小さな呼び出しの比と変わらない
+
+### 接続の確立と起動（実機）
+
+新しいクライアントのプロセスでの最初の `ping`（接続の確立を含む、10 回の中央値）と、そのプロセスの起動から終わりまで（相互接続の実行の値）。
+
+| 組 | 最初の呼び出し（µs） | クライアントのプロセス全体（ms） |
+| --- | ---: | ---: |
+| rustorb (Rust) → rustorb (Rust) | 136 | 2.7 |
+| rustorb C++ → rustorb C++ | 154 | 4.1 |
+| rustorbpy → rustorbpy | 295 | 38.7 |
+| omniORB C++ → omniORB C++ | 378 | 5.1 |
+| omniORBpy → omniORBpy | 387 | 29.1 |
+| rustorb (Rust) → omniORB C++ | 123 | 2.7 |
+| omniORB C++ → rustorb (Rust) | 396 | 5.2 |
+| rustorbpy → omniORBpy | 270 | 38.4 |
+| omniORBpy → rustorbpy | 460 | 29.3 |
+
+- 同じ組だけを別に回した実行では rustorb どうしの最初の呼び出しが 218 µs で、ばらつきが大きい（ほかの組は 1 割以内）。どちらでも omniORB どうし（378〜462 µs）より速い
+- Python のプロセスは rustorbpy が 39 ms、omniORBpy が 29 ms
+
+### giop:unix（実機）
+
+| 組 | ping tcp（µs） | ping unix | 1 MiB tcp（MB/s） | 1 MiB unix | oneway tcp（回/s） | oneway unix | 4 スレッド tcp | 4 スレッド unix |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| rustorb (Rust) | 21.4 | 15.8 | 8,635 | 862 | 192,050 | 188,480 | 93,912 | 118,684 |
+| rustorb C++ | 21.9 | 16.0 | 8,336 | 871 | 187,972 | 190,723 | 91,836 | 118,471 |
+| rustorbpy | 29.8 | 21.0 | 8,792 | 859 | 82,858 | 83,834 | 71,133 | 77,869 |
+| omniORB C++ | 12.5 | 6.12 | 3,026 | 1,332 | 654,499 | 1,949,592 | 204,560 | 281,241 |
+| omniORBpy | 13.5 | 7.37 | 14,320 | 1,642 | 571,422 | 567,547 | 145,407 | 129,169 |
+
+- 小さな呼び出しは、どの実装も Unix ソケットで TCP より 2〜5 割短い。クラウドで rustorb だけが遅くなったのは、仮想マシンの事情だった可能性がある（未確認）
+- 1 MiB の octet 列は、どの実装も Unix ソケットで大きく落ちる（rustorb 0.86 GB/s、omniORB C++ 1.3 GB/s）。macOS の Unix ソケットの送受信のバッファが小さいためと見ている（未確認）
+- omniORB C++ の oneway は Unix ソケットで毎秒 195 万回まで上がる
+
+### CPU とメモリ（実機）
+
+1 回あたりの CPU 時間（µs）と、サーバーの起動時の常駐メモリ（`ps` の RSS）。
+
+| 組 | クライアント CPU / ping | サーバー CPU / ping | クライアント CPU / 1 MiB | サーバー CPU / 1 MiB | クライアント CPU / oneway | サーバー CPU / oneway | サーバー起動時（MiB） |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| rustorb (Rust) → rustorb (Rust) | 12.5 | 12.2 | 204 | 215 | 1.81 | 17.2 | 2.8 |
+| rustorb C++ → rustorb C++ | 12.8 | 12.5 | 206 | 218 | 1.38 | 17.1 | 7.7 |
+| rustorbpy → rustorbpy | 15.7 | 18.5 | 206 | 211 | 2.30 | 29.4 | 26.9 |
+| omniORB C++ → omniORB C++ | 4.08 | 4.27 | 171 | 493 | 1.52 | 2.05 | 3.5 |
+| omniORBpy → omniORBpy | 4.95 | 4.88 | 123 | 120 | 1.03 | 3.24 | 21.4 |
+| rustorb (Rust) → omniORB C++ | 11.9 | 4.55 | 287 | 490 | 4.25 | 3.27 | 3.5 |
+| omniORB C++ → rustorb (Rust) | 4.68 | 10.6 | 118 | 234 | 1.46 | 17.7 | 2.8 |
+
+- ping 1 回の CPU は、rustorb がクライアントで 3.1 倍、サーバーで 2.9 倍（クラウドでは 2.3 倍と 2.7 倍）。往復の時間の差（9 µs）より CPU の差（16 µs）の方が大きいのはクラウドと同じ
+- rustorb のサーバーの oneway 1 回は 17 µs で、omniORB C++ の 8 倍。oneway の上限（毎秒 19 万回）はこれで決まる
+- omniORB C++ のサーバーの 1 MiB の echo は 490 µs で、rustorb のサーバー（215 µs）の 2.3 倍
+
+### クラウドとのちがい
+
+| 項目 | クラウド（Xeon 4 コア、Linux） | 実機（M5 Max、macOS） |
+| --- | --- | --- |
+| ping p50、rustorb どうし／omniORB C++ どうし | 47.3 µs ／ 30.0 µs（1.6 倍） | 21.4 µs ／ 12.5 µs（1.7 倍） |
+| 同一プロセスの ping | 3.33 µs ／ 0.08 µs | 1.29 µs ／ 0.04 µs |
+| 1 MiB の echo、rustorb どうし／omniORB C++ どうし | 994 ／ 1,799 MB/s（omniORB が速い） | 8,635 ／ 3,026 MB/s（rustorb が速い） |
+| oneway、rustorb どうし／omniORB C++ どうし | 5.9 万／13.4 万回 | 19.2 万／65.4 万回 |
+| 4 スレッド、rustorb どうし／omniORB C++ どうし | 2.8 万／20.2 万回（7 倍） | 9.4 万／20.5 万回（2.2 倍） |
+| CPU / ping（クライアント・サーバー）、rustorb／omniORB C++ | 35・41 ／ 15・15 µs | 12.5・12.2 ／ 4.1・4.3 µs |
+| giop:unix の ping、rustorb | TCP より遅い（60 µs） | TCP より速い（15.8 µs） |
+
+- 小さな呼び出しの比（1.6〜1.7 倍）と CPU の比（2〜3 倍）は、マシンが変わってもほぼ同じで、rustorb の 1 回あたりのコストの差と見てよさそう
+- 大きなデータの順位は入れ替わった。rustorb のクライアント・サーバーの大きなデータの扱い（クラウドで半分以下）は、この Mac ではメモリの帯域が十分にあって目立たないと見ている（未確認）。omniORB C++ の echo のコピーはこの Mac の方が相対的に重い
+- 4 スレッドの差は、クラウドではコア数（4）で頭打ちになっていた分が大きかった。「差の見立て」の表の 1 本の接続への多重化は、この Mac でも 2.2 倍の差として残る
+
 ## 差の見立てと改善の候補
 
 測った結果からの見立てで、プロファイルでの確認はまだしていない。直すなら、それぞれ issue にしてから取りかかる。
@@ -363,6 +598,15 @@ interop/bench/run-bench.py --modes pairs --pairs same --transports tcp,unix
 | `--modes pairs --pairs same --transports unix` | giop:unix |
 | `--modes pairs --pairs same --cases first` | 接続の確立と起動 |
 
-同じマシンで測った値どうしだけを比べる。実機（専用のマシン、別のマシンに分けたクライアントとサーバー）での結果は、取れたらここに足す。
+実機（macOS）の表は、次の 5 回の実行から（omniORB は `OMNIIDL=~/.local/omniorb-4.3.4/bin/omniidl OMNIORB_PREFIX=~/.local/omniorb-4.3.4`、Java・C#・C・Ruby は除く）。
+
+| 実行 | 内容 |
+| --- | --- |
+| `--impls rustorb,rustorbcpp,rustorbpy --modes inproc`、`--impls omniorbcpp,omniorbpy --modes inproc` | 同一プロセス |
+| `--impls rustorb,rustorbcpp,rustorbpy,omniorbcpp,omniorbpy --modes pairs --pairs all` | 相互接続の 25 組、接続の確立と起動 |
+| 同じ 5 実装で `--modes pairs --pairs same --transports unix` | giop:unix |
+| 同じ 5 実装で `--modes pairs --pairs all --cases ping,octets:1048576,any,oneway` | CPU とメモリ（`ps` で取るように直したあと） |
+
+同じマシンで測った値どうしだけを比べる。別のマシンに分けたクライアントとサーバーでの結果は、取れたらここに足す。
 
 1 回だけ、rustorb Ruby のクライアントから rustorb (Rust) のサーバーへの oneway で、クライアントが何も出力せずに終わった（3 回のうち 1 回）。同じ組をあと 4 回回しても再現しなかった。

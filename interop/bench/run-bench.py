@@ -31,8 +31,8 @@ their sum. Each run is repeated --repeat times (default 3, a fresh server
 each time); the tables show the median.
 
 For each case in pairs mode the script also records the CPU time the client
-and the server used (Linux: /proc and wait4), and the server's resident
-memory after start and at its peak.
+and the server used (Linux: /proc and wait4; macOS: ps and wait4), and the
+server's resident memory after start and at its peak (the peak on Linux only).
 
 omniORB: OMNIIDL (default `omniidl`, e.g. "python3.12 /usr/bin/omniidl" when
 the omniidl script's python is not the default one) and OMNIORB_PREFIX
@@ -331,7 +331,19 @@ def proc_cpu(pid):
             fields = f.read().rsplit(")", 1)[1].split()
         return (int(fields[11]) + int(fields[12])) / CLK_TCK
     except (OSError, IndexError, ValueError):
-        return None
+        pass
+    if platform.system() == "Darwin":
+        # No /proc: ps prints the CPU time as [[dd-]hh:]mm:ss.cc.
+        try:
+            t = capture(["ps", "-o", "time=", "-p", str(pid)])
+            days, _, t = t.rpartition("-")
+            secs = 0.0
+            for part in t.split(":"):
+                secs = secs * 60 + float(part)
+            return secs + int(days or 0) * 86400
+        except ValueError:
+            pass
+    return None
 
 
 def proc_mem(pid, key):
@@ -342,6 +354,12 @@ def proc_mem(pid, key):
                     return int(line.split()[1]) * 1024
     except OSError:
         pass
+    if platform.system() == "Darwin" and key == "VmRSS":
+        # No /proc (and no peak): the current resident size from ps, in KiB.
+        try:
+            return int(capture(["ps", "-o", "rss=", "-p", str(pid)])) * 1024
+        except ValueError:
+            pass
     return None
 
 
@@ -598,6 +616,10 @@ def machine():
             pass
     elif platform.system() == "Darwin":
         cpu = capture(["sysctl", "-n", "machdep.cpu.brand_string"]) or cpu
+        try:
+            memory = int(capture(["sysctl", "-n", "hw.memsize"]))
+        except (TypeError, ValueError):
+            pass
     commit = capture(["git", "-C", ROOT, "rev-parse", "--short", "HEAD"])
     dirty = bool(capture(["git", "-C", ROOT, "status", "--porcelain", "--untracked-files=no"]))
     return {"hostname": socket.gethostname(), "os": platform.platform(), "cpu": cpu,
@@ -699,9 +721,10 @@ def markdown(result):
                   "| --- | ---: | ---: |"])
         for lab in labels:
             r = next((sub[k] for k in sub if "%s→%s" % k[:2] == lab), None)
+            mib = lambda v: fmt(v / 2**20, 1) if v else "-"
             L.append("| %s | %s | %s |" % (
-                lab, fmt((r or {}).get("server_rss_start", 0) / 2**20, 1),
-                fmt((r or {}).get("server_peak_rss", 0) / 2**20, 1)))
+                lab, mib((r or {}).get("server_rss_start")),
+                mib((r or {}).get("server_peak_rss"))))
         L.append("")
     return "\n".join(L)
 
