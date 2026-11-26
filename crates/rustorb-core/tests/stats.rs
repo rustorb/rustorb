@@ -108,6 +108,20 @@ fn counts_the_paths_of_calls_once_enabled() {
     assert_eq!(written(&used), 20, "{used}");
     assert!(used.get(Counter::recv_calls) > 0, "{used}");
 
+    // Unix: a thread that takes the reading takes it off the runtime's
+    // poller, so data arriving meanwhile does not wake the I/O task (an
+    // event the poller had already seen may still get through).
+    #[cfg(unix)]
+    {
+        assert!(used.get(Counter::claims) > 0, "{used}");
+        assert_eq!(
+            used.get(Counter::unwatches),
+            used.get(Counter::claims),
+            "{used}"
+        );
+        assert!(used.get(Counter::task_wakeups_thread_reads) <= 2, "{used}");
+    }
+
     // Off: the caller counts no more (the server's threads may still see
     // the counting on for a moment).
     stats::set_enabled(false);

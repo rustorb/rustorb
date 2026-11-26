@@ -285,12 +285,13 @@ pub(crate) enum Here {
 ///
 /// The task reads through the runtime's readiness (so that a `WouldBlock`
 /// clears it); a thread reads the socket directly and waits with `poll`.
-/// A thread may take the reading only from an idle task. Data arriving
-/// while a thread reads wakes the task too; it then forgets that
-/// readiness. Whenever the reading goes back to the task, the thread first
+/// A thread may take the reading only from an idle task. While a thread
+/// reads, the reading is off the runtime's poller (Unix, `unwatch`), so
+/// data arriving does not wake the task; should an event seen before
+/// still wake it, it forgets that readiness. Whenever the reading goes back to the task, the thread first
 /// reads what has arrived (under the holder lock, so nothing arrives
 /// unseen in between) and wakes the task if anything is buffered. The lock
-/// order is `holder`, then `side`.
+/// order is `holder`, then `side`, then the stream's registration.
 #[derive(Debug)]
 pub(crate) struct Inbound {
     stream: ReadHalf,
@@ -391,7 +392,7 @@ impl Inbound {
                     return Ok(msg);
                 }
             }
-            self.task_wait().await;
+            self.task_wait().await.map_err(ReadError::Closed)?;
         }
     }
 
@@ -430,7 +431,8 @@ impl Inbound {
 
     /// Waits until the stream is readable or a thread hands the reading
     /// back. The task is idle meanwhile, so a thread may take the reading.
-    async fn task_wait(&self) {
+    /// Fails if the reading could not be put back on the runtime's poller.
+    async fn task_wait(&self) -> io::Result<()> {
         {
             let mut holder = self.holder.lock().unwrap();
             if let Holder::Task { .. } = *holder {
@@ -438,16 +440,15 @@ impl Inbound {
             }
         }
         let mut back = std::pin::pin!(self.back.notified());
-        let mut readable = std::pin::pin!(self.stream.readable());
-        std::future::poll_fn(|cx| {
-            if back.as_mut().poll(cx).is_ready() || readable.as_mut().poll(cx).is_ready() {
-                std::task::Poll::Ready(())
-            } else {
-                std::task::Poll::Pending
+        let result = std::future::poll_fn(|cx| {
+            if back.as_mut().poll(cx).is_ready() {
+                return std::task::Poll::Ready(Ok(()));
             }
+            self.stream.poll_readable(cx)
         })
         .await;
         stats::count(Counter::task_wakeups);
+        result
     }
 
     // --- a thread ----------------------------------------------------------
@@ -463,6 +464,8 @@ impl Inbound {
         match *holder {
             Holder::Task { active: false } | Holder::Busy => {
                 *holder = Holder::Thread;
+                // Data arriving now wakes only this thread.
+                self.stream.unwatch();
                 stats::count(Counter::claims);
                 true
             }
@@ -528,6 +531,9 @@ impl Inbound {
         let mut side = self.side.lock().unwrap();
         let mut raw = |buf: &mut [MaybeUninit<u8>]| stream.recv(buf);
         let more = side.reader.drain(&mut |buf| self.read(&mut raw, buf));
+        // Either way the task may read now: what arrives next is its to
+        // read.
+        self.stream.watch();
         if more || side.held.is_some() {
             *holder = Holder::Task { active: false };
             drop(side);
@@ -565,13 +571,15 @@ impl Inbound {
                 let mut raw = |buf: &mut [MaybeUninit<u8>]| stream.recv(buf);
                 let more = side.reader.drain(&mut |buf| self.read(&mut raw, buf));
                 *holder = Holder::Task { active: false };
+                self.stream.watch();
                 if more || side.held.is_some() {
                     drop(side);
                     drop(holder);
                     self.hand_back();
                 }
             }
-            // Whatever arrived while busy woke the task, which read it.
+            // Whatever arrived while busy woke the task, which read it
+            // (the reading is on the poller while busy).
             Holder::Busy => *holder = Holder::Task { active: false },
             Holder::Task { .. } => {}
         }

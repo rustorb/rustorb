@@ -72,6 +72,12 @@ counters! {
     claims,
     /// A thread wanted the reading and the I/O task kept it.
     claim_failures,
+    /// The reading of a connection was registered with the runtime's
+    /// poller again, as a thread gave it back (Unix).
+    watches,
+    /// The reading of a connection was taken off the runtime's poller, as
+    /// a thread took it (Unix).
+    unwatches,
     /// Messages a thread read itself.
     thread_messages,
     /// A thread waited for a message until its time ran out.

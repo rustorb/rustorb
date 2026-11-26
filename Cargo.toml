@@ -28,7 +28,7 @@ rustorb-typesupport = { path = "crates/rustorb-typesupport", version = "0.7.1" }
 rustorb-giop = { path = "crates/rustorb-giop", version = "0.7.1" }
 rustorb-core = { path = "crates/rustorb-core", version = "0.7.1" }
 rustorb-naming = { path = "crates/rustorb-naming", version = "0.7.1" }
-tokio = { version = "1", default-features = false }
+tokio = { version = "1.53.3", default-features = false }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
