@@ -52,6 +52,7 @@ use crate::poa::{
 use crate::pool::{Job, Pool};
 use crate::servant::{OBJECT_ID, ServerReply, location_forward_reply, system_exception_reply};
 use crate::sock::{Stream, WriteHalf};
+use crate::stats::{self, Counter};
 use crate::stream::InStream;
 use crate::tls::{self, Tls};
 use crate::trace;
@@ -966,11 +967,20 @@ impl Server {
             // The client connection's reader reads.
             return;
         }
+        stats::count(Counter::follows);
+        let mut limited = true;
         for _ in 0..self.follow_limit {
-            if self.is_shutting_down() || self.pool_has_queued() {
+            if self.is_shutting_down() {
+                limited = false;
+                break;
+            }
+            if self.pool_has_queued() {
+                stats::count(Counter::follow_stops_queued);
+                limited = false;
                 break;
             }
             let Ok(permit) = Arc::clone(&conn.permits).try_acquire_owned() else {
+                limited = false;
                 break;
             };
             if !conn.inbound.claim() {
@@ -986,6 +996,7 @@ impl Server {
             conn.last_used.touch();
             let keep = match message {
                 Message::Request { header, body } => {
+                    stats::count(Counter::follow_requests);
                     let keep = conn.inbound.busy();
                     if let Some((key, request)) = self.prepare(conn, version, header, body, permit)
                     {
@@ -1011,6 +1022,9 @@ impl Server {
             if !keep {
                 return;
             }
+        }
+        if limited {
+            stats::count(Counter::follow_stops_limit);
         }
         conn.inbound.unbusy();
     }
@@ -1972,6 +1986,7 @@ impl Outbox {
             if let (true, Some(stream)) = (state.queue.is_empty(), &state.stream) {
                 tls.encrypt(&msg, 0);
                 if let Ok(true) = tls.flush(|bytes| stream.try_write(bytes)) {
+                    stats::count(Counter::outbox_direct);
                     return true;
                 }
                 // Not writable now, or failed: the writer task waits for
@@ -1980,6 +1995,7 @@ impl Outbox {
             } else {
                 state.queue.push_back((msg, 0));
             }
+            stats::count(Counter::outbox_queued);
             drop(state);
             self.ready.notify_one();
             return true;
@@ -2001,9 +2017,11 @@ impl Outbox {
                 }
             }
             if written == msg.len() {
+                stats::count(Counter::outbox_direct);
                 return true;
             }
         }
+        stats::count(Counter::outbox_queued);
         state.queue.push_back((msg, written));
         drop(state);
         self.ready.notify_one();

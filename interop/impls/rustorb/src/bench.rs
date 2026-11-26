@@ -11,6 +11,13 @@
 //! `--seconds S` per case (default 2), `--warmup S` (default 0.3). Every
 //! case prints one JSON line on stdout; a failed call makes the exit status
 //! 1.
+//!
+//! `--stats` (client, inproc) turns the ORB's internal counters on
+//! (`rustorb_core::stats`) and prints, after each case's line, one more:
+//! `{"stats_case":CASE,"stats":{...}}`, the counts over the case (warm-up
+//! included). `--stats-file PATH` (serve) turns them on and writes the
+//! counts so far to PATH every 50 ms (written to PATH.tmp, then renamed),
+//! for run-bench.py to read before and after each case.
 
 mod idl;
 
@@ -21,7 +28,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use idl::bench::{Sample, Target, TargetPoa, TargetServant};
-use rustorb_core::{Any, Orb, SystemException};
+use rustorb_core::{Any, Orb, SystemException, stats};
 
 struct Impl {
     orb: Orb,
@@ -75,6 +82,8 @@ struct Opts {
     cases: Vec<String>,
     seconds: f64,
     warmup: f64,
+    stats: bool,
+    stats_file: Option<String>,
 }
 
 const DEFAULT_CASES: &str = "ping,long,string,octets:64,octets:1024,octets:16384,octets:262144,\
@@ -91,6 +100,8 @@ fn parse(mut args: Vec<String>) -> Result<(Opts, Vec<String>), String> {
         cases: Vec::new(),
         seconds: 2.0,
         warmup: 0.3,
+        stats: false,
+        stats_file: None,
     };
     let mut cases = DEFAULT_CASES.to_owned();
     let mut rest = vec!["rustorb-bench".to_owned()];
@@ -102,6 +113,8 @@ fn parse(mut args: Vec<String>) -> Result<(Opts, Vec<String>), String> {
             "--cases" => cases = value()?,
             "--seconds" => o.seconds = value()?.parse().map_err(|e| format!("{e}"))?,
             "--warmup" => o.warmup = value()?.parse().map_err(|e| format!("{e}"))?,
+            "--stats" => o.stats = true,
+            "--stats-file" => o.stats_file = Some(value()?),
             _ => rest.push(a),
         }
     }
@@ -361,8 +374,27 @@ fn run_case(t: &Target, case: &str, o: &Opts) -> Result<(), String> {
     }
 }
 
+/// Writes the counts so far to `path` every 50 ms, for ever.
+fn write_stats(path: String) {
+    let tmp = format!("{path}.tmp");
+    thread::spawn(move || {
+        loop {
+            if std::fs::write(&tmp, format!("{}\n", stats::snapshot())).is_ok() {
+                let _ = std::fs::rename(&tmp, &path);
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+    });
+}
+
 fn run() -> Result<(), String> {
     let (o, mut orb_args) = parse(std::env::args().skip(1).collect())?;
+    if o.stats || o.stats_file.is_some() {
+        stats::set_enabled(true);
+    }
+    if let Some(path) = o.stats_file.clone() {
+        write_stats(path);
+    }
     let orb = Orb::init(&mut orb_args).map_err(|e| format!("ORB_init: {e}"))?;
     let target = match o.mode.as_str() {
         "serve" | "inproc" => {
@@ -396,7 +428,12 @@ fn run() -> Result<(), String> {
         m => return Err(format!("unknown mode {m}")),
     };
     for case in &o.cases {
+        let before = stats::snapshot();
         run_case(&target, case, &o).map_err(|e| format!("{case}: {e}"))?;
+        if o.stats {
+            let used = stats::snapshot().since(&before);
+            println!("{{\"stats_case\":\"{case}\",\"stats\":{used}}}");
+        }
     }
     let _ = orb.shutdown(true);
     Ok(())

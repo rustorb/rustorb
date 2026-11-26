@@ -74,6 +74,7 @@ mod pool;
 mod servant;
 mod server;
 mod sock;
+pub mod stats;
 mod stream;
 mod timeout;
 mod tls;

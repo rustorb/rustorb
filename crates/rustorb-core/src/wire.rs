@@ -19,6 +19,7 @@ use rustorb_giop::{FragmentAssembler, Message, MessageHeader, Version};
 use tokio::sync::Notify;
 
 use crate::sock::ReadHalf;
+use crate::stats::{self, Counter};
 use crate::tls::Tls;
 use crate::trace;
 
@@ -328,9 +329,17 @@ impl Inbound {
 
     /// Reads `buf` with `raw`, through TLS if the stream has it.
     fn read(&self, raw: &mut ReadFn<'_>, buf: &mut [MaybeUninit<u8>]) -> io::Result<usize> {
+        let mut counted = |buf: &mut [MaybeUninit<u8>]| {
+            let result = raw(buf);
+            stats::count(Counter::recv_calls);
+            if matches!(&result, Err(e) if e.kind() == io::ErrorKind::WouldBlock) {
+                stats::count(Counter::recv_would_block);
+            }
+            result
+        };
         match &self.tls {
-            Some(tls) => tls.read(buf, raw),
-            None => raw(buf),
+            Some(tls) => tls.read(buf, &mut counted),
+            None => counted(buf),
         }
     }
 
@@ -378,6 +387,7 @@ impl Inbound {
                 };
                 let mut read = |buf: &mut [MaybeUninit<u8>]| self.read(&mut raw, buf);
                 if let Some(msg) = self.side().next(&mut read, false)? {
+                    stats::count(Counter::task_messages);
                     return Ok(msg);
                 }
             }
@@ -405,11 +415,13 @@ impl Inbound {
                     *holder = Holder::Task { active: true };
                     true
                 } else {
+                    stats::count(Counter::task_wakeups_busy_empty);
                     false
                 }
             }
             Holder::Thread => {
                 // The thread reads what woke the task.
+                stats::count(Counter::task_wakeups_thread_reads);
                 self.stream.clear_readable();
                 false
             }
@@ -435,6 +447,7 @@ impl Inbound {
             }
         })
         .await;
+        stats::count(Counter::task_wakeups);
     }
 
     // --- a thread ----------------------------------------------------------
@@ -450,9 +463,13 @@ impl Inbound {
         match *holder {
             Holder::Task { active: false } | Holder::Busy => {
                 *holder = Holder::Thread;
+                stats::count(Counter::claims);
                 true
             }
-            _ => false,
+            _ => {
+                stats::count(Counter::claim_failures);
+                false
+            }
         }
     }
 
@@ -465,7 +482,10 @@ impl Inbound {
         let mut read = |buf: &mut [MaybeUninit<u8>]| self.read(&mut raw, buf);
         loop {
             match side.next(&mut read, true) {
-                Ok(Some((version, msg))) => return Here::Message(version, msg),
+                Ok(Some((version, msg))) => {
+                    stats::count(Counter::thread_messages);
+                    return Here::Message(version, msg);
+                }
                 // A large message comes in many pieces: the task reads
                 // them as they come, which costs fewer wake-ups than a
                 // thread waiting for each, and allocates its buffer where
@@ -484,6 +504,7 @@ impl Inbound {
                 }
             }
             if !wait_readable(stream, until) {
+                stats::count(Counter::thread_read_timeouts);
                 drop(side);
                 self.release();
                 return Here::TimedOut;
@@ -521,6 +542,7 @@ impl Inbound {
 
     /// Wakes the task to read what a thread left.
     fn hand_back(&self) {
+        stats::count(Counter::hand_backs);
         self.handed_back.store(true, Ordering::Release);
         self.back.notify_one();
     }
@@ -577,6 +599,7 @@ fn wait_readable(stream: &ReadHalf, until: Option<Instant>) -> bool {
             events: libc::POLLIN,
             revents: 0,
         };
+        stats::count(Counter::thread_polls);
         // SAFETY: one valid pollfd.
         let n = unsafe { libc::poll(&mut fd, 1, timeout) };
         if n > 0 {

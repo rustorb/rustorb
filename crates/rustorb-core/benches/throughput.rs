@@ -14,7 +14,16 @@
 //!   with `read_octet_seq_shared` / `write_octet_seq_shared`), and 16 client ORBs
 //!   (a connection each) calling at once. `echo_long_noop_interceptors` is
 //!   `echo_long` with a Portable Interceptor that does nothing on each side.
+//! - `orb/oneway`: oneway calls as fast as the client sends them, timed
+//!   until the servant has run every one (the server's rate).
+//! - `orb/echo_long_threads_one_ref/4`: 4 threads calling through one
+//!   object reference (one connection) at once.
+//! - `orb/echo_long_in_process`: the caller and the servant in one ORB.
+//!
+//! The speed plan (docs/perf-plan.md, #203) compares these before and
+//! after each step.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -35,6 +44,9 @@ use rustorb_core::{
 
 const ECHO_ID: &str = "IDL:bench/Echo:1.0";
 const MIB: usize = 1 << 20;
+
+/// The oneway `post` calls the servants have run.
+static POSTED: AtomicU64 = AtomicU64::new(0);
 
 struct Echo;
 
@@ -63,6 +75,11 @@ impl Servant for Echo {
             "echo_octets" => {
                 let v = input.read_octet_seq()?;
                 reply.output().write_octet_seq(v)?;
+                Ok(())
+            }
+            "post" => {
+                input.read::<i32>()?;
+                POSTED.fetch_add(1, Ordering::Relaxed);
                 Ok(())
             }
             _ => Err(SystemException::new(
@@ -114,7 +131,10 @@ fn giop(c: &mut Criterion) {
 struct Pair {
     server: Orb,
     client: Orb,
+    /// The object, through the client ORB.
     obj: ObjectRef,
+    /// The object, in the server ORB.
+    local: ObjectRef,
 }
 
 /// Client and server interceptors that do nothing.
@@ -166,6 +186,7 @@ impl Pair {
             server,
             client,
             obj,
+            local,
         }
     }
 }
@@ -207,6 +228,25 @@ fn echo_octets_shared(obj: &ObjectRef, data: &Octets) -> usize {
     reply.input().read_octet_seq_shared().unwrap().len()
 }
 
+/// Sends `n` oneway calls, then waits until the servant has run them all.
+fn oneway(obj: &ObjectRef, n: u64) {
+    let target = POSTED.load(Ordering::Relaxed) + n;
+    for i in 0..n {
+        obj.request("post")
+            .args(move |out| {
+                out.write_i32(i as i32);
+                Ok(())
+            })
+            .send_oneway()
+            .unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while POSTED.load(Ordering::Relaxed) < target {
+        assert!(Instant::now() < deadline, "oneway calls lost");
+        thread::yield_now();
+    }
+}
+
 fn echo_octets(obj: &ObjectRef, data: &[u8]) -> usize {
     let reply = obj
         .request("echo_octets")
@@ -225,6 +265,28 @@ fn orb(c: &mut Criterion) {
     group.bench_function("echo_long", |b| {
         b.iter(|| assert_eq!(echo_long(&pair.obj, 7), 7));
     });
+    group.bench_function("echo_long_in_process", |b| {
+        b.iter(|| assert_eq!(echo_long(&pair.local, 7), 7));
+    });
+    group.bench_function("oneway", |b| {
+        b.iter_custom(|iters| {
+            let t = Instant::now();
+            oneway(&pair.obj, iters);
+            t.elapsed()
+        });
+    });
+    // Each iteration is one call from each thread, all at once.
+    {
+        let threads = 4;
+        let refs = vec![pair.obj.clone(); threads];
+        group.throughput(Throughput::Elements(threads as u64));
+        group.bench_with_input(
+            BenchmarkId::new("echo_long_threads_one_ref", threads),
+            &refs,
+            |b, refs| b.iter_custom(|iters| concurrent(refs, iters)),
+        );
+    }
+    group.throughput(Throughput::Elements(1));
     let intercepted = Pair::with(vec![Arc::new(Noop)]);
     group.bench_function("echo_long_noop_interceptors", |b| {
         b.iter(|| assert_eq!(echo_long(&intercepted.obj, 7), 7));
@@ -254,11 +316,12 @@ fn orb(c: &mut Criterion) {
                 (o, obj)
             })
             .collect();
+        let refs: Vec<ObjectRef> = orbs.iter().map(|(_, obj)| obj.clone()).collect();
         group.throughput(Throughput::Elements(clients as u64));
         group.bench_with_input(
             BenchmarkId::new("echo_long_connections", clients),
-            &orbs,
-            |b, orbs| b.iter_custom(|iters| concurrent(orbs, iters)),
+            &refs,
+            |b, refs| b.iter_custom(|iters| concurrent(refs, iters)),
         );
         for (o, _) in orbs {
             let _ = o.destroy();
@@ -267,12 +330,13 @@ fn orb(c: &mut Criterion) {
     group.finish();
 }
 
-/// Has every client make `iters` calls at once; returns the wall time.
-fn concurrent(orbs: &[(Orb, ObjectRef)], iters: u64) -> Duration {
-    let start = Arc::new(Barrier::new(orbs.len() + 1));
-    let handles: Vec<_> = orbs
+/// Has a thread for each reference make `iters` calls, all at once;
+/// returns the wall time.
+fn concurrent(refs: &[ObjectRef], iters: u64) -> Duration {
+    let start = Arc::new(Barrier::new(refs.len() + 1));
+    let handles: Vec<_> = refs
         .iter()
-        .map(|(_, obj)| {
+        .map(|obj| {
             let obj = obj.clone();
             let start = Arc::clone(&start);
             thread::spawn(move || {

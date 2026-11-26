@@ -3,8 +3,9 @@
 on this machine and writes the results with the machine's details.
 
     run-bench.py [--impls LIST] [--modes LIST] [--pairs same|all|C:S,...]
-                 [--cases LIST] [--seconds S] [--warmup S] [--repeat N]
-                 [--transports tcp,unix] [--out DIR] [--no-build]
+                 [--cases LIST] [--inproc-cases LIST] [--seconds S] [--warmup S]
+                 [--repeat N] [--transports tcp,unix] [--out DIR] [--no-build]
+                 [--quick] [--stats]
 
 Every implementation is one program with three modes (README.md): `inproc`
 (the servant and the caller in one ORB), `serve` and `client`. The
@@ -39,6 +40,19 @@ the omniidl script's python is not the default one) and OMNIORB_PREFIX
 (default: the directory above omniidl's bin). omniORBpy must be importable
 (PYTHONPATH, or PREFIX/python, PREFIX/lib/pythonX.Y/site-packages).
 
+--quick is the short set for comparing before and after a change
+(docs/perf-plan.md): rustorb and omniorbcpp (those of them that can be
+built), each against itself, the cases ping, any, oneway, threads:4 and
+get:1048576, and ping in one process. --impls, --cases, --inproc-cases and
+--pairs given with it win. compare-bench.py makes the table of the
+differences between two such results.
+
+Context switches per call (voluntary and not, client and server) are
+recorded on Linux and, for the client only, on macOS. --stats also records
+rustorb's internal counters per call (rustorb_core::stats: follow, claims,
+reads that found nothing, the upcall pool, ...) for the rustorb client and
+server.
+
 The results go to DIR (default interop/out/bench/DATE-TIME): result.json
 (every run and the medians), result.md (the tables) and the logs.
 """
@@ -71,6 +85,9 @@ IMPLS = ["rustorb", "rustorbcpp", "rustorbpy", "rustorbjava", "rustorbcs", "rust
 CASES = ["first", "ping", "long", "string", "octets:64", "octets:1024", "octets:16384",
          "octets:262144", "octets:1048576", "octets:8388608", "put:1048576",
          "get:1048576", "samples:100", "any", "oneway", "threads:4", "procs:4"]
+QUICK_IMPLS = ["rustorb", "omniorbcpp"]
+QUICK_CASES = ["ping", "any", "oneway", "threads:4", "get:1048576"]
+QUICK_INPROC_CASES = ["ping"]
 # Every ORB takes messages up to 64 MiB (omniORB's default is 2 MiB).
 ORB_ARGS = ["-ORBgiopMaxMsgSize", "67108864"]
 FIRST_RUNS = 10
@@ -346,6 +363,46 @@ def proc_cpu(pid):
     return None
 
 
+def proc_csw(pid):
+    """Context switches (voluntary and not) of the threads of a running
+    process, by thread name, from /proc (Linux only; threads that ended are
+    not counted)."""
+    by_name = {}
+    try:
+        tasks = os.listdir("/proc/%d/task" % pid)
+    except OSError:
+        return None
+    for tid in tasks:
+        try:
+            n = 0
+            with open("/proc/%d/task/%s/status" % (pid, tid)) as f:
+                for line in f:
+                    if line.startswith("Name:"):
+                        name = line.split(None, 1)[1].strip()
+                    elif line.startswith(("voluntary_ctxt_switches",
+                                          "nonvoluntary_ctxt_switches")):
+                        n += int(line.split()[1])
+            by_name[name] = by_name.get(name, 0) + n
+        except (OSError, ValueError, UnboundLocalError):
+            pass
+    return by_name
+
+
+def read_stats(path):
+    """The counts a rustorb server wrote to path (--stats-file), or None."""
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def stats_since(after, before):
+    if after is None or before is None:
+        return None
+    return {k: v - before.get(k, 0) for k, v in after.items()}
+
+
 def proc_mem(pid, key):
     try:
         with open("/proc/%d/status" % pid) as f:
@@ -364,7 +421,8 @@ def proc_mem(pid, key):
 
 
 class Server:
-    def __init__(self, cmd, env, logfile):
+    def __init__(self, cmd, env, logfile, stats_file=None):
+        self.stats_file = stats_file
         log("$ " + " ".join(cmd) + " &")
         self.err = open(logfile, "w")
         self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=self.err, env=env,
@@ -382,10 +440,18 @@ class Server:
     def cpu(self):
         return proc_cpu(self.proc.pid)
 
+    def csw(self):
+        return proc_csw(self.proc.pid) if LINUX else None
+
+    def stats(self):
+        return read_stats(self.stats_file) if self.stats_file else None
+
     def peak(self):
         return proc_mem(self.proc.pid, "VmHWM")
 
     def stop(self):
+        if self.stats_file and os.path.exists(self.stats_file):
+            os.unlink(self.stats_file)
         if self.proc.poll() is None:
             os.killpg(self.proc.pid, signal.SIGTERM)
             try:
@@ -396,8 +462,18 @@ class Server:
         self.err.close()
 
 
+class Client:
+    """What run_client found: the case lines, the --stats lines (case ->
+    counts), CPU seconds, context switches, peak RSS, and whether it
+    succeeded."""
+
+    def __init__(self, lines, stats, cpu, csw, rss, ok):
+        self.lines, self.stats, self.cpu, self.csw, self.rss, self.ok = \
+            lines, stats, cpu, csw, rss, ok
+
+
 def run_client(cmd, env, logfile, timeout):
-    """Runs cmd to the end. Returns (JSON lines, CPU seconds, peak RSS, ok)."""
+    """Runs cmd to the end. Returns a Client."""
     log("$ " + " ".join(cmd))
     with tempfile.TemporaryFile("w+") as out, open(logfile, "a") as err:
         p = subprocess.Popen(cmd, stdout=out, stderr=err, env=env, start_new_session=True)
@@ -408,28 +484,34 @@ def run_client(cmd, env, logfile, timeout):
                 _, status, ru = os.wait4(p.pid, 0)
                 p.returncode = os.waitstatus_to_exitcode(status)
                 cpu = ru.ru_utime + ru.ru_stime
+                csw = ru.ru_nvcsw + ru.ru_nivcsw
                 rss = ru.ru_maxrss * (1 if platform.system() == "Darwin" else 1024)
             else:
                 p.wait()
-                cpu = rss = None
+                cpu = csw = rss = None
         finally:
             timer.cancel()
         out.seek(0)
-        lines = []
+        lines, stats = [], {}
         for line in out:
             line = line.strip()
             if line.startswith("{"):
-                lines.append(json.loads(line))
+                obj = json.loads(line)
+                if "stats_case" in obj:
+                    stats[obj["stats_case"]] = obj["stats"]
+                else:
+                    lines.append(obj)
             elif line:
                 err.write(line + "\n")
-    return lines, cpu, rss, p.returncode == 0
+    return Client(lines, stats, cpu, csw, rss, p.returncode == 0)
 
 
 # ---------------------------------------------------------------------------
 # Running
 
-def client_args(args, case):
-    return ["--cases", case, "--seconds", str(args.seconds), "--warmup", str(args.warmup)]
+def client_args(args, case, impl=None):
+    extra = ["--stats"] if args.stats and impl == "rustorb" else []
+    return ["--cases", case, "--seconds", str(args.seconds), "--warmup", str(args.warmup)] + extra
 
 
 def endpoint(transport, tag):
@@ -441,36 +523,44 @@ def endpoint(transport, tag):
     return ["-ORBendPoint", "giop:tcp:127.0.0.1:"]
 
 
-def baseline_cpu(impls, impl, args, logdir):
-    """CPU seconds a client process takes without any case (start and end)."""
+def baseline(impls, impl, args, logdir):
+    """CPU seconds and context switches a client process takes without any
+    case (start and end)."""
     ior = "corbaloc::127.0.0.1:1/none"
-    _, cpu, _, _ = run_client(impls.cmd(impl, "client") + ["--ior", ior, "--cases", ""] +
-                              ORB_ARGS, impls.env_of(impl),
-                              os.path.join(logdir, "baseline-%s.log" % impl), 60)
-    return cpu or 0.0
+    c = run_client(impls.cmd(impl, "client") + ["--ior", ior, "--cases", ""] + ORB_ARGS,
+                   impls.env_of(impl), os.path.join(logdir, "baseline-%s.log" % impl), 60)
+    return {"cpu": c.cpu or 0.0, "csw": c.csw or 0}
 
 
 def inproc(impls, impl, args, logdir, rep):
     rows = []
-    for case in args.cases:
+    for case in args.inproc_cases:
         if case.startswith("procs:") or case == "first":
             continue
-        lines, cpu, rss, ok = run_client(
-            impls.cmd(impl, "inproc") + client_args(args, case) + ORB_ARGS, impls.env_of(impl),
-            os.path.join(logdir, "inproc-%s.log" % impl), args.timeout)
-        row = {"mode": "inproc", "impl": impl, "case": case, "rep": rep, "ok": ok and bool(lines)}
-        if lines:
-            row.update(lines[0])
-            row["process_cpu_s"] = cpu
-            row["process_peak_rss"] = rss
+        c = run_client(
+            impls.cmd(impl, "inproc") + client_args(args, case, impl) + ORB_ARGS,
+            impls.env_of(impl), os.path.join(logdir, "inproc-%s.log" % impl), args.timeout)
+        row = {"mode": "inproc", "impl": impl, "case": case, "rep": rep,
+               "ok": c.ok and bool(c.lines)}
+        if c.lines:
+            row.update(c.lines[0])
+            row["process_cpu_s"] = c.cpu
+            row["process_csw"] = c.csw
+            row["process_peak_rss"] = c.rss
+        if case in c.stats:
+            row["client_stats"] = c.stats[case]
         rows.append(row)
     return rows
 
 
 def pair(impls, client, server, transport, args, logdir, rep, base):
     tag = "%s-%s-%s-%d" % (client, server, transport, rep)
-    srv = Server(impls.cmd(server, "serve") + endpoint(transport, tag) + ORB_ARGS,
-                 impls.env_of(server), os.path.join(logdir, "server-%s.log" % tag))
+    stats_file, extra = None, []
+    if args.stats and server == "rustorb":
+        stats_file = os.path.join(logdir, "stats-%s.json" % tag)
+        extra = ["--stats-file", stats_file]
+    srv = Server(impls.cmd(server, "serve") + endpoint(transport, tag) + ORB_ARGS + extra,
+                 impls.env_of(server), os.path.join(logdir, "server-%s.log" % tag), stats_file)
     rows = []
     try:
         if not srv.ior:
@@ -479,21 +569,21 @@ def pair(impls, client, server, transport, args, logdir, rep, base):
         for case in args.cases:
             row = {"mode": "pair", "client": client, "server": server, "transport": transport,
                    "case": case, "rep": rep}
-            s0 = srv.cpu()
+            s0, w0, st0 = srv.cpu(), srv.csw(), srv.stats()
             if case == "first":
                 # A new client process each time: the first call makes the
                 # connection. FIRST_RUNS of them; their median.
                 firsts, walls = [], []
                 for _ in range(FIRST_RUNS):
                     t0 = time.monotonic()
-                    lines, _, _, ok = run_client(
+                    c = run_client(
                         impls.cmd(client, "client") + ["--ior", srv.ior, "--cases", "first"] +
                         ORB_ARGS, impls.env_of(client),
                         os.path.join(logdir, "client-%s.log" % tag), args.timeout)
-                    if not ok or not lines:
+                    if not c.ok or not c.lines:
                         break
                     walls.append((time.monotonic() - t0) * 1e3)
-                    firsts.append(lines[0]["p50_us"])
+                    firsts.append(c.lines[0]["p50_us"])
                 row["ok"] = len(firsts) == FIRST_RUNS
                 if firsts:
                     row["p50_us"] = statistics.median(firsts)
@@ -505,34 +595,49 @@ def pair(impls, client, server, transport, args, logdir, rep, base):
                 def one(i):
                     results[i] = run_client(
                         impls.cmd(client, "client") + ["--ior", srv.ior] +
-                        client_args(args, "long") + ORB_ARGS, impls.env_of(client),
+                        client_args(args, "long", client) + ORB_ARGS, impls.env_of(client),
                         os.path.join(logdir, "client-%s.log" % tag), args.timeout)
                 ts = [threading.Thread(target=one, args=(i,)) for i in range(n)]
                 for t in ts:
                     t.start()
                 for t in ts:
                     t.join()
-                ok = all(r and r[3] and r[0] for r in results)
+                ok = all(r and r.ok and r.lines for r in results)
                 row["ok"] = ok
                 if ok:
-                    row["rate"] = round(sum(r[0][0]["rate"] for r in results), 1)
-                    row["calls"] = sum(r[0][0]["calls"] for r in results)
-                    row["total_calls"] = sum(r[0][0].get("total_calls", 0) for r in results)
-                    row["p50_us"] = statistics.median(r[0][0]["p50_us"] for r in results)
-                    row["client_cpu_s"] = sum((r[1] or 0) - base for r in results)
+                    row["rate"] = round(sum(r.lines[0]["rate"] for r in results), 1)
+                    row["calls"] = sum(r.lines[0]["calls"] for r in results)
+                    row["total_calls"] = sum(r.lines[0].get("total_calls", 0) for r in results)
+                    row["p50_us"] = statistics.median(r.lines[0]["p50_us"] for r in results)
+                    row["client_cpu_s"] = sum((r.cpu or 0) - base["cpu"] for r in results)
+                    if all(r.csw is not None for r in results):
+                        row["client_csw"] = sum(r.csw - base["csw"] for r in results)
             else:
-                lines, cpu, rss, ok = run_client(
-                    impls.cmd(client, "client") + ["--ior", srv.ior] + client_args(args, case) +
-                    ORB_ARGS, impls.env_of(client), os.path.join(logdir, "client-%s.log" % tag),
-                    args.timeout)
-                row["ok"] = ok and bool(lines)
-                if lines:
-                    row.update(lines[0])
-                    row["client_cpu_s"] = None if cpu is None else max(cpu - base, 0.0)
-                    row["client_peak_rss"] = rss
-            s1 = srv.cpu()
+                c = run_client(
+                    impls.cmd(client, "client") + ["--ior", srv.ior] +
+                    client_args(args, case, client) + ORB_ARGS, impls.env_of(client),
+                    os.path.join(logdir, "client-%s.log" % tag), args.timeout)
+                row["ok"] = c.ok and bool(c.lines)
+                if c.lines:
+                    row.update(c.lines[0])
+                    row["client_cpu_s"] = None if c.cpu is None else max(c.cpu - base["cpu"], 0.0)
+                    row["client_csw"] = None if c.csw is None else max(c.csw - base["csw"], 0)
+                    row["client_peak_rss"] = c.rss
+                if case in c.stats:
+                    row["client_stats"] = c.stats[case]
+            if stats_file:
+                # The server writes its counts every 50 ms.
+                time.sleep(0.15)
+            s1, w1, st1 = srv.cpu(), srv.csw(), srv.stats()
             if s0 is not None and s1 is not None:
                 row["server_cpu_s"] = round(s1 - s0, 3)
+            if w0 is not None and w1 is not None:
+                row["server_csw"] = sum(w1.values()) - sum(w0.values())
+                row["server_csw_threads"] = {
+                    k: v - w0.get(k, 0) for k, v in w1.items() if v - w0.get(k, 0)}
+            st = stats_since(st1, st0)
+            if st is not None:
+                row["server_stats"] = st
             rows.append(row)
             if srv.proc.poll() is not None:
                 break
@@ -563,6 +668,7 @@ def pairs_of(args, available):
 
 METRICS = ["rate", "mean_us", "p50_us", "p90_us", "p99_us", "max_us", "mb_per_s", "send_rate",
            "cpu_us_per_call", "client_cpu_us_per_call", "server_cpu_us_per_call",
+           "csw_per_call", "client_csw_per_call", "server_csw_per_call",
            "server_rss_start", "server_peak_rss", "process_peak_rss", "client_peak_rss",
            "process_wall_ms"]
 
@@ -578,6 +684,18 @@ def per_call(rows):
             r["client_cpu_us_per_call"] = round(r["client_cpu_s"] / n * 1e6, 3)
         if r.get("server_cpu_s") is not None:
             r["server_cpu_us_per_call"] = round(r["server_cpu_s"] / n * 1e6, 3)
+        for k in ("process", "client", "server"):
+            if r.get(k + "_csw") is not None:
+                key = "csw_per_call" if k == "process" else k + "_csw_per_call"
+                r[key] = round(r[k + "_csw"] / n, 3)
+        counters = {}
+        for side in ("client", "server"):
+            for name, v in (r.get(side + "_stats") or {}).items():
+                counters["%s.%s" % (side, name)] = round(v / n, 4)
+        for name, v in (r.get("server_csw_threads") or {}).items():
+            counters["server.csw[%s]" % name] = round(v / n, 4)
+        if counters:
+            r["counters_per_call"] = counters
 
 
 def medians(rows):
@@ -597,6 +715,19 @@ def medians(rows):
             vals = [r[k] for r in rs if r.get("ok") and r.get(k) is not None]
             if vals:
                 m[k] = statistics.median(vals)
+        names = []
+        for r in rs:
+            for name in r.get("counters_per_call") or {}:
+                if name not in names:
+                    names.append(name)
+        counters = {}
+        for name in names:
+            vals = [r["counters_per_call"][name] for r in rs
+                    if r.get("ok") and name in (r.get("counters_per_call") or {})]
+            if vals:
+                counters[name] = statistics.median(vals)
+        if counters:
+            m["counters_per_call"] = counters
         out.append(m)
     return out
 
@@ -659,6 +790,8 @@ def markdown(result):
         return fmt(r.get(key), digits)
 
     def table(title, cols, rowkeys, get, key, digits=None):
+        if not rowkeys:
+            return
         L.extend(["#### " + title, "", "| case | " + " | ".join(cols) + " |",
                   "| --- |" + " ---: |" * len(cols)])
         for rk in rowkeys:
@@ -667,7 +800,7 @@ def markdown(result):
 
     inproc = {(r["impl"], r["case"]): r for r in med if r["mode"] == "inproc"}
     impls_in = [i for i in result["impls"] if any(k[0] == i for k in inproc)]
-    cases = [c for c in result["parameters"]["cases"]]
+    cases = list(result["parameters"].get("inproc_cases") or result["parameters"]["cases"])
     if inproc:
         g = lambda case, impl: inproc.get((impl, case))  # noqa: E731
         table("In-process: latency p50 (µs)", impls_in, [c for c in cases if c in LATENCY or
@@ -679,6 +812,7 @@ def markdown(result):
         table("In-process: CPU per call (µs, whole process)", impls_in,
               [c for c in cases if c in LATENCY or c.startswith(("octets", "oneway"))], g,
               "cpu_us_per_call")
+    cases = list(result["parameters"]["cases"])
     prs = [r for r in med if r["mode"] == "pair"]
     for tr in result["parameters"]["transports"]:
         sub = {(r["client"], r["server"], r["case"]): r for r in prs if r["transport"] == tr}
@@ -693,6 +827,8 @@ def markdown(result):
             tuple(label.split("→")) + (case,))
         # Narrow tables: pairs as rows, cases as columns.
         def ptable(title, cs, key, digits=None):
+            if not cs:
+                return
             L.extend(["#### %s (%s)" % (title, tr), "",
                       "| client→server | " + " | ".join(cs) + " |",
                       "| --- |" + " ---: |" * len(cs)])
@@ -717,6 +853,14 @@ def markdown(result):
         ptable("Separate processes: server CPU per call (µs)",
                [c for c in cases if c in ("ping", "octets:1048576", "oneway", "any")],
                "server_cpu_us_per_call")
+        csw_cases = [c for c in cases if c in LATENCY or c in RATES or
+                     c.startswith(("octets", "put", "get"))]
+        if any(r.get("client_csw_per_call") is not None for r in sub.values()):
+            ptable("Separate processes: client context switches per call",
+                   csw_cases, "client_csw_per_call", 2)
+        if any(r.get("server_csw_per_call") is not None for r in sub.values()):
+            ptable("Separate processes: server context switches per call",
+                   csw_cases, "server_csw_per_call", 2)
         L.extend(["#### Server memory (%s, MiB)" % tr, "", "| client→server | at start | peak |",
                   "| --- | ---: | ---: |"])
         for lab in labels:
@@ -726,15 +870,36 @@ def markdown(result):
                 lab, mib((r or {}).get("server_rss_start")),
                 mib((r or {}).get("server_peak_rss"))))
         L.append("")
+    counted = [r for r in med if r.get("counters_per_call")]
+    if counted:
+        L.extend(["#### Counters per call", "",
+                  "`server.csw[NAME]`: the context switches of the server's threads of that "
+                  "name (Linux). The others: rustorb's internal counters (--stats; "
+                  "rustorb_core::stats). Counters that are 0 are left out.", ""])
+        for r in counted:
+            who = (r["impl"] + " in-process" if r["mode"] == "inproc" else
+                   "%s→%s (%s)" % (r["client"], r["server"], r["transport"]))
+            nonzero = [(k, v) for k, v in r["counters_per_call"].items() if v]
+            if not nonzero:
+                continue
+            L.extend(["%s, `%s`:" % (who, r["case"]), "", "| counter | per call |",
+                      "| --- | ---: |"])
+            L.extend("| %s | %s |" % (k, fmt(v, 3)) for k, v in nonzero)
+            L.append("")
     return "\n".join(L)
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--impls", default=",".join(IMPLS))
+    ap.add_argument("--impls")
     ap.add_argument("--modes", default="inproc,pairs")
-    ap.add_argument("--pairs", default="all")
-    ap.add_argument("--cases", default=",".join(CASES))
+    ap.add_argument("--pairs")
+    ap.add_argument("--cases")
+    ap.add_argument("--inproc-cases", help="the cases in one process (default: --cases)")
+    ap.add_argument("--quick", action="store_true",
+                    help="the short before/after set (see the description)")
+    ap.add_argument("--stats", action="store_true",
+                    help="record rustorb's internal counters (rustorb_core::stats)")
     ap.add_argument("--seconds", type=float, default=2.0)
     ap.add_argument("--warmup", type=float, default=0.3)
     ap.add_argument("--repeat", type=int, default=3)
@@ -743,7 +908,16 @@ def main():
     ap.add_argument("--out")
     ap.add_argument("--no-build", action="store_true")
     args = ap.parse_args()
+    if args.impls is None:
+        args.impls = ",".join(QUICK_IMPLS if args.quick else IMPLS)
+    if args.pairs is None:
+        args.pairs = "same" if args.quick else "all"
+    if args.cases is None:
+        args.cases = ",".join(QUICK_CASES if args.quick else CASES)
+    if args.inproc_cases is None:
+        args.inproc_cases = ",".join(QUICK_INPROC_CASES) if args.quick else args.cases
     args.cases = [c for c in args.cases.split(",") if c]
+    args.inproc_cases = [c for c in args.inproc_cases.split(",") if c]
     modes = args.modes.split(",")
     transports = args.transports.split(",")
     date = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -755,7 +929,7 @@ def main():
     available = [i for i in args.impls.split(",") if impls.build(i)]
     for i, why in impls.skipped.items():
         log("skipped %s: %s" % (i, why))
-    base = {i: baseline_cpu(impls, i, args, logdir) for i in available}
+    base = {i: baseline(impls, i, args, logdir) for i in available}
     rows = []
     for rep in range(args.repeat):
         if "inproc" in modes:
@@ -771,11 +945,13 @@ def main():
         "date": datetime.datetime.now().isoformat(timespec="seconds"),
         "machine": machine(),
         "parameters": {"seconds": args.seconds, "warmup": args.warmup, "repeat": args.repeat,
-                       "cases": args.cases, "modes": modes, "transports": transports,
-                       "pairs": args.pairs, "orb_args": ORB_ARGS},
+                       "cases": args.cases, "inproc_cases": args.inproc_cases, "modes": modes,
+                       "transports": transports, "pairs": args.pairs, "orb_args": ORB_ARGS,
+                       "quick": args.quick, "stats": args.stats},
         "impls": available,
         "skipped": impls.skipped,
-        "client_baseline_cpu_s": base,
+        "client_baseline_cpu_s": {i: b["cpu"] for i, b in base.items()},
+        "client_baseline_csw": {i: b["csw"] for i, b in base.items()},
         "runs": rows,
         "medians": medians(rows),
     }

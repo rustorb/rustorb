@@ -16,6 +16,8 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use crate::stats::{self, Counter};
+
 pub(crate) type Job = Box<dyn FnOnce() + Send>;
 
 #[derive(Debug)]
@@ -98,15 +100,20 @@ impl Pool {
             return;
         }
         state.queue.push_back(job);
+        stats::count(Counter::pool_jobs);
         // Threads woken before take the jobs queued before.
         if let Some(waiter) = state.idle.pop() {
+            stats::count(Counter::pool_wakes);
             waiter.woken.store(true, Ordering::Relaxed);
             // Notified after the lock is released, so that the thread does
             // not wake only to wait for it.
             drop(state);
             waiter.cond.notify_one();
         } else if state.threads < self.shared.max {
+            stats::count(Counter::pool_spawns);
             spawn(&self.shared, &mut state);
+        } else {
+            stats::count(Counter::pool_queued);
         }
     }
 
@@ -164,6 +171,7 @@ fn work(shared: &Shared) {
         }
         me.woken.store(false, Ordering::Relaxed);
         state.idle.push(Arc::clone(&me));
+        stats::count(Counter::pool_sleeps);
         let mut timed_out = false;
         while !me.woken.load(Ordering::Relaxed) && !timed_out {
             let (next, timeout) = me.cond.wait_timeout(state, shared.idle_timeout).unwrap();
