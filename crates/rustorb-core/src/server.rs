@@ -2562,7 +2562,13 @@ async fn serve(
         "accepted a connection from {peer}{}",
         if session.is_some() { " with TLS" } else { "" }
     );
-    let (reader, writer) = stream.into_split();
+    let (reader, writer) = match stream.into_split() {
+        Ok(halves) => halves,
+        Err(e) => {
+            trace::info!("connection from {peer} dropped: {e}");
+            return;
+        }
+    };
     let out = Arc::new(Outbox::new(writer, session.clone(), peer.0));
     let conn = Arc::new(ServerConn {
         inbound: Arc::new(Inbound::new(reader, session, server.max_message_size)),

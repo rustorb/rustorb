@@ -191,7 +191,7 @@ impl Connection {
             Peer(&endpoint),
             if session.is_some() { " with TLS" } else { "" }
         );
-        let (reader, writer) = stream.into_split();
+        let (reader, writer) = stream.into_split()?;
         let conn = Arc::new(Connection {
             endpoint,
             inbound: Arc::new(Inbound::new(reader, session.clone(), max_message_size)),
