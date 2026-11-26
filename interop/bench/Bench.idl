@@ -1,0 +1,59 @@
+// IDL of the rustorb / omniORB comparison benchmark (interop/bench).
+//
+// Every implementation serves Bench::Target and runs the same cases against
+// it, in one process (the servant and the caller share the ORB) or in two.
+// The comment on each operation is its specification.
+
+#ifndef BENCH_IDL
+#define BENCH_IDL
+
+module Bench {
+  typedef sequence<octet> Octets;
+
+  // A small record: fixed-size members and a short string.
+  struct Sample {
+    long id;
+    double x;
+    double y;
+    double z;
+    string name;
+  };
+  typedef sequence<Sample> Samples;
+
+  interface Target {
+    // Does nothing.
+    void ping();
+
+    // Returns v.
+    long echo_long(in long v);
+
+    // Returns v.
+    string echo_string(in string v);
+
+    // Returns v.
+    Octets echo_octets(in Octets v);
+
+    // Returns the length of v (data one way, a small reply).
+    unsigned long put_octets(in Octets v);
+
+    // Returns an octet sequence of n octets (a small request, data back).
+    Octets get_octets(in unsigned long n);
+
+    // Returns v.
+    Samples echo_samples(in Samples v);
+
+    // Returns v.
+    any echo_any(in any v);
+
+    // Counts the call.
+    oneway void post(in long v);
+
+    // Returns the number of post calls received so far and resets it to 0.
+    unsigned long take_posted();
+
+    // Ends the server.
+    oneway void shutdown();
+  };
+};
+
+#endif

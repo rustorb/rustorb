@@ -29,6 +29,7 @@ rustorb は IIOP、SSLIOP、omniORB の Unix ドメインソケットの上で G
 - [入門ガイド（英語）](docs/getting-started.md)と[例](examples/)
 - [開発計画](docs/development-plan.md)
 - [CORBA 仕様への対応状況](docs/corba-compliance.md)
+- [omniORB との比較（機能と速度）](docs/omniorb-comparison.md)
 - [未対応の CORBA 機能と対応する issue](docs/unsupported-features.md)
 - [Python生成器（rustorb-idl -bpython）](https://github.com/rustorb/rustorb-idl/blob/main/docs/python-codegen.md)
 - [IDL to Rust マッピング（rustorb-idl -brust）](docs/rust-mapping.md)

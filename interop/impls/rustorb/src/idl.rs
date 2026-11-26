@@ -9,6 +9,7 @@ include!("idl/any_test.rs");
 include!("idl/any_test_hidden.rs");
 include!("idl/value_test.rs");
 include!("idl/poa_probe.rs");
+include!("idl/bench.rs");
 
 /// The operations of the valuetypes of ValueTest.idl, as it says.
 mod value_ops {
