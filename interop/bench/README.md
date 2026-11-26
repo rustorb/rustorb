@@ -29,6 +29,27 @@ interop/bench/run-bench.py --impls rustorb,omniorbcpp --pairs same --repeat 5
 interop/bench/run-bench.py --modes pairs --transports tcp,unix --cases ping,octets:1048576
 ```
 
+### Before and after a change
+
+`--quick` runs the short set the speed work compares
+([docs/perf-plan.md](../../docs/perf-plan.md#測り方)): rustorb and omniORB C++,
+each against itself, `ping`, `any`, `oneway`, `threads:4`, `get:1048576`, and
+`ping` in one process. `compare-bench.py` prints the differences of two runs
+as a Markdown table.
+
+```sh
+interop/bench/run-bench.py --quick --stats --out /tmp/before
+# ... the change ...
+interop/bench/run-bench.py --quick --stats --out /tmp/after
+interop/bench/compare-bench.py /tmp/before /tmp/after --counters
+```
+
+Every run records the context switches per call: the client's (wait4, Linux
+and macOS) and, on Linux, the server's, also by thread name
+(`server.csw[rustorb-io]`, ...). `--stats` adds rustorb's internal counters
+per call (`rustorb_core::stats`; `rustorb-bench client --stats` and
+`rustorb-bench serve --stats-file PATH`), for the rustorb client and server.
+
 `run-bench.py --help` lists the options. It builds each implementation into
 `interop/out/bench-build/` (skipping, with the reason, those whose tools are
 missing) and writes `result.json` and `result.md` to `interop/out/bench/DATE/`.
@@ -50,7 +71,9 @@ rustorb-bench inproc --cases ping
 ```
 
 `serve` prints the IOR of its `Bench::Target` and runs until killed (or
-`shutdown`). `client` and `inproc` take `--cases LIST`, `--seconds S` (each
+`shutdown`). The rustorb program also takes `--stats` (client, inproc: a
+line of internal counts after each case) and `--stats-file PATH` (serve: the
+counts so far, written every 50 ms). `client` and `inproc` take `--cases LIST`, `--seconds S` (each
 case, default 2) and `--warmup S` (default 0.3); the other arguments go to
 ORB_init. run-bench.py passes `-ORBgiopMaxMsgSize 67108864` to every ORB
 (omniORB's default limit is 2 MB).

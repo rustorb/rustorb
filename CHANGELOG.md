@@ -7,6 +7,21 @@ break the API).
 
 ## [Unreleased]
 
+### Added
+
+- `rustorb_core::stats`: process-wide counters of what the ORB does inside
+  (I/O task wake-ups, socket reads that found nothing, threads reading a
+  connection themselves, follow, the upcall pool, direct and queued
+  writes), off by default; `-ORBstatistics 1` / `OrbOptions::statistics`
+  or `stats::set_enabled` turns them on. For measuring the speed work of
+  docs/perf-plan.md (#204).
+- interop/bench: `run-bench.py --quick` (the short before/after set),
+  `--stats` (rustorb's counters per call), context switches per call
+  (client and server, the server's by thread), and `compare-bench.py`, the
+  table of the differences between two runs. `cargo bench -p rustorb-core`
+  has `orb/oneway`, `orb/echo_long_threads_one_ref/4` and
+  `orb/echo_long_in_process`.
+
 ### Changed
 
 - `rustorb-typesupport`: an array of a primitive type (`Array<D, N>`) is

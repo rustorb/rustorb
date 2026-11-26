@@ -19,6 +19,7 @@ use crate::pi::{
 };
 use crate::policy;
 use crate::server::Server;
+use crate::stats::{self, Counter};
 use crate::stream::{InStream, OutStream, marshal};
 use crate::trace;
 use crate::{
@@ -1516,12 +1517,18 @@ async fn attempt_on<A: WriteArgs + ?Sized>(
         None
     };
     let delivered = match here {
-        Some(Some(message)) => Some(Ok(Ok(message))),
+        Some(Some(message)) => {
+            stats::count(Counter::replies_read_here);
+            Some(Ok(Ok(message)))
+        }
         Some(None) => None,
-        None => match deadline {
-            Some(at) => tokio::time::timeout_at(at.into(), rx).await.ok(),
-            None => Some(rx.await),
-        },
+        None => {
+            stats::count(Counter::replies_from_task);
+            match deadline {
+                Some(at) => tokio::time::timeout_at(at.into(), rx).await.ok(),
+                None => Some(rx.await),
+            }
+        }
     };
     let delivered = match delivered {
         Some(delivered) => delivered,

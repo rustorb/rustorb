@@ -173,6 +173,9 @@ Docker を使わず、同じマシンで `rustorb-names`・`rustorb-interop-serv
 | `orb/echo_long` | 同じプロセスの ORB どうしで 1 回ずつ呼ぶ | 65 µs |
 | `orb/echo_octets_1MiB` | 1 MiB の octet 列の往復 | 0.75 ms |
 | `orb/echo_long_connections/16` | 16 個のクライアント ORB から同時に呼ぶ | 毎秒 8.6 万回 |
+| `orb/echo_long_in_process` | 同じ ORB の中で呼ぶ（#204） | 3.9 µs（クラウド） |
+| `orb/oneway` | oneway をサーバントが全部処理するまで（#204） | 毎秒 7.4 万回（クラウド） |
+| `orb/echo_long_threads_one_ref/4` | 一つの参照を 4 スレッドから同時に（#204） | 毎秒 2.6 万回（クラウド） |
 
 `giop/assemble_and_decode_1MiB` はコピーがないので 1 MiB の大きさによらない。コピーが戻ればここが 100 倍ほど遅くなる。コピーしないことは `rustorb-giop` のテスト（`owned_messages_are_decoded_without_copying`）でも確かめている。
 

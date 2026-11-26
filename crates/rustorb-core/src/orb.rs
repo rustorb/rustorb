@@ -151,6 +151,10 @@ pub struct OrbOptions {
     /// (`-ORBtraceTime 0|1`), set when the ORB is created; `None` leaves
     /// it as it is (off at first).
     pub trace_time: Option<bool>,
+    /// Whether the ORB's internal counters count
+    /// (`-ORBstatistics 0|1`), set when the ORB is created; `None` leaves
+    /// it as it is (off at first). See [`stats`](crate::stats).
+    pub statistics: Option<bool>,
     /// The arguments the ORB was created with, for
     /// [`OrbInitInfo::arguments`](crate::pi::OrbInitInfo::arguments).
     /// [`Orb::init`] sets them to its arguments, ORB options included.
@@ -295,6 +299,7 @@ impl Default for OrbOptions {
             tls: TlsOptions::default(),
             trace_level: None,
             trace_time: None,
+            statistics: None,
             arguments: Vec::new(),
             orb_id: String::new(),
             server_id: String::new(),
@@ -339,6 +344,7 @@ impl OrbOptions {
     /// | `-ORBsslVerifyHost 0\|1` | [`TlsOptions::verify_host`] |
     /// | `-ORBtraceLevel N` | [`trace_level`](OrbOptions::trace_level) |
     /// | `-ORBtraceTime 0\|1` | [`trace_time`](OrbOptions::trace_time) |
+    /// | `-ORBstatistics 0\|1` | [`statistics`](OrbOptions::statistics) |
     ///
     /// The value may also follow the option name after `=`, as in
     /// `-ORBmaxGIOPVersion=1.1`.
@@ -375,6 +381,7 @@ impl OrbOptions {
                             | "sslVerifyHost"
                             | "traceLevel"
                             | "traceTime"
+                            | "statistics"
                             | "id"
                             | "ServerId"
                     ) =>
@@ -410,6 +417,7 @@ impl OrbOptions {
                     | "sslVerifyHost"
                     | "traceLevel"
                     | "traceTime"
+                    | "statistics"
                     | "id"
                     | "ServerId"
             ) {
@@ -529,6 +537,13 @@ impl OrbOptions {
                 "ServerId" => self.server_id = value,
                 "traceTime" => {
                     self.trace_time = Some(match value.as_str() {
+                        "0" => false,
+                        "1" => true,
+                        _ => return Err(bad_option()),
+                    });
+                }
+                "statistics" => {
+                    self.statistics = Some(match value.as_str() {
                         "0" => false,
                         "1" => true,
                         _ => return Err(bad_option()),
@@ -809,6 +824,9 @@ impl Orb {
         }
         if let Some(on) = options.trace_time {
             crate::trace::set_trace_time(on);
+        }
+        if let Some(on) = options.statistics {
+            crate::stats::set_enabled(on);
         }
         let orb = Orb {
             inner: Arc::new(OrbInner {
