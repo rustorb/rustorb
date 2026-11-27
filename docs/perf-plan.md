@@ -107,6 +107,7 @@ run-bench.py が記録するもの（`--quick` でなくても）：
 | `task_wakeups_busy_empty` | アップコールのスレッドが要求を処理中に起き、読むものがなかった |
 | `task_messages` | I/O タスクが読んだメッセージ |
 | `recv_calls`・`recv_would_block` | ソケットの `recv`（タスクとスレッドの両方）と、そのうち何もなかった（`EAGAIN`）もの |
+| `low_water_sets` | 大きなメッセージを読む間、ソケットの `SO_RCVLOWAT` を変えた（1 つで 2 回、Linux の TLS なしの TCP、#211・[large-data.md](large-data.md)） |
 | `thread_polls` | スレッドがソケットを `poll` で待った |
 | `claims`・`claim_failures` | スレッドが読む役を取れた・取れなかった（I/O タスクが読んでいた） |
 | `thread_messages`・`thread_read_timeouts` | スレッドが自分で読んだメッセージ、待ち時間が尽きた回数 |

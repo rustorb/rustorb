@@ -40,6 +40,13 @@ impl std::fmt::Display for PeerAddr {
 /// are read straight into their own buffer.
 const READ_AHEAD: usize = 16 * 1024;
 
+/// While a large message comes in, the socket counts as readable only
+/// once this much more of it (or all the rest, if less) has arrived
+/// ([`ReadHalf::set_recv_low_water`]): the reader then wakes once for
+/// each such piece instead of for each segment. Linux lowers it to half
+/// the receive buffer.
+const LARGE_LOW_WATER: usize = 256 * 1024;
+
 /// Why no message could be read.
 #[derive(Debug)]
 pub(crate) enum ReadError {
@@ -89,6 +96,16 @@ impl MessageReader {
             || buffered.len() >= MessageHeader::SIZE
                 && MessageHeader::parse(&buffered[..MessageHeader::SIZE])
                     .is_ok_and(|h| h.total_len() > READ_AHEAD)
+    }
+
+    /// How many bytes the socket should have before it counts as
+    /// readable: the rest of the large message being read, up to
+    /// [`LARGE_LOW_WATER`]; else 1.
+    fn low_water(&self) -> usize {
+        match &self.large {
+            Some((header, msg)) => (header.total_len() - msg.len()).clamp(1, LARGE_LOW_WATER),
+            None => 1,
+        }
     }
 
     /// Whether part of a message (or more) was read and not taken.
@@ -225,6 +242,10 @@ pub(crate) struct ReadSide {
     /// The last message a thread read had to be waited for
     /// ([`FirstRead::AsBefore`]).
     waited: bool,
+    /// The low-water mark set on the socket (1, the default, until a
+    /// large message comes); `None` when it is left alone (TLS: what the
+    /// socket has is not what the reader still needs).
+    low_water: Option<usize>,
 }
 
 impl ReadSide {
@@ -232,6 +253,7 @@ impl ReadSide {
     /// has nothing more now.
     fn next(
         &mut self,
+        stream: &ReadHalf,
         read: &mut ReadFn<'_>,
         defer_large: bool,
     ) -> Result<Option<(Version, Message)>, ReadError> {
@@ -239,7 +261,9 @@ impl ReadSide {
             return held.map(Some);
         }
         loop {
-            let Some((header, msg)) = self.reader.next(read, defer_large)? else {
+            let next = self.reader.next(read, defer_large);
+            self.update_low_water(stream);
+            let Some((header, msg)) = next? else {
                 return Ok(None);
             };
             trace::trace!(
@@ -254,6 +278,22 @@ impl ReadSide {
             };
             let (_, message) = whole.into_decoded().map_err(malformed)?;
             return Ok(Some((version, message)));
+        }
+    }
+}
+
+impl ReadSide {
+    /// Sets the socket's low-water mark to what the reader needs now
+    /// ([`MessageReader::low_water`]), if that changed.
+    fn update_low_water(&mut self, stream: &ReadHalf) {
+        let Some(current) = &mut self.low_water else {
+            return;
+        };
+        let want = self.reader.low_water();
+        if want != *current {
+            stream.set_recv_low_water(want);
+            *current = want;
+            stats::count(Counter::low_water_sets);
         }
     }
 }
@@ -353,6 +393,7 @@ fn now_ns() -> u64 {
 impl Inbound {
     pub(crate) fn new(stream: ReadHalf, tls: Option<Arc<Tls>>, max_message_size: usize) -> Inbound {
         let peer = stream.peer_addr();
+        let tls_free = tls.is_none();
         Inbound {
             stream,
             tls,
@@ -363,6 +404,7 @@ impl Inbound {
                 held: None,
                 peer,
                 waited: false,
+                low_water: tls_free.then_some(1),
             }),
             back: Notify::new(),
             handed_back: AtomicBool::new(false),
@@ -435,7 +477,7 @@ impl Inbound {
                     }
                 };
                 let mut read = |buf: &mut [MaybeUninit<u8>]| self.read(&mut raw, buf);
-                if let Some(msg) = self.side().next(&mut read, false)? {
+                if let Some(msg) = self.side().next(stream, &mut read, false)? {
                     stats::count(Counter::task_messages);
                     return Ok(msg);
                 }
@@ -560,7 +602,7 @@ impl Inbound {
                 waited = true;
             }
             wait = true;
-            let next = side.next(&mut read, true);
+            let next = side.next(stream, &mut read, true);
             if matches!(next, Ok(Some(_))) {
                 side.waited = waited;
             }

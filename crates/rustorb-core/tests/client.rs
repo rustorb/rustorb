@@ -20,6 +20,8 @@ const KEY: &[u8] = b"test-key";
 /// What the scripted server does with one message.
 enum Action {
     Send(Vec<u8>),
+    /// Sends the bytes in pieces of the given size, pausing between them.
+    Trickle(Vec<u8>, usize, Duration),
     /// Drops the connection.
     Close,
 }
@@ -114,6 +116,12 @@ fn serve(mut stream: TcpStream, connection: usize, handler: &Handler, server: &S
         for action in handler(&received, server) {
             match action {
                 Action::Send(bytes) => stream.write_all(&bytes).unwrap(),
+                Action::Trickle(bytes, piece, pause) => {
+                    for chunk in bytes.chunks(piece) {
+                        stream.write_all(chunk).unwrap();
+                        thread::sleep(pause);
+                    }
+                }
                 Action::Close => return,
             }
         }
@@ -865,4 +873,51 @@ fn timeouts_while_connecting() {
     let (d, completed) = time_out(&obj);
     assert!(about(d, 500), "{d:?}");
     assert_eq!(completed, CompletionStatus::No);
+}
+
+/// A large reply that comes in slow pieces, the last one smaller than the
+/// low-water mark the reader sets while it waits for the rest (Linux),
+/// and calls on the connection after it, which must not wait for more
+/// bytes than they have.
+#[test]
+fn large_replies_in_slow_pieces() {
+    const LEN: usize = 1024 * 1024 + 3;
+    let server = Server::start(|r, s| match &r.message {
+        Message::Request { header, .. } if header.operation == "get" => {
+            let mut actions = reply(r, ReplyStatus::NoException, |enc| {
+                enc.write_octet_seq(&vec![9u8; LEN]).unwrap();
+            });
+            let Some(Action::Send(bytes)) = actions.pop() else {
+                unreachable!()
+            };
+            // 300 KiB pieces: the last is ~124 KiB.
+            vec![Action::Trickle(
+                bytes,
+                300 * 1024,
+                Duration::from_millis(30),
+            )]
+        }
+        _ => echo_long(r, s),
+    });
+    let orb = orb();
+    let obj = object(&orb, &server.ior(Version::V1_2));
+    for round in 0..3 {
+        let reply = obj.request("get").invoke().unwrap();
+        let mut input = reply.input();
+        let got = if round % 2 == 0 {
+            <rustorb_core::idl::SharedOctets as rustorb_core::idl::IdlType>::read(&mut input)
+                .unwrap()
+                .into_vec()
+        } else {
+            <rustorb_core::idl::Sequence<rustorb_core::idl::Octet> as rustorb_core::idl::IdlType>::read(&mut input)
+                .unwrap()
+        };
+        assert_eq!(got.len(), LEN);
+        assert!(got.iter().all(|&b| b == 9));
+        // A small reply right after, on the same connection.
+        let start = Instant::now();
+        assert_eq!(call_long(&obj, round).unwrap(), round);
+        assert!(start.elapsed() < Duration::from_secs(2));
+    }
+    assert!(server.requests().iter().all(|r| r.connection == 0));
 }

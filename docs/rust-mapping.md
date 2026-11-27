@@ -153,6 +153,7 @@ pub trait IdlType {
 - **`string` / `wstring`**：`String`。`string` の中の NUL は送れない（`BAD_PARAM`）
 - **上限付きの型**：Rust の型は上限のない型と同じで、送るときに上限を超えていたら `BAD_PARAM`、受け取ったときは `MARSHAL`
 - **配列**：Rust の固定長配列。要素の型が `Default + Copy` でなくても読めるよう、読み込みは `Vec` に読んでから変換する
+- **共有の `sequence<octet>`（`-Wbshared_octets`）**：上限のない `sequence<octet>` を `rustorb_core::Octets`（`in` は `&Octets`）にする。大きなもの（4 KiB 以上）は、受け取るときは受け取ったメッセージを指すだけ、送るときはメッセージに写さない。記述子は `idl::SharedOctets`。ワイヤ上は同じなので、相手側が `Vec<u8>` でもよい。既定は `Vec<u8>` のまま（[large-data.md](large-data.md)）
 
 ## struct・enum・union・typedef・定数
 
