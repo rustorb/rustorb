@@ -95,6 +95,12 @@ ORB_init. run-bench.py passes `-ORBgiopMaxMsgSize 67108864` to every ORB
 | `threads:N` | `echo_long` from N threads sharing one object reference | calls/s |
 | `procs:N` | (run-bench.py) N client processes running `long` at once | calls/s summed |
 
+The Rust programs (`rustorb-bench`) are generated with `rustorb-idl -brust
+-Wbshared_octets` (since rustorb-idl 0.6.0): `Bench::Octets` is the shared
+`rustorb_core::Octets`, so the octet cases neither copy what they receive
+out of the message nor what they send into it (docs/large-data.md). Up to
+rustorb 0.7.x they used `Vec<u8>`.
+
 A timed case first calls for `--warmup` seconds, then times every call for
 `--seconds` and prints one JSON line: `calls`, `rate` (calls/s), `mean_us`,
 `p50_us`, `p90_us`, `p99_us`, `max_us`, `mb_per_s`, and `total_calls` (with

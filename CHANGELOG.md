@@ -26,6 +26,9 @@ break the API).
   -Wbshared_octets` maps `sequence<octet>` to it; the default stays
   `Vec<u8>`.
 - `rustorb_core::stats`: `low_water_sets` (#211).
+- interop/bench: the Rust benchmark is generated with `-Wbshared_octets`
+  (rustorb-idl 0.6.0, pinned in `tools/rustorb-idl.txt`), so its octet
+  cases use the shared `Octets` (#211).
 - `-ORBmaxConnectionsPerServer N` / `OrbOptions::max_connections_per_server`
   (also accepted as omniORB's `-ORBmaxGIOPConnectionPerServer`): the most
   connections a client opens to one server endpoint (#208).
