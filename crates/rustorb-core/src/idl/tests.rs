@@ -240,3 +240,42 @@ fn value_boxes() {
     ));
     assert!(back[2].is_none());
 }
+
+#[test]
+fn shared_octets() {
+    // The same bytes and TypeCode as `Sequence<Octet>`.
+    assert!(SharedOctets::type_code().equal(&Sequence::<Octet>::type_code()));
+    let big = crate::Octets::from(vec![3u8; rustorb_cdr::SHARE_MIN + 5]);
+    for v in [crate::Octets::from(vec![1, 2, 3]), big] {
+        assert_eq!(round_trip::<SharedOctets>(&v).unwrap(), v);
+        let mut enc = Encoder::new(ByteOrder::Little, Encoding::Giop1_2);
+        SharedOctets::write(&v, &mut OutStream::standalone(&mut enc)).unwrap();
+        let bytes = enc.into_bytes();
+        let mut enc = Encoder::new(ByteOrder::Little, Encoding::Giop1_2);
+        Sequence::<Octet>::write(&v, &mut OutStream::standalone(&mut enc)).unwrap();
+        assert_eq!(bytes, enc.into_bytes());
+    }
+    // A large one read from a shared buffer points into it.
+    let mut enc = Encoder::new(ByteOrder::Little, Encoding::Giop1_2);
+    let data = vec![4u8; rustorb_cdr::SHARE_MIN];
+    Sequence::<Octet>::write(&data, &mut OutStream::standalone(&mut enc)).unwrap();
+    let buf = Arc::new(enc.into_bytes());
+    let mut dec = Decoder::new(&buf, ByteOrder::Little, Encoding::Giop1_2);
+    dec.set_shared(&buf);
+    let got = SharedOctets::read(&mut InStream::standalone(dec, None)).unwrap();
+    assert_eq!(got, data);
+    assert_eq!(got.as_ptr(), buf[4..].as_ptr());
+    // A short length is MARSHAL.
+    let bytes = [9u8, 0, 0, 0, 1];
+    let mut input = InStream::standalone(
+        Decoder::new(&bytes, ByteOrder::Little, Encoding::Giop1_2),
+        None,
+    );
+    assert_eq!(
+        kind(SharedOctets::read(&mut input).unwrap_err()),
+        Some(SystemExceptionKind::MARSHAL)
+    );
+    let a = crate::Any::insert::<SharedOctets>(&crate::Octets::from(vec![5, 6])).unwrap();
+    assert_eq!(a.extract::<Sequence<Octet>>(), Some(vec![5, 6]));
+    assert_eq!(a.extract::<SharedOctets>().as_deref(), Some(&[5u8, 6][..]));
+}

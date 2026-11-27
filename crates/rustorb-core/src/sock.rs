@@ -208,6 +208,32 @@ mod unix_halves {
             SockRef::from(&*self.sock).recv(buf)
         }
 
+        /// Has the socket count as readable (to `poll` and the runtime's
+        /// poller) only once `n` bytes are there, or the stream ended or
+        /// failed: `SO_RCVLOWAT`, on Linux TCP only (elsewhere it does
+        /// nothing). The kernel lowers a value larger than half the receive
+        /// buffer to that. Reads that find fewer bytes still return them.
+        pub(crate) fn set_recv_low_water(&self, n: usize) {
+            #[cfg(target_os = "linux")]
+            if let Sock::Tcp(_) = &*self.sock {
+                let v = libc::c_int::try_from(n).unwrap_or(libc::c_int::MAX);
+                // SAFETY: a valid socket and an int option of its size.
+                // A failure leaves the value as it was, which only costs
+                // wake-ups.
+                unsafe {
+                    libc::setsockopt(
+                        self.raw_fd(),
+                        libc::SOL_SOCKET,
+                        libc::SO_RCVLOWAT,
+                        (&v as *const libc::c_int).cast(),
+                        std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+                    );
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            let _ = n;
+        }
+
         /// Reads through the runtime's readiness, so that a `WouldBlock`
         /// clears it.
         pub(crate) fn try_recv(&self, buf: &mut [MaybeUninit<u8>]) -> io::Result<usize> {
@@ -398,6 +424,9 @@ mod tokio_halves {
         pub(crate) fn peer_addr(&self) -> Option<SocketAddr> {
             self.0.peer_addr().ok()
         }
+
+        /// Does nothing here (see the Unix one).
+        pub(crate) fn set_recv_low_water(&self, _: usize) {}
 
         /// Reads straight from the socket, bypassing the runtime's
         /// readiness.

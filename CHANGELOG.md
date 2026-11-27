@@ -19,6 +19,13 @@ break the API).
   `connects` and `connection_shares` (#208), `local_direct` and
   `local_general` (#209).
 - `rustorb_giop::Body::from_vec`: a body that is not part of a message.
+- `rustorb_core::idl::SharedOctets`: the descriptor of `sequence<octet>`
+  as the shared `rustorb_core::Octets`, which a large one is received in
+  without being copied out of the message and sent from without being
+  copied into it (#211, docs/large-data.md). `rustorb-idl -brust
+  -Wbshared_octets` maps `sequence<octet>` to it; the default stays
+  `Vec<u8>`.
+- `rustorb_core::stats`: `low_water_sets` (#211).
 - `-ORBmaxConnectionsPerServer N` / `OrbOptions::max_connections_per_server`
   (also accepted as omniORB's `-ORBmaxGIOPConnectionPerServer`): the most
   connections a client opens to one server endpoint (#208).
@@ -31,6 +38,11 @@ break the API).
 
 ### Changed
 
+- While a large message comes in over TCP without TLS, on Linux, the
+  socket counts as readable only once 256 KiB more of it (or all the rest)
+  has arrived (`SO_RCVLOWAT`), so the reader wakes once per such piece
+  instead of once per segment (#211). With `-Wbshared_octets`, receiving
+  1 MiB went from 1.25 to about 2.3 GB/s in the cloud benchmark.
 - Calls to an object of the same ORB skip GIOP (#209,
   docs/colocated-calls.md). From GIOP 1.2 on, only the arguments are
   marshalled, the servant runs on the calling thread and the reply comes

@@ -451,6 +451,37 @@ impl<T: IdlType, const N: u32> IdlType for BoundedSequence<T, N> {
     }
 }
 
+/// `sequence<octet>` as [`Octets`](crate::Octets), shared instead of
+/// copied: what `rustorb-idl -brust -Wbshared_octets` maps it to.
+///
+/// A large one received (at least [`SHARE_MIN`](rustorb_cdr::SHARE_MIN)
+/// octets) points into the received message instead of being copied out
+/// of it, and keeps that message's buffer until it is dropped; a large one
+/// sent goes out from where it is, without being copied into the message.
+/// The bytes are the same as with [`Sequence<Octet>`], so either side of a
+/// call can use either.
+#[derive(Debug)]
+pub struct SharedOctets;
+
+impl IdlType for SharedOctets {
+    type Rust = crate::Octets;
+    type Borrowed = crate::Octets;
+    const MIN_SIZE: usize = 4;
+
+    fn type_code() -> TypeCode {
+        <Sequence<Octet> as IdlType>::type_code()
+    }
+
+    fn write(v: &crate::Octets, out: &mut OutStream<'_>) -> Sys<()> {
+        Ok(out.write_octet_seq_shared(v)?)
+    }
+
+    fn read(input: &mut InStream<'_>) -> Sys<crate::Octets> {
+        let e = input.marshal_error();
+        input.read_octet_seq_shared().map_err(|_| e)
+    }
+}
+
 /// Reads the length of a sequence whose elements take at least
 /// `min_size` octets.
 pub fn read_len(input: &mut InStream<'_>, min_size: usize) -> Sys<usize> {

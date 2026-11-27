@@ -66,6 +66,9 @@ counters! {
     recv_calls,
     /// Socket reads that found nothing (`EAGAIN`).
     recv_would_block,
+    /// The socket's low-water mark was changed: twice for a large message
+    /// read while it came in (Linux TCP without TLS).
+    low_water_sets,
     /// A thread waited for the socket (`poll`).
     thread_polls,
     /// A thread took the reading of a connection.
