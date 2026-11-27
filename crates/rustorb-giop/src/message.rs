@@ -76,20 +76,23 @@ impl TargetAddress {
         }
     }
 
-    pub(crate) fn encode(&self, enc: &mut Encoder) -> Result<()> {
-        enc.write_i16(self.disposition().to_i16());
+    /// The target, borrowed.
+    pub fn as_ref(&self) -> TargetRef<'_> {
         match self {
-            TargetAddress::Key(key) => enc.write_octet_seq(key)?,
-            TargetAddress::Profile(profile) => profile.encode(enc)?,
+            TargetAddress::Key(key) => TargetRef::Key(key),
+            TargetAddress::Profile(profile) => TargetRef::Profile(profile),
             TargetAddress::Reference {
                 selected_profile_index,
                 ior,
-            } => {
-                enc.write_u32(*selected_profile_index);
-                ior.encode(enc)?;
-            }
+            } => TargetRef::Reference {
+                selected_profile_index: *selected_profile_index,
+                ior,
+            },
         }
-        Ok(())
+    }
+
+    pub(crate) fn encode(&self, enc: &mut Encoder) -> Result<()> {
+        self.as_ref().encode(enc)
     }
 
     pub(crate) fn decode(dec: &mut Decoder<'_>) -> Result<TargetAddress> {
@@ -102,6 +105,78 @@ impl TargetAddress {
             },
         })
     }
+}
+
+/// A [`TargetAddress`] that borrows its parts, to write a request
+/// without copying them ([`RequestParts`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetRef<'a> {
+    /// The object key from the profile.
+    Key(&'a [u8]),
+    /// A whole profile.
+    Profile(&'a TaggedProfile),
+    /// An IOR and the index of the profile that was used.
+    Reference {
+        /// Index into `ior.profiles`.
+        selected_profile_index: u32,
+        /// The full reference.
+        ior: &'a Ior,
+    },
+}
+
+impl TargetRef<'_> {
+    /// The addressing disposition of this target.
+    pub fn disposition(&self) -> AddressingDisposition {
+        match self {
+            TargetRef::Key(_) => AddressingDisposition::Key,
+            TargetRef::Profile(_) => AddressingDisposition::Profile,
+            TargetRef::Reference { .. } => AddressingDisposition::Reference,
+        }
+    }
+
+    /// The object key when addressed by key.
+    pub fn object_key(&self) -> Option<&[u8]> {
+        match self {
+            TargetRef::Key(key) => Some(key),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn encode(&self, enc: &mut Encoder) -> Result<()> {
+        enc.write_i16(self.disposition().to_i16());
+        match self {
+            TargetRef::Key(key) => enc.write_octet_seq(key)?,
+            TargetRef::Profile(profile) => profile.encode(enc)?,
+            TargetRef::Reference {
+                selected_profile_index,
+                ior,
+            } => {
+                enc.write_u32(*selected_profile_index);
+                ior.encode(enc)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The header of a `Request` to write, borrowing its parts: the same
+/// message as from a [`RequestHeader`], without building one
+/// ([`MessageEncoder::request_parts`](crate::MessageEncoder::request_parts)).
+#[derive(Debug, Clone, Copy)]
+pub struct RequestParts<'a> {
+    /// Request id, unique per connection and direction.
+    pub request_id: u32,
+    /// See [`response_flags`].
+    pub response_flags: u8,
+    /// The target object.
+    pub target: TargetRef<'a>,
+    /// Operation name, or `_get_x`/`_set_x` for attributes.
+    pub operation: &'a str,
+    /// The service contexts: the groups are written one after the other,
+    /// as one sequence.
+    pub service_context: &'a [&'a [ServiceContext]],
+    /// `requesting_principal`, only sent by GIOP 1.0 and 1.1.
+    pub requesting_principal: &'a [u8],
 }
 
 /// The header of a `Request` message, in its GIOP 1.2 shape.

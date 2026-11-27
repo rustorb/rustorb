@@ -15,6 +15,7 @@ break the API).
   writes), off by default; `-ORBstatistics 1` / `OrbOptions::statistics`
   or `stats::set_enabled` turns them on. For measuring the speed work of
   docs/perf-plan.md (#204).
+- `rustorb_core::stats`: `reply_keeps` and `keep_resumes` (#207).
 - interop/bench: `run-bench.py --quick` (the short before/after set),
   `--stats` (rustorb's counters per call), context switches per call
   (client and server, the server's by thread), and `compare-bench.py`, the
@@ -24,6 +25,17 @@ break the API).
 
 ### Changed
 
+- Smaller calls cost less (#207, docs/small-call-cost.md). A blocking
+  caller that read its own reply keeps reading the connection until its
+  next call, instead of putting it back on the runtime's poller each call
+  (`-ORBfollowLinger` bounds how long; another caller waiting for the I/O
+  task gets it back at once), and waits for the socket before it reads. An
+  object reference works out the addresses of its IOR once instead of for
+  every call, a connection makes its code set context once, and requests
+  are written from borrowed parts (`rustorb_giop::RequestParts`,
+  `MessageEncoder::request_parts`, `TargetRef`). A ping allocates 5 times
+  on the client instead of 24, and makes 3 system calls instead of 7;
+  its client CPU time fell by about a quarter in the cloud benchmark.
 - `rustorb-typesupport`: an array of a primitive type (`Array<D, N>`) is
   written and read as a sequence's elements are, so an `octet` array is
   copied in one go instead of an octet at a time; the octets on the wire

@@ -11,7 +11,7 @@ use rustorb_cdr::ByteOrder;
 use rustorb_giop::{CorbaName, Corbaloc, Ior, ObjectUrl, Version};
 use tokio::runtime::{Handle, Runtime};
 
-use crate::connection::{Connection, ConnectionPool, Peer, Transport};
+use crate::connection::{Connection, ConnectionPool, EndpointKey, Peer, Transport};
 use crate::poa::{self, MainThreadGuard, Poa};
 use crate::pool::Job;
 use crate::server::Server;
@@ -85,6 +85,11 @@ pub struct OrbOptions {
     /// connection, until the request has run this long: then the I/O task
     /// reads the requests behind it, so they wait at most about twice
     /// this. Zero turns this off: the I/O task reads every request.
+    ///
+    /// On the client, a blocking caller that read its own reply keeps
+    /// reading the connection for its next call; the I/O task gets the
+    /// reading back once no call has come for this long (and at once
+    /// when another caller waits for it). Zero turns that off too.
     pub follow_linger: Duration,
     /// How many requests of one connection an upcall thread reads in a
     /// row before it lets the I/O task read again (`-ORBfollowLimit N`).
@@ -676,6 +681,10 @@ pub(crate) struct OrbInner {
     /// [`CallbackRequest`](crate::CallbackRequest)s, started with the
     /// first; `Err` once the ORB is destroyed.
     replies: Mutex<Result<Option<crate::pool::Pool>, ()>>,
+    /// Gives the reading of a client connection back to its I/O task once
+    /// the caller that read its reply has made no new call for
+    /// [`OrbOptions::follow_linger`] ([`Connection::read_reply_here`]).
+    pub(crate) lag: crate::wire::Lag,
 }
 
 /// An initial reference registered at run time.
@@ -835,6 +844,7 @@ impl Orb {
             inner: Arc::new(OrbInner {
                 runtime,
                 handle,
+                lag: crate::wire::Lag::new(options.follow_linger),
                 call_timeout: AtomicU64::new(timeout::encode(options.request_timeout)),
                 connect_timeout: AtomicU64::new(timeout::encode(options.connect_timeout)),
                 options,
@@ -1545,18 +1555,17 @@ impl Orb {
     /// TLS handshake counts as part of connecting.
     pub(crate) async fn connection(
         &self,
-        host: &str,
-        port: u16,
-        transport: Transport,
+        key: &EndpointKey,
         deadline: Option<Instant>,
     ) -> Result<Arc<Connection>, SystemException> {
         self.check_running()?;
-        let key = (host.to_owned(), port, transport);
-        if let Some(conn) = self.inner.connections.lock().unwrap().get(&key) {
+        if let Some(conn) = self.inner.connections.lock().unwrap().get(key) {
             if conn.is_usable() {
                 return Ok(Arc::clone(conn));
             }
         }
+        let (host, port, transport) = (key.0.as_str(), key.1, key.2);
+        let key = key.clone();
         let config = if transport == Transport::Tls {
             Some(self.tls_client()?)
         } else {

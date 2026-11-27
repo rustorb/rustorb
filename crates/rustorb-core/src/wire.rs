@@ -222,6 +222,9 @@ pub(crate) struct ReadSide {
     held: Option<Result<(Version, Message), ReadError>>,
     /// The address of the peer, for trace lines.
     peer: Option<SocketAddr>,
+    /// The last message a thread read had to be waited for
+    /// ([`FirstRead::AsBefore`]).
+    waited: bool,
 }
 
 impl ReadSide {
@@ -269,6 +272,19 @@ enum Holder {
     /// it nobody reads until the thread is back, or until the thread has
     /// been busy too long ([`Inbound::overdue`]).
     Busy { watched: bool },
+}
+
+/// Whether [`Inbound::read_here`] waits for the socket before it first
+/// reads, when nothing is buffered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FirstRead {
+    /// It waits: what it reads has seldom arrived yet (a reply to a
+    /// request just sent).
+    Wait,
+    /// It waits if the last message it read on the connection had to be
+    /// waited for: when messages come one by one, the next has not
+    /// arrived yet either; when they stream in, it has.
+    AsBefore,
 }
 
 /// What [`Inbound::read_here`] got.
@@ -346,6 +362,7 @@ impl Inbound {
                 assembler: FragmentAssembler::new(max_message_size),
                 held: None,
                 peer,
+                waited: false,
             }),
             back: Notify::new(),
             handed_back: AtomicBool::new(false),
@@ -517,13 +534,37 @@ impl Inbound {
 
     /// Reads the next message on the calling thread, which holds the
     /// reading, waiting for it until `until` (for ever with `None`).
-    pub(crate) fn read_here(&self, until: Option<Instant>) -> Here {
+    ///
+    /// `first` says whether the thread waits for the socket before its
+    /// first read when nothing is buffered, which saves a read that finds
+    /// nothing when the message has seldom arrived yet.
+    pub(crate) fn read_here(&self, until: Option<Instant>, first: FirstRead) -> Here {
         let mut side = self.side();
         let stream = &self.stream;
         let mut raw = |buf: &mut [MaybeUninit<u8>]| stream.recv(buf);
         let mut read = |buf: &mut [MaybeUninit<u8>]| self.read(&mut raw, buf);
+        let wait_first = match first {
+            FirstRead::Wait => true,
+            FirstRead::AsBefore => side.waited,
+        };
+        let mut wait = wait_first && side.held.is_none() && !side.reader.has_buffered();
+        let mut waited = false;
         loop {
-            match side.next(&mut read, true) {
+            if wait {
+                if !wait_readable(stream, until) {
+                    stats::count(Counter::thread_read_timeouts);
+                    drop(side);
+                    self.release();
+                    return Here::TimedOut;
+                }
+                waited = true;
+            }
+            wait = true;
+            let next = side.next(&mut read, true);
+            if matches!(next, Ok(Some(_))) {
+                side.waited = waited;
+            }
+            match next {
                 Ok(Some((version, msg))) => {
                     stats::count(Counter::thread_messages);
                     return Here::Message(version, msg);
@@ -544,12 +585,6 @@ impl Inbound {
                     self.release();
                     return Here::HandedBack;
                 }
-            }
-            if !wait_readable(stream, until) {
-                stats::count(Counter::thread_read_timeouts);
-                drop(side);
-                self.release();
-                return Here::TimedOut;
             }
         }
     }
@@ -662,6 +697,13 @@ impl Inbound {
         } else {
             *holder = Holder::Busy { watched: true };
         }
+    }
+
+    /// Gives the reading to the task if a client caller kept it after its
+    /// reply (a busy turn off the poller): another caller waits for the
+    /// task to read its reply.
+    pub(crate) fn resume(&self) {
+        self.give_back_busy(Counter::keep_resumes);
     }
 
     /// Whether the connection is in a busy turn off the poller.

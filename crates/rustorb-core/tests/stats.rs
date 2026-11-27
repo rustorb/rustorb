@@ -124,6 +124,10 @@ fn counts_the_paths_of_calls_once_enabled() {
             "{used}"
         );
         assert!(used.get(Counter::task_wakeups_thread_reads) <= 2, "{used}");
+        // The caller keeps the reading after each reply (-ORBfollowLinger),
+        // so the client connection goes off the poller once, not per call.
+        assert!(used.get(Counter::reply_keeps) >= 1, "{used}");
+        assert!(used.get(Counter::unwatches) < 20, "{used}");
     }
 
     // Off: the caller counts no more (the server's threads may still see

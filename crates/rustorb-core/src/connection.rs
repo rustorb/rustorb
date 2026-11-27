@@ -31,9 +31,10 @@ use tokio::sync::oneshot;
 use crate::idle::Stamp;
 use crate::server::{Outbox, Server, ServerConn};
 use crate::sock::{Stream, WriteHalf};
+use crate::stats::{self, Counter};
 use crate::tls::{self, Tls};
 use crate::trace;
-use crate::wire::{Here, Inbound, ReadError};
+use crate::wire::{FirstRead, Here, Inbound, Lag, ReadError};
 use crate::{CodeSets, OrbOptions};
 
 /// Why a connection stopped delivering replies.
@@ -138,6 +139,9 @@ pub(crate) struct Connection {
     /// The code sets of the first request with a code set context; `None`
     /// until one was sent.
     code_sets: Mutex<Option<CodeSets>>,
+    /// The code set context of the requests, made once: the code sets
+    /// are fixed for the connection.
+    code_set_context: OnceLock<(CodeSets, ByteOrder, ServiceContext)>,
     /// Set under the `pending` lock (by [`close`](Self::close) too), so
     /// that an idle connection takes no new request once chosen to close.
     closing: AtomicBool,
@@ -205,6 +209,7 @@ impl Connection {
             // the other side odd ones (GIOP 1.2, bidirectional GIOP).
             next_request_id: AtomicU32::new(0),
             code_sets: Mutex::new(None),
+            code_set_context: OnceLock::new(),
             closing: AtomicBool::new(false),
             last_used: Stamp::new(),
             pool,
@@ -236,6 +241,7 @@ impl Connection {
             }),
             next_request_id: AtomicU32::new(1),
             code_sets: Mutex::new(None),
+            code_set_context: OnceLock::new(),
             closing: AtomicBool::new(false),
             last_used: Stamp::new(),
             pool,
@@ -312,6 +318,22 @@ impl Connection {
         *self.code_sets.lock().unwrap().get_or_insert(proposed)
     }
 
+    /// The code set context announcing `cs` in byte order `order`.
+    pub(crate) fn code_set_context(
+        &self,
+        cs: CodeSets,
+        order: ByteOrder,
+    ) -> std::borrow::Cow<'_, ServiceContext> {
+        let (made_cs, made_order, context) = self
+            .code_set_context
+            .get_or_init(|| (cs, order, cs.context().to_service_context(order)));
+        if (*made_cs, *made_order) == (cs, order) {
+            std::borrow::Cow::Borrowed(context)
+        } else {
+            std::borrow::Cow::Owned(cs.context().to_service_context(order))
+        }
+    }
+
     /// Registers a caller waiting for the reply to `request_id`.
     pub(crate) fn expect_reply(
         &self,
@@ -341,10 +363,18 @@ impl Connection {
     ///
     /// Blocks the thread; the caller is a thread of its own (the sync API
     /// runs the call with `block_on` outside the runtime).
+    ///
+    /// With `keep`, the caller keeps the reading after its reply, off the
+    /// runtime's poller, for its next call on the connection: that costs
+    /// no `epoll_ctl` and no read for nothing each call. `keep` gives the
+    /// reading back to the reader task if no call comes within
+    /// [`crate::OrbOptions::follow_linger`], and a caller that waits for
+    /// the task meanwhile gives it back at once ([`resume`](Self::resume)).
     pub(crate) fn read_reply_here(
         &self,
         request_id: u32,
         deadline: Option<Instant>,
+        keep: Option<&Lag>,
     ) -> Option<Option<Message>> {
         if self.is_accepted() {
             // The server connection's reader reads.
@@ -375,7 +405,7 @@ impl Connection {
             return None;
         }
         loop {
-            let (version, message) = match self.inbound.read_here(deadline) {
+            let (version, message) = match self.inbound.read_here(deadline, FirstRead::Wait) {
                 Here::Message(version, message) => (version, message),
                 Here::TimedOut => return Some(None),
                 Here::HandedBack => return None,
@@ -389,12 +419,40 @@ impl Connection {
                 }
             };
             if id == request_id {
-                self.inbound.release();
                 self.forget(request_id);
+                match keep {
+                    // Requests from the server come through the reader
+                    // task, which must read whatever arrives.
+                    Some(lag) if self.serving.get().is_none() => self.keep_reading(lag),
+                    _ => self.inbound.release(),
+                }
                 return Some(Some(message));
             }
             self.deliver(id, message);
         }
+    }
+
+    /// After its reply, the caller keeps the reading for its next call,
+    /// unless another caller waits for a reply: that one waits for the
+    /// reader task.
+    fn keep_reading(&self, lag: &Lag) {
+        self.inbound.busy(true);
+        lag.watch(&self.inbound);
+        stats::count(Counter::reply_keeps);
+        // A caller that registered before this saw the reading with this
+        // thread and left it ([`resume`](Self::resume) found nothing to
+        // do): it gets the task back now. One that registers after this
+        // finds the reading kept.
+        if !self.pending.lock().unwrap().waiters.is_empty() {
+            self.resume();
+        }
+    }
+
+    /// Gives the reading back to the reader task if a caller kept it
+    /// after its reply ([`read_reply_here`](Self::read_reply_here)): the
+    /// calling caller waits for the task to read its reply.
+    pub(crate) fn resume(&self) {
+        self.inbound.resume();
     }
 
     /// Stops waiting for `request_id`, after a timeout.
