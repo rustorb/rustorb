@@ -32,7 +32,7 @@ rustorb が CORBA 3.x と関連仕様のどこまでに対応しているかを�
 | SSLIOP（TLS、rustls） | 🟡 | SNI、暗号化した鍵、CRL / OCSP、`corbaloc:ssliop:` は扱わない | [ssliop.md](ssliop.md) |
 | omniORB の `giop:unix`（Unix ドメインソケット） | ✅ | Linux と macOS。Windows は `BAD_PARAM` | [unix-transport.md](unix-transport.md) |
 | 双方向 GIOP（`BiDirPolicy`） | ✅ | | [bidir-giop.md](bidir-giop.md) |
-| 使っていない接続を閉じる、接続数の上限 | ✅ | `-ORBoutConScanPeriod`、`-ORBinConScanPeriod`、`-ORBmaxServerConnections` | [connections.md](connections.md) |
+| 使っていない接続を閉じる、接続数の上限 | ✅ | `-ORBoutConScanPeriod`、`-ORBinConScanPeriod`、`-ORBmaxServerConnections`、`-ORBmaxConnectionsPerServer` | [connections.md](connections.md) |
 | ログ・トレース | ✅ | `-ORBtraceLevel`（omniORB に合わせたレベル） | [tracing.md](tracing.md) |
 | CSIv2、Security Service の API | ❌ | 対象外 | |
 | DIOP、MIOP、ZIOP | ❌ | | |

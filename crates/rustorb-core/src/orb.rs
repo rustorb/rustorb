@@ -11,7 +11,7 @@ use rustorb_cdr::ByteOrder;
 use rustorb_giop::{CorbaName, Corbaloc, Ior, ObjectUrl, Version};
 use tokio::runtime::{Handle, Runtime};
 
-use crate::connection::{Connection, ConnectionPool, EndpointKey, Peer, Transport};
+use crate::connection::{Connection, ConnectionPool, EndpointKey, Lease, Peer, Pick, Transport};
 use crate::poa::{self, MainThreadGuard, Poa};
 use crate::pool::Job;
 use crate::server::Server;
@@ -113,6 +113,14 @@ pub struct OrbOptions {
     /// request running, is closed with `CloseConnection`, and new
     /// connections wait in the listen backlog until one ends.
     pub max_server_connections: usize,
+    /// Most connections the client side opens to one server endpoint
+    /// (`-ORBmaxConnectionsPerServer N`; default 4). Connections are
+    /// opened as calls run at the same time: a call takes a connection no
+    /// other call is on, opens another while under the limit, and at the
+    /// limit shares the one with the fewest calls. 1 puts every call to
+    /// a server on one connection, as before 0.8. An ORB that offers
+    /// bidirectional GIOP opens one. See docs/connections.md.
+    pub max_connections_per_server: usize,
     /// Offers the connections this ORB opens for requests from the server
     /// (bidirectional GIOP, `-ORBofferBiDirectionalGIOP 0|1`; default
     /// off): GIOP 1.2 requests carry the addresses of this ORB's endpoints
@@ -297,6 +305,7 @@ impl Default for OrbOptions {
             client_idle_timeout: Some(Duration::from_secs(120)),
             server_idle_timeout: Some(Duration::from_secs(180)),
             max_server_connections: 0,
+            max_connections_per_server: 4,
             offer_bidir: false,
             accept_bidir: false,
             socket_send_buffer: None,
@@ -340,6 +349,7 @@ impl OrbOptions {
     /// | `-ORBoutConScanPeriod S` | [`client_idle_timeout`](OrbOptions::client_idle_timeout), in seconds (0 for never) |
     /// | `-ORBinConScanPeriod S` | [`server_idle_timeout`](OrbOptions::server_idle_timeout), in seconds (0 for never) |
     /// | `-ORBmaxServerConnections N` | [`max_server_connections`](OrbOptions::max_server_connections) (0 for no limit) |
+    /// | `-ORBmaxConnectionsPerServer N` | [`max_connections_per_server`](OrbOptions::max_connections_per_server) (at least 1; also `-ORBmaxGIOPConnectionPerServer`) |
     /// | `-ORBofferBiDirectionalGIOP 0\|1` | [`offer_bidir`](OrbOptions::offer_bidir) |
     /// | `-ORBacceptBiDirectionalGIOP 0\|1` | [`accept_bidir`](OrbOptions::accept_bidir) |
     /// | `-ORBendPoint giop:ssl:HOST:PORT` | [`tls_endpoints`](OrbOptions::tls_endpoints) (repeatable) |
@@ -380,6 +390,8 @@ impl OrbOptions {
                             | "outConScanPeriod"
                             | "inConScanPeriod"
                             | "maxServerConnections"
+                            | "maxConnectionsPerServer"
+                            | "maxGIOPConnectionPerServer"
                             | "offerBiDirectionalGIOP"
                             | "acceptBiDirectionalGIOP"
                             | "sslCAFile"
@@ -416,6 +428,8 @@ impl OrbOptions {
                     | "outConScanPeriod"
                     | "inConScanPeriod"
                     | "maxServerConnections"
+                    | "maxConnectionsPerServer"
+                    | "maxGIOPConnectionPerServer"
                     | "offerBiDirectionalGIOP"
                     | "acceptBiDirectionalGIOP"
                     | "sslCAFile"
@@ -517,6 +531,12 @@ impl OrbOptions {
                 "inConScanPeriod" => self.server_idle_timeout = seconds(&value)?,
                 "maxServerConnections" => {
                     self.max_server_connections = value.parse().map_err(|_| bad_option())?;
+                }
+                "maxConnectionsPerServer" | "maxGIOPConnectionPerServer" => {
+                    self.max_connections_per_server = match value.parse() {
+                        Ok(n @ 1..) => n,
+                        _ => return Err(bad_option()),
+                    };
                 }
                 "sslCAFile" => self.tls.ca_file = Some(value.into()),
                 "sslCertFile" => self.tls.cert_file = Some(value.into()),
@@ -1431,7 +1451,7 @@ impl Orb {
             .lock()
             .unwrap()
             .drain()
-            .map(|(_, c)| c)
+            .flat_map(|(_, mut slot)| slot.take(|_| true))
             .collect();
         if let Some(task) = self.inner.idle_scan.get() {
             task.abort();
@@ -1548,7 +1568,9 @@ impl Orb {
     }
 
     /// A usable connection to `host:port`, with TLS if `tls`, opened if
-    /// needed.
+    /// needed: one no other call is on if it can
+    /// ([`OrbOptions::max_connections_per_server`], [`Slot`]). The call
+    /// holds it until it drops the [`Lease`].
     ///
     /// Connecting stops at the connect timeout, else at `deadline` (the
     /// end of the call), with `TIMEOUT`, completed no, like omniORB. The
@@ -1557,15 +1579,86 @@ impl Orb {
         &self,
         key: &EndpointKey,
         deadline: Option<Instant>,
-    ) -> Result<Arc<Connection>, SystemException> {
+    ) -> Result<Lease, SystemException> {
         self.check_running()?;
-        if let Some(conn) = self.inner.connections.lock().unwrap().get(key) {
-            if conn.is_usable() {
-                return Ok(Arc::clone(conn));
+        let max = self.max_connections_per_server();
+        let limit = match self.connect_timeout() {
+            Some(t) => Some(Instant::now() + t),
+            None => deadline,
+        };
+        loop {
+            let notify;
+            let opened;
+            {
+                let mut conns = self.inner.connections.lock().unwrap();
+                match conns.entry(key.clone()).or_default().pick(max) {
+                    Pick::Use(lease) => return Ok(lease),
+                    Pick::Open => break,
+                    // Made under the lock: the wake-up of a connection
+                    // opened from now on is not missed.
+                    Pick::Wait(n) => {
+                        notify = n;
+                        opened = notify.notified();
+                    }
+                }
+            }
+            match limit {
+                Some(at) => {
+                    if tokio::time::timeout_at(at.into(), opened).await.is_err() {
+                        return Err(SystemException::new(
+                            SystemExceptionKind::TIMEOUT,
+                            0,
+                            CompletionStatus::No,
+                        ));
+                    }
+                }
+                None => opened.await,
             }
         }
+        // Counted as opening in the slot until `opened`, also when this
+        // future is dropped or fails.
+        let mut opening = Opening {
+            pool: &self.inner.connections,
+            key,
+            max,
+            done: false,
+        };
+        let conn = self.open_connection(key, limit).await?;
+        opening.done = true;
+        let (lease, extra) = {
+            let mut conns = self.inner.connections.lock().unwrap();
+            conns
+                .entry(key.clone())
+                .or_default()
+                .opened(Some(conn), max)
+                .expect("a connection")
+        };
+        // Others opened enough meanwhile: this one is closed (its reader
+        // task would keep it open).
+        if let Some(extra) = extra {
+            tokio::spawn(async move { extra.close(None).await });
+        }
+        Ok(lease)
+    }
+
+    /// How many connections to one server endpoint a call may open.
+    pub(crate) fn max_connections_per_server(&self) -> usize {
+        // Callbacks from a server come over the connection offered for
+        // bidirectional GIOP: one is offered.
+        if self.offers_bidir() {
+            1
+        } else {
+            self.inner.options.max_connections_per_server.max(1)
+        }
+    }
+
+    /// Opens a new connection to `key`, giving up at `limit`.
+    async fn open_connection(
+        &self,
+        key: &EndpointKey,
+        limit: Option<Instant>,
+    ) -> Result<Arc<Connection>, SystemException> {
         let (host, port, transport) = (key.0.as_str(), key.1, key.2);
-        let key = key.clone();
         let config = if transport == Transport::Tls {
             Some(self.tls_client()?)
         } else {
@@ -1588,10 +1681,6 @@ impl Orb {
             &self.inner.options,
             Arc::downgrade(&self.inner.connections),
         );
-        let limit = match self.connect_timeout() {
-            Some(t) => Some(Instant::now() + t),
-            None => deadline,
-        };
         let result = match limit {
             Some(at) => match tokio::time::timeout_at(at.into(), connect).await {
                 Ok(result) => result,
@@ -1618,24 +1707,63 @@ impl Orb {
                 }
             }
         }
-        let mut conns = self.inner.connections.lock().unwrap();
-        match conns.get(&key) {
-            // Another caller connected first: use its connection, and
-            // close this one (its reader task would keep it open).
-            Some(existing) if existing.is_usable() => {
-                tokio::spawn(async move { conn.close(None).await });
-                Ok(Arc::clone(existing))
-            }
-            _ => {
-                conns.insert(key, Arc::clone(&conn));
-                Ok(conn)
-            }
-        }
+        Ok(conn)
     }
 
     /// Drops `conn` from the pool, if it is still the pooled one.
     pub(crate) fn discard(&self, conn: &Arc<Connection>) {
         conn.leave_pool();
+    }
+
+    /// Drops `conn`, closed in order (`CloseConnection`) under a request,
+    /// and closes the other connections to the endpoint that no call is
+    /// on: a server closing its idle connections likely closed them too,
+    /// and the call sent again would meet them one by one.
+    pub(crate) fn closed_by_server(&self, conn: &Arc<Connection>) {
+        conn.leave_pool();
+        let idle = {
+            let mut conns = self.inner.connections.lock().unwrap();
+            match conns.get_mut(conn.endpoint()) {
+                Some(slot) => slot.take(|c| c.is_free() && c.choose_idle(Duration::ZERO)),
+                None => return,
+            }
+        };
+        let order = self.inner.options.byte_order;
+        for conn in idle {
+            trace::info!(
+                "closing the connection to {}: another to it was closed",
+                Peer(conn.endpoint())
+            );
+            self.inner
+                .handle
+                .spawn(async move { conn.close_idle(order).await });
+        }
+    }
+}
+
+/// A connection a call is opening, counted in its [`Slot`] until done:
+/// a call that fails or is dropped while connecting gives the count back.
+///
+/// [`Slot`]: crate::connection::Slot
+struct Opening<'a> {
+    pool: &'a ConnectionPool,
+    key: &'a EndpointKey,
+    max: usize,
+    done: bool,
+}
+
+impl Drop for Opening<'_> {
+    fn drop(&mut self) {
+        if self.done {
+            return;
+        }
+        let mut conns = self.pool.lock().unwrap();
+        if let Some(slot) = conns.get_mut(self.key) {
+            slot.opened(None, self.max);
+            if slot.is_empty() {
+                conns.remove(self.key);
+            }
+        }
     }
 }
 
@@ -1655,11 +1783,11 @@ async fn close_idle(
         let idle: Vec<_> = {
             let mut conns = pool.lock().unwrap();
             let idle: Vec<_> = conns
-                .iter()
-                .filter(|(_, c)| c.choose_idle(timeout))
-                .map(|(key, _)| key.clone())
+                .values_mut()
+                .flat_map(|slot| slot.take(|c| c.choose_idle(timeout)))
                 .collect();
-            idle.iter().filter_map(|key| conns.remove(key)).collect()
+            conns.retain(|_, slot| !slot.is_empty());
+            idle
         };
         drop(pool);
         for conn in idle {

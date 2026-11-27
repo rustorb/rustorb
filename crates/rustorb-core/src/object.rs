@@ -1320,6 +1320,8 @@ const CANCEL_SEND_TIME: Duration = Duration::from_millis(100);
 /// before the reply: a request left without a reply by `CloseConnection`
 /// was not processed, and a connection the server (or this ORB) chose to
 /// close as idle may close under a request sent at the same moment.
+/// Each further connection the ORB may hold to the endpoint
+/// (`-ORBmaxConnectionsPerServer`) adds one.
 const CLOSED_ATTEMPTS: usize = 4;
 
 /// Sends the request to one endpoint. A `CloseConnection` before the reply
@@ -1336,7 +1338,7 @@ async fn attempt<A: WriteArgs + ?Sized>(
     mut x: Exchange<'_>,
 ) -> Attempt {
     let deadline = x.deadline;
-    for _ in 0..CLOSED_ATTEMPTS {
+    for _ in 0..CLOSED_ATTEMPTS + orb.max_connections_per_server() - 1 {
         let conn = match orb.connection(&ep.key, deadline).await {
             Ok(conn) => conn,
             // Out of time: the other addresses are not tried.
@@ -1346,7 +1348,7 @@ async fn attempt<A: WriteArgs + ?Sized>(
         match attempt_on(orb, &conn, ior, ep, kind, &mut x).await {
             Ok(done) => return done,
             Err(Closed::Orderly) => {
-                orb.discard(&conn);
+                orb.closed_by_server(&conn);
                 if !x.resend {
                     return Attempt::Resend;
                 }

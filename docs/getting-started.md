@@ -293,6 +293,7 @@ Every binding takes the same `-ORB...` options (from the command line, or
 | `-ORBclientCallTimeOutPeriod MS` | a timeout for every call ([timeouts.md](timeouts.md)) |
 | `-ORBoutConScanPeriod S`, `-ORBinConScanPeriod S` | close client / server connections idle for S seconds (default 120 / 180, 0 for never; [connections.md](connections.md)) |
 | `-ORBmaxServerConnections N` | the most connections the server keeps open (default: no limit) |
+| `-ORBmaxConnectionsPerServer N` | the most connections the client opens to one server, as calls run at the same time (default 4; [connections.md](connections.md)) |
 | `-ORBofferBiDirectionalGIOP 1`, `-ORBacceptBiDirectionalGIOP 1` | bidirectional GIOP: callbacks over the connection the client opened ([bidir-giop.md](bidir-giop.md)) |
 | `-ORBendPoint giop:ssl:HOST:PORT`, `-ORBsslCAFile`, `-ORBsslKeyFile` | SSLIOP ([ssliop.md](ssliop.md)) |
 | `-ORBendPoint giop:unix:PATH` | listen on a Unix domain socket, omniORB's `giop:unix` (Linux and macOS; [unix-transport.md](unix-transport.md)) |
