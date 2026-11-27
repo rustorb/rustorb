@@ -136,7 +136,7 @@ C ABI は既存のもので足りる見込みで、足りないものが出た�
 | 整数・浮動小数点 | `Integer`・`Float`。`long double` は `CORBA::LongDouble` |
 | `boolean`・`char`・`wchar` | `true` / `false`、1文字の `String`（または `Integer`）、`Integer` |
 | `string`・`wstring` | `String`、`Integer` の `Array`（`in` / `inout` は `String` も受ける） |
-| `sequence`・配列 | `Array`（octet と char の列は `in` / `inout` で `String` も受ける） |
+| `sequence`・配列 | `Array`（octet と char の列は `in` / `inout` で `String` も受ける。`Rustorb.octets_as_string = true` で octet の列をバイナリの `String` で受け取る） |
 | struct・例外 | `attr_accessor` と位置引数の `initialize` を持つクラス。例外は `CORBA::UserException` の派生 |
 | union | `_disc`・`_disc=`・`_is_at_default?`・メンバーの読み書き。default の判別子は `:default` |
 | enum | 列挙子は整数の定数、型名のクラスに `_tc` |

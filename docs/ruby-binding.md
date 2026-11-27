@@ -68,7 +68,7 @@ hello.say("hi")
 | `string` | String（UTF-8） |
 | `wstring` | Integer の配列（UTF-16 の単位） |
 | `fixed` | BigDecimal（仕様は対応しない。rustorb の拡張） |
-| `sequence`・配列 | Array。`octet` の列は String でも送れる（受け取りは Array） |
+| `sequence`・配列 | Array。`octet` の列は String でも送れる（受け取りは Array。`Rustorb.octets_as_string = true` でバイナリの String。[c-ruby-octets.md](c-ruby-octets.md)） |
 | struct | `CORBA::Portable::Struct` の派生クラス。`attr_accessor` のメンバーと、IDL の順の位置引数の `new`。`==` はメンバーを比べる |
 | union | `CORBA::Portable::Union` の派生クラス。`_disc`、`_value`、メンバーごとの読み（選ばれていなければ `BAD_PARAM`）と書き（最初のラベルを選ぶ）。`_put(name, value, disc)` で他のラベルを、`_default(disc)` でどのメンバーも選ばない値を設定できる |
 | enum | Integer の定数を持つ module（`Color::RED`）。列挙子は IDL のスコープどおり外側にも置く（`Mod::RED`）。`ENUMERATORS` は名前の配列 |

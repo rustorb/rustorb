@@ -580,6 +580,35 @@ mod tests {
     }
 
     #[test]
+    fn read_elements_stops_at_chunk_ends() {
+        // A chunked value whose three longs are split over two chunks.
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&0x7fff_ff0au32.to_be_bytes());
+        bytes.extend_from_slice(&10u32.to_be_bytes());
+        bytes.extend_from_slice(b"IDL:V:1.0\0\0\0");
+        bytes.extend_from_slice(&8u32.to_be_bytes());
+        bytes.extend_from_slice(&1i32.to_be_bytes());
+        bytes.extend_from_slice(&2i32.to_be_bytes());
+        bytes.extend_from_slice(&4u32.to_be_bytes());
+        bytes.extend_from_slice(&3i32.to_be_bytes());
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.extend_from_slice(&[0, 0, 0, 9]);
+
+        let mut dec = decoder(&bytes, ByteOrder::Big);
+        assert!(matches!(
+            dec.read_value_header().unwrap(),
+            ValueHeader::Value { chunked: true, .. }
+        ));
+        assert_eq!(dec.read_elements(4, 3).unwrap(), &[0, 0, 0, 1, 0, 0, 0, 2]);
+        assert_eq!(dec.read_elements(4, 1).unwrap(), &[0, 0, 0, 3]);
+        assert_eq!(dec.read_elements(4, 0).unwrap(), &[] as &[u8]);
+        dec.end_value().unwrap();
+        // Outside a value: all of them.
+        assert_eq!(dec.read_elements(2, 2).unwrap(), &[0, 0, 0, 9]);
+        assert!(dec.is_empty());
+    }
+
+    #[test]
     fn truncation_skips_unread_state() {
         let order = ByteOrder::Little;
         let mut enc = encoder(order);

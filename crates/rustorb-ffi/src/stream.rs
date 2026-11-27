@@ -6,6 +6,7 @@
 
 use std::ffi::{c_char, c_void};
 
+use rustorb_core::cdr::ByteOrder;
 use rustorb_core::{
     CompletionStatus, InStream, LongDouble, ObjectRef, OutStream, ServerReply, SystemException,
     SystemExceptionKind,
@@ -260,23 +261,39 @@ pub unsafe extern "C" fn rorb_out_write_array(
     count: usize,
 ) {
     unsafe { &mut *out }.with(|s| {
-        macro_rules! each {
-            ($ty:ty, $method:ident) => {
-                for v in unsafe { slice::<$ty>(data, count) } {
-                    s.$method(*v);
+        // The elements follow each other without padding once the first
+        // is aligned: in the host's byte order they are copied as they
+        // are, otherwise each is turned.
+        macro_rules! run {
+            ($ty:ty) => {{
+                let size = size_of::<$ty>();
+                if count > 0 {
+                    s.align(size);
+                    let order = s.byte_order();
+                    if order == ByteOrder::NATIVE {
+                        s.write_octets(unsafe { slice::<u8>(data, count * size) });
+                    } else {
+                        s.reserve(count * size);
+                        for v in unsafe { slice::<$ty>(data, count) } {
+                            s.write_octets(&match order {
+                                ByteOrder::Big => v.to_be_bytes(),
+                                ByteOrder::Little => v.to_le_bytes(),
+                            });
+                        }
+                    }
                 }
-            };
+            }};
         }
         match kind {
             prim::OCTET => s.write_octets(unsafe { slice::<u8>(data, count) }),
-            prim::SHORT => each!(i16, write_i16),
-            prim::USHORT => each!(u16, write_u16),
-            prim::LONG => each!(i32, write_i32),
-            prim::ULONG => each!(u32, write_u32),
-            prim::LONGLONG => each!(i64, write_i64),
-            prim::ULONGLONG => each!(u64, write_u64),
-            prim::FLOAT => each!(f32, write_f32),
-            prim::DOUBLE => each!(f64, write_f64),
+            prim::SHORT => run!(i16),
+            prim::USHORT => run!(u16),
+            prim::LONG => run!(i32),
+            prim::ULONG => run!(u32),
+            prim::LONGLONG => run!(i64),
+            prim::ULONGLONG => run!(u64),
+            prim::FLOAT => run!(f32),
+            prim::DOUBLE => run!(f64),
             _ => return Err(crate::bad_param()),
         }
         Ok(())
@@ -442,26 +459,49 @@ pub unsafe extern "C" fn rorb_in_read_array(
     let input = unsafe { &mut *input };
     let e = input.marshal();
     input.read(|s| {
-        macro_rules! each {
-            ($ty:ty) => {
-                for v in unsafe { slice_mut::<$ty>(data, count) } {
-                    *v = s.read::<$ty>()?;
+        // As many elements at a time as the stream has together (all of
+        // them, except where a chunk of a valuetype ends).
+        macro_rules! run {
+            ($ty:ty) => {{
+                const SIZE: usize = size_of::<$ty>();
+                let order = s.byte_order();
+                let mut done = 0;
+                while done < count {
+                    let bytes = s.read_elements(SIZE, count - done).map_err(|_| e.clone())?;
+                    let n = bytes.len() / SIZE;
+                    if order == ByteOrder::NATIVE {
+                        let at = unsafe { data.cast::<u8>().add(done * SIZE) };
+                        unsafe { slice_mut::<u8>(at.cast(), bytes.len()) }.copy_from_slice(bytes);
+                    } else {
+                        let dst = &mut unsafe { slice_mut::<$ty>(data, count) }[done..done + n];
+                        let words = bytes
+                            .chunks_exact(SIZE)
+                            .map(|b| <[u8; SIZE]>::try_from(b).unwrap());
+                        match order {
+                            ByteOrder::Big => dst
+                                .iter_mut()
+                                .zip(words)
+                                .for_each(|(v, b)| *v = <$ty>::from_be_bytes(b)),
+                            ByteOrder::Little => dst
+                                .iter_mut()
+                                .zip(words)
+                                .for_each(|(v, b)| *v = <$ty>::from_le_bytes(b)),
+                        }
+                    }
+                    done += n;
                 }
-            };
+            }};
         }
         match kind {
-            prim::OCTET => {
-                let bytes = s.read_octets(count).map_err(|_| e)?;
-                unsafe { slice_mut::<u8>(data, count) }.copy_from_slice(bytes);
-            }
-            prim::SHORT => each!(i16),
-            prim::USHORT => each!(u16),
-            prim::LONG => each!(i32),
-            prim::ULONG => each!(u32),
-            prim::LONGLONG => each!(i64),
-            prim::ULONGLONG => each!(u64),
-            prim::FLOAT => each!(f32),
-            prim::DOUBLE => each!(f64),
+            prim::OCTET => run!(u8),
+            prim::SHORT => run!(i16),
+            prim::USHORT => run!(u16),
+            prim::LONG => run!(i32),
+            prim::ULONG => run!(u32),
+            prim::LONGLONG => run!(i64),
+            prim::ULONGLONG => run!(u64),
+            prim::FLOAT => run!(f32),
+            prim::DOUBLE => run!(f64),
             _ => return Err(crate::bad_param()),
         }
         Ok(())

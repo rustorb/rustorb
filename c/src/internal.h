@@ -115,6 +115,12 @@ void rustorb_c_ev_status(CORBA_Environment* ev, rorb_status status, rorb_excepti
 /* Returns 1 (and sets ev) if status is not RORB_OK. */
 int rustorb_c_failed(CORBA_Environment* ev, rorb_status status, rorb_exception* exc);
 
+/* Whether values of the type own nothing (see memory.c). */
+int rustorb_c_plain(const rustorb_c_type* type);
+/* rustorb_c_alloc for values the caller fills at once: not zeroed when
+   they own nothing. */
+void* rustorb_c_alloc_filled(const rustorb_c_type* type, CORBA_unsigned_long count);
+
 char* rustorb_c_strndup(const char* s, size_t len);
 PortableServer_ObjectId* rustorb_c_object_id(rorb_bytes bytes);
 

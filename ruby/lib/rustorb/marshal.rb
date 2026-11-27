@@ -10,6 +10,15 @@ require "bigdecimal"
 # Licensed under MIT OR Apache-2.0, like the rest of the rustorb core.
 
 module Rustorb
+  class << self
+    # true: sequences and arrays of octet are read as binary Strings
+    # (Encoding::BINARY), not as Arrays of Integer. Not the mapping's
+    # default, so false unless set; a String is taken when writing either
+    # way. For large octet sequences, a String is much faster.
+    attr_accessor :octets_as_string
+  end
+  self.octets_as_string = false
+
   module Marshal
     # rorb_out_write_array kinds and pack formats (host representation).
     PRIM = {
@@ -33,6 +42,9 @@ module Rustorb
     }.freeze
 
     MASK64 = 2**64 - 1
+
+    # The element kind of Out#write_list and In#read_list for int8.
+    LIST_INT8 = 9
 
     module_function
 
@@ -210,6 +222,10 @@ module Rustorb
     def write_elements(out, content, v)
       c = content.unaliased
       if c._extra == :int8 && v.is_a?(Array)
+        # Checked and packed in the extension; elements it does not take
+        # are checked here, for the message.
+        return if out.write_list(LIST_INT8, v).nil?
+
         v.each { |e| int(e, -128, 127, "int8") }
         out.write_array(0, v.pack("c*"))
         return
@@ -217,10 +233,12 @@ module Rustorb
       prim = !c._extra && PRIM[c.kind]
       if prim
         if c.kind == CORBA::TK_OCTET && v.is_a?(String)
-          out.write_array(0, v.b)
+          out.write_array(0, v) # its bytes, whatever its encoding
           return
         end
         bad("an Array expected, got #{v.inspect}") unless v.is_a?(Array)
+        return if out.write_list(prim[0], v).nil?
+
         if prim[2]
           v.each { |e| int(e, prim[2], prim[3], c.kind == CORBA::TK_OCTET ? "octet" : "integer") }
         else
@@ -353,10 +371,14 @@ module Rustorb
 
     def read_elements(inp, content, n)
       c = content.unaliased
-      return inp.read_array(0, n).unpack("c*") if c._extra == :int8
+      return inp.read_list(LIST_INT8, n) if c._extra == :int8
 
       prim = !c._extra && PRIM[c.kind]
-      return inp.read_array(prim[0], n).unpack(prim[1]) if prim
+      if prim
+        return inp.read_array(0, n) if prim[0].zero? && Rustorb.octets_as_string
+
+        return inp.read_list(prim[0], n)
+      end
 
       Array.new(n) { read(inp, content) }
     end

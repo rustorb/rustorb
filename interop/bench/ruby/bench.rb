@@ -15,6 +15,10 @@ require "json"
 require "corba"
 require "BenchS"
 
+# RUSTORB_RB_OCTETS_AS_STRING=1: octet sequences come as binary Strings
+# (Rustorb.octets_as_string), not the mapping's Arrays of Integer.
+Rustorb.octets_as_string = ENV["RUSTORB_RB_OCTETS_AS_STRING"] == "1"
+
 DEFAULT_CASES = "ping,long,string,octets:64,octets:1024,octets:16384,octets:262144," \
                 "octets:1048576,octets:8388608,put:1048576,get:1048576,samples:100,any," \
                 "oneway,threads:4"
@@ -31,7 +35,7 @@ class TargetServant < POA::Bench::Target
   def echo_long(v) = v
   def echo_string(v) = v
   def echo_octets(v) = v
-  def put_octets(v) = v.size # an Array of Integer (a String when sent from Ruby in-process)
+  def put_octets(v) = v.size # an Array of Integer, or a String (in-process, or octets_as_string)
   def get_octets(n) = "\x07".b * n
   def echo_samples(v) = v
   def echo_any(v) = v
