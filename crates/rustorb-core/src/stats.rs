@@ -94,6 +94,13 @@ counters! {
     follow_stops_queued,
     /// A follow ended after `-ORBfollowLimit` requests (server).
     follow_stops_limit,
+    /// The I/O task left the reading to the upcall thread it gave a
+    /// request to, which follows the connection after it (server).
+    follow_pauses,
+    /// An upcall thread held the reading longer than `-ORBfollowLinger`
+    /// while it handled a request: the I/O task got the reading back, so
+    /// that requests behind it do not wait (server).
+    follow_overdue,
     /// A caller read its reply itself (client).
     replies_read_here,
     /// A caller waited for the I/O task to hand it its reply (client).

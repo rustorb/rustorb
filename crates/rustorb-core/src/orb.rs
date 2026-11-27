@@ -81,7 +81,10 @@ pub struct OrbOptions {
     /// How long an upcall thread that answered a request waits for the
     /// next request of the same connection, to read and run it itself
     /// (`-ORBfollowLinger US`, in microseconds; docs/read-ownership.md).
-    /// Zero turns this off: the I/O task reads every request.
+    /// While such a thread runs a request, nobody else reads the
+    /// connection, until the request has run this long: then the I/O task
+    /// reads the requests behind it, so they wait at most about twice
+    /// this. Zero turns this off: the I/O task reads every request.
     pub follow_linger: Duration,
     /// How many requests of one connection an upcall thread reads in a
     /// row before it lets the I/O task read again (`-ORBfollowLimit N`).

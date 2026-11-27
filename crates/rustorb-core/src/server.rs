@@ -56,7 +56,12 @@ use crate::stats::{self, Counter};
 use crate::stream::InStream;
 use crate::tls::{self, Tls};
 use crate::trace;
-use crate::wire::{Here, Inbound, PeerAddr, ReadError};
+use crate::wire::{Here, Inbound, Lag, PeerAddr, ReadError};
+
+thread_local! {
+    /// Set while a connection's reader task routes a request it read.
+    static ON_READER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
 use crate::{
     Bidirectional, CodeSets, CompletionStatus, EndpointAddr, Lifespan, Orb, Poa, Servant,
     ServantManagerError, SystemException, SystemExceptionKind, ThreadPolicy,
@@ -104,6 +109,10 @@ pub(crate) struct Server {
     /// [`crate::OrbOptions::follow_linger`] and [`crate::OrbOptions::follow_limit`].
     follow_linger: Duration,
     follow_limit: usize,
+    /// Gives the reading of a connection back to its I/O task when the
+    /// thread that keeps it off the poller is busy longer than
+    /// `follow_linger`.
+    lag: Lag,
     /// [`crate::OrbOptions::server_idle_timeout`].
     idle_timeout: Option<Duration>,
     root: OnceLock<Arc<PoaInner>>,
@@ -328,6 +337,7 @@ impl Server {
             } else {
                 options.follow_limit
             },
+            lag: Lag::new(options.follow_linger),
             idle_timeout: options.server_idle_timeout,
             root: OnceLock::new(),
             simple_keys: Mutex::new(HashMap::new()),
@@ -663,7 +673,11 @@ impl Server {
             return;
         };
         if let Some((key, request)) = self.prepare(conn, version, header, body, permit) {
+            // A request given to an upcall thread from here may leave
+            // the reading to it (`schedule_upcall`).
+            ON_READER.set(true);
             self.route(key, request);
+            ON_READER.set(false);
         }
     }
 
@@ -946,6 +960,19 @@ impl Server {
         let server = Arc::clone(self);
         let poa = Arc::clone(poa);
         let conn = request.reply.conn();
+        if let Some(conn) = &conn {
+            // Given by the connection's reader task: the thread that runs
+            // the request reads the next one, so the task stops reading
+            // until then (the requests that follow need no hand-over).
+            if ON_READER.get()
+                && self.follow_limit > 0
+                && !conn.originated
+                && conn.bidir.get().is_none()
+                && conn.inbound.pause()
+            {
+                self.lag.watch(&conn.inbound);
+            }
+        }
         self.submit(Box::new(move || {
             server.upcall(&poa, &id, request);
             if let Some(conn) = conn {
@@ -957,6 +984,11 @@ impl Server {
     /// Leader / follower: an upcall thread that answered a request of
     /// `conn` reads the connection's next request itself and runs it, so
     /// that the request needs no hand-over from the I/O task to the pool.
+    /// While it runs one, nobody reads the connection (it stays off the
+    /// poller) unless the thread takes longer than the linger
+    /// ([`Lag`]); with calls to the client over the connection
+    /// (bidirectional GIOP), the I/O task reads meanwhile, since their
+    /// replies come over it.
     /// The thread waits [`crate::OrbOptions::follow_linger`] at most for a
     /// request, and stops when the pool has queued work (which other
     /// connections wait for), after [`crate::OrbOptions::follow_limit`] requests,
@@ -968,6 +1000,14 @@ impl Server {
             return;
         }
         stats::count(Counter::follows);
+        let off = conn.bidir.get().is_none();
+        let busy = || {
+            let keep = conn.inbound.busy(off);
+            if keep && off {
+                self.lag.watch(&conn.inbound);
+            }
+            keep
+        };
         let mut limited = true;
         for _ in 0..self.follow_limit {
             if self.is_shutting_down() {
@@ -997,7 +1037,7 @@ impl Server {
             let keep = match message {
                 Message::Request { header, body } => {
                     stats::count(Counter::follow_requests);
-                    let keep = conn.inbound.busy();
+                    let keep = busy();
                     if let Some((key, request)) = self.prepare(conn, version, header, body, permit)
                     {
                         self.route_here(key, request);
@@ -1005,12 +1045,12 @@ impl Server {
                     keep
                 }
                 Message::LocateRequest(header) => {
-                    let keep = conn.inbound.busy();
+                    let keep = busy();
                     self.on_locate(conn, version, &header);
                     keep
                 }
                 Message::CancelRequest(header) => {
-                    let keep = conn.inbound.busy();
+                    let keep = busy();
                     conn.cancel_request(header.request_id);
                     keep
                 }
@@ -1026,7 +1066,7 @@ impl Server {
         if limited {
             stats::count(Counter::follow_stops_limit);
         }
-        conn.inbound.unbusy();
+        conn.inbound.release();
     }
 
     /// Like [`route`](Self::route), on an upcall thread: runs the request
@@ -1222,6 +1262,9 @@ impl Server {
         };
         resolved.finish(&adapter, id, &operation);
         match result {
+            // Oneway (or answered already, SYNC_WITH_SERVER): no reply to
+            // make.
+            Ok(Ok(())) if !reply.response => {}
             Ok(Ok(())) => match out.finish() {
                 Ok(msg) => {
                     trace::debug!("request {operation:?} (id {}) done", reply.request_id);
