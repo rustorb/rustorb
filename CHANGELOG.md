@@ -15,7 +15,11 @@ break the API).
   writes), off by default; `-ORBstatistics 1` / `OrbOptions::statistics`
   or `stats::set_enabled` turns them on. For measuring the speed work of
   docs/perf-plan.md (#204).
-- `rustorb_core::stats`: `reply_keeps` and `keep_resumes` (#207).
+- `rustorb_core::stats`: `reply_keeps` and `keep_resumes` (#207),
+  `connects` and `connection_shares` (#208).
+- `-ORBmaxConnectionsPerServer N` / `OrbOptions::max_connections_per_server`
+  (also accepted as omniORB's `-ORBmaxGIOPConnectionPerServer`): the most
+  connections a client opens to one server endpoint (#208).
 - interop/bench: `run-bench.py --quick` (the short before/after set),
   `--stats` (rustorb's counters per call), context switches per call
   (client and server, the server's by thread), and `compare-bench.py`, the
@@ -25,6 +29,18 @@ break the API).
 
 ### Changed
 
+- A client opens up to 4 connections to one server endpoint, as calls to
+  it run at the same time, instead of putting every call on one (#208,
+  docs/connections.md). A call takes a connection no other call is on,
+  preferring the one its thread used last, opens another while under
+  `-ORBmaxConnectionsPerServer`, and at the limit shares the least busy
+  one. One thread calling in turn still uses one connection;
+  `-ORBmaxConnectionsPerServer 1` puts every call on one, as before. An ORB
+  that offers bidirectional GIOP opens one. A `CloseConnection` under a
+  request also closes the other idle connections to that endpoint, and a
+  request is sent again up to 3 + the limit times (was 4). Four threads
+  calling one reference went from 31,000 to about 120,000 calls/s in the
+  cloud benchmark.
 - Smaller calls cost less (#207, docs/small-call-cost.md). A blocking
   caller that read its own reply keeps reading the connection until its
   next call, instead of putting it back on the runtime's poller each call

@@ -409,12 +409,100 @@ fn connection_limit_closes_least_used() {
     other.destroy().unwrap();
 }
 
+fn sleep(obj: &ObjectRef, ms: u32) {
+    obj.request("sleep")
+        .args(|out| {
+            out.write_u32(ms);
+            Ok(())
+        })
+        .invoke()
+        .unwrap();
+}
+
+/// Calls `sleep(ms)` from `threads` threads at once, `rounds` times each.
+fn sleep_from(obj: &ObjectRef, threads: usize, rounds: usize, ms: u32) {
+    let start = Arc::new(Barrier::new(threads));
+    let workers: Vec<_> = (0..threads)
+        .map(|_| {
+            let (obj, start) = (obj.clone(), Arc::clone(&start));
+            thread::spawn(move || {
+                start.wait();
+                for _ in 0..rounds {
+                    sleep(&obj, ms);
+                }
+            })
+        })
+        .collect();
+    for w in workers {
+        w.join().unwrap();
+    }
+}
+
+/// Calls at the same time open connections up to
+/// `-ORBmaxConnectionsPerServer` (default 4), and share them beyond it.
+#[test]
+fn concurrent_calls_open_connections_up_to_the_limit() {
+    for (max, threads, expected) in [(4, 2, 2), (4, 4, 4), (4, 8, 4), (1, 4, 1), (2, 6, 2)] {
+        let s = setup(
+            options(None, None),
+            OrbOptions {
+                max_connections_per_server: max,
+                ..options(None, None)
+            },
+        );
+        let started = Instant::now();
+        sleep_from(&s.obj, threads, 3, 100);
+        assert_eq!(s.proxy.accepted(), expected, "max {max}, {threads} threads");
+        // The calls ran side by side as far as connections went (the
+        // server reads a connection's requests while one runs, so even
+        // a shared connection does not serialize them).
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert_eq!(s.proxy.open(), expected);
+    }
+}
+
+/// One thread calling in turn uses one connection.
+#[test]
+fn calls_in_turn_use_one_connection() {
+    let s = setup(options(None, None), options(None, None));
+    for i in 0..50 {
+        assert_eq!(echo(&s.obj, i).unwrap(), i);
+    }
+    sleep_from(&s.obj, 1, 3, 1);
+    assert_eq!(s.proxy.accepted(), 1);
+}
+
+/// Idle connections beyond the first close like any other, and calls
+/// afterwards open what they need again.
+#[test]
+fn extra_connections_close_when_idle() {
+    let s = setup(options(None, None), options(Some(100), None));
+    sleep_from(&s.obj, 4, 2, 50);
+    assert_eq!(s.proxy.accepted(), 4);
+    assert!(eventually(|| s.proxy.open() == 0));
+    assert_eq!(echo(&s.obj, 7).unwrap(), 7);
+    assert_eq!(s.proxy.accepted(), 5);
+}
+
+/// The server closing its idle connections closes all of them at once:
+/// a call meeting one sends again without running out of attempts.
+#[test]
+fn server_closing_every_connection_is_survived() {
+    let s = setup(options(None, Some(50)), options(None, None));
+    for _ in 0..5 {
+        sleep_from(&s.obj, 4, 1, 20);
+        thread::sleep(Duration::from_millis(150));
+    }
+    assert_eq!(echo(&s.obj, 1).unwrap(), 1);
+}
+
 #[test]
 fn orb_arguments() {
     let mut o = OrbOptions::default();
     assert_eq!(o.client_idle_timeout, Some(Duration::from_secs(120)));
     assert_eq!(o.server_idle_timeout, Some(Duration::from_secs(180)));
     assert_eq!(o.max_server_connections, 0);
+    assert_eq!(o.max_connections_per_server, 4);
     let mut args: Vec<String> = [
         "prog",
         "-ORBoutConScanPeriod",
@@ -422,6 +510,8 @@ fn orb_arguments() {
         "-ORBinConScanPeriod=30",
         "-ORBmaxServerConnections",
         "100",
+        "-ORBmaxConnectionsPerServer",
+        "1",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -431,6 +521,19 @@ fn orb_arguments() {
     assert_eq!(o.client_idle_timeout, None);
     assert_eq!(o.server_idle_timeout, Some(Duration::from_secs(30)));
     assert_eq!(o.max_server_connections, 100);
+    assert_eq!(o.max_connections_per_server, 1);
+    o.parse_args(&mut vec![
+        "-ORBmaxGIOPConnectionPerServer".into(),
+        "5".into(),
+    ])
+    .unwrap();
+    assert_eq!(o.max_connections_per_server, 5);
+    for bad in ["0", "x"] {
+        assert!(
+            o.parse_args(&mut vec!["-ORBmaxConnectionsPerServer".into(), bad.into()])
+                .is_err()
+        );
+    }
     assert!(
         o.parse_args(&mut vec!["-ORBinConScanPeriod".into(), "x".into()])
             .is_err()

@@ -112,6 +112,12 @@ counters! {
     /// A caller waited for the I/O task while another kept the reading:
     /// the task got it back (client).
     keep_resumes,
+    /// A client connection was opened (client).
+    connects,
+    /// A call went on a connection with another call in flight: every
+    /// connection to the server was busy and no more may be opened
+    /// (`-ORBmaxConnectionsPerServer`; client).
+    connection_shares,
     /// Jobs given to the upcall pool.
     pool_jobs,
     /// A job woke an idle upcall thread.

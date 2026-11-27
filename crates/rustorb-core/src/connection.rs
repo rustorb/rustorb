@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 use std::io::{self, IoSlice};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use std::time::{Duration, Instant};
@@ -82,8 +82,171 @@ pub(crate) enum Transport {
 /// the transport.
 pub(crate) type EndpointKey = (String, u16, Transport);
 
-/// The ORB's client connections, one per endpoint.
-pub(crate) type ConnectionPool = Mutex<HashMap<EndpointKey, Arc<Connection>>>;
+/// The ORB's client connections, by endpoint.
+pub(crate) type ConnectionPool = Mutex<HashMap<EndpointKey, Slot>>;
+
+/// The connections to one endpoint (docs/connections.md): up to
+/// [`OrbOptions::max_connections_per_server`], opened as calls run at
+/// the same time. A call takes a connection no call is on, the one the
+/// calling thread used last if it can; with none free it opens another,
+/// and at the limit it shares the one with the fewest calls.
+#[derive(Debug, Default)]
+pub(crate) struct Slot {
+    conns: Vec<Arc<Connection>>,
+    /// Connections being opened for the endpoint.
+    opening: usize,
+    /// Wakes the calls waiting for a connection being opened.
+    opened: Arc<tokio::sync::Notify>,
+}
+
+/// What [`Slot::pick`] chose.
+pub(crate) enum Pick {
+    /// Use this connection.
+    Use(Lease),
+    /// Open a connection; the slot counts it as opening.
+    Open,
+    /// Wait for one being opened, and pick again: the limit is reached
+    /// with connections being opened only.
+    Wait(Arc<tokio::sync::Notify>),
+}
+
+impl Slot {
+    /// A slot with `conn` only (a connection a client offered for
+    /// bidirectional GIOP).
+    pub(crate) fn only(conn: Arc<Connection>) -> Slot {
+        Slot {
+            conns: vec![conn],
+            ..Slot::default()
+        }
+    }
+
+    /// The usable connections.
+    pub(crate) fn usable(&self) -> impl Iterator<Item = &Arc<Connection>> {
+        self.conns.iter().filter(|c| c.is_usable())
+    }
+
+    /// Whether the slot has `conn`.
+    pub(crate) fn has(&self, conn: &Arc<Connection>) -> bool {
+        self.conns.iter().any(|c| Arc::ptr_eq(c, conn))
+    }
+
+    /// Chooses the connection for a call, with at most `max` connections.
+    pub(crate) fn pick(&mut self, max: usize) -> Pick {
+        let me = thread_tag();
+        let mut usable = 0;
+        let mut best: Option<(&Arc<Connection>, usize)> = None;
+        for c in self.conns.iter().filter(|c| c.is_usable()) {
+            // Calls to a client's objects go over the connection it
+            // offered: it may not be reachable otherwise.
+            if c.is_accepted() {
+                return Pick::Use(Lease::new(c));
+            }
+            usable += 1;
+            let calls = c.calls.load(Ordering::Relaxed);
+            if calls == 0 && c.last_thread.load(Ordering::Relaxed) == me {
+                return Pick::Use(Lease::new(c));
+            }
+            if best.is_none_or(|(_, fewest)| calls < fewest) {
+                best = Some((c, calls));
+            }
+        }
+        match best {
+            Some((c, 0)) => Pick::Use(Lease::new(c)),
+            _ if usable + self.opening < max.max(1) => {
+                self.opening += 1;
+                Pick::Open
+            }
+            Some((c, _)) => {
+                stats::count(Counter::connection_shares);
+                Pick::Use(Lease::new(c))
+            }
+            None => Pick::Wait(Arc::clone(&self.opened)),
+        }
+    }
+
+    /// Ends an opening [`pick`](Self::pick) asked for: `conn` joins the
+    /// slot, unless it holds `max` usable connections already (others
+    /// opened meanwhile); then the call uses the least busy of those and
+    /// `conn` is returned to be closed.
+    pub(crate) fn opened(
+        &mut self,
+        conn: Option<Arc<Connection>>,
+        max: usize,
+    ) -> Option<(Lease, Option<Arc<Connection>>)> {
+        self.opening = self.opening.saturating_sub(1);
+        self.opened.notify_waiters();
+        let conn = conn?;
+        let full = self.usable().any(|c| c.is_accepted()) || self.usable().count() >= max.max(1);
+        if full {
+            let existing = self
+                .usable()
+                .min_by_key(|c| (!c.is_accepted(), c.calls.load(Ordering::Relaxed)))
+                .expect("a usable connection");
+            return Some((Lease::new(existing), Some(conn)));
+        }
+        self.conns.retain(|c| c.is_usable());
+        self.conns.push(Arc::clone(&conn));
+        Some((Lease::new(&conn), None))
+    }
+
+    /// Takes the connections out that `choose` picks.
+    pub(crate) fn take(
+        &mut self,
+        mut choose: impl FnMut(&Connection) -> bool,
+    ) -> Vec<Arc<Connection>> {
+        let mut taken = Vec::new();
+        self.conns.retain(|c| {
+            if choose(c) {
+                taken.push(Arc::clone(c));
+                false
+            } else {
+                true
+            }
+        });
+        taken
+    }
+
+    /// Whether nothing is in the slot or being opened for it.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.conns.is_empty() && self.opening == 0
+    }
+}
+
+/// A connection taken for one call: counted as busy until dropped.
+#[derive(Debug)]
+pub(crate) struct Lease(Arc<Connection>);
+
+impl Lease {
+    /// Taken under the pool's lock, so that the next pick sees the call.
+    fn new(conn: &Arc<Connection>) -> Lease {
+        conn.calls.fetch_add(1, Ordering::Relaxed);
+        conn.last_thread.store(thread_tag(), Ordering::Relaxed);
+        Lease(Arc::clone(conn))
+    }
+}
+
+impl std::ops::Deref for Lease {
+    type Target = Arc<Connection>;
+
+    fn deref(&self) -> &Arc<Connection> {
+        &self.0
+    }
+}
+
+impl Drop for Lease {
+    fn drop(&mut self) {
+        self.0.calls.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+/// A number for the calling thread, never 0.
+fn thread_tag() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    thread_local! {
+        static TAG: u64 = NEXT.fetch_add(1, Ordering::Relaxed);
+    }
+    TAG.with(|t| *t)
+}
 
 /// What a waiting caller receives.
 pub(crate) type Delivery = Result<Message, Closed>;
@@ -153,6 +316,10 @@ pub(crate) struct Connection {
     serving: OnceLock<Serving>,
     /// Whether a request with the `BI_DIR_IIOP` context went out.
     offered: AtomicBool,
+    /// Calls on the connection now ([`Lease`]).
+    calls: AtomicUsize,
+    /// The thread that took the connection last ([`thread_tag`]).
+    last_thread: AtomicU64,
 }
 
 impl Connection {
@@ -215,8 +382,11 @@ impl Connection {
             pool,
             serving: OnceLock::new(),
             offered: AtomicBool::new(false),
+            calls: AtomicUsize::new(0),
+            last_thread: AtomicU64::new(0),
         });
         tokio::spawn(read_loop(Arc::clone(&conn)));
+        stats::count(Counter::connects);
         Ok(conn)
     }
 
@@ -247,6 +417,8 @@ impl Connection {
             pool,
             serving: OnceLock::new(),
             offered: AtomicBool::new(false),
+            calls: AtomicUsize::new(0),
+            last_thread: AtomicU64::new(0),
         })
     }
 
@@ -296,6 +468,11 @@ impl Connection {
 
     pub(crate) fn endpoint(&self) -> &EndpointKey {
         &self.endpoint
+    }
+
+    /// Whether no call holds the connection ([`Lease`]).
+    pub(crate) fn is_free(&self) -> bool {
+        self.calls.load(Ordering::Relaxed) == 0
     }
 
     /// Whether the connection can take new requests.
@@ -845,7 +1022,10 @@ impl Connection {
     /// (a connection a client offered has one per listen point).
     pub(crate) fn leave_pool(self: &Arc<Self>) {
         if let Some(pool) = self.pool.upgrade() {
-            pool.lock().unwrap().retain(|_, c| !Arc::ptr_eq(c, self));
+            pool.lock().unwrap().retain(|_, slot| {
+                slot.take(|c| std::ptr::eq(c, &**self));
+                !slot.is_empty()
+            });
         }
     }
 }

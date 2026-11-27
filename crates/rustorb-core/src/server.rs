@@ -40,7 +40,7 @@ use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinHandle;
 
 use crate::codeset::{CONVERSION_CHAR, NATIVE_CHAR, NATIVE_WCHAR};
-use crate::connection::{Closed, Connection, Transport, summary};
+use crate::connection::{Closed, Connection, Slot, Transport, summary};
 use crate::idle::{self, Stamp};
 use crate::orb::OrbInner;
 use crate::pi::{self, Interceptors, ServerEnding, ServerException, ServerRequestInfo};
@@ -814,8 +814,8 @@ impl Server {
             ];
             for key in keys.into_iter().take(if tls { 2 } else { 1 }) {
                 match conns.get(&key) {
-                    Some(c) if Arc::ptr_eq(c, client) => {}
-                    Some(c) if c.is_usable() => {
+                    Some(slot) if slot.has(client) => {}
+                    Some(slot) if slot.usable().next().is_some() => {
                         trace::info!(
                             "{peer} offered {}:{} for bidirectional GIOP: not taken, a \
                              connection to it is open already",
@@ -835,7 +835,7 @@ impl Server {
                                 ""
                             }
                         );
-                        conns.insert(key, Arc::clone(client));
+                        conns.insert(key, Slot::only(Arc::clone(client)));
                     }
                 }
             }
