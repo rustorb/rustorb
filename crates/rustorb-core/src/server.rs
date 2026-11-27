@@ -13,8 +13,10 @@
 //! connection is served, and then reads and writes through [`Tls`].
 //!
 //! Calls from the ORB to its own objects do not go through the network:
-//! the request is marshalled as usual and dispatched on the calling thread
-//! ([`Server::call_local`]).
+//! only the arguments are marshalled and the servant runs on the calling
+//! thread ([`Server::call_direct`]), or, when the request may have to wait
+//! or server interceptors see it, it is dispatched with a request header
+//! as for a connection ([`Server::call_local`]); docs/colocated-calls.md.
 
 use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -23,15 +25,16 @@ use std::io;
 use std::net::SocketAddr;
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak, mpsc as std_mpsc};
+use std::sync::{Arc, Mutex, OnceLock, Weak, mpsc as std_mpsc};
 use std::time::{Duration, Instant, SystemTime};
 
 use rustorb_cdr::ByteOrder;
 use rustorb_giop::{
     AlternateIiopAddress, BiDirIiopServiceContext, Body, CodeSetComponent, CodeSetComponentInfo,
     CodeSetContext, IiopProfile, Ior, ListenPoint, LocateReplyHeader, LocateRequestHeader,
-    LocateStatus, Message, MessageEncoder, OutMessage, RequestHeader, ServiceContext, SslSecTrans,
-    TaggedComponent, TargetAddress, UnixTrans, Version, association_options, component_tag,
+    LocateStatus, Message, MessageEncoder, OutMessage, ReplyStatus, RequestHeader, ServiceContext,
+    SslSecTrans, TaggedComponent, TargetAddress, UnixTrans, Version, association_options,
+    component_tag,
 };
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
@@ -39,15 +42,16 @@ use tokio::runtime::Handle;
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinHandle;
 
+use crate::ObjectRef;
 use crate::codeset::{CONVERSION_CHAR, NATIVE_CHAR, NATIVE_WCHAR};
 use crate::connection::{Closed, Connection, Slot, Transport, summary};
 use crate::idle::{self, Stamp};
 use crate::orb::OrbInner;
 use crate::pi::{self, Interceptors, ServerEnding, ServerException, ServerRequestInfo};
 use crate::poa::{
-    BOOT_ID_LEN, CurrentGuard, Dispatch, Disposition, Etherealization, ManagerInner, ParsedKey,
-    PoaError, PoaInner, PoaManager, SerialEntry, UpcallGuard, etherealize_all, is_main_thread,
-    no_such_object, parse_key,
+    Activity, BOOT_ID_LEN, CurrentGuard, Dispatch, Disposition, Etherealization, ManagerInner,
+    ParsedKey, PoaError, PoaInner, PoaManager, SerialEntry, UpcallGuard, etherealize_all,
+    is_main_thread, no_such_object, parse_key,
 };
 use crate::pool::{Job, Pool};
 use crate::servant::{OBJECT_ID, ServerReply, location_forward_reply, system_exception_reply};
@@ -127,8 +131,7 @@ pub(crate) struct Server {
     next_connection: AtomicU64,
     listeners: Mutex<Vec<JoinHandle<()>>>,
     shutting_down: AtomicBool,
-    in_flight: Mutex<usize>,
-    in_flight_done: Condvar,
+    in_flight: Activity,
 }
 
 impl std::fmt::Debug for Server {
@@ -352,8 +355,7 @@ impl Server {
             next_connection: AtomicU64::new(0),
             listeners: Mutex::new(Vec::new()),
             shutting_down: AtomicBool::new(false),
-            in_flight: Mutex::new(0),
-            in_flight_done: Condvar::new(),
+            in_flight: Activity::default(),
         });
         let manager = server
             .create_manager(ROOT_MANAGER_ID)
@@ -650,7 +652,7 @@ impl Server {
     }
 
     fn ticket(self: &Arc<Self>, permit: Option<OwnedSemaphorePermit>) -> Ticket {
-        *self.in_flight.lock().unwrap() += 1;
+        self.in_flight.arrive();
         Ticket {
             server: Arc::clone(self),
             _permit: permit,
@@ -1216,70 +1218,85 @@ impl Server {
             _ticket,
             ..
         } = request;
-        let adapter = Poa {
-            orb: orb.clone(),
-            inner: Arc::clone(poa),
-        };
         let _poa_activity = poa.activity().enter();
         let _manager_activity = poa.manager.inner.activity().enter();
-        let mut out = match ServerReply::new(reply.version, self.order, reply.request_id, code_sets)
-        {
+        let out = match ServerReply::new(reply.version, self.order, reply.request_id, code_sets) {
             Ok(out) => out,
             Err(e) => {
                 reply.system(&e);
                 return;
             }
         };
-        let resolved = match poa.resolve(&adapter, self, id, &operation) {
-            Ok(resolved) => resolved,
-            Err(ServantManagerError::ForwardRequest(to)) => {
-                reply.forward(to.ior());
-                return;
-            }
-            Err(ServantManagerError::System(e)) => {
-                reply.system(&e);
-                return;
-            }
-        };
-        reply.ack();
-        let mut input = InStream {
-            dec: body.decoder(),
-            code_sets,
-            orb: Some(&orb),
-            completed: CompletionStatus::No,
-            wchar_needs_code_set: true,
-            values: Vec::new(),
-            typed_values: Vec::new(),
-            custom_items: None,
-            body: Some(&body),
-        };
-        let result = {
-            let _upcall = UpcallGuard::enter();
-            let _current = CurrentGuard::enter(&adapter, resolved.object_id(id), &resolved.servant);
-            panic::catch_unwind(AssertUnwindSafe(|| {
-                invoke(&*resolved.servant, &operation, &mut input, &mut out)
-            }))
-        };
-        resolved.finish(&adapter, id, &operation);
-        match result {
+        let ended = self.run_servant(&orb, poa, id, &operation, &body, out, || reply.ack());
+        match ended {
             // Oneway (or answered already, SYNC_WITH_SERVER): no reply to
             // make.
-            Ok(Ok(())) if !reply.response => {}
-            Ok(Ok(())) => match out.finish() {
+            Upcall::Reply(_) if !reply.response => {}
+            Upcall::Reply(out) => match out.finish() {
                 Ok(msg) => {
                     trace::debug!("request {operation:?} (id {}) done", reply.request_id);
                     reply.send(msg)
                 }
                 Err(e) => reply.system(&e),
             },
-            Ok(Err(e)) => reply.system(&e),
+            Upcall::System(e) => reply.system(&e),
+            Upcall::Forward(to) => reply.forward(to.ior()),
+        }
+    }
+
+    /// The part of an upcall without server interceptors that does not
+    /// depend on where the reply goes: finds the servant (`ack` runs once
+    /// it is found), and runs the operation, writing the result to `out`.
+    #[allow(clippy::too_many_arguments)]
+    fn run_servant(
+        self: &Arc<Self>,
+        orb: &Orb,
+        poa: &Arc<PoaInner>,
+        id: &[u8],
+        operation: &str,
+        body: &Body,
+        mut out: ServerReply,
+        ack: impl FnOnce(),
+    ) -> Upcall {
+        let adapter = Poa {
+            orb: orb.clone(),
+            inner: Arc::clone(poa),
+        };
+        let resolved = match poa.resolve(&adapter, self, id, operation) {
+            Ok(resolved) => resolved,
+            Err(ServantManagerError::ForwardRequest(to)) => return Upcall::Forward(to),
+            Err(ServantManagerError::System(e)) => return Upcall::System(e),
+        };
+        ack();
+        let mut input = InStream {
+            dec: body.decoder(),
+            code_sets: out.code_sets(),
+            orb: Some(orb),
+            completed: CompletionStatus::No,
+            wchar_needs_code_set: true,
+            values: Vec::new(),
+            typed_values: Vec::new(),
+            custom_items: None,
+            body: Some(body),
+        };
+        let result = {
+            let _upcall = UpcallGuard::enter();
+            let _current = CurrentGuard::enter(&adapter, resolved.object_id(id), &resolved.servant);
+            panic::catch_unwind(AssertUnwindSafe(|| {
+                invoke(&*resolved.servant, operation, &mut input, &mut out)
+            }))
+        };
+        resolved.finish(&adapter, id, operation);
+        match result {
+            Ok(Ok(())) => Upcall::Reply(out),
+            Ok(Err(e)) => Upcall::System(e),
             Err(_) => {
                 trace::warning!("servant panicked in {operation:?}");
-                reply.system(&SystemException::new(
+                Upcall::System(SystemException::new(
                     SystemExceptionKind::UNKNOWN,
                     0,
                     CompletionStatus::Maybe,
-                ));
+                ))
             }
         }
     }
@@ -1570,6 +1587,73 @@ impl Server {
         wait(&rx, timeout, CompletionStatus::Maybe).map(Some)
     }
 
+    /// The byte order of the messages this server writes.
+    pub(crate) fn byte_order(&self) -> ByteOrder {
+        self.order
+    }
+
+    /// Runs a request of this ORB to one of its own objects without GIOP:
+    /// the arguments come as a body only, the servant runs on the calling
+    /// thread, and the reply goes back as its status and body
+    /// (docs/colocated-calls.md).
+    ///
+    /// Only for a request that needs nothing else of the general path:
+    /// `Err` gives `body` back when there are server interceptors, the POA
+    /// is not ORB_CTRL_MODEL, or its manager is not active, and the caller
+    /// takes [`call_local`](Self::call_local).
+    pub(crate) fn call_direct(
+        self: &Arc<Self>,
+        key: &[u8],
+        operation: &str,
+        flags: u8,
+        body: Body,
+        code_sets: CodeSets,
+    ) -> Result<Direct, Body> {
+        if self.is_shutting_down() {
+            return Ok(Direct::System(transient()));
+        }
+        let Some(orb) = self.orb() else {
+            return Ok(Direct::System(transient()));
+        };
+        if orb.interceptors().is_some_and(|pi| pi.has_server()) {
+            return Err(body);
+        }
+        let (poa, id) = match self.find(key, Some(&orb)) {
+            Ok(found) => found,
+            Err(_) => return Ok(Direct::System(no_such_object())),
+        };
+        if poa.policies().thread != ThreadPolicy::OrbCtrl || !poa.manager.inner.is_active() {
+            return Err(body);
+        }
+        let _ticket = self.ticket(None);
+        let _poa_activity = poa.activity().enter();
+        let _manager_activity = poa.manager.inner.activity().enter();
+        let out = ServerReply::body_only(self.order, code_sets);
+        // As `ReplyTo`: a oneway request gets no answer, and one with
+        // SYNC_WITH_SERVER only up to finding its servant.
+        let mut response = flags & 0x01 != 0;
+        let ack_first = flags & 0x03 == 0x01;
+        let ended = self.run_servant(&orb, &poa, &id, operation, &body, out, || {
+            if ack_first {
+                response = false;
+            }
+        });
+        if !response {
+            return Ok(Direct::None);
+        }
+        Ok(match ended {
+            Upcall::Reply(out) => match out.finish_body() {
+                Ok((status, bytes)) => Direct::Reply(
+                    status,
+                    Body::from_vec(bytes, 0, self.order, Version::V1_2.cdr_version()),
+                ),
+                Err(e) => Direct::System(e),
+            },
+            Upcall::System(e) => Direct::System(e),
+            Upcall::Forward(to) => Direct::Forward(to),
+        })
+    }
+
     fn run_local(self: &Arc<Self>, poa: &Arc<PoaInner>, id: Vec<u8>, request: Incoming) {
         match poa.policies().thread {
             ThreadPolicy::OrbCtrl => self.upcall(poa, &id, request),
@@ -1742,11 +1826,7 @@ impl Server {
         if let Some(orb) = self.orb.upgrade() {
             orb.close_main();
         }
-        let mut in_flight = self.in_flight.lock().unwrap();
-        while *in_flight > 0 {
-            in_flight = self.in_flight_done.wait(in_flight).unwrap();
-        }
-        drop(in_flight);
+        self.in_flight.wait_idle();
         let work = self.root().destroy_tree(true);
         if let Some(orb) = self.orb() {
             etherealize_all(&orb, work);
@@ -1799,6 +1879,26 @@ enum Lookup {
     /// A POA on the path is missing, but its parent has an adapter
     /// activator that may create it.
     NeedsActivator,
+}
+
+/// How the servant part of an upcall ended ([`Server::run_servant`]).
+enum Upcall {
+    /// The operation ran; the reply holds its result or user exception.
+    Reply(ServerReply),
+    System(SystemException),
+    /// A servant manager raised `ForwardRequest`.
+    Forward(ObjectRef),
+}
+
+/// The answer to a colocated call without GIOP ([`Server::call_direct`]).
+pub(crate) enum Direct {
+    /// A oneway request ran.
+    None,
+    /// `NO_EXCEPTION` or `USER_EXCEPTION`, and the body.
+    Reply(ReplyStatus, Body),
+    System(SystemException),
+    /// `LOCATION_FORWARD`.
+    Forward(ObjectRef),
 }
 
 /// A request on its way to the servant.
@@ -1958,11 +2058,7 @@ struct Ticket {
 
 impl Drop for Ticket {
     fn drop(&mut self) {
-        let mut in_flight = self.server.in_flight.lock().unwrap();
-        *in_flight -= 1;
-        if *in_flight == 0 {
-            self.server.in_flight_done.notify_all();
-        }
+        self.server.in_flight.leave();
     }
 }
 

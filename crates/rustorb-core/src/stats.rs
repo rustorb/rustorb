@@ -134,6 +134,12 @@ counters! {
     /// Server messages (or their rest) left to the connection's writer
     /// task.
     outbox_queued,
+    /// A call to an object of this ORB ran without GIOP
+    /// (docs/colocated-calls.md).
+    local_direct,
+    /// A call to an object of this ORB took the general path: a request
+    /// header for the server side, and a whole reply message back.
+    local_general,
 }
 
 const N: usize = Counter::ALL.len();

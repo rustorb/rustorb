@@ -374,6 +374,22 @@ impl Body {
         }
     }
 
+    /// A body that is not part of a message: `bytes` as CDR whose first
+    /// byte is at stream offset `offset`. For a request or reply passed
+    /// within one process without the message around it (a GIOP 1.2 body
+    /// starts on an 8-byte boundary, so `offset` 0 gives it the same
+    /// alignment).
+    pub fn from_vec(bytes: Vec<u8>, offset: usize, order: ByteOrder, encoding: Encoding) -> Body {
+        Body {
+            buf: Arc::new(bytes),
+            start: 0,
+            offset,
+            segments: Vec::new(),
+            byte_order: order,
+            version: encoding,
+        }
+    }
+
     /// The body bytes.
     pub fn as_bytes(&self) -> &[u8] {
         &self.buf[self.start..]

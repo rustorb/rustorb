@@ -16,7 +16,9 @@ break the API).
   or `stats::set_enabled` turns them on. For measuring the speed work of
   docs/perf-plan.md (#204).
 - `rustorb_core::stats`: `reply_keeps` and `keep_resumes` (#207),
-  `connects` and `connection_shares` (#208).
+  `connects` and `connection_shares` (#208), `local_direct` and
+  `local_general` (#209).
+- `rustorb_giop::Body::from_vec`: a body that is not part of a message.
 - `-ORBmaxConnectionsPerServer N` / `OrbOptions::max_connections_per_server`
   (also accepted as omniORB's `-ORBmaxGIOPConnectionPerServer`): the most
   connections a client opens to one server endpoint (#208).
@@ -29,6 +31,19 @@ break the API).
 
 ### Changed
 
+- Calls to an object of the same ORB skip GIOP (#209,
+  docs/colocated-calls.md). From GIOP 1.2 on, only the arguments are
+  marshalled, the servant runs on the calling thread and the reply comes
+  back as its body; system exceptions and `LOCATION_FORWARD` are not
+  encoded. A POA manager that is not active, a SINGLE_THREAD_MODEL or
+  MAIN_THREAD_MODEL POA, and server interceptors still take the general
+  path, which now gets a request header made directly instead of a whole
+  message encoded and decoded. A colocated ping went from 2.4 µs to 0.9 µs
+  in the cloud benchmark.
+- The end of a request no longer makes a system call: the counts of
+  requests in progress (per POA, per POA manager, per server) wake a
+  waiter only when there is one. Server oneway throughput rose by about
+  20% in the cloud benchmark.
 - A client opens up to 4 connections to one server endpoint, as calls to
   it run at the same time, instead of putting every call on one (#208,
   docs/connections.md). A call takes a connection no other call is on,

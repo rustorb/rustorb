@@ -17,6 +17,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::panic::{self, AssertUnwindSafe};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::thread::{self, ThreadId};
 
@@ -452,23 +453,54 @@ impl Drop for UpcallGuard {
 }
 
 /// A count of requests in progress that can be waited on.
+///
+/// Coming and going are atomic operations: the lock and the condition
+/// variable are used only while someone waits, so that the end of a
+/// request makes no system call (a `notify_all` is a futex wake even with
+/// nobody waiting).
 #[derive(Debug, Default)]
 pub(crate) struct Activity {
-    count: Mutex<usize>,
+    count: AtomicUsize,
+    /// Threads in [`wait_idle`](Self::wait_idle).
+    waiters: AtomicUsize,
+    lock: Mutex<()>,
     idle: Condvar,
 }
 
 impl Activity {
     pub(crate) fn enter(self: &Arc<Self>) -> ActivityGuard {
-        *self.count.lock().unwrap() += 1;
+        self.arrive();
         ActivityGuard(Arc::clone(self))
     }
 
-    pub(crate) fn wait_idle(&self) {
-        let mut count = self.count.lock().unwrap();
-        while *count > 0 {
-            count = self.idle.wait(count).unwrap();
+    /// One more request; [`leave`](Self::leave) ends it.
+    pub(crate) fn arrive(&self) {
+        self.count.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub(crate) fn leave(&self) {
+        // With `wait_idle`, both sides make their change before they look
+        // at the other's (sequentially consistent): either the waiter sees
+        // the count at 0, or this sees the waiter and wakes it under the
+        // lock, which the waiter holds from its check until it sleeps.
+        if self.count.fetch_sub(1, Ordering::SeqCst) == 1 && self.waiters.load(Ordering::SeqCst) > 0
+        {
+            let _lock = self.lock.lock().unwrap();
+            self.idle.notify_all();
         }
+    }
+
+    pub(crate) fn wait_idle(&self) {
+        if self.count.load(Ordering::SeqCst) == 0 {
+            return;
+        }
+        self.waiters.fetch_add(1, Ordering::SeqCst);
+        let mut lock = self.lock.lock().unwrap();
+        while self.count.load(Ordering::SeqCst) > 0 {
+            lock = self.idle.wait(lock).unwrap();
+        }
+        drop(lock);
+        self.waiters.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -476,11 +508,7 @@ pub(crate) struct ActivityGuard(Arc<Activity>);
 
 impl Drop for ActivityGuard {
     fn drop(&mut self) {
-        let mut count = self.0.count.lock().unwrap();
-        *count -= 1;
-        if *count == 0 {
-            self.0.idle.notify_all();
-        }
+        self.0.leave();
     }
 }
 
@@ -798,6 +826,12 @@ impl ManagerInner {
                 dispatch(Disposition::Reject(refusal(state)));
             }
         }
+    }
+
+    /// Whether requests run now (a colocated call may then skip
+    /// [`dispatch`](Self::dispatch)).
+    pub(crate) fn is_active(&self) -> bool {
+        self.state.lock().unwrap().state == PoaManagerState::Active
     }
 
     /// Whether a `LocateRequest` may answer `OBJECT_HERE`.
