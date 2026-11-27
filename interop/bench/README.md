@@ -13,7 +13,7 @@ against any server, and each one alone in one process.
 | `rustorbjava` | Java | [java/BenchMain.java](java/BenchMain.java) |
 | `rustorbcs` | C# | [csharp/Program.cs](csharp/Program.cs) |
 | `rustorbc` | C | [c/bench.c](c/bench.c) |
-| `rustorbrb` | Ruby | [ruby/bench.rb](ruby/bench.rb) |
+| `rustorbrb` | Ruby | [ruby/bench.rb](ruby/bench.rb) (`RUSTORB_RB_OCTETS_AS_STRING=1`: octet sequences as Strings, [docs/c-ruby-octets.md](../../docs/c-ruby-octets.md)) |
 | `omniorbcpp` | C++ (classic mapping) on omniORB | [omniorb-cpp/bench.cc](omniorb-cpp/bench.cc) |
 | `omniorbpy` | Python on omniORBpy | [python/bench.py](python/bench.py) (`--orb omniorb`) |
 

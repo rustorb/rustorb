@@ -198,6 +198,26 @@ impl<'a> Decoder<'a> {
         self.read_octets_raw(n)
     }
 
+    /// Reads the raw bytes of up to `count` elements of `size` octets
+    /// each (a power of two, the size of a number), for reading a run of
+    /// numbers at once: aligns for the first element, then takes as many
+    /// whole elements as follow it, which is all of them except in a
+    /// chunked valuetype, where the run stops at the end of the open chunk.
+    /// At least one element when `count` is not 0; a caller loops until it
+    /// has read all. The bytes are in [`byte_order`](Decoder::byte_order).
+    pub fn read_elements(&mut self, size: usize, count: usize) -> Result<&'a [u8]> {
+        if count == 0 {
+            return Ok(&[]);
+        }
+        self.align(size)?;
+        let mut n = count;
+        if let Some(end) = self.chunk_end() {
+            n = n.min((end - self.pos) / size).max(1);
+        }
+        let len = n.checked_mul(size).ok_or(Error::LengthOverflow(n))?;
+        self.read_octets(len)
+    }
+
     /// Skips padding, ignoring chunks.
     pub(crate) fn align_raw(&mut self, align: usize) -> Result<()> {
         let rem = self.position() % align;

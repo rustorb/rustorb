@@ -21,6 +21,7 @@
 #include <ruby/vm.h>
 
 #include <pthread.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -961,6 +962,83 @@ static VALUE out_write_array(VALUE self, VALUE kind, VALUE data) {
   rorb_out_write_array(OUT(self), k, RSTRING_PTR(data), (size_t)RSTRING_LEN(data) / prim_size[k]);
   return self;
 }
+/* The kinds of write_list and read_list: those of write_array, and int8
+   (9), sent as octets. */
+#define LIST_INT8 9
+static size_t list_size(int k) { return k == LIST_INT8 ? 1 : prim_size[k]; }
+
+/* ary: an Array of numbers, checked and packed here at once. Returns nil
+   when written, or the index of the first element this does not take (not
+   a Fixnum or a Float, or out of range), with nothing written: the caller
+   then checks them itself and says what is wrong. */
+static VALUE out_write_list(VALUE self, VALUE kind, VALUE ary) {
+  int k = NUM2INT(kind);
+  long i, n;
+  void* buf;
+  if (k < 0 || k > LIST_INT8) rb_raise(rb_eArgError, "bad element kind");
+  Check_Type(ary, T_ARRAY);
+  n = RARRAY_LEN(ary);
+  buf = ruby_xmalloc2(n ? (size_t)n : 1, list_size(k));
+  for (i = 0; i < n; i++) {
+    VALUE v = RARRAY_AREF(ary, i);
+    if (k == RORB_PRIM_FLOAT || k == RORB_PRIM_DOUBLE) {
+      double d;
+      if (RB_FLOAT_TYPE_P(v))
+        d = RFLOAT_VALUE(v);
+      else if (FIXNUM_P(v))
+        d = (double)FIX2LONG(v);
+      else
+        break;
+      if (k == RORB_PRIM_FLOAT)
+        ((float*)buf)[i] = (float)d;
+      else
+        ((double*)buf)[i] = d;
+    } else {
+      long x;
+      if (!FIXNUM_P(v)) break;
+      x = FIX2LONG(v);
+      switch (k) {
+        case RORB_PRIM_OCTET:
+          if (x < 0 || x > 255) goto stop;
+          ((uint8_t*)buf)[i] = (uint8_t)x;
+          break;
+        case LIST_INT8:
+          if (x < -128 || x > 127) goto stop;
+          ((uint8_t*)buf)[i] = (uint8_t)(x & 0xFF);
+          break;
+        case RORB_PRIM_SHORT:
+          if (x < INT16_MIN || x > INT16_MAX) goto stop;
+          ((int16_t*)buf)[i] = (int16_t)x;
+          break;
+        case RORB_PRIM_USHORT:
+          if (x < 0 || x > UINT16_MAX) goto stop;
+          ((uint16_t*)buf)[i] = (uint16_t)x;
+          break;
+        case RORB_PRIM_LONG:
+          if (x < INT32_MIN || x > INT32_MAX) goto stop;
+          ((int32_t*)buf)[i] = (int32_t)x;
+          break;
+        case RORB_PRIM_ULONG:
+          if (x < 0 || (unsigned long)x > UINT32_MAX) goto stop;
+          ((uint32_t*)buf)[i] = (uint32_t)x;
+          break;
+        case RORB_PRIM_LONGLONG: ((int64_t*)buf)[i] = (int64_t)x; break;
+        default: /* unsigned long long */
+          if (x < 0) goto stop;
+          ((uint64_t*)buf)[i] = (uint64_t)x;
+          break;
+      }
+    }
+  }
+stop:
+  if (i < n) {
+    ruby_xfree(buf);
+    return LONG2NUM(i);
+  }
+  rorb_out_write_array(OUT(self), k == LIST_INT8 ? RORB_PRIM_OCTET : k, buf, (size_t)n);
+  ruby_xfree(buf);
+  return Qnil;
+}
 static VALUE out_failed(VALUE self) { return rorb_out_failed(OUT(self)) ? Qtrue : Qfalse; }
 static VALUE out_keeps_hosts(VALUE self) {
   return rorb_out_keeps_hosts(OUT(self)) ? Qtrue : Qfalse;
@@ -1010,6 +1088,35 @@ static VALUE in_read_array(VALUE self, VALUE kind, VALUE count) {
   s = rb_str_new(NULL, (long)(n * prim_size[k]));
   rorb_in_read_array(IN(self), k, RSTRING_PTR(s), n);
   return s;
+}
+/* count numbers as an Array (see write_list for the kinds). */
+static VALUE in_read_list(VALUE self, VALUE kind, VALUE count) {
+  int k = NUM2INT(kind);
+  size_t i, n = NUM2SIZET(count);
+  void* buf;
+  VALUE ary;
+  if (k < 0 || k > LIST_INT8) rb_raise(rb_eArgError, "bad element kind");
+  buf = ruby_xcalloc(n ? n : 1, list_size(k));
+  rorb_in_read_array(IN(self), k == LIST_INT8 ? RORB_PRIM_OCTET : k, buf, n);
+  ary = rb_ary_new_capa((long)n);
+  for (i = 0; i < n; i++) {
+    VALUE v;
+    switch (k) {
+      case RORB_PRIM_OCTET: v = INT2FIX(((const uint8_t*)buf)[i]); break;
+      case LIST_INT8: v = INT2FIX(((const int8_t*)buf)[i]); break;
+      case RORB_PRIM_SHORT: v = INT2FIX(((const int16_t*)buf)[i]); break;
+      case RORB_PRIM_USHORT: v = INT2FIX(((const uint16_t*)buf)[i]); break;
+      case RORB_PRIM_LONG: v = LONG2NUM(((const int32_t*)buf)[i]); break;
+      case RORB_PRIM_ULONG: v = ULONG2NUM(((const uint32_t*)buf)[i]); break;
+      case RORB_PRIM_LONGLONG: v = LL2NUM(((const int64_t*)buf)[i]); break;
+      case RORB_PRIM_ULONGLONG: v = ULL2NUM(((const uint64_t*)buf)[i]); break;
+      case RORB_PRIM_FLOAT: v = DBL2NUM(((const float*)buf)[i]); break;
+      default: v = DBL2NUM(((const double*)buf)[i]); break;
+    }
+    rb_ary_push(ary, v);
+  }
+  ruby_xfree(buf);
+  return ary;
 }
 /* [digits, negative]: count digit values. */
 static VALUE in_read_fixed(VALUE self, VALUE count) {
@@ -3720,6 +3827,7 @@ void Init_rustorb_ext(void) {
   DEF(cOut, "write_longdouble", out_write_longdouble, 2);
   DEF(cOut, "write_fixed", out_write_fixed, 2);
   DEF(cOut, "write_array", out_write_array, 2);
+  DEF(cOut, "write_list", out_write_list, 2);
   DEF(cOut, "failed?", out_failed, 0);
   DEF(cOut, "keeps_hosts?", out_keeps_hosts, 0);
   DEF(cOut, "write_null_value", out_write_null_value, 0);
@@ -3747,6 +3855,7 @@ void Init_rustorb_ext(void) {
   DEF(cIn, "read_any", in_read_any, 0);
   DEF(cIn, "read_any_value", in_read_any_value, 1);
   DEF(cIn, "read_array", in_read_array, 2);
+  DEF(cIn, "read_list", in_read_list, 2);
   DEF(cIn, "read_fixed", in_read_fixed, 1);
   DEF(cIn, "read_length", in_read_length, 1);
   DEF(cIn, "fail", in_fail, 0);

@@ -6,13 +6,19 @@
 #ifdef _WIN32
 #include <windows.h>
 static SRWLOCK lock = SRWLOCK_INIT;
+static SRWLOCK spare_lock = SRWLOCK_INIT;
 void rustorb_c_lock(void) { AcquireSRWLockExclusive(&lock); }
 void rustorb_c_unlock(void) { ReleaseSRWLockExclusive(&lock); }
+static void spare_enter(void) { AcquireSRWLockExclusive(&spare_lock); }
+static void spare_leave(void) { ReleaseSRWLockExclusive(&spare_lock); }
 #else
 #include <pthread.h>
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t spare_lock = PTHREAD_MUTEX_INITIALIZER;
 void rustorb_c_lock(void) { pthread_mutex_lock(&lock); }
 void rustorb_c_unlock(void) { pthread_mutex_unlock(&lock); }
+static void spare_enter(void) { pthread_mutex_lock(&spare_lock); }
+static void spare_leave(void) { pthread_mutex_unlock(&spare_lock); }
 #endif
 
 #define MAGIC 0x52434d45u /* "RCME" */
@@ -22,6 +28,8 @@ typedef struct header_fields {
   uint32_t magic;
   CORBA_unsigned_long count;
   const rustorb_c_type* type;
+  /* The bytes after the header that the block has room for. */
+  size_t room;
 } header_fields;
 
 /* Padded so that what follows is aligned for any type. */
@@ -35,19 +43,89 @@ typedef union header {
 
 static const char sequence_block = 0;
 
-static void* alloc_block(const rustorb_c_type* type, CORBA_unsigned_long count, size_t size) {
-  header* h = (header*)calloc(1, sizeof(header) + size);
-  if (!h) return NULL;
+/* Large blocks of values that own nothing (octet sequences, say) are kept
+   for the next allocation after they are freed, a few of them: memory
+   given back to the system and taken again costs a page fault for each
+   page, which for a 1 MiB sequence takes longer than its copy. */
+#define SPARE_MIN ((size_t)64 * 1024)
+#define SPARE_MAX ((size_t)16 * 1024 * 1024)
+#define SPARE_TOTAL ((size_t)32 * 1024 * 1024)
+#define SPARE_COUNT 4
+static header* spare[SPARE_COUNT];
+static size_t spare_bytes;
+
+/* A kept block with room for size bytes and not twice as much, or NULL. */
+static header* take_spare(size_t size) {
+  header* h = NULL;
+  int i;
+  if (size < SPARE_MIN || size > SPARE_MAX) return NULL;
+  spare_enter();
+  for (i = 0; i < SPARE_COUNT; i++) {
+    if (spare[i] && spare[i]->h.room >= size && spare[i]->h.room / 2 < size) {
+      h = spare[i];
+      spare[i] = NULL;
+      spare_bytes -= h->h.room;
+      break;
+    }
+  }
+  spare_leave();
+  return h;
+}
+
+/* Keeps a freed block for take_spare: 0 when it was not kept. */
+static int keep_spare(header* h) {
+  int i, kept = 0;
+  size_t room = h->h.room;
+  if (room < SPARE_MIN || room > SPARE_MAX) return 0;
+  spare_enter();
+  if (spare_bytes + room <= SPARE_TOTAL) {
+    for (i = 0; i < SPARE_COUNT; i++) {
+      if (!spare[i]) {
+        spare[i] = h;
+        spare_bytes += room;
+        kept = 1;
+        break;
+      }
+    }
+  }
+  spare_leave();
+  return kept;
+}
+
+/* A block of size bytes after the header: zeroed, or (zero 0) left as it
+   is, for values the caller fills at once. */
+static void* new_block(const rustorb_c_type* type, CORBA_unsigned_long count, size_t size,
+                       int zero) {
+  header* h = take_spare(size);
+  if (h) {
+    if (zero) memset(h + 1, 0, size);
+  } else {
+    h = (header*)(zero ? calloc(1, sizeof(header) + size) : malloc(sizeof(header) + size));
+    if (!h) return NULL;
+    h->h.room = size;
+  }
   h->h.magic = MAGIC;
   h->h.count = count;
   h->h.type = type;
   return h + 1;
 }
 
-void* rustorb_c_alloc(const rustorb_c_type* type, CORBA_unsigned_long count) {
+static void* alloc_block(const rustorb_c_type* type, CORBA_unsigned_long count, size_t size) {
+  return new_block(type, count, size, 1);
+}
+
+static void* alloc_values(const rustorb_c_type* type, CORBA_unsigned_long count, int zero) {
   size_t size = type ? type->size * (size_t)count : (size_t)count;
   if (type && type->size && count > (size_t)-1 / 2 / type->size) return NULL;
-  return alloc_block(type, count, size ? size : 1);
+  return new_block(type, count, size ? size : 1, zero);
+}
+
+void* rustorb_c_alloc(const rustorb_c_type* type, CORBA_unsigned_long count) {
+  return alloc_values(type, count, 1);
+}
+
+void* rustorb_c_alloc_filled(const rustorb_c_type* type, CORBA_unsigned_long count) {
+  return alloc_values(type, count, !rustorb_c_plain(type));
 }
 
 void* rustorb_c_sequence_alloc(void) {
@@ -62,6 +140,34 @@ static void free_sequence(void* p) {
 }
 
 static int union_entry(const rustorb_c_type* type, const void* p, int64_t* index);
+
+/* Whether values of type own nothing: freeing them does nothing and
+   copying them is a memcpy (numbers, enums, fixed, and structs and arrays
+   of those). */
+int rustorb_c_plain(const rustorb_c_type* type) {
+  CORBA_unsigned_long i;
+  if (!type) return 1;
+  switch (type->kind) {
+    case CORBA_tk_string:
+    case CORBA_tk_wstring:
+    case CORBA_tk_objref:
+    case CORBA_tk_abstract_interface:
+    case CORBA_tk_local_interface:
+    case CORBA_tk_TypeCode:
+    case CORBA_tk_any:
+    case CORBA_tk_value:
+    case CORBA_tk_union:
+    case CORBA_tk_sequence: return 0;
+    case CORBA_tk_struct:
+    case CORBA_tk_except:
+      for (i = 0; i < type->count; i++)
+        if (!rustorb_c_plain(type->members[i].type)) return 0;
+      return 1;
+    case CORBA_tk_array:
+    case CORBA_tk_alias: return rustorb_c_plain(type->content);
+    default: return 1;
+  }
+}
 
 void rustorb_c_free_value(const rustorb_c_type* type, void* p) {
   CORBA_unsigned_long i;
@@ -107,6 +213,7 @@ void rustorb_c_free_value(const rustorb_c_type* type, void* p) {
       free_sequence(p);
       break;
     case CORBA_tk_array:
+      if (rustorb_c_plain(type->content)) break;
       for (i = 0; i < type->length; i++)
         rustorb_c_free_value(type->content, (char*)p + i * type->content->size);
       break;
@@ -146,10 +253,13 @@ void CORBA_free(void* storage) {
   if (h->h.magic != MAGIC) return; /* not the ORB's: leave it */
   if (h->h.type == SEQUENCE_BLOCK) {
     free_sequence(storage);
-  } else if (h->h.type) {
+  } else if (h->h.type && !rustorb_c_plain(h->h.type)) {
     CORBA_unsigned_long i;
     for (i = 0; i < h->h.count; i++)
       rustorb_c_free_value(h->h.type, (char*)storage + i * h->h.type->size);
+  } else if (h->h.type) {
+    h->h.magic = 0;
+    if (keep_spare(h)) return;
   }
   h->h.magic = 0;
   free(h);
@@ -315,15 +425,23 @@ void rustorb_c_copy_value(const rustorb_c_type* type, void* dst, const void* src
       memset(d, 0, sizeof *d);
       d->_release = CORBA_TRUE;
       if (!s->_length || !s->_buffer || !type->content) break;
-      d->_buffer = (CORBA_octet*)rustorb_c_alloc(type->content, s->_length);
+      d->_buffer = (CORBA_octet*)rustorb_c_alloc_filled(type->content, s->_length);
       if (!d->_buffer) break;
       d->_length = d->_maximum = s->_length;
+      if (rustorb_c_plain(type->content)) {
+        memcpy(d->_buffer, s->_buffer, (size_t)s->_length * type->content->size);
+        break;
+      }
       for (i = 0; i < s->_length; i++)
         rustorb_c_copy_value(type->content, (char*)d->_buffer + i * type->content->size,
                              (const char*)s->_buffer + i * type->content->size);
       break;
     }
     case CORBA_tk_array:
+      if (rustorb_c_plain(type->content)) {
+        memcpy(dst, src, type->size);
+        break;
+      }
       for (i = 0; i < type->length; i++)
         rustorb_c_copy_value(type->content, (char*)dst + i * type->content->size,
                              (const char*)src + i * type->content->size);

@@ -439,16 +439,24 @@ void rustorb_c_read(rorb_in* in, const rustorb_c_type* t, void* p) {
       }
       s->_release = CORBA_TRUE;
       if (!len) return;
+      if (k >= 0) {
+        /* Filled by the read (zeroed below if it fails). */
+        s->_buffer = (CORBA_octet*)rustorb_c_alloc_filled(t->content, len);
+        if (!s->_buffer) {
+          rorb_in_fail(in);
+          return;
+        }
+        s->_maximum = s->_length = len;
+        rorb_in_read_array(in, k, s->_buffer, len);
+        if (rorb_in_failed(in)) memset(s->_buffer, 0, (size_t)len * t->content->size);
+        return;
+      }
       s->_buffer = (CORBA_octet*)rustorb_c_alloc(t->content, len);
       if (!s->_buffer) {
         rorb_in_fail(in);
         return;
       }
       s->_maximum = s->_length = len;
-      if (k >= 0) {
-        rorb_in_read_array(in, k, s->_buffer, len);
-        return;
-      }
       for (i = 0; i < len && !rorb_in_failed(in); i++)
         rustorb_c_read(in, t->content, (char*)s->_buffer + i * t->content->size);
       return;

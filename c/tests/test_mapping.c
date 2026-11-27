@@ -775,6 +775,47 @@ static void test_memory(void) {
   CORBA_free(NULL);
 }
 
+/* Sequences of numbers: copied and freed at once, and large buffers kept
+   for reuse come back zeroed from allocbuf. */
+static const rustorb_c_type seq_octet_desc = {CORBA_tk_sequence, sizeof(CORBA_sequence_octet), "",
+                                              "", &CORBA_octet__desc, 0, 0, NULL, NULL, -1, 0, 0,
+                                              NULL};
+static const rustorb_c_type seq_double_desc = {CORBA_tk_sequence, sizeof(CORBA_sequence_double), "",
+                                               "", &CORBA_double__desc, 0, 0, NULL, NULL, -1, 0, 0,
+                                               NULL};
+
+static void test_large_sequences(void) {
+  const CORBA_unsigned_long n = 1u << 20;
+  CORBA_unsigned_long i;
+  int round, zero = 1;
+  CORBA_sequence_octet s = {n, n, NULL, CORBA_TRUE};
+  CORBA_sequence_double d = {n / 8, n / 8, NULL, CORBA_TRUE};
+  CORBA_sequence_octet* sc;
+  CORBA_sequence_double* dc;
+  for (round = 0; round < 3; round++) {
+    CORBA_octet* b = CORBA_sequence_octet_allocbuf(n);
+    CHECK(b != NULL);
+    for (i = 0; i < n; i++)
+      if (b[i]) zero = 0;
+    memset(b, 0xab, n);
+    CORBA_free(b);
+  }
+  CHECK(zero);
+  s._buffer = CORBA_sequence_octet_allocbuf(n);
+  for (i = 0; i < n; i++) s._buffer[i] = (CORBA_octet)(i * 7);
+  sc = (CORBA_sequence_octet*)rustorb_c_copy(&seq_octet_desc, &s);
+  CHECK(sc && sc->_length == n && sc->_buffer != s._buffer && sc->_release);
+  CHECK(sc && memcmp(sc->_buffer, s._buffer, n) == 0);
+  CORBA_free(sc);
+  d._buffer = (CORBA_double*)rustorb_c_alloc(&CORBA_double__desc, n / 8);
+  for (i = 0; i < n / 8; i++) d._buffer[i] = i * 0.5;
+  dc = (CORBA_sequence_double*)rustorb_c_copy(&seq_double_desc, &d);
+  CHECK(dc && dc->_length == n / 8 && memcmp(dc->_buffer, d._buffer, n) == 0);
+  CORBA_free(dc);
+  CORBA_free(s._buffer);
+  CORBA_free(d._buffer);
+}
+
 int main(int argc, char** argv) {
   ENV;
   CORBA_ORB orb = CORBA_ORB_init(&argc, argv, "", &ev);
@@ -802,6 +843,7 @@ int main(int argc, char** argv) {
   test_constants();
   test_typecodes();
   test_memory();
+  test_large_sequences();
   test_types(types);
   test_multi(multi);
   test_any(orb, anyecho);

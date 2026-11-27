@@ -29,6 +29,13 @@ break the API).
 - interop/bench: the Rust benchmark is generated with `-Wbshared_octets`
   (rustorb-idl 0.6.0, pinned in `tools/rustorb-idl.txt`), so its octet
   cases use the shared `Octets` (#211).
+- Ruby: `Rustorb.octets_as_string = true` reads sequences and arrays of
+  `octet` as binary Strings instead of Arrays of Integer (#212,
+  docs/c-ruby-octets.md). Off by default: it changes the mapping. A String
+  was already taken when writing. interop/bench's Ruby program sets it
+  with `RUSTORB_RB_OCTETS_AS_STRING=1`.
+- `rustorb_cdr::Decoder::read_elements`: the raw bytes of a run of
+  numbers, up to the end of the open chunk of a valuetype (#212).
 - `-ORBmaxConnectionsPerServer N` / `OrbOptions::max_connections_per_server`
   (also accepted as omniORB's `-ORBmaxGIOPConnectionPerServer`): the most
   connections a client opens to one server endpoint (#208).
@@ -41,6 +48,20 @@ break the API).
 
 ### Changed
 
+- C and Ruby: large sequences of numbers are much faster (#212,
+  docs/c-ruby-octets.md). C: `CORBA_free` and `rustorb_c_copy` of values
+  that own nothing (numbers, enums, fixed, and structs and arrays of those)
+  no longer walk them element by element, a buffer that the read fills is
+  not zeroed first, and up to 4 freed blocks of 64 KiB to 16 MiB (32 MiB
+  in all) are kept for the next allocation, which saves the page faults of
+  memory given back and taken again. `rorb_out_write_array` and
+  `rorb_in_read_array` copy numbers in the host's byte order at once. Ruby:
+  sequences of numbers are checked, packed and unpacked in the extension;
+  elements it does not take (Bignums, other Numerics, wrong values) go
+  through the Ruby checks as before, with the same messages. A String of
+  octets is no longer copied before it is sent. In the cloud benchmark, a
+  1 MiB `octets` echo went from 296 to 1,745 MB/s in C and from 13.5 to
+  91 MB/s in Ruby (1,154 MB/s with `octets_as_string`).
 - While a large message comes in over TCP without TLS, on Linux, the
   socket counts as readable only once 256 KiB more of it (or all the rest)
   has arrived (`SO_RCVLOWAT`), so the reader wakes once per such piece
