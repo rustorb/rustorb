@@ -192,6 +192,39 @@ fn async_calls_on_a_shared_runtime() {
     assert_eq!(alive, Some(0));
 }
 
+/// A blocking caller keeps the reading of the connection after its reply
+/// (`-ORBfollowLinger`); an async call that comes next waits for the I/O
+/// task, which gets the reading back at once, not after the linger.
+#[test]
+fn an_async_call_after_a_blocking_one_does_not_wait_for_the_linger() {
+    let server = Orb::with_options(server_options()).unwrap();
+    let obj = serve(&server, Arc::new(TestServant::default()));
+    let client = Orb::with_options(OrbOptions {
+        follow_linger: Duration::from_secs(30),
+        ..OrbOptions::default()
+    })
+    .unwrap();
+    let target = remote(&client, &server, &obj);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    let started = std::time::Instant::now();
+    for i in 0..20 {
+        assert_eq!(call_long(&target, i).unwrap(), i);
+        let v = rt
+            .block_on(call_long_async(&target, "echo_long", i + 100))
+            .unwrap();
+        assert_eq!(v, i + 100);
+    }
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "{:?}",
+        started.elapsed()
+    );
+    client.destroy().unwrap();
+    server.destroy().unwrap();
+}
+
 #[test]
 fn async_calls_polled_outside_the_orbs_runtime() {
     // The ORBs have runtimes of their own; the futures are polled by a

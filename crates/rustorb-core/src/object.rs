@@ -8,12 +8,12 @@ use rustorb_cdr::CdrDecode;
 use rustorb_giop::{
     AddressingDisposition, AlternateIiopAddress, Body, CancelRequestHeader, CodeSetComponentInfo,
     Ior, LocateRequestHeader, LocateStatus, Message, MessageEncoder, OutMessage, ReplyStatus,
-    RequestHeader, ServiceContext, SslSecTrans, SystemExceptionBody, TAG_INTERNET_IOP,
-    TAG_MULTIPLE_COMPONENTS, TargetAddress, UnixTrans, Version, component_tag, decode_message,
-    response_flags,
+    RequestHeader, RequestParts, ServiceContext, SslSecTrans, SystemExceptionBody,
+    TAG_INTERNET_IOP, TAG_MULTIPLE_COMPONENTS, TargetAddress, TargetRef, UnixTrans, Version,
+    component_tag, decode_message, response_flags,
 };
 
-use crate::connection::{Closed, Connection, SendError, Transport};
+use crate::connection::{Closed, Connection, EndpointKey, SendError, Transport};
 use crate::pi::{
     self, ClientEnding, ClientRequest, ClientRequestInfo, DiiParams, Interceptors, sync_scope,
 };
@@ -45,6 +45,16 @@ pub struct ObjectRef {
     call_timeout: Arc<AtomicU64>,
     /// The `SyncScopePolicy` override, shared by clones.
     sync_scope: Arc<AtomicI32>,
+    /// The addresses of the target last called, shared by clones: worked
+    /// out of the IOR's profiles once, not for every call.
+    targets: Arc<Mutex<Option<Targets>>>,
+}
+
+/// The addresses of one IOR, as [`endpoints`] gives them.
+struct Targets {
+    ior: Arc<Ior>,
+    can_tls: bool,
+    endpoints: Arc<[Arc<Endpoint>]>,
 }
 
 impl fmt::Debug for ObjectRef {
@@ -92,7 +102,28 @@ impl ObjectRef {
             forward: Arc::new(Mutex::new(None)),
             call_timeout: Arc::new(AtomicU64::new(timeout::UNSET)),
             sync_scope: Arc::new(policy::new_sync_scope_cell(None)),
+            targets: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// The addresses of `ior` (the reference's own IOR or the one it is
+    /// forwarded to), from the cache when they were worked out before.
+    fn targets(&self, ior: &Arc<Ior>) -> Arc<[Arc<Endpoint>]> {
+        let can_tls = self.orb.has_tls_client();
+        let mut targets = self.targets.lock().unwrap();
+        if let Some(t) = &*targets {
+            if Arc::ptr_eq(&t.ior, ior) && t.can_tls == can_tls {
+                return Arc::clone(&t.endpoints);
+            }
+        }
+        let endpoints: Arc<[Arc<Endpoint>]> =
+            endpoints(ior, can_tls).into_iter().map(Arc::new).collect();
+        *targets = Some(Targets {
+            ior: Arc::clone(ior),
+            can_tls,
+            endpoints: Arc::clone(&endpoints),
+        });
+        endpoints
     }
 
     /// A reference to the same object (sharing its forward) whose call
@@ -699,6 +730,8 @@ struct Endpoint {
     transport: Transport,
     object_key: Vec<u8>,
     code_sets: Option<CodeSetComponentInfo>,
+    /// `host`, `port` and `transport`, as the ORB pools connections by.
+    key: EndpointKey,
 }
 
 /// Every IIOP address in `ior` this ORB can use, in order: for each
@@ -775,6 +808,7 @@ fn endpoints(ior: &Ior, can_tls: bool) -> Vec<Endpoint> {
             out.push(Endpoint {
                 profile_index: index,
                 version: iiop.version,
+                key: (host.clone(), port, transport),
                 host,
                 port,
                 transport,
@@ -798,38 +832,42 @@ struct Walk<'o> {
     hops: u32,
     ior: Arc<Ior>,
     disposition: AddressingDisposition,
-    endpoints: std::vec::IntoIter<Endpoint>,
-    /// Why the addresses tried so far could not be used.
-    last: SystemException,
+    endpoints: Arc<[Arc<Endpoint>]>,
+    /// The next of `endpoints` to try.
+    at: usize,
+    /// Why the addresses tried so far could not be used; `None` for [`no_usable_profile`], made only when needed (an
+    /// exception allocates).
+    last: Option<SystemException>,
     /// The target was just set (and is still to be checked for nil).
     fresh: bool,
 }
 
 enum Step {
-    Try(Endpoint),
+    Try(Arc<Endpoint>),
     Done(Result<Outcome, Exception>),
 }
 
 impl<'o> Walk<'o> {
     fn new(obj: &'o ObjectRef) -> Walk<'o> {
-        let mut walk = Walk {
+        let ior = obj.current_target();
+        Walk {
             obj,
             max_hops: obj.orb.inner.options.max_forwards,
             hops: 0,
-            ior: obj.current_target(),
+            endpoints: obj.targets(&ior),
+            ior,
             disposition: AddressingDisposition::Key,
-            endpoints: Vec::new().into_iter(),
-            last: no_usable_profile(),
+            at: 0,
+            last: None,
             fresh: true,
-        };
-        walk.retarget(Arc::clone(&walk.ior));
-        walk
+        }
     }
 
     fn retarget(&mut self, ior: Arc<Ior>) {
-        self.endpoints = endpoints(&ior, self.obj.orb.has_tls_client()).into_iter();
+        self.endpoints = self.obj.targets(&ior);
+        self.at = 0;
         self.ior = ior;
-        self.last = no_usable_profile();
+        self.last = None;
         self.fresh = true;
     }
 
@@ -844,8 +882,9 @@ impl<'o> Walk<'o> {
                 )
                 .into()));
             }
-            if let Some(ep) = self.endpoints.next() {
-                return Step::Try(ep);
+            if let Some(ep) = self.endpoints.get(self.at) {
+                self.at += 1;
+                return Step::Try(Arc::clone(ep));
             }
             // Nothing could be reached. A forwarded target falls back to
             // the original reference.
@@ -858,7 +897,8 @@ impl<'o> Walk<'o> {
                     continue;
                 }
             }
-            return Step::Done(Err(self.last.clone().into()));
+            let last = self.last.clone().unwrap_or_else(no_usable_profile);
+            return Step::Done(Err(last.into()));
         }
     }
 
@@ -868,12 +908,12 @@ impl<'o> Walk<'o> {
         match attempt {
             Attempt::Done(result) => Some(result),
             Attempt::NotSent(e) => {
-                self.last = e;
+                self.last = Some(e);
                 None
             }
             // The caller sends again; here only after too many tries.
             Attempt::Resend => {
-                self.last = sys(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No);
+                self.last = Some(sys(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No));
                 None
             }
             Attempt::Forward(next) => {
@@ -1057,7 +1097,7 @@ fn invoke<A: WriteArgs + ?Sized>(
     let deadline = timeout.map(|t| Instant::now() + t);
     let pi = ClientPi::new(obj, kind, slots);
     let mut walk = Walk::new(obj);
-    let mut again: Option<(Endpoint, usize)> = None;
+    let mut again: Option<(Arc<Endpoint>, usize)> = None;
     loop {
         let (ep, resent) = match again.take() {
             Some(again) => again,
@@ -1157,7 +1197,7 @@ async fn invoke_async<A: WriteArgs + ?Sized>(
     let deadline = timeout.map(|t| Instant::now() + t);
     let pi = ClientPi::new(obj, kind, slots);
     let mut walk = Walk::new(obj);
-    let mut again: Option<(Endpoint, usize)> = None;
+    let mut again: Option<(Arc<Endpoint>, usize)> = None;
     loop {
         let (ep, resent) = match again.take() {
             Some(again) => again,
@@ -1296,12 +1336,8 @@ async fn attempt<A: WriteArgs + ?Sized>(
     mut x: Exchange<'_>,
 ) -> Attempt {
     let deadline = x.deadline;
-    let mut result = Attempt::NotSent(sys(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No));
     for _ in 0..CLOSED_ATTEMPTS {
-        let conn = match orb
-            .connection(&ep.host, ep.port, ep.transport, deadline)
-            .await
-        {
+        let conn = match orb.connection(&ep.key, deadline).await {
             Ok(conn) => conn,
             // Out of time: the other addresses are not tried.
             Err(e) if e.is(SystemExceptionKind::TIMEOUT) => return Attempt::Done(Err(e.into())),
@@ -1314,8 +1350,6 @@ async fn attempt<A: WriteArgs + ?Sized>(
                 if !x.resend {
                     return Attempt::Resend;
                 }
-                result =
-                    Attempt::NotSent(sys(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No));
             }
             Err(Closed::Failed(_)) => {
                 orb.discard(&conn);
@@ -1328,7 +1362,7 @@ async fn attempt<A: WriteArgs + ?Sized>(
             }
         }
     }
-    result
+    Attempt::NotSent(sys(SystemExceptionKind::TRANSIENT, 0, CompletionStatus::No))
 }
 
 /// `Err(Closed::Orderly)` asks for a retry on a new connection;
@@ -1345,11 +1379,9 @@ async fn attempt_on<A: WriteArgs + ?Sized>(
     let options = &orb.inner.options;
     let order = options.byte_order;
     let version = ep.version.min(options.max_giop_version);
-    let target = target_address(ior, ep, version, disposition);
-
     // Code sets: negotiated from the IOR for GIOP 1.1 and later, fixed for
     // the connection by its first request, and announced in every request.
-    let (code_sets, context) = match (&ep.code_sets, version >= Version::V1_1) {
+    let (code_sets, code_set_context) = match (&ep.code_sets, version >= Version::V1_1) {
         (Some(info), true) => {
             let proposed = match conn.code_sets() {
                 Some(cs) => cs,
@@ -1359,19 +1391,23 @@ async fn attempt_on<A: WriteArgs + ?Sized>(
                 },
             };
             let cs = conn.claim_code_sets(proposed);
-            (cs, vec![cs.context().to_service_context(order)])
+            (cs, Some(conn.code_set_context(cs, order)))
         }
-        _ => (CodeSets::DEFAULT, Vec::new()),
+        _ => (CodeSets::DEFAULT, None),
     };
-    let mut context = context;
-    context.extend_from_slice(x.contexts);
     // Bidirectional GIOP: the first GIOP 1.2 request offers the connection.
-    let offer = version >= Version::V1_2 && matches!(kind, Kind::Request { .. });
-    let offer = offer
-        && conn.bidir_context().is_some_and(|c| {
-            context.push(c.clone());
-            true
-        });
+    let bidir = (version >= Version::V1_2 && matches!(kind, Kind::Request { .. }))
+        .then(|| conn.bidir_context())
+        .flatten();
+    let offer = bidir.is_some();
+    let contexts: [&[ServiceContext]; 3] = [
+        code_set_context
+            .as_deref()
+            .map(std::slice::from_ref)
+            .unwrap_or(&[]),
+        x.contexts,
+        bidir.map(std::slice::from_ref).unwrap_or(&[]),
+    ];
 
     let request_id = conn.next_request_id();
     let flags = flags_of(kind);
@@ -1391,7 +1427,14 @@ async fn attempt_on<A: WriteArgs + ?Sized>(
         Kind::Request {
             operation, args, ..
         } => {
-            let header = request_header(request_id, flags, target, operation, context);
+            let header = RequestParts {
+                request_id,
+                response_flags: flags,
+                target: target_ref(ior, ep, version, disposition),
+                operation,
+                service_context: &contexts,
+                requesting_principal: &[],
+            };
             match encode_request(version, order, &header, *args, code_sets) {
                 Ok(msg) if msg.len() > options.max_message_size => {
                     trace::warning!(
@@ -1415,7 +1458,10 @@ async fn attempt_on<A: WriteArgs + ?Sized>(
         Kind::Locate => match MessageEncoder::locate_request(
             version,
             order,
-            &LocateRequestHeader { request_id, target },
+            &LocateRequestHeader {
+                request_id,
+                target: target_address(ior, ep, version, disposition),
+            },
         ) {
             Ok(msg) => msg.into(),
             Err(_) => {
@@ -1512,7 +1558,8 @@ async fn attempt_on<A: WriteArgs + ?Sized>(
     // A blocking call runs on the caller's own thread (`Orb::block_on`),
     // which may block reading the reply.
     let here = if own_thread {
-        conn.read_reply_here(request_id, deadline)
+        let keep = (!options.follow_linger.is_zero()).then_some(&orb.inner.lag);
+        conn.read_reply_here(request_id, deadline, keep)
     } else {
         None
     };
@@ -1524,6 +1571,8 @@ async fn attempt_on<A: WriteArgs + ?Sized>(
         Some(None) => None,
         None => {
             stats::count(Counter::replies_from_task);
+            // Another caller may keep the reading after its reply.
+            conn.resume();
             match deadline {
                 Some(at) => tokio::time::timeout_at(at.into(), rx).await.ok(),
                 None => Some(rx.await),
@@ -1603,6 +1652,26 @@ fn target_address(
     }
 }
 
+/// [`target_address`], borrowed from `ior` and `ep`.
+fn target_ref<'a>(
+    ior: &'a Ior,
+    ep: &'a Endpoint,
+    version: Version,
+    disposition: AddressingDisposition,
+) -> TargetRef<'a> {
+    if version < Version::V1_2 {
+        return TargetRef::Key(&ep.object_key);
+    }
+    match disposition {
+        AddressingDisposition::Key => TargetRef::Key(&ep.object_key),
+        AddressingDisposition::Profile => TargetRef::Profile(&ior.profiles[ep.profile_index]),
+        AddressingDisposition::Reference => TargetRef::Reference {
+            selected_profile_index: ep.profile_index as u32,
+            ior,
+        },
+    }
+}
+
 /// The `response_flags` of a request: `SYNC_WITH_TARGET` for a two-way
 /// request; for a oneway one, the flags of its sync scope (the
 /// `RequestHeader` of GIOP 1.2). GIOP 1.0 and 1.1 send `response_expected`
@@ -1657,33 +1726,16 @@ fn without_reply<A: ?Sized>(kind: &Kind<'_, A>, attempt: Attempt) -> Attempt {
     }
 }
 
-fn request_header(
-    request_id: u32,
-    flags: u8,
-    target: TargetAddress,
-    operation: &str,
-    service_context: Vec<rustorb_giop::ServiceContext>,
-) -> RequestHeader {
-    RequestHeader {
-        request_id,
-        response_flags: flags,
-        target,
-        operation: operation.to_owned(),
-        service_context,
-        requesting_principal: Vec::new(),
-    }
-}
-
 /// The whole `Request` message, with the arguments `args` writes.
 fn encode_request<A: WriteArgs + ?Sized>(
     version: Version,
     order: rustorb_cdr::ByteOrder,
-    header: &RequestHeader,
+    header: &RequestParts<'_>,
     args: Option<&A>,
     code_sets: CodeSets,
 ) -> Result<OutMessage, Exception> {
     let marshal = || sys(SystemExceptionKind::MARSHAL, 0, CompletionStatus::No).into();
-    let mut m = MessageEncoder::request(version, order, header).map_err(|_| marshal())?;
+    let mut m = MessageEncoder::request_parts(version, order, header).map_err(|_| marshal())?;
     if let Some(args) = args {
         let mut out = OutStream {
             enc: m.body(),
@@ -1751,7 +1803,14 @@ fn local_call<A: WriteArgs + ?Sized>(
         "request {operation:?}{} to this ORB's own object (colocated)",
         OnewayNote(kind)
     );
-    let header = request_header(0, flags, target, operation, context);
+    let header = RequestParts {
+        request_id: 0,
+        response_flags: flags,
+        target: target.as_ref(),
+        operation,
+        service_context: &[&context],
+        requesting_principal: &[],
+    };
     let msg = match encode_request(version, order, &header, args, code_sets) {
         Ok(msg) => msg.into_vec(),
         Err(e) => return Err(Attempt::Done(Err(e))),

@@ -169,3 +169,7 @@ oneway では、要求ごとのプールへの受け渡し（`pool_jobs`）と�
 follow をしないサーバー（`-ORBfollowLinger 0`）の oneway は、前 8.8 万回/s、後 8.6 万回/s（3 回の中央値、ぶれの範囲）で変わらない。
 
 `cargo bench -p rustorb-core`（同じマシン、前と後で続けて回した）：`orb/oneway` 13.7 → 4.45 µs、`orb/echo_long_threads_one_ref/4` 136 → 107 µs、`orb/echo_long_connections/16` 165 → 141 µs。ほかはぶれの範囲。
+
+## 返事の後も読みを持ち続ける（#207）
+
+クライアントでも、返事を自分で読んだスレッドは読み込みをタスクに返さず、`Busy { watched: false }` のまま次の呼び出しまで持ち続ける。次の呼び出しまで `-ORBfollowLinger` より長く空けば ORB ごとの見張り（`wire::Lag`）が、ほかの呼び出し元がタスクを待てばその呼び出し元（`Connection::resume`）が、読み込みをタスクに返す。呼び出しごとの `epoll_ctl` 2 回と、返すときの先読みの `recv` がなくなる。スレッドは送った直後に `poll` してから読む（`FirstRead::Wait`）。詳しくは [small-call-cost.md](small-call-cost.md)。

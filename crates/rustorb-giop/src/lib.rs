@@ -42,7 +42,8 @@ pub use ior::{Ior, TAG_INTERNET_IOP, TAG_MULTIPLE_COMPONENTS, TaggedProfile};
 pub use message::{
     AddressingDisposition, Body, CancelRequestHeader, CompletionStatus, FragmentHeader,
     LocateReplyHeader, LocateRequestHeader, LocateStatus, Message, ReplyHeader, ReplyStatus,
-    RequestHeader, SystemExceptionBody, TargetAddress, decode_message, response_flags,
+    RequestHeader, RequestParts, SystemExceptionBody, TargetAddress, TargetRef, decode_message,
+    response_flags,
 };
 pub use service_context::{
     BiDirIiopServiceContext, CodeSetContext, ListenPoint, ServiceContext, code_set, service_id,

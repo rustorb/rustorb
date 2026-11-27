@@ -4,7 +4,7 @@ use rustorb_cdr::{ByteOrder, CdrEncode, Encoder, Octets};
 
 use crate::{
     CancelRequestHeader, Error, LocateReplyHeader, LocateRequestHeader, MessageHeader, MsgType,
-    ReplyHeader, RequestHeader, Result, Version,
+    ReplyHeader, RequestHeader, RequestParts, Result, Version,
 };
 
 /// Writes one GIOP message.
@@ -64,27 +64,57 @@ impl MessageEncoder {
         order: ByteOrder,
         header: &RequestHeader,
     ) -> Result<MessageEncoder> {
+        MessageEncoder::request_parts(
+            version,
+            order,
+            &RequestParts {
+                request_id: header.request_id,
+                response_flags: header.response_flags,
+                target: header.target.as_ref(),
+                operation: &header.operation,
+                service_context: &[&header.service_context],
+                requesting_principal: &header.requesting_principal,
+            },
+        )
+    }
+
+    /// Starts a `Request` whose header borrows its parts: the same message
+    /// as [`request`](Self::request), without building a
+    /// [`RequestHeader`] first.
+    pub fn request_parts(
+        version: Version,
+        order: ByteOrder,
+        header: &RequestParts<'_>,
+    ) -> Result<MessageEncoder> {
         let mut m = MessageEncoder::new(version, order, MsgType::Request, false)?;
         let enc = &mut m.enc;
+        let contexts = |enc: &mut Encoder| -> Result<()> {
+            let n: usize = header.service_context.iter().map(|g| g.len()).sum();
+            enc.write_len(n)?;
+            for context in header.service_context.iter().flat_map(|g| g.iter()) {
+                context.encode(enc)?;
+            }
+            Ok(())
+        };
         if version >= Version::V1_2 {
             enc.write_u32(header.request_id);
             enc.write_octet(header.response_flags);
             enc.write_octets(&[0; 3]);
             header.target.encode(enc)?;
-            enc.write_string(&header.operation)?;
-            header.service_context.encode(enc)?;
+            enc.write_string(header.operation)?;
+            contexts(enc)?;
             m.align_body = true;
         } else {
             let key = header.target.object_key().ok_or(Error::TargetNotKey)?;
-            header.service_context.encode(enc)?;
+            contexts(enc)?;
             enc.write_u32(header.request_id);
-            enc.write_bool(header.response_expected());
+            enc.write_bool(header.response_flags & 0x01 != 0);
             if version.minor == 1 {
                 enc.write_octets(&[0; 3]);
             }
             enc.write_octet_seq(key)?;
-            enc.write_string(&header.operation)?;
-            enc.write_octet_seq(&header.requesting_principal)?;
+            enc.write_string(header.operation)?;
+            enc.write_octet_seq(header.requesting_principal)?;
         }
         Ok(m)
     }

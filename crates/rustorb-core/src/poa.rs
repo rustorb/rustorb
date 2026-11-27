@@ -348,7 +348,7 @@ thread_local! {
 #[derive(Clone)]
 struct CurrentEntry {
     poa: Poa,
-    id: ObjectId,
+    id: Arc<[u8]>,
     servant: Arc<dyn Servant>,
 }
 
@@ -356,11 +356,11 @@ struct CurrentEntry {
 pub(crate) struct CurrentGuard(());
 
 impl CurrentGuard {
-    pub(crate) fn enter(poa: &Poa, id: &[u8], servant: &Arc<dyn Servant>) -> CurrentGuard {
+    pub(crate) fn enter(poa: &Poa, id: Arc<[u8]>, servant: &Arc<dyn Servant>) -> CurrentGuard {
         CURRENT.with(|c| {
             c.borrow_mut().push(CurrentEntry {
                 poa: poa.clone(),
-                id: id.to_vec(),
+                id,
                 servant: Arc::clone(servant),
             });
         });
@@ -392,13 +392,13 @@ impl PoaCurrent {
 
     /// `get_object_id`: the ObjectId of the target object.
     pub fn get_object_id() -> Result<ObjectId, PoaError> {
-        PoaCurrent::with(|e| e.id.clone())
+        PoaCurrent::with(|e| e.id.to_vec())
     }
 
     /// `get_reference`: a reference to the target object.
     pub fn get_reference() -> Result<ObjectRef, PoaError> {
         let (poa, id, servant) =
-            PoaCurrent::with(|e| (e.poa.clone(), e.id.clone(), Arc::clone(&e.servant)))?;
+            PoaCurrent::with(|e| (e.poa.clone(), e.id.to_vec(), Arc::clone(&e.servant)))?;
         poa.reference(&id, servant.repository_id())
     }
 
@@ -903,7 +903,7 @@ struct PoaState {
     activating: HashSet<String>,
     /// Requests running on each object that was found in the active object
     /// map or incarnated.
-    running: HashMap<ObjectId, usize>,
+    running: HashMap<Arc<[u8]>, usize>,
     /// Deactivated objects to etherealize once their last request ends.
     deactivated: HashMap<ObjectId, Arc<dyn Servant>>,
 }
@@ -1004,6 +1004,15 @@ pub(crate) struct Resolved {
 }
 
 impl Resolved {
+    /// The ObjectId of the request, for [`CurrentGuard::enter`]: shared
+    /// with the count of the object's requests when there is one.
+    pub(crate) fn object_id(&self, id: &[u8]) -> Arc<[u8]> {
+        match &self._object {
+            Some(guard) => Arc::clone(&guard.id),
+            None => Arc::from(id),
+        }
+    }
+
     /// Calls `postinvoke` if a servant locator provided the servant.
     pub(crate) fn finish(self, adapter: &Poa, id: &[u8], operation: &str) {
         if let Some((locator, cookie)) = self.locator {
@@ -1021,25 +1030,25 @@ impl Resolved {
 pub(crate) struct ObjectGuard {
     poa: Arc<PoaInner>,
     server: Weak<Server>,
-    id: ObjectId,
+    id: Arc<[u8]>,
 }
 
 impl Drop for ObjectGuard {
     fn drop(&mut self) {
         let pending = {
             let mut st = self.poa.state.lock().unwrap();
-            let Some(count) = st.running.get_mut(&self.id) else {
+            let Some(count) = st.running.get_mut(&*self.id) else {
                 return;
             };
             *count -= 1;
             if *count > 0 {
                 return;
             }
-            st.running.remove(&self.id);
+            st.running.remove(&*self.id);
             if st.destroyed {
                 return;
             }
-            let Some(servant) = st.deactivated.remove(&self.id) else {
+            let Some(servant) = st.deactivated.remove(&*self.id) else {
                 return;
             };
             let Some(ServantManager::Activator(activator)) = st.servant_manager.clone() else {
@@ -1048,7 +1057,7 @@ impl Drop for ObjectGuard {
             Etherealization {
                 poa: Arc::clone(&self.poa),
                 activator,
-                id: std::mem::take(&mut self.id),
+                id: self.id.to_vec(),
                 servant,
                 cleanup_in_progress: false,
             }
@@ -1380,13 +1389,14 @@ impl PoaInner {
         id: &[u8],
         servant: Arc<dyn Servant>,
     ) -> Resolved {
-        *st.running.entry(id.to_vec()).or_insert(0) += 1;
+        let id: Arc<[u8]> = Arc::from(id);
+        *st.running.entry(Arc::clone(&id)).or_insert(0) += 1;
         Resolved {
             servant,
             _object: Some(ObjectGuard {
                 poa: Arc::clone(self),
                 server: Arc::downgrade(server),
-                id: id.to_vec(),
+                id,
             }),
             locator: None,
         }
@@ -1949,7 +1959,7 @@ impl Poa {
                 c.borrow()
                     .last()
                     .filter(|e| e.poa == *self && same_servant(&e.servant, servant))
-                    .map(|e| e.id.clone())
+                    .map(|e| e.id.to_vec())
             });
             if let Some(id) = current {
                 return Ok(id);

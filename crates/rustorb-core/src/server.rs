@@ -56,7 +56,7 @@ use crate::stats::{self, Counter};
 use crate::stream::InStream;
 use crate::tls::{self, Tls};
 use crate::trace;
-use crate::wire::{Here, Inbound, Lag, PeerAddr, ReadError};
+use crate::wire::{FirstRead, Here, Inbound, Lag, PeerAddr, ReadError};
 
 thread_local! {
     /// Set while a connection's reader task routes a request it read.
@@ -1026,10 +1026,10 @@ impl Server {
             if !conn.inbound.claim() {
                 return;
             }
-            let (version, message) = match conn
-                .inbound
-                .read_here(Some(Instant::now() + self.follow_linger))
-            {
+            let (version, message) = match conn.inbound.read_here(
+                Some(Instant::now() + self.follow_linger),
+                FirstRead::AsBefore,
+            ) {
                 Here::Message(version, message) => (version, message),
                 Here::TimedOut | Here::HandedBack => return,
             };
@@ -1255,7 +1255,7 @@ impl Server {
         };
         let result = {
             let _upcall = UpcallGuard::enter();
-            let _current = CurrentGuard::enter(&adapter, id, &resolved.servant);
+            let _current = CurrentGuard::enter(&adapter, resolved.object_id(id), &resolved.servant);
             panic::catch_unwind(AssertUnwindSafe(|| {
                 invoke(&*resolved.servant, &operation, &mut input, &mut out)
             }))
@@ -1385,7 +1385,7 @@ impl Server {
         let result = {
             let dsi = pi::DsiGuard::enter();
             let _upcall = UpcallGuard::enter();
-            let _current = CurrentGuard::enter(&adapter, id, &resolved.servant);
+            let _current = CurrentGuard::enter(&adapter, resolved.object_id(id), &resolved.servant);
             let result = panic::catch_unwind(AssertUnwindSafe(|| {
                 invoke(&*resolved.servant, &operation, &mut input, &mut out)
             }));

@@ -99,12 +99,19 @@ counters! {
     follow_pauses,
     /// An upcall thread held the reading longer than `-ORBfollowLinger`
     /// while it handled a request: the I/O task got the reading back, so
-    /// that requests behind it do not wait (server).
+    /// that requests behind it do not wait (server); or a client caller
+    /// kept the reading that long after its reply without a new call.
     follow_overdue,
     /// A caller read its reply itself (client).
     replies_read_here,
     /// A caller waited for the I/O task to hand it its reply (client).
     replies_from_task,
+    /// A caller that read its reply kept the reading for its next call
+    /// (client).
+    reply_keeps,
+    /// A caller waited for the I/O task while another kept the reading:
+    /// the task got it back (client).
+    keep_resumes,
     /// Jobs given to the upcall pool.
     pool_jobs,
     /// A job woke an idle upcall thread.

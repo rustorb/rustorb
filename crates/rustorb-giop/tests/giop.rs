@@ -2,7 +2,7 @@ use rustorb_cdr::{ByteOrder, CdrDecode, CdrEncode, Octets};
 use rustorb_giop::{
     AssembledMessage, CancelRequestHeader, CodeSetContext, CompletionStatus, Error,
     FragmentAssembler, Ior, LocateReplyHeader, LocateRequestHeader, LocateStatus, Message,
-    MessageEncoder, MessageHeader, MsgType, ReplyHeader, ReplyStatus, RequestHeader,
+    MessageEncoder, MessageHeader, MsgType, ReplyHeader, ReplyStatus, RequestHeader, RequestParts,
     ServiceContext, SystemExceptionBody, TAG_INTERNET_IOP, TaggedProfile, TargetAddress, Version,
     code_set, decode_message, response_flags, service_id,
 };
@@ -129,6 +129,55 @@ fn sample_targets() -> Vec<TargetAddress> {
             },
         },
     ]
+}
+
+/// `request_parts` writes the same message as `request` with the header
+/// built, the service contexts given in groups.
+#[test]
+fn request_parts_match_request() {
+    for version in VERSIONS {
+        for order in ORDERS {
+            for target in sample_targets() {
+                let other = ServiceContext {
+                    context_id: 0x4F4D_0000,
+                    context_data: vec![1, 2, 3],
+                };
+                let header = RequestHeader {
+                    request_id: 9,
+                    response_flags: response_flags::SYNC_WITH_TARGET,
+                    target: target.clone(),
+                    operation: "op".into(),
+                    service_context: vec![code_sets(order), other.clone(), other.clone()],
+                    requesting_principal: vec![],
+                };
+                let whole = MessageEncoder::request(version, order, &header);
+                let groups: [&[ServiceContext]; 4] = [
+                    std::slice::from_ref(&header.service_context[0]),
+                    &[],
+                    &header.service_context[1..],
+                    &[],
+                ];
+                let parts = RequestParts {
+                    request_id: 9,
+                    response_flags: response_flags::SYNC_WITH_TARGET,
+                    target: target.as_ref(),
+                    operation: "op",
+                    service_context: &groups,
+                    requesting_principal: &[],
+                };
+                let split = MessageEncoder::request_parts(version, order, &parts);
+                match (whole, split) {
+                    (Ok(mut a), Ok(mut b)) => {
+                        a.body().write_u32(1);
+                        b.body().write_u32(1);
+                        assert_eq!(a.finish().unwrap(), b.finish().unwrap());
+                    }
+                    (Err(a), Err(b)) => assert_eq!(a, b),
+                    _ => panic!("one failed, the other not ({version} {order:?})"),
+                }
+            }
+        }
+    }
 }
 
 #[test]

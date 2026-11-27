@@ -293,6 +293,65 @@ fn calls_racing_the_close_succeed() {
     }
 }
 
+/// A caller that read its reply keeps the reading for its next call
+/// (`-ORBfollowLinger`, docs/read-ownership.md). With a linger far longer
+/// than the test, nothing gives the reading back to the I/O task on its
+/// own: the calls must still work when the server closes the connection
+/// meanwhile, and when other threads call at the same time.
+fn keeping(client_idle: Option<u64>) -> OrbOptions {
+    OrbOptions {
+        follow_linger: Duration::from_secs(30),
+        ..options(client_idle, None)
+    }
+}
+
+#[test]
+fn server_closes_the_connection_a_caller_keeps_reading() {
+    let s = setup(options(None, Some(100)), keeping(None));
+    let started = Instant::now();
+    assert_eq!(echo(&s.obj, 1).unwrap(), 1);
+    // The server's CloseConnection is read with the next call.
+    thread::sleep(Duration::from_millis(400));
+    assert_eq!(echo(&s.obj, 2).unwrap(), 2);
+    assert_eq!(s.proxy.accepted(), 2);
+    assert!(started.elapsed() < Duration::from_secs(10));
+}
+
+#[test]
+fn calls_from_many_threads_while_a_caller_keeps_reading() {
+    for server in [None, Some(20)] {
+        let s = setup(options(None, server), keeping(None));
+        let started = Instant::now();
+        let threads = 4;
+        let rounds = 100;
+        let start = Arc::new(Barrier::new(threads));
+        let workers: Vec<_> = (0..threads)
+            .map(|t| {
+                let (obj, start) = (s.obj.clone(), Arc::clone(&start));
+                thread::spawn(move || {
+                    start.wait();
+                    for i in 0..rounds {
+                        let v = i32::try_from(t * 1000 + i).unwrap();
+                        assert_eq!(echo(&obj, v).unwrap(), v);
+                        if (t + i) % 7 == 0 {
+                            thread::sleep(Duration::from_millis(((t + i) % 3 * 10) as u64));
+                        }
+                    }
+                })
+            })
+            .collect();
+        for w in workers {
+            w.join().unwrap();
+        }
+        // No call waited for the linger.
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+}
+
 /// The server sends `CloseConnection` on a connection that sent nothing.
 #[test]
 fn server_sends_close_connection() {
