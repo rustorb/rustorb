@@ -2,7 +2,7 @@
 
 Nov 27, 2026 · @ysuga · [速度の改善の計画](perf-plan.md)の段 8（issue [#211](https://github.com/rustorb/rustorb/issues/211)）
 
-クライアントが大きな `sequence<octet>` を受け取るときのコピーと起床を減らした。core に共有で受け取る記述子と、大きなメッセージの途中で起きる回数を減らす仕組みを足した。生成コードの側は [rustorb-idl](https://github.com/rustorb/rustorb-idl) の `-Wbshared_octets`（次の版から）。
+クライアントが大きな `sequence<octet>` を受け取るときのコピーと起床を減らした。core に共有で受け取る記述子と、大きなメッセージの途中で起きる回数を減らす仕組みを足した。生成コードの側は [rustorb-idl](https://github.com/rustorb/rustorb-idl) の `-Wbshared_octets`（0.6.0 から）。interop/bench の rustorb のベンチはこれで生成している。
 
 ## 見えていたこと
 

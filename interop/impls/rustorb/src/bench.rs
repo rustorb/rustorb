@@ -28,7 +28,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use idl::bench::{Sample, Target, TargetPoa, TargetServant};
-use rustorb_core::{Any, Orb, SystemException, stats};
+use rustorb_core::{Any, Octets, Orb, SystemException, stats};
 
 struct Impl {
     orb: Orb,
@@ -45,14 +45,14 @@ impl TargetServant for Impl {
     fn echo_string(&self, v: &str) -> Result<String, SystemException> {
         Ok(v.to_owned())
     }
-    fn echo_octets(&self, v: &[u8]) -> Result<Vec<u8>, SystemException> {
-        Ok(v.to_vec())
+    fn echo_octets(&self, v: &Octets) -> Result<Octets, SystemException> {
+        Ok(v.clone())
     }
-    fn put_octets(&self, v: &[u8]) -> Result<u32, SystemException> {
+    fn put_octets(&self, v: &Octets) -> Result<u32, SystemException> {
         Ok(v.len() as u32)
     }
-    fn get_octets(&self, n: u32) -> Result<Vec<u8>, SystemException> {
-        Ok(vec![7u8; n as usize])
+    fn get_octets(&self, n: u32) -> Result<Octets, SystemException> {
+        Ok(Octets::from(vec![7u8; n as usize]))
     }
     fn echo_samples(&self, v: &[Sample]) -> Result<Vec<Sample>, SystemException> {
         Ok(v.to_vec())
@@ -221,7 +221,7 @@ fn run_case(t: &Target, case: &str, o: &Opts) -> Result<(), String> {
             })
         }
         "octets" => {
-            let v = vec![1u8; n];
+            let v = Octets::from(vec![1u8; n]);
             timed(case, o, 2 * n, || {
                 let r = t.echo_octets(&v).map_err(err)?;
                 if r.len() != n {
@@ -232,7 +232,7 @@ fn run_case(t: &Target, case: &str, o: &Opts) -> Result<(), String> {
             })
         }
         "put" => {
-            let v = vec![1u8; n];
+            let v = Octets::from(vec![1u8; n]);
             timed(case, o, n, || {
                 let r = t.put_octets(&v).map_err(err)?;
                 if r as usize != n {

@@ -6,7 +6,7 @@ const _: () = ::rustorb_core::idl::GENERATED_CODE_VERSION_1;
 
 pub mod bench {
     /// IDL typedef `Bench::Octets`.
-    pub type Octets = ::std::vec::Vec<u8>;
+    pub type Octets = ::rustorb_core::Octets;
 
     /// IDL struct `Bench::Sample`.
     #[derive(Debug, Clone, PartialEq, Default)]
@@ -225,7 +225,7 @@ pub mod bench {
 
         /// `echo_octets`.
         #[allow(clippy::type_complexity)]
-        pub fn echo_octets(&self, v: &[u8]) -> Result<Octets, ::rustorb_core::SystemException> {
+        pub fn echo_octets(&self, v: &Octets) -> Result<Octets, ::rustorb_core::SystemException> {
             let request = self.0.request("echo_octets").args(|out| {
                 <alias::Octets as ::rustorb_core::idl::IdlType>::write(v, out)?;
                 Ok(())
@@ -242,7 +242,7 @@ pub mod bench {
         #[allow(clippy::type_complexity)]
         pub async fn echo_octets_async(
             &self,
-            v: &[u8],
+            v: &Octets,
         ) -> Result<Octets, ::rustorb_core::SystemException> {
             let request = self.0.request_async("echo_octets").args(|out| {
                 <alias::Octets as ::rustorb_core::idl::IdlType>::write(v, out)?;
@@ -259,7 +259,7 @@ pub mod bench {
 
         /// `put_octets`.
         #[allow(clippy::type_complexity)]
-        pub fn put_octets(&self, v: &[u8]) -> Result<u32, ::rustorb_core::SystemException> {
+        pub fn put_octets(&self, v: &Octets) -> Result<u32, ::rustorb_core::SystemException> {
             let request = self.0.request("put_octets").args(|out| {
                 <alias::Octets as ::rustorb_core::idl::IdlType>::write(v, out)?;
                 Ok(())
@@ -277,7 +277,7 @@ pub mod bench {
         #[allow(clippy::type_complexity)]
         pub async fn put_octets_async(
             &self,
-            v: &[u8],
+            v: &Octets,
         ) -> Result<u32, ::rustorb_core::SystemException> {
             let request = self.0.request_async("put_octets").args(|out| {
                 <alias::Octets as ::rustorb_core::idl::IdlType>::write(v, out)?;
@@ -517,11 +517,11 @@ pub mod bench {
 
         /// `echo_octets`.
         #[allow(clippy::type_complexity)]
-        fn echo_octets(&self, v: &[u8]) -> Result<Octets, ::rustorb_core::SystemException>;
+        fn echo_octets(&self, v: &Octets) -> Result<Octets, ::rustorb_core::SystemException>;
 
         /// `put_octets`.
         #[allow(clippy::type_complexity)]
-        fn put_octets(&self, v: &[u8]) -> Result<u32, ::rustorb_core::SystemException>;
+        fn put_octets(&self, v: &Octets) -> Result<u32, ::rustorb_core::SystemException>;
 
         /// `get_octets`.
         #[allow(clippy::type_complexity)]
@@ -700,9 +700,11 @@ pub mod bench {
         pub struct Octets;
 
         impl ::rustorb_core::idl::IdlType for Octets {
-            type Rust = <::rustorb_core::idl::Sequence<::rustorb_core::idl::Octet> as ::rustorb_core::idl::IdlType>::Rust;
-            type Borrowed = <::rustorb_core::idl::Sequence<::rustorb_core::idl::Octet> as ::rustorb_core::idl::IdlType>::Borrowed;
-            const MIN_SIZE: usize = <::rustorb_core::idl::Sequence<::rustorb_core::idl::Octet> as ::rustorb_core::idl::IdlType>::MIN_SIZE;
+            type Rust = <::rustorb_core::idl::SharedOctets as ::rustorb_core::idl::IdlType>::Rust;
+            type Borrowed =
+                <::rustorb_core::idl::SharedOctets as ::rustorb_core::idl::IdlType>::Borrowed;
+            const MIN_SIZE: usize =
+                <::rustorb_core::idl::SharedOctets as ::rustorb_core::idl::IdlType>::MIN_SIZE;
 
             fn type_code() -> ::rustorb_core::TypeCode {
                 static TC: ::std::sync::OnceLock<::rustorb_core::TypeCode> =
@@ -714,13 +716,13 @@ pub mod bench {
                 v: &Self::Borrowed,
                 out: &mut ::rustorb_core::OutStream<'_>,
             ) -> ::rustorb_core::idl::Sys<()> {
-                <::rustorb_core::idl::Sequence<::rustorb_core::idl::Octet> as ::rustorb_core::idl::IdlType>::write(v, out)
+                <::rustorb_core::idl::SharedOctets as ::rustorb_core::idl::IdlType>::write(v, out)
             }
 
             fn read(
                 input: &mut ::rustorb_core::InStream<'_>,
             ) -> ::rustorb_core::idl::Sys<Self::Rust> {
-                <::rustorb_core::idl::Sequence<::rustorb_core::idl::Octet> as ::rustorb_core::idl::IdlType>::read(input)
+                <::rustorb_core::idl::SharedOctets as ::rustorb_core::idl::IdlType>::read(input)
             }
         }
 
