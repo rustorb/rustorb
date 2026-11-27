@@ -18,7 +18,7 @@ use crate::pi::{
     self, ClientEnding, ClientRequest, ClientRequestInfo, DiiParams, Interceptors, sync_scope,
 };
 use crate::policy;
-use crate::server::Server;
+use crate::server::{Direct, Server};
 use crate::stats::{self, Counter};
 use crate::stream::{InStream, OutStream, marshal};
 use crate::trace;
@@ -1230,6 +1230,7 @@ async fn invoke_async<A: WriteArgs + ?Sized>(
                     Ok(call) => {
                         let (tx, rx) = tokio::sync::oneshot::channel();
                         let on_pool = Arc::clone(&server);
+                        let call = call.into_owned();
                         server.submit(Box::new(move || {
                             let _ = tx.send(call.run(&on_pool));
                         }));
@@ -1751,11 +1752,26 @@ fn encode_request<A: WriteArgs + ?Sized>(
 }
 
 /// A request to an object of the ORB's own server side, without the
-/// network: marshalled as for the server, which runs it on the calling
-/// thread (or queues it, as its thread policy says) and answers with a
-/// whole reply message.
-enum LocalCall {
+/// network (docs/colocated-calls.md). From GIOP 1.2 on, only the arguments
+/// are marshalled, and the server runs the request without a message
+/// around them ([`Server::call_direct`]) or, when it needs its general path
+/// (server interceptors, a POA thread policy or manager state that may make
+/// the request wait), with a request header made here. Before GIOP 1.2 the
+/// whole request message is made and decoded, as for the network.
+enum LocalCall<'k> {
     Locate(TargetAddress),
+    Body {
+        ep: Arc<Endpoint>,
+        target: TargetAddress,
+        operation: std::borrow::Cow<'k, str>,
+        flags: u8,
+        /// The service contexts of the client interceptors.
+        contexts: Vec<ServiceContext>,
+        version: Version,
+        body: Body,
+        code_sets: CodeSets,
+        timeout: Option<Duration>,
+    },
     Request {
         version: Version,
         header: RequestHeader,
@@ -1770,33 +1786,40 @@ enum LocalAnswer {
     Located(bool),
     /// The reply message (none for a oneway request).
     Reply(Option<Vec<u8>>, CodeSets),
+    /// The answer without a message.
+    Direct(Direct, CodeSets),
 }
 
 /// The [`LocalCall`] for `kind`, or the end of the attempt.
-fn local_call<A: WriteArgs + ?Sized>(
+fn local_call<'k, A: WriteArgs + ?Sized>(
     orb: &Orb,
     ior: &Ior,
-    ep: &Endpoint,
-    kind: &Kind<'_, A>,
+    ep: &Arc<Endpoint>,
+    kind: &Kind<'k, A>,
     deadline: Option<Instant>,
     disposition: AddressingDisposition,
     contexts: &[ServiceContext],
-) -> Result<LocalCall, Attempt> {
+) -> Result<LocalCall<'k>, Attempt> {
     let options = &orb.inner.options;
     let order = options.byte_order;
     let version = ep.version.min(options.max_giop_version);
-    let target = target_address(ior, ep, version, disposition);
-    let (code_sets, mut context) = match (&ep.code_sets, version >= Version::V1_1) {
+    let code_sets = match (&ep.code_sets, version >= Version::V1_1) {
         (Some(info), true) => match CodeSets::negotiate(info) {
-            Ok(cs) => (cs, vec![cs.context().to_service_context(order)]),
+            Ok(cs) => cs,
             Err(e) => return Err(Attempt::Done(Err(e.into()))),
         },
-        _ => (CodeSets::DEFAULT, Vec::new()),
+        _ => CodeSets::DEFAULT,
     };
-    context.extend_from_slice(contexts);
     let flags = flags_of(kind);
     let (operation, args) = match kind {
-        Kind::Locate => return Ok(LocalCall::Locate(target)),
+        Kind::Locate => {
+            return Ok(LocalCall::Locate(target_address(
+                ior,
+                ep,
+                version,
+                disposition,
+            )));
+        }
         Kind::Request {
             operation, args, ..
         } => (*operation, *args),
@@ -1805,6 +1828,43 @@ fn local_call<A: WriteArgs + ?Sized>(
         "request {operation:?}{} to this ORB's own object (colocated)",
         OnewayNote(kind)
     );
+    let timeout = deadline.map(|at| at.saturating_duration_since(Instant::now()));
+    if version >= Version::V1_2 {
+        let mut enc = rustorb_cdr::Encoder::new(order, version.cdr_version());
+        if let Some(args) = args {
+            let mut out = OutStream {
+                enc: &mut enc,
+                code_sets,
+                orb: None,
+                values: None,
+            };
+            if let Err(e) = args.write_args(&mut out) {
+                return Err(Attempt::Done(Err(e.into())));
+            }
+        }
+        let body = Body::from_vec(enc.into_bytes(), 0, order, version.cdr_version());
+        return Ok(LocalCall::Body {
+            ep: Arc::clone(ep),
+            target: match disposition {
+                // Taken from `ep` if the request goes the general path.
+                AddressingDisposition::Key => TargetAddress::Key(Vec::new()),
+                _ => target_address(ior, ep, version, disposition),
+            },
+            operation: std::borrow::Cow::Borrowed(operation),
+            flags,
+            contexts: contexts.to_vec(),
+            version,
+            body,
+            code_sets,
+            timeout,
+        });
+    }
+    let target = target_address(ior, ep, version, disposition);
+    let mut context = match (&ep.code_sets, version >= Version::V1_1) {
+        (Some(_), true) => vec![code_sets.context().to_service_context(order)],
+        _ => Vec::new(),
+    };
+    context.extend_from_slice(contexts);
     let header = RequestParts {
         request_id: 0,
         response_flags: flags,
@@ -1820,7 +1880,6 @@ fn local_call<A: WriteArgs + ?Sized>(
     let Ok((_, Message::Request { header, body })) = decode_message(&msg) else {
         return Err(Attempt::Done(Err(local_internal())));
     };
-    let timeout = deadline.map(|at| at.saturating_duration_since(Instant::now()));
     Ok(LocalCall::Request {
         version,
         header,
@@ -1830,20 +1889,111 @@ fn local_call<A: WriteArgs + ?Sized>(
     })
 }
 
-impl LocalCall {
-    /// Runs the call on the calling thread.
-    fn run(self, server: &Arc<Server>) -> Result<LocalAnswer, SystemException> {
+impl LocalCall<'_> {
+    /// The call, owning everything it borrowed (to run on another
+    /// thread).
+    fn into_owned(self) -> LocalCall<'static> {
         match self {
-            LocalCall::Locate(target) => server.locate_local(&target).map(LocalAnswer::Located),
+            LocalCall::Locate(target) => LocalCall::Locate(target),
+            LocalCall::Body {
+                ep,
+                target,
+                operation,
+                flags,
+                contexts,
+                version,
+                body,
+                code_sets,
+                timeout,
+            } => LocalCall::Body {
+                ep,
+                target,
+                operation: std::borrow::Cow::Owned(operation.into_owned()),
+                flags,
+                contexts,
+                version,
+                body,
+                code_sets,
+                timeout,
+            },
             LocalCall::Request {
                 version,
                 header,
                 body,
                 code_sets,
                 timeout,
-            } => server
-                .call_local(version, header, body, code_sets, timeout)
-                .map(|reply| LocalAnswer::Reply(reply, code_sets)),
+            } => LocalCall::Request {
+                version,
+                header,
+                body,
+                code_sets,
+                timeout,
+            },
+        }
+    }
+
+    /// Runs the call on the calling thread.
+    fn run(self, server: &Arc<Server>) -> Result<LocalAnswer, SystemException> {
+        match self {
+            LocalCall::Locate(target) => server.locate_local(&target).map(LocalAnswer::Located),
+            LocalCall::Body {
+                ep,
+                target,
+                operation,
+                flags,
+                mut contexts,
+                version,
+                body,
+                code_sets,
+                timeout,
+            } => {
+                let by_key = matches!(&target, TargetAddress::Key(_));
+                let body = if by_key {
+                    match server.call_direct(&ep.object_key, &operation, flags, body, code_sets) {
+                        Ok(direct) => {
+                            stats::count(Counter::local_direct);
+                            return Ok(LocalAnswer::Direct(direct, code_sets));
+                        }
+                        Err(body) => body,
+                    }
+                } else {
+                    body
+                };
+                stats::count(Counter::local_general);
+                let target = match target {
+                    TargetAddress::Key(_) => TargetAddress::Key(ep.object_key.clone()),
+                    target => target,
+                };
+                if ep.code_sets.is_some() {
+                    contexts.insert(
+                        0,
+                        code_sets.context().to_service_context(server.byte_order()),
+                    );
+                }
+                let header = RequestHeader {
+                    request_id: 0,
+                    response_flags: flags,
+                    target,
+                    operation: operation.into_owned(),
+                    service_context: contexts,
+                    requesting_principal: Vec::new(),
+                };
+                server
+                    .call_local(version, header, body, code_sets, timeout)
+                    .map(|reply| LocalAnswer::Reply(reply, code_sets))
+            }
+            LocalCall::Request {
+                version,
+                header,
+                body,
+                code_sets,
+                timeout,
+            } => {
+                stats::count(Counter::local_general);
+                server
+                    .call_local(version, header, body, code_sets, timeout)
+                    .map(|reply| LocalAnswer::Reply(reply, code_sets))
+            }
         }
     }
 }
@@ -1862,6 +2012,18 @@ fn local_outcome(
                 reply_outcome(orb, header.reply_status, body, code_sets)
             }
             _ => Attempt::Done(Err(local_internal())),
+        },
+        Ok(LocalAnswer::Direct(direct, code_sets)) => match direct {
+            Direct::None => Attempt::Done(Ok(Outcome::Reply(None))),
+            Direct::Reply(status, body) => reply_outcome(orb, status, body, code_sets),
+            Direct::System(e) => Attempt::Done(Err(e.into())),
+            Direct::Forward(to) if to.ior().is_nil() => Attempt::Done(Err(sys(
+                SystemExceptionKind::INV_OBJREF,
+                0,
+                CompletionStatus::No,
+            )
+            .into())),
+            Direct::Forward(to) => Attempt::Forward(to.ior().clone()),
         },
         Err(e) => Attempt::Done(Err(e.into())),
     }

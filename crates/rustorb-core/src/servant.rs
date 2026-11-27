@@ -5,7 +5,7 @@ use std::any::Any;
 use std::fmt;
 use std::sync::Arc;
 
-use rustorb_cdr::{ByteOrder, CdrEncode};
+use rustorb_cdr::{ByteOrder, CdrEncode, Encoder};
 use rustorb_giop::{
     Ior, MessageEncoder, OutMessage, ReplyHeader, ReplyStatus, ServiceContext, SystemExceptionBody,
     Version,
@@ -180,7 +180,7 @@ pub struct ServerReply {
     order: ByteOrder,
     request_id: u32,
     code_sets: CodeSets,
-    msg: MessageEncoder,
+    msg: Out,
     status: ReplyStatus,
     /// The service contexts in the header (from server interceptors).
     contexts: Vec<ServiceContext>,
@@ -211,24 +211,45 @@ impl ServerReply {
             order,
             request_id,
             code_sets,
-            msg: start(
+            msg: Out::Message(start(
                 version,
                 order,
                 request_id,
                 ReplyStatus::NoException,
                 &contexts,
-            )?,
+            )?),
             status: ReplyStatus::NoException,
             contexts,
             exception_id: None,
         })
     }
 
+    /// A reply to a colocated call that goes back without a message
+    /// around it: only the body is written, from stream offset 0 (the
+    /// alignment of a GIOP 1.2 body). [`finish_body`](Self::finish_body)
+    /// returns it.
+    pub(crate) fn body_only(order: ByteOrder, code_sets: CodeSets) -> ServerReply {
+        ServerReply {
+            version: Version::V1_2,
+            order,
+            request_id: 0,
+            code_sets,
+            msg: Out::Body(body_encoder(order)),
+            status: ReplyStatus::NoException,
+            contexts: Vec::new(),
+            exception_id: None,
+        }
+    }
+
     /// The stream for the result. Each call continues where the last one
     /// stopped.
     pub fn output(&mut self) -> OutStream<'_> {
+        let enc = match &mut self.msg {
+            Out::Message(m) => m.body(),
+            Out::Body(enc) => enc,
+        };
         OutStream {
-            enc: self.msg.body(),
+            enc,
             code_sets: self.code_sets,
             orb: None,
             values: None,
@@ -241,18 +262,26 @@ impl ServerReply {
         &mut self,
         repository_id: &str,
     ) -> Result<OutStream<'_>, SystemException> {
-        self.msg = start(
-            self.version,
-            self.order,
-            self.request_id,
-            ReplyStatus::UserException,
-            &self.contexts,
-        )?;
+        self.msg = match &self.msg {
+            Out::Message(_) => Out::Message(start(
+                self.version,
+                self.order,
+                self.request_id,
+                ReplyStatus::UserException,
+                &self.contexts,
+            )?),
+            Out::Body(_) => Out::Body(body_encoder(self.order)),
+        };
         self.status = ReplyStatus::UserException;
         self.exception_id = Some(repository_id.to_owned());
         let mut out = self.output();
         out.write_string(repository_id)?;
         Ok(out)
+    }
+
+    /// The code sets the reply is written with.
+    pub(crate) fn code_sets(&self) -> CodeSets {
+        self.code_sets
     }
 
     /// The status the reply has so far.
@@ -268,7 +297,22 @@ impl ServerReply {
     /// The whole reply; large octet sequences written with
     /// `write_octet_seq_shared` are not copied into it.
     pub(crate) fn finish(self) -> Result<OutMessage, SystemException> {
-        self.msg.finish_shared().map_err(|_| internal())
+        self.message()?.finish_shared().map_err(|_| internal())
+    }
+
+    /// The status and the body of a [`body_only`](Self::body_only) reply.
+    pub(crate) fn finish_body(self) -> Result<(ReplyStatus, Vec<u8>), SystemException> {
+        match self.msg {
+            Out::Body(enc) => Ok((self.status, enc.into_bytes())),
+            Out::Message(_) => Err(internal()),
+        }
+    }
+
+    fn message(self) -> Result<MessageEncoder, SystemException> {
+        match self.msg {
+            Out::Message(m) => Ok(m),
+            Out::Body(_) => Err(internal()),
+        }
     }
 
     /// The whole reply with the service contexts `contexts` in its header
@@ -287,7 +331,7 @@ impl ServerReply {
             reply_status: self.status,
             service_context: contexts,
         };
-        let msg = self.msg.finish_shared().map_err(|_| internal())?;
+        let msg = self.message()?.finish_shared().map_err(|_| internal())?;
         Ok(match msg.with_reply_header(&header) {
             Ok(msg) => msg,
             Err(msg) => {
@@ -300,6 +344,21 @@ impl ServerReply {
             }
         })
     }
+}
+
+/// What a [`ServerReply`] writes to.
+#[derive(Debug)]
+enum Out {
+    /// A whole GIOP `Reply`.
+    Message(MessageEncoder),
+    /// Only the body (a colocated call).
+    Body(Encoder),
+}
+
+fn body_encoder(order: ByteOrder) -> Encoder {
+    let mut enc = Encoder::new(order, Version::V1_2.cdr_version());
+    enc.reserve(64);
+    enc
 }
 
 fn start(
