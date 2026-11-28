@@ -58,8 +58,8 @@ Add the crates, and generate the code from `build.rs`
 
 ```toml
 [dependencies]
-rustorb-core = "0.7"
-rustorb-naming = "0.7"
+rustorb-core = "0.8"
+rustorb-naming = "0.8"
 
 [build-dependencies]
 rustorb-codegen = "0.2"
@@ -182,7 +182,7 @@ Then, in your project ([examples/cpp](../examples/cpp/)), with
 `-DCMAKE_PREFIX_PATH=$HOME/rustorb` and `rustorb-idl` on `PATH`:
 
 ```cmake
-find_package(rustorb 0.7 REQUIRED)
+find_package(rustorb 0.8 REQUIRED)
 rustorb_idl_generate(SOURCES Echo.idl "${RUSTORB_IDL_DIR}/CosNaming.idl")
 add_executable(server server.cc ${SOURCES})
 target_include_directories(server PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl")

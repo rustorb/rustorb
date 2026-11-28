@@ -88,7 +88,7 @@ tools/set-version.py --check        # そろっているか（CI とリリース
 **C++**：`rustorb-native` を展開した場所を `CMAKE_PREFIX_PATH` に入れる。IDL からのコード生成には `pip install rustorb-idl` で入る `rustorb-idl` を使う（PATH にあるか、`RUSTORB_IDL` で指定する）。
 
 ```cmake
-find_package(rustorb 0.7 REQUIRED)
+find_package(rustorb 0.8 REQUIRED)
 rustorb_idl_generate(SOURCES Echo.idl)   # build/idl/Echo.hh、Echo.cc
 add_executable(app main.cc ${SOURCES})
 target_include_directories(app PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/idl")
