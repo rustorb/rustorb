@@ -7,7 +7,7 @@
      In the repository the runtime is the project in dotnet/src; outside it,
      use the NuGet package instead:
 
-       <PackageReference Include="Rustorb" Version="0.7.1" /> -->
+       <PackageReference Include="Rustorb" Version="0.8.0" /> -->
 <Project>
   <PropertyGroup>
     <OutputType>Exe</OutputType>

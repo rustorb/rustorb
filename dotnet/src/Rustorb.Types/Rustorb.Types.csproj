@@ -9,7 +9,7 @@
     <AssemblyName>Rustorb.Types</AssemblyName>
     <RootNamespace>Omg.Types</RootNamespace>
     <PackageId>Rustorb.Types</PackageId>
-    <Version>0.7.1</Version>
+    <Version>0.8.0</Version>
     <Authors>rustorb contributors</Authors>
     <Description>The Omg.Types namespace of the IDL4 to C# mapping (formal/21-07-01): the IDL sequence ISequence&lt;T&gt; with its implementation Sequence&lt;T&gt;, and the mapping's attributes. Used by the code rustorb-idl -bcsharp writes, for CORBA (the package Rustorb) and DDS (Rustorb.Dds).</Description>
     <PackageLicenseExpression>MIT OR Apache-2.0</PackageLicenseExpression>

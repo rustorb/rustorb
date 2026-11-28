@@ -5,7 +5,7 @@
     <AssemblyName>Rustorb.Corba</AssemblyName>
     <RootNamespace>Rustorb</RootNamespace>
     <PackageId>Rustorb</PackageId>
-    <Version>0.7.1</Version>
+    <Version>0.8.0</Version>
     <Authors>rustorb contributors</Authors>
     <Description>CORBA for .NET on rustorb: the IDL4 to C# mapping (formal/21-07-01) with the ORB, the POA and CosNaming.</Description>
     <PackageLicenseExpression>MIT OR Apache-2.0</PackageLicenseExpression>

@@ -7,6 +7,18 @@ break the API).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-28
+
+The speed release (#203, docs/perf-plan.md): fewer thread switches per
+call, up to 4 connections to one server, calls in one process without GIOP,
+large octet sequences without copies, and fast number sequences in C and
+Ruby. On a MacBook Pro (M5 Max), server oneway went from 190,000 to 414,000
+calls/s, four threads on one reference from 94,000 to 132,000 calls/s, a
+call in one process from 1.29 to 0.29 µs and a ping from 21.4 to 19.2 µs
+(docs/omniorb-comparison.md). The C ABI version stays 3. A client now opens
+more than one connection to a server by default
+(`-ORBmaxConnectionsPerServer 1` for one, as before).
+
 ### Added
 
 - `rustorb_core::stats`: process-wide counters of what the ORB does inside
@@ -614,7 +626,8 @@ omniORBpy, and valuetypes in JacORB on Java 17).
   cycles; Java relies on the GC) (#85)
 - On Windows the read path of #66 / #67 falls back to the I/O task (#86)
 
-[Unreleased]: https://github.com/rustorb/rustorb/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/rustorb/rustorb/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/rustorb/rustorb/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/rustorb/rustorb/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/rustorb/rustorb/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/rustorb/rustorb/compare/v0.5.0...v0.6.0
