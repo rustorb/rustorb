@@ -15,7 +15,7 @@
 # target and rustorb_idl_generate()) under CMAKE_INSTALL_PREFIX.
 
 cmake_minimum_required(VERSION 3.16)
-project(rustorb_cpp VERSION 0.7.1 LANGUAGES CXX)
+project(rustorb_cpp VERSION 0.8.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
